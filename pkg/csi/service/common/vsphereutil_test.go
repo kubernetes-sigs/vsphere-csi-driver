@@ -367,7 +367,7 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 			// Note that the cluster flavor does not have a significance for this test
 			// because it depends on the VolFromSnapshotOnTargetDs flag.
 			_, _, err := CreateBlockVolumeUtil(context.Background(), cnstypes.CnsClusterFlavorWorkload,
-				manager, spec, sharedDatastores, opts, nil)
+				manager, spec, sharedDatastores, []string{}, opts, nil)
 
 			// Verify no error occurred
 			assert.NoError(t, err, "CreateBlockVolumeUtil should not return an error")

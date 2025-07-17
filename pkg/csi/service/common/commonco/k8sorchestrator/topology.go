@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -502,6 +503,21 @@ func (volTopology *wcpControllerVolumeTopology) GetAZClustersMap(ctx context.Con
 // GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
 func (volTopology *controllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
 	return nil
+}
+
+// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
+func (volTopology *wcpControllerVolumeTopology) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	for _, clusters := range volTopology.GetAZClustersMap(ctx) {
+		if len(clusters) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
+func (volTopology *controllerVolumeTopology) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	return false
 }
 
 // startTopologyCRInformer creates and starts an informer for CSINodeTopology custom resource.
@@ -1819,4 +1835,44 @@ func (c *K8sOrchestrator) GetZonesForNamespace(targetNS string) map[string]struc
 		}
 	}
 	return zonesMap
+}
+
+// GetActiveClustersForNamespaceInRequestedZones fetches the active clusters from the zones associated with a namespace
+// for requested zone
+func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
+	targetNS string, requestedZones []string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	var activeClusters []string
+	// Get zones instances from the informer store.
+	zones := zoneInformer.GetStore()
+	for _, zoneObj := range zones.List() {
+		// Only consider zones in targetNS.
+		zoneObjUnstructured := zoneObj.(*unstructured.Unstructured)
+		// Only get active clusters from zones without a deletion timestamp.
+		if zoneObjUnstructured.GetDeletionTimestamp() == nil {
+			log.Debugf("skipping zone:%q as it is being deleted", zoneObjUnstructured.GetName())
+			continue
+		}
+		// check if zone belong to namespace specified with targetNS and belong to
+		// volume requirement specified with requestedZones
+		if zoneObjUnstructured.GetNamespace() != targetNS && !slices.Contains(requestedZones, zoneObjUnstructured.GetName()) {
+			log.Debugf("skipping zone: %q as it does not match requested targetNS: %q and requestedZones: %v requirement",
+				zoneObjUnstructured.GetName(), targetNS, requestedZones)
+			continue
+		}
+		// capture active cluster on the namespace from zone CR instance
+		clusters, found, err := unstructured.NestedStringSlice(zoneObjUnstructured.Object,
+			"spec", "namespace", "clusterMoIDs")
+		if err != nil {
+			return nil, logger.LogNewErrorf(log, "failed to get clusterMoIDs from zone instance :%q. err :%v",
+				zoneObj.(*unstructured.Unstructured).GetName(), err)
+		}
+		if !found {
+			return nil, logger.LogNewErrorf(log, "clusterMoIDs not found in zone instance :%q",
+				zoneObj.(*unstructured.Unstructured).GetName())
+		}
+		activeClusters = append(activeClusters, clusters...)
+	}
+	log.Infof("active clusters: %v for namespace: %q in requested zones: %v", activeClusters, targetNS, requestedZones)
+	return activeClusters, nil
 }

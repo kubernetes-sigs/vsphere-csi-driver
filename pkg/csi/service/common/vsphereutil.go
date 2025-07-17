@@ -70,6 +70,7 @@ func CreateBlockVolumeUtil(
 	manager *Manager,
 	spec *CreateVolumeSpec,
 	sharedDatastores []*vsphere.DatastoreInfo,
+	vSphereClusterMorefs []string,
 	opts CreateBlockVolumeOptions,
 	extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 
@@ -93,126 +94,8 @@ func CreateBlockVolumeUtil(
 		}
 	}
 
-	if opts.FilterSuspendedDatastores {
-		sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
-		if err != nil {
-			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
-			return nil, csifault.CSIInternalFault, err
-		}
-	}
-
-	var datastoreObj *vsphere.Datastore
-	var datastores []vim25types.ManagedObjectReference
+	var clusterMorefs []vim25types.ManagedObjectReference
 	var datastoreInfoList []*vsphere.DatastoreInfo
-	if spec.ScParams.DatastoreURL == "" {
-		// Check if datastore URL is specified by the storage pool parameter.
-		if spec.VsanDatastoreURL != "" {
-			// Search the datastore from the URL in the datacenter list.
-			var datastoreInfoObj *vsphere.DatastoreInfo
-			for _, dc := range vc.Config.DatacenterPaths {
-				datacenter := &vsphere.Datacenter{
-					Datacenter: object.NewDatacenter(
-						vc.Client.Client,
-						vim25types.ManagedObjectReference{
-							Type:  "Datacenter",
-							Value: dc,
-						}),
-					VirtualCenterHost: vc.Config.Host,
-				}
-				datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.VsanDatastoreURL)
-				if err != nil {
-					log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
-						spec.VsanDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
-					continue
-				}
-
-				if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
-					continue
-				}
-				datastoreObj = datastoreInfoObj.Datastore
-				log.Debugf("Successfully fetched the datastore %v from the URL: %v",
-					datastoreObj.Reference(), spec.VsanDatastoreURL)
-				datastores = append(datastores, datastoreObj.Reference())
-				datastoreInfoList = append(datastoreInfoList, datastoreInfoObj)
-				break
-			}
-			if datastores == nil {
-				// TODO: Need to figure out which fault need to return when datastore is empty.
-				// Currently, just return csi.fault.Internal.
-				return nil, csifault.CSIInternalFault,
-					logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
-						spec.VsanDatastoreURL)
-			}
-		} else {
-			// If DatastoreURL is not specified in StorageClass, get all shared
-			// datastores.
-			datastores = getDatastoreMoRefs(sharedDatastores)
-			datastoreInfoList = sharedDatastores
-		}
-	} else {
-		// vc.GetDatacenters returns datacenters found on the VirtualCenter.
-		// If no datacenters are mentioned in the VirtualCenterConfig during
-		// registration, all Datacenters for the given VirtualCenter will be
-		// returned, else only the listed Datacenters are returned.
-
-		// TODO: Need to figure out which fault need to be extracted from err returned by GetDatacenters.
-		// Currently, just return csi.fault.Internal.
-		datacenters, err := vc.GetDatacenters(ctx)
-		if err != nil {
-			log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
-			return nil, csifault.CSIInternalFault, err
-		}
-		// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
-		var datastoreInfoObj *vsphere.DatastoreInfo
-		for _, datacenter := range datacenters {
-			datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.ScParams.DatastoreURL)
-			if err != nil {
-				log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
-					spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
-				continue
-			}
-
-			if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
-				continue
-			}
-			datastoreObj = datastoreInfoObj.Datastore
-			break
-		}
-		if datastoreObj == nil {
-			// TODO: Need to figure out which fault need to return when datastore is empty.
-			// Currently, just return csi.fault.Internal.
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"DatastoreURL: %s specified in the storage class is not found.",
-				spec.ScParams.DatastoreURL)
-		}
-		// Check if DatastoreURL specified in the StorageClass should be shared
-		// datastore across all nodes.
-		isSharedDatastoreURL := false
-		for _, sharedDatastore := range sharedDatastores {
-			if strings.TrimSpace(sharedDatastore.Info.Url) == strings.TrimSpace(spec.ScParams.DatastoreURL) {
-				isSharedDatastoreURL = true
-				break
-			}
-		}
-		if isSharedDatastoreURL {
-			datastores = append(datastores, datastoreObj.Reference())
-			datastoreInfoList = append(datastoreInfoList, datastoreInfoObj)
-		} else {
-			// TODO: Need to figure out which fault need to return when datastore is not accessible to all nodes.
-			// Currently, just return csi.fault.Internal.
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"Datastore: %s specified in the storage class "+
-					"is not accessible to all nodes.",
-				spec.ScParams.DatastoreURL)
-		}
-	}
-
-	if !opts.IsVdppOnStretchedSvFssEnabled || spec.VsanDatastoreURL == "" {
-		fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
-		if err != nil {
-			return nil, fault, err
-		}
-	}
 
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := manager.CnsConfig.Global.ClusterID
@@ -226,7 +109,6 @@ func CreateBlockVolumeUtil(
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
 		VolumeType: spec.VolumeType,
-		Datastores: datastores,
 		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
 			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
 				CapacityInMb: spec.CapacityMB,
@@ -236,6 +118,148 @@ func CreateBlockVolumeUtil(
 			ContainerCluster:      containerCluster,
 			ContainerClusterArray: containerClusterArray,
 		},
+	}
+
+	var IsMultiClusterPerZoneEnabled bool
+	if extraParams != nil {
+		createVolParams, ok := extraParams.(*cnsvolume.CreateVolumeExtraParams)
+		if !ok {
+			return nil, csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for CreateVolume params: %+v", extraParams)
+		}
+		log.Debugf("Received CreateVolume extraParams: %+v", *createVolParams)
+		IsMultiClusterPerZoneEnabled = createVolParams.IsMultipleClustersPerVsphereZoneEnabled
+	}
+
+	if IsMultiClusterPerZoneEnabled && len(sharedDatastores) == 0 {
+		for _, ref := range vSphereClusterMorefs {
+			clusterMorefs = append(clusterMorefs, vim25types.ManagedObjectReference{
+				Type:  "ClusterComputeResource",
+				Value: ref,
+			})
+		}
+		createSpec.ActiveClusters = clusterMorefs
+	} else {
+		var datastores []vim25types.ManagedObjectReference
+		if opts.FilterSuspendedDatastores {
+			sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
+			if err != nil {
+				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+				return nil, csifault.CSIInternalFault, err
+			}
+		}
+
+		var datastoreObj *vsphere.Datastore
+		if spec.ScParams.DatastoreURL == "" {
+			// Check if datastore URL is specified by the storage pool parameter.
+			if spec.VsanDatastoreURL != "" {
+				// Search the datastore from the URL in the datacenter list.
+				var datastoreInfoObj *vsphere.DatastoreInfo
+				for _, dc := range vc.Config.DatacenterPaths {
+					datacenter := &vsphere.Datacenter{
+						Datacenter: object.NewDatacenter(
+							vc.Client.Client,
+							vim25types.ManagedObjectReference{
+								Type:  "Datacenter",
+								Value: dc,
+							}),
+						VirtualCenterHost: vc.Config.Host,
+					}
+					datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.VsanDatastoreURL)
+					if err != nil {
+						log.Warnf("Failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+							spec.VsanDatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+						continue
+					}
+
+					if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+						continue
+					}
+					datastoreObj = datastoreInfoObj.Datastore
+					log.Debugf("Successfully fetched the datastore %v from the URL: %v",
+						datastoreObj.Reference(), spec.VsanDatastoreURL)
+					datastores = append(datastores, datastoreObj.Reference())
+					datastoreInfoList = append(datastoreInfoList, datastoreInfoObj)
+					break
+				}
+				if datastores == nil {
+					// TODO: Need to figure out which fault need to return when datastore is empty.
+					// Currently, just return csi.fault.Internal.
+					return nil, csifault.CSIInternalFault,
+						logger.LogNewErrorf(log, "DatastoreURL: %s specified in the create volume spec is not found.",
+							spec.VsanDatastoreURL)
+				}
+			} else {
+				// If DatastoreURL is not specified in StorageClass, get all shared
+				// datastores.
+				datastores = getDatastoreMoRefs(sharedDatastores)
+				datastoreInfoList = sharedDatastores
+			}
+		} else {
+			// vc.GetDatacenters returns datacenters found on the VirtualCenter.
+			// If no datacenters are mentioned in the VirtualCenterConfig during
+			// registration, all Datacenters for the given VirtualCenter will be
+			// returned, else only the listed Datacenters are returned.
+
+			// TODO: Need to figure out which fault need to be extracted from err returned by GetDatacenters.
+			// Currently, just return csi.fault.Internal.
+			datacenters, err := vc.GetDatacenters(ctx)
+			if err != nil {
+				log.Errorf("failed to find datacenters from VC: %q, Error: %+v", vc.Config.Host, err)
+				return nil, csifault.CSIInternalFault, err
+			}
+			// Check if DatastoreURL specified in the StorageClass is present in any one of the datacenters.
+			var datastoreInfoObj *vsphere.DatastoreInfo
+			for _, datacenter := range datacenters {
+				datastoreInfoObj, err = datacenter.GetDatastoreInfoByURL(ctx, spec.ScParams.DatastoreURL)
+				if err != nil {
+					log.Warnf("failed to find datastore with URL %q in datacenter %q from VC %q, Error: %+v",
+						spec.ScParams.DatastoreURL, datacenter.InventoryPath, vc.Config.Host, err)
+					continue
+				}
+
+				if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+					continue
+				}
+				datastoreObj = datastoreInfoObj.Datastore
+				break
+			}
+			if datastoreObj == nil {
+				// TODO: Need to figure out which fault need to return when datastore is empty.
+				// Currently, just return csi.fault.Internal.
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"DatastoreURL: %s specified in the storage class is not found.",
+					spec.ScParams.DatastoreURL)
+			}
+			// Check if DatastoreURL specified in the StorageClass should be shared
+			// datastore across all nodes.
+			isSharedDatastoreURL := false
+			for _, sharedDatastore := range sharedDatastores {
+				if strings.TrimSpace(sharedDatastore.Info.Url) == strings.TrimSpace(spec.ScParams.DatastoreURL) {
+					isSharedDatastoreURL = true
+					break
+				}
+			}
+			if isSharedDatastoreURL {
+				datastores = append(datastores, datastoreObj.Reference())
+				datastoreInfoList = append(datastoreInfoList, datastoreInfoObj)
+			} else {
+				// TODO: Need to figure out which fault need to return when datastore is not accessible to all nodes.
+				// Currently, just return csi.fault.Internal.
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"Datastore: %s specified in the storage class "+
+						"is not accessible to all nodes.",
+					spec.ScParams.DatastoreURL)
+			}
+		}
+
+		if !opts.IsVdppOnStretchedSvFssEnabled || spec.VsanDatastoreURL == "" {
+			fault, err := isDataStoreCompatible(ctx, vc, spec, datastores, datastoreObj)
+			if err != nil {
+				return nil, fault, err
+			}
+		}
+		createSpec.Datastores = datastores
 	}
 
 	if opts.IsCSITransactionSupportEnabled {
@@ -287,49 +311,61 @@ func CreateBlockVolumeUtil(
 			LinkedClone: spec.IsLinkedCloneRequest,
 		}
 
-		// If VolFromSnapshotOnTargetDs is not enabled,
-		// select the compatible datastore for the case of create volume from snapshot
-		// If it's a LinkedClone, then choose the same datastore as the source volume.
-		if spec.IsLinkedCloneRequest || !opts.VolFromSnapshotOnTargetDs {
-			// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
-			// as the source volume
-			querySelection := cnstypes.CnsQuerySelection{
-				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+		var IsMultiClusterPerZoneEnabled bool
+		if extraParams != nil {
+			createVolParams, ok := extraParams.(*cnsvolume.CreateVolumeExtraParams)
+			if !ok {
+				return nil, csifault.CSIInternalFault,
+					logger.LogNewErrorf(log, "unrecognised type for CreateVolume params: %+v", extraParams)
 			}
-			cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-					"failed to query datastore for the snapshot %s with error %+v",
-					spec.ContentSourceSnapshotID, err)
-			}
-
-			// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
-			var compatibleDatastore vim25types.ManagedObjectReference
-			var foundCompatibleDatastore bool = false
-			for _, dsInfo := range datastoreInfoList {
-				if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
-					log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
-						dsInfo.Datastore.Reference())
-					compatibleDatastore = dsInfo.Datastore.Reference()
-					foundCompatibleDatastore = true
-					break
-				}
-			}
-			if !foundCompatibleDatastore {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-					"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
-					spec.ContentSourceSnapshotID, err)
-			}
-
-			// overwrite the datatstores field in create spec with the compatible datastore
-			log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
-				"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
-				spec.ContentSourceSnapshotID)
-			createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
-		} else {
-			log.Infof("VolFromSnapshotOnTargetDs is enabled, skip the compatible datastore check")
+			log.Debugf("Received CreateVolume extraParams: %+v", *createVolParams)
+			IsMultiClusterPerZoneEnabled = createVolParams.IsMultipleClustersPerVsphereZoneEnabled
 		}
 
+		if !IsMultiClusterPerZoneEnabled {
+			// If VolFromSnapshotOnTargetDs is not enabled,
+			// select the compatible datastore for the case of create volume from snapshot
+			// If it's a LinkedClone, then choose the same datastore as the source volume.
+			if spec.IsLinkedCloneRequest || !opts.VolFromSnapshotOnTargetDs {
+				// step 1: query the datastore of snapshot. By design, snapshot is always located at the same datastore
+				// as the source volume
+				querySelection := cnstypes.CnsQuerySelection{
+					Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+				}
+				cnsVolume, err := QueryVolumeByID(ctx, manager.VolumeManager, cnsVolumeID, &querySelection)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+						"failed to query datastore for the snapshot %s with error %+v",
+						spec.ContentSourceSnapshotID, err)
+				}
+
+				// step 2: validate if the snapshot datastore is compatible with datastore candidates in create spec
+				var compatibleDatastore vim25types.ManagedObjectReference
+				var foundCompatibleDatastore bool = false
+				for _, dsInfo := range datastoreInfoList {
+					if dsInfo.Info.Url == cnsVolume.DatastoreUrl {
+						log.Infof("compatible datastore found, dsURL = %q, dsRef = %v", dsInfo.Info.Url,
+							dsInfo.Datastore.Reference())
+						compatibleDatastore = dsInfo.Datastore.Reference()
+						foundCompatibleDatastore = true
+						break
+					}
+				}
+				if !foundCompatibleDatastore {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+						"failed to get the compatible datastore for create volume from snapshot %s with error: %+v",
+						spec.ContentSourceSnapshotID, err)
+				}
+
+				// overwrite the datatstores field in create spec with the compatible datastore
+				log.Infof("Overwrite the datatstores field in create spec %v with the compatible datastore %v "+
+					"when create volume from snapshot %s", createSpec.Datastores, compatibleDatastore,
+					spec.ContentSourceSnapshotID)
+				createSpec.Datastores = []vim25types.ManagedObjectReference{compatibleDatastore}
+			} else {
+				log.Infof("VolFromSnapshotOnTargetDs is enabled, skip the compatible datastore check")
+			}
+		}
 		if opts.IsByokEnabled {
 			// Retrieve the encryption key ID from the source volume
 			snapshotVolumeCryptoKeyID, err = QueryVolumeCryptoKeyByID(ctx, manager.VolumeManager, cnsVolumeID)
@@ -538,7 +574,8 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{},
 // datastores.
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	vc *vsphere.VirtualCenter, volumeManager cnsvolume.Manager, cnsConfig *config.Config, spec *CreateVolumeSpec,
-	datastores []*vsphere.DatastoreInfo, filterSuspendedDatastores, useSupervisorId bool, extraParams interface{}) (
+	datastores []*vsphere.DatastoreInfo, vSphereClusterMorefs []string,
+	filterSuspendedDatastores, useSupervisorId bool, extraParams interface{}) (
 	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var err error
@@ -554,45 +591,46 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 
-	if filterSuspendedDatastores {
-		datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
-		if err != nil {
-			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
-			return nil, csifault.CSIInternalFault, err
-		}
-	}
-
 	var datastoreMorefs []vim25types.ManagedObjectReference
-	if spec.ScParams.DatastoreURL == "" {
-		datastoreMorefs = getDatastoreMoRefs(datastores)
-	} else {
-		// If datastoreUrl is set in storage class, then check if part of input
-		// datastores. If true, create the file volume on the datastoreUrl set
-		// in storage class.
-		var isFound bool
-		for _, dsInfo := range datastores {
-			if spec.ScParams.DatastoreURL == dsInfo.Info.Url {
-				isFound = true
-				datastoreMorefs = append(datastoreMorefs, dsInfo.Reference())
-				break
+	if len(datastores) != 0 {
+		if filterSuspendedDatastores {
+			datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
+			if err != nil {
+				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+				return nil, csifault.CSIInternalFault, err
 			}
 		}
-		if !isFound {
-			// TODO: Need to figure out which fault need to be returned when datastoreURL is not specified in
-			// storage class. Currently, just return csi.fault.Internal.
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-				"datastore %q not found in candidate list for volume provisioning.",
-				spec.ScParams.DatastoreURL)
+		if spec.ScParams.DatastoreURL == "" {
+			datastoreMorefs = getDatastoreMoRefs(datastores)
+		} else {
+			// If datastoreUrl is set in storage class, then check if part of input
+			// datastores. If true, create the file volume on the datastoreUrl set
+			// in storage class.
+			var isFound bool
+			for _, dsInfo := range datastores {
+				if spec.ScParams.DatastoreURL == dsInfo.Info.Url {
+					isFound = true
+					datastoreMorefs = append(datastoreMorefs, dsInfo.Reference())
+					break
+				}
+			}
+			if !isFound {
+				// TODO: Need to figure out which fault need to be returned when datastoreURL is not specified in
+				// storage class. Currently, just return csi.fault.Internal.
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+					"datastore %q not found in candidate list for volume provisioning.",
+					spec.ScParams.DatastoreURL)
+			}
 		}
-	}
 
-	dataStoreList := []vim25types.ManagedObjectReference{}
-	for _, ds := range datastores {
-		dataStoreList = append(dataStoreList, ds.Reference())
-	}
-	fault, err := isDataStoreCompatible(ctx, vc, spec, dataStoreList, nil)
-	if err != nil {
-		return nil, fault, err
+		dataStoreList := []vim25types.ManagedObjectReference{}
+		for _, ds := range datastores {
+			dataStoreList = append(dataStoreList, ds.Reference())
+		}
+		fault, err := isDataStoreCompatible(ctx, vc, spec, dataStoreList, nil)
+		if err != nil {
+			return nil, fault, err
+		}
 	}
 
 	// Retrieve net permissions from CnsConfig of manager and convert to required
@@ -618,7 +656,6 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       spec.Name,
 		VolumeType: spec.VolumeType,
-		Datastores: datastoreMorefs,
 		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
 			CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
 				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
@@ -635,6 +672,34 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			Permission:    netPerms,
 		},
 	}
+
+	var IsMultiClusterPerZoneEnabled bool
+	if extraParams != nil {
+		createVolParams, ok := extraParams.(*cnsvolume.CreateVolumeExtraParams)
+		if !ok {
+			return nil, csifault.CSIInternalFault,
+				logger.LogNewErrorf(log, "unrecognised type for CreateVolume params: %+v", extraParams)
+		}
+		log.Debugf("Received CreateVolume extraParams: %+v", *createVolParams)
+		IsMultiClusterPerZoneEnabled = createVolParams.IsMultipleClustersPerVsphereZoneEnabled
+	}
+
+	if len(datastores) != 0 {
+		createSpec.Datastores = datastoreMorefs
+	} else {
+		// IsMultiClusterPerZoneEnabled will be true only on WCP Supervisor
+		if IsMultiClusterPerZoneEnabled {
+			var clusterMorefs []vim25types.ManagedObjectReference
+			for _, ref := range vSphereClusterMorefs {
+				clusterMorefs = append(clusterMorefs, vim25types.ManagedObjectReference{
+					Type:  "ClusterComputeResource",
+					Value: ref,
+				})
+			}
+			createSpec.ActiveClusters = clusterMorefs
+		}
+	}
+
 	if spec.StoragePolicyID != "" {
 		profileSpec := &vim25types.VirtualMachineDefinedProfileSpec{
 			ProfileId: spec.StoragePolicyID,

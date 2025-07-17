@@ -117,6 +117,7 @@ type COCommonInterface interface {
 	IsLinkedCloneRequest(ctx context.Context, pvcName string, pvcNamespace string) (bool, error)
 	// UpdatePersistentVolumeLabel Updates the PV label with the specified key value.
 	UpdatePersistentVolumeLabel(ctx context.Context, pvName string, key string, value string) error
+	GetActiveClustersForNamespaceInRequestedZones(ctx context.Context, ns string, zones []string) ([]string, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

@@ -174,6 +174,16 @@ func (cntrlTopology *mockControllerVolumeTopology) GetAZClustersMap(ctx context.
 	return nil
 }
 
+// GetZonesForNamespace fetches the zones associated with a namespace when
+// WorkloadDomainIsolation is supported in supervisor.
+func (cntrlTopology *mockControllerVolumeTopology) GetZonesForNamespace(ns string) map[string]struct{} {
+	return nil
+}
+
+func (cntrlTopology *mockControllerVolumeTopology) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	return false
+}
+
 // GetTopologyInfoFromNodes retrieves the topology information of the given list of node names.
 func (cntrlTopology *mockControllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context,
 	reqParams interface{}) ([]map[string]string, error) {
@@ -406,6 +416,11 @@ func (c *FakeK8SOrchestrator) GetVolumeSnapshotPVCSource(ctx context.Context, vo
 func (c *FakeK8SOrchestrator) UpdatePersistentVolumeLabel(ctx context.Context, pvName string,
 	key string, value string) error {
 	return nil
+}
+
+func (c *FakeK8SOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
+	targetNS string, requestedZones []string) ([]string, error) {
+	return nil, nil
 }
 
 // configFromVCSim starts a vcsim instance and returns config for use against the

@@ -781,7 +781,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 
 		volumeInfo, faultType, err = common.CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
-			c.manager, &createVolumeSpec, sharedDatastores,
+			c.manager, &createVolumeSpec, sharedDatastores, []string{},
 			common.CreateBlockVolumeOptions{
 				FilterSuspendedDatastores: filterSuspendedDatastores,
 			},
@@ -1909,7 +1909,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				// moving unto next VC. Need to throw a custom error for such scenarios.
 				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
-					fsEnabledCandidateDatastores, filterSuspendedDatastores, false, nil)
+					fsEnabledCandidateDatastores, []string{}, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					log.Error(err)
 					combinedErrMssgs = append(combinedErrMssgs, err.Error())
@@ -1967,7 +1967,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				}
 				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.managers.VolumeManagers[vcHost], c.managers.CnsConfig, &createVolumeSpec,
-					filteredDatastores, filterSuspendedDatastores, false, nil)
+					filteredDatastores, []string{}, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create volume. Error: %+v", err)
@@ -1981,7 +1981,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				}
 				volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
 					vcenter, c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec,
-					filteredDatastores, filterSuspendedDatastores, false, nil)
+					filteredDatastores, []string{}, filterSuspendedDatastores, false, nil)
 				if err != nil {
 					return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to create volume. Error: %+v", err)

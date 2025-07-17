@@ -158,6 +158,7 @@ type Manager interface {
 type CnsVolumeInfo struct {
 	DatastoreURL string
 	VolumeID     cnstypes.CnsVolumeId
+	Clusters     []vim25types.ManagedObjectReference
 }
 
 type CnsSnapshotInfo struct {
@@ -171,10 +172,11 @@ type CnsSnapshotInfo struct {
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
 // are not present in the CNS CreateVolume spec.
 type CreateVolumeExtraParams struct {
-	VolSizeBytes                         int64
-	StorageClassName                     string
-	Namespace                            string
-	IsPodVMOnStretchSupervisorFSSEnabled bool
+	VolSizeBytes                            int64
+	StorageClassName                        string
+	Namespace                               string
+	IsPodVMOnStretchSupervisorFSSEnabled    bool
+	IsMultipleClustersPerVsphereZoneEnabled bool
 }
 
 // CreateSnapshotExtraParams consist of values required by the CreateSnapshot interface and
