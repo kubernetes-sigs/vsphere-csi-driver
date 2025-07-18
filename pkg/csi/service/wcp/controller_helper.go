@@ -35,9 +35,8 @@ import (
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/dynamic"
+	"k8s.io/apimachinery/pkg/types"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -399,23 +398,28 @@ func getDatastoreURLFromStoragePool(ctx context.Context, spName string) (string,
 	}
 
 	// create a new StoragePool client.
-	spclient, err := dynamic.NewForConfig(cfg)
+	c, err := k8s.NewClientForGroup(ctx, cfg, spv1alpha1.SchemeGroupVersion.Group)
 	if err != nil {
 		return "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
-	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
+	sp := &spv1alpha1.StoragePool{}
 	// Get StoragePool with spName.
-	sp, err := spclient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
+	err = c.Get(ctx, types.NamespacedName{Name: spName}, sp)
 	if err != nil {
 		return "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
 	// extract the datastoreUrl field.
-	datastoreURL, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", "datastoreUrl")
-	if !found || err != nil {
+	var datastoreURL string
+	var found bool
+	if sp.Spec.Parameters != nil {
+		datastoreURL, found = sp.Spec.Parameters["datastoreUrl"]
+	}
+	if !found {
 		return "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
 	}
+
 	return datastoreURL, nil
 }
 
@@ -429,31 +433,35 @@ func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, e
 	}
 
 	// Create a new StoragePool client.
-	spClient, err := dynamic.NewForConfig(cfg)
+	c, err := k8s.NewClientForGroup(ctx, cfg, spv1alpha1.SchemeGroupVersion.Group)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create StoragePool client using config. Err: %+v", err)
 	}
-	spResource := spv1alpha1.SchemeGroupVersion.WithResource("storagepools")
 
 	// Get StoragePool with spName.
-	sp, err := spClient.Resource(spResource).Get(ctx, spName, metav1.GetOptions{})
+	sp := &spv1alpha1.StoragePool{}
+	err = c.Get(ctx, types.NamespacedName{Name: spName}, sp)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get StoragePool with name %s: %+v", spName, err)
 	}
 
 	// Extract the accessibleNodes field.
-	accessibleNodes, found, err := unstructured.NestedStringSlice(sp.Object, "status", "accessibleNodes")
-	if !found || err != nil {
-		return nil, "", fmt.Errorf("failed to find datastoreUrl in StoragePool %s", spName)
+	if sp.Status.AccessibleNodes == nil ||
+		len(sp.Status.AccessibleNodes) == 0 {
+		return nil, "", fmt.Errorf("failed to find accessible nodes in StoragePool %s", spName)
 	}
 
 	// Get the storage pool type.
-	poolType, found, err := unstructured.NestedString(sp.Object, "metadata", "labels", spTypeKey)
-	if !found || err != nil {
+	var poolType string
+	var found bool
+	if sp.ObjectMeta.Labels != nil {
+		poolType, found = sp.ObjectMeta.Labels[spTypeKey]
+	}
+	if !found {
 		return nil, "", fmt.Errorf("failed to find pool type in StoragePool %s", spName)
 	}
 
-	return accessibleNodes, poolType, nil
+	return sp.Status.AccessibleNodes, poolType, nil
 }
 
 // isValidAccessibilityRequirements validates if the given accessibility
