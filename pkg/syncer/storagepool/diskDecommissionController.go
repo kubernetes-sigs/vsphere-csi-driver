@@ -304,7 +304,7 @@ func initDiskDecommController(ctx context.Context, migrationCntlr *migrationCont
 		return w, err
 	}
 
-	var pvcToMigrate []v1.PersistentVolumeClaim
+	pvcToMigrate := make([]v1.PersistentVolumeClaim, 0)
 	for _, pvc := range pvcList.Items {
 		if pvc.ObjectMeta.Annotations != nil &&
 			pvc.ObjectMeta.Annotations[targetSPAnnotationKey] != "" {
@@ -427,15 +427,19 @@ func (w *DiskDecommController) shouldEnterDiskDecommission(ctx context.Context, 
 	}
 
 	if sp.Spec.Parameters == nil {
+		log.Warnf("Error reading the drain mode from StoragePool event " + sp.Name +
+			" as the spec doesn't have parameters")
 		return false
 	}
 
 	drainMode, found := sp.Spec.Parameters[drainModeField]
-	if !found {
-		delete(w.diskDecommMode, sp.Name)
-	} else {
-		w.diskDecommMode[sp.Name] = drainMode
-	}
+	defer func() {
+		if !found {
+			delete(w.diskDecommMode, sp.Name)
+		} else {
+			w.diskDecommMode[sp.Name] = drainMode
+		}
+	}()
 
 	if (drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM) &&
 		drainMode != w.diskDecommMode[sp.Name] {
