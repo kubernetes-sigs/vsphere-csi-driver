@@ -333,7 +333,10 @@ func updateDrainStatus(ctx context.Context, storagePoolName string, newStatus st
 		}
 
 		// Try to get the current drain Mode.
-		drainMode := sp.Spec.Parameters[drainModeField]
+		var drainMode string
+		if sp.Spec.Parameters != nil {
+			drainMode = sp.Spec.Parameters[drainModeField]
+		}
 		if drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM {
 			var patch map[string]interface{}
 			if newStatus == drainFailStatus {
@@ -395,6 +398,10 @@ func getDrainMode(ctx context.Context, storagePoolName string) (mode string, fou
 		return "", false, err
 	}
 
+	if sp.Spec.Parameters == nil {
+		return "", false, nil
+	}
+
 	mode, found = sp.Spec.Parameters[drainModeField]
 	return mode, found, nil
 }
@@ -422,7 +429,7 @@ func addTargetSPAnnotationOnPVC(ctx context.Context, pvcName, namespace,
 			return false, err
 		}
 
-		// TODO: change the following to use runtime client just like everywhere else.
+		// TODO: We need to change the following patch op to use runtime client just like everywhere else.
 		// Since this is harder to test, I'm leaving this logic untouched for now.
 		_, err = k8sDynamicClient.Resource(pvcResource).Namespace(namespace).Patch(ctx,
 			pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
