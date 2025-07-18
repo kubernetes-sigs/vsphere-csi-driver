@@ -460,7 +460,7 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("pod name : %s", pod.Name)
+		framework.Logf("pod name : %s, pvc name :%s", pod.Name, pvclaims[i].Name)
 		lock.Lock()
 		ch <- pod
 		lock.Unlock()
