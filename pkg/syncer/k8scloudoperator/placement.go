@@ -293,7 +293,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 	if sourceSP.Labels == nil {
 		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
 	}
-	
+
 	if _, ok := sourceSP.Labels[spTypeLabelKey]; !ok {
 		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
 	}
@@ -791,7 +791,7 @@ func getStoragePoolList(ctx context.Context) (*v1alpha1.StoragePoolList, error) 
 func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 	storageClassName string, hostNames []string, volSizeBytes int64) ([]StoragePoolInfo, error) {
 	log := logger.GetLogger(ctx)
-	var spList []StoragePoolInfo
+	spList := make([]StoragePoolInfo, 0)
 
 	totalStoragePools := len(sps.Items)
 	nonVsanDirectOrSna := 0
@@ -841,7 +841,7 @@ func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 			continue
 		}
 
-		if sp.Status.Capacity.AllocatableSpace == nil {
+		if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
 			notEnoughCapacity++
 			continue
 		}
@@ -868,8 +868,7 @@ func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 func isStoragePoolHealthy(ctx context.Context, sp v1alpha1.StoragePool) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
-	if sp.Status.Error.State == "" &&
-		sp.Status.Error.Message == "" {
+	if sp.Status.Error == nil {
 		log.Debug(spName, " is healthy")
 		return true
 	}
@@ -881,6 +880,11 @@ func isStoragePoolHealthy(ctx context.Context, sp v1alpha1.StoragePool) bool {
 func isStoragePoolInDiskDecommission(ctx context.Context, sp v1alpha1.StoragePool) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
+	if sp.Spec.Parameters == nil {
+		log.Debug(spName + " is not under disk decommission")
+		return false
+	}
+
 	drainMode, found := sp.Spec.Parameters[diskDecommissionModeField]
 	if !found {
 		log.Debug(spName + " is not under disk decommission")
