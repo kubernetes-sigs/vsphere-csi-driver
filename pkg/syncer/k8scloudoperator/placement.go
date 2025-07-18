@@ -171,17 +171,18 @@ func (b relaxedFitMigrationPlanner) getMigrationPlan(ctx context.Context,
 		assignedSPName := assignedSp.Name
 		volumeToSPMap[vol.PVName] = assignedSPName
 		for _, sp := range b.storagePoolList.Items {
-			if sp.GetName() == assignedSPName {
-				if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
-					log.Warn("Could not find current allocatable capacity for SP " +
-						sp.GetName())
-					break
-				}
+			if sp.GetName() != assignedSPName {
+				continue
+			}
 
+			if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
+				log.Warn("Could not find current allocatable capacity for SP " +
+					sp.GetName())
+			} else {
 				curAllocatableCap := sp.Status.Capacity.AllocatableSpace.Value()
 				sp.Status.Capacity.AllocatableSpace.Set(curAllocatableCap - vol.SizeInBytes)
-				break
 			}
+			break
 		}
 
 		// Update storagePool info in namespaceToPVCsMap so that in next loop
@@ -290,11 +291,11 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 		return nil, fmt.Errorf("failed to find source vSAN Direct StoragePool with name %v", storagePoolName)
 	}
 
-	if sourceSP.Labels == nil {
-		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
+	var ok bool
+	if sourceSP.Labels != nil {
+		_, ok = sourceSP.Labels[spTypeLabelKey]
 	}
-
-	if _, ok := sourceSP.Labels[spTypeLabelKey]; !ok {
+	if !ok {
 		return nil, fmt.Errorf("given StoragePool is not a vSAN Direct Datastore")
 	}
 
@@ -803,12 +804,11 @@ func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 
 	for _, sp := range sps.Items {
 		spName := sp.GetName()
-		if sp.Labels == nil {
-			nonVsanDirectOrSna++
-			continue
+		var spType string
+		var found bool
+		if sp.Labels != nil {
+			spType, found = sp.Labels[spTypeLabelKey]
 		}
-
-		spType, found := sp.Labels[spTypeLabelKey]
 		if !found || (spType != vsanDirect && spType != vsanSna) {
 			nonVsanDirectOrSna++
 			continue
@@ -841,12 +841,10 @@ func preFilterSPList(ctx context.Context, sps v1alpha1.StoragePoolList,
 			continue
 		}
 
-		if sp.Status.Capacity == nil || sp.Status.Capacity.AllocatableSpace == nil {
-			notEnoughCapacity++
-			continue
+		var spSize int64
+		if sp.Status.Capacity != nil && sp.Status.Capacity.AllocatableSpace != nil {
+			spSize = sp.Status.Capacity.AllocatableSpace.Value()
 		}
-
-		spSize := sp.Status.Capacity.AllocatableSpace.Value()
 		if spSize > volSizeBytes { // Filter by capacity.
 			spList = append(spList, StoragePoolInfo{
 				Name:                  spName,
@@ -880,12 +878,11 @@ func isStoragePoolHealthy(ctx context.Context, sp v1alpha1.StoragePool) bool {
 func isStoragePoolInDiskDecommission(ctx context.Context, sp v1alpha1.StoragePool) bool {
 	log := logger.GetLogger(ctx)
 	spName := sp.GetName()
-	if sp.Spec.Parameters == nil {
-		log.Debug(spName + " is not under disk decommission")
-		return false
+	var drainMode string
+	var found bool
+	if sp.Spec.Parameters != nil {
+		drainMode, found = sp.Spec.Parameters[diskDecommissionModeField]
 	}
-
-	drainMode, found := sp.Spec.Parameters[diskDecommissionModeField]
 	if !found {
 		log.Debug(spName + " is not under disk decommission")
 		return false
