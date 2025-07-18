@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 
@@ -59,13 +58,10 @@ const (
 // DiskDecommController is responsible for watching and processing disk
 // decommission request.
 type DiskDecommController struct {
-	migrationCntlr   *migrationController
-	k8sClient        client.Client
-	k8sDynamicClient dynamic.Interface
-	spResource       *schema.GroupVersionResource
-	pvResource       *schema.GroupVersionResource
-	pvcResource      *schema.GroupVersionResource
-	spWatch          watch.Interface
+	migrationCntlr *migrationController
+	k8sClient      client.Client
+	spResource     *schema.GroupVersionResource
+	spWatch        watch.Interface
 	// Stores the current disk decommission mode ("ensureAccessibility"/
 	// "evacuateAll"/none) of a SP to evaluate whether or not a new event is a
 	// request for disk decommissioning of a SP. Keys are SP name and values
@@ -288,23 +284,14 @@ func (w *DiskDecommController) DecommissionDisk(ctx context.Context, storagePool
 func initDiskDecommController(ctx context.Context, migrationCntlr *migrationController) (*DiskDecommController, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Starting disk decommission controller")
-	k8sDynamicClient, spResource, err := getSPClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	w := &DiskDecommController{}
-	w.k8sDynamicClient = k8sDynamicClient
 	w.k8sClient = k8sClient
 	w.migrationCntlr = migrationCntlr
-	w.spResource = spResource
-	w.pvResource = &schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
-	w.pvcResource = &schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 	w.diskDecommMode = make(map[string]string)
 	w.execSemaphore = semaphore.NewWeighted(1)
 
@@ -366,7 +353,7 @@ func (w *DiskDecommController) renewStoragePoolWatch(ctx context.Context) error 
 	// from 30m (default) to 24h.
 	timeout := int64(60 * 60 * 24) // 24 hours.
 	// The below watch returns `unstructured` events which is something we are trying to avoid.
-	// TODO: check if there is a way to created a watch using StoragePool type
+	// TODO: check if there is a way to created a watch for StoragePool type
 	w.spWatch, err = spClient.Resource(*spResource).Watch(ctx, metav1.ListOptions{
 		TimeoutSeconds: &timeout,
 	})
@@ -374,11 +361,12 @@ func (w *DiskDecommController) renewStoragePoolWatch(ctx context.Context) error 
 		log.Errorf("Failed to start StoragePool watch. Error: %v", err)
 		return err
 	}
-	w.k8sDynamicClient = spClient
+
 	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return err
 	}
+
 	w.k8sClient = k8sClient
 	return nil
 }
@@ -417,8 +405,10 @@ func (w *DiskDecommController) watchStoragePool(ctx context.Context) {
 			sp := &v1alpha1.StoragePool{}
 			err := w.k8sClient.Get(ctx, types.NamespacedName{Name: spName}, sp)
 			if err != nil {
-
+				log.Warnf("Unable to get StoragePool with name " + spName)
+				continue
 			}
+
 			if ok := w.shouldEnterDiskDecommission(ctx, *sp); ok {
 				maintenanceMode := w.diskDecommMode[spName]
 				log.Infof("Got enter disk decommission request for StoragePool %v with MM %v", spName, maintenanceMode)
@@ -436,14 +426,17 @@ func (w *DiskDecommController) shouldEnterDiskDecommission(ctx context.Context, 
 		return false
 	}
 
+	if sp.Spec.Parameters == nil {
+		return false
+	}
+
 	drainMode, found := sp.Spec.Parameters[drainModeField]
-	defer func() {
-		if !found {
-			delete(w.diskDecommMode, sp.Name)
-		} else {
-			w.diskDecommMode[sp.Name] = drainMode
-		}
-	}()
+	if !found {
+		delete(w.diskDecommMode, sp.Name)
+	} else {
+		w.diskDecommMode[sp.Name] = drainMode
+	}
+
 	if (drainMode == fullDataEvacuationMM || drainMode == ensureAccessibilityMM || drainMode == noMigrationMM) &&
 		drainMode != w.diskDecommMode[sp.Name] {
 		// Check if status field is already populated.
