@@ -68,6 +68,10 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 		return fmt.Errorf("failed to get StoragePool object with name " + targetSPName)
 	}
 
+	if sp.Spec.Parameters == nil {
+		return fmt.Errorf("failed to find datastoreUrl in StoragePool " + targetSPName)
+	}
+
 	datastoreURL, found := sp.Spec.Parameters["datastoreUrl"]
 	if !found {
 		return fmt.Errorf("failed to find datastoreUrl in StoragePool " + targetSPName)
@@ -167,7 +171,12 @@ func (m *migrationController) migrateVolume(ctx context.Context,
 		return false, fmt.Errorf("failed to get volumeID corresponding to pv " + pvName)
 	}
 
-	targetSPName, found := pvc.GetObjectMeta().GetAnnotations()[targetSPAnnotationKey]
+	if pvc.ObjectMeta.Annotations == nil {
+		return false, fmt.Errorf(
+			"failed to get target StoragePool of PVC " + pvc.Name + " as no annotations are present")
+	}
+
+	targetSPName, found := pvc.ObjectMeta.Annotations[targetSPAnnotationKey]
 	if !found {
 		return false, fmt.Errorf(
 			"failed to get target StoragePool of PVC %v. target SP name present in annotations: %v. Error: %v",
@@ -236,9 +245,10 @@ func (m *migrationController) MigrateVolumes(ctx context.Context,
 			continue
 		}
 
-		// Check if disk decomm. of source StoragePool has been aborted/ terminated.
-		sourceSPName, found := pvc.GetObjectMeta().GetAnnotations()[k8scloudoperator.StoragePoolAnnotationKey]
-		if !found || sourceSPName == "" {
+		if pvc.ObjectMeta.Annotations == nil {
+			// Log the error and assume that source SP is under disk decommission.
+			log.Warn("Could not get source StoragePool name for PVC " + pvcName)
+		} else if sourceSPName, found := pvc.ObjectMeta.Annotations[k8scloudoperator.StoragePoolAnnotationKey]; !found {
 			// Log the error and assume that source SP is under disk decommission.
 			log.Warn("Could not get source StoragePool name for PVC " + pvcName)
 		} else {
