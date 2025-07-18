@@ -572,11 +572,8 @@ func (state *intendedState) createStoragePool(ctx context.Context, c client.Clie
 				FreeSpace:        state.freeSpace,
 				AllocatableSpace: state.allocatableSpace,
 			},
+			Error: state.getStoragePoolError(),
 		},
-	}
-	spErr := state.getStoragePoolError()
-	if spErr != nil {
-		sp.Status.Error = *spErr
 	}
 	err := c.Create(ctx, sp)
 	return sp, err
@@ -591,11 +588,8 @@ func (state *intendedState) updateStoragePool(ctx context.Context, c client.Clie
 	sp.Status.Capacity.AllocatableSpace = state.allocatableSpace
 	sp.Status.AccessibleNodes = state.nodes
 	sp.Status.CompatibleStorageClasses = state.compatSC
+	sp.Status.Error = state.getStoragePoolError()
 
-	spErr := state.getStoragePoolError()
-	if spErr != nil {
-		sp.Status.Error = *spErr
-	}
 	err := c.Update(ctx, &sp)
 	return &sp, err
 }

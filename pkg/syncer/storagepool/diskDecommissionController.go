@@ -25,6 +25,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -364,6 +365,8 @@ func (w *DiskDecommController) renewStoragePoolWatch(ctx context.Context) error 
 	// When that happens, we may need to do a full remediation, hence we change
 	// from 30m (default) to 24h.
 	timeout := int64(60 * 60 * 24) // 24 hours.
+	// The below watch returns `unstructured` events which is something we are trying to avoid.
+	// TODO: check if there is a way to created a watch using StoragePool type
 	w.spWatch, err = spClient.Resource(*spResource).Watch(ctx, metav1.ListOptions{
 		TimeoutSeconds: &timeout,
 	})
@@ -403,14 +406,19 @@ func (w *DiskDecommController) watchStoragePool(ctx context.Context) {
 				}
 				continue
 			}
-			sp, ok := e.Object.(*v1alpha1.StoragePool)
+			event, ok := e.Object.(*unstructured.Unstructured)
 			if !ok {
-				log.Warnf("Object in StoragePool watch event is not of type StoragePool, but of type %T",
+				log.Warnf("Object in StoragePool watch event is not of type *unstructured.Unstructured, but of type %T",
 					e.Object)
 				continue
 			}
 
-			spName := sp.GetName()
+			spName := event.GetName()
+			sp := &v1alpha1.StoragePool{}
+			err := w.k8sClient.Get(ctx, types.NamespacedName{Name: spName}, sp)
+			if err != nil {
+
+			}
 			if ok := w.shouldEnterDiskDecommission(ctx, *sp); ok {
 				maintenanceMode := w.diskDecommMode[spName]
 				log.Infof("Got enter disk decommission request for StoragePool %v with MM %v", spName, maintenanceMode)

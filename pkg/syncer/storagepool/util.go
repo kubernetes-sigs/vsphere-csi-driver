@@ -29,9 +29,11 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -193,11 +195,24 @@ func getK8sClient(ctx context.Context) (client.Client, error) {
 	// Create a client to create/udpate StoragePool instances.
 	cfg, err := config.GetConfig()
 	if err != nil {
-		log.Errorf("Failed to get Kubernetes config. Err: %s", err)
+		log.Error("Failed to get Kubernetes config. Err: " + err.Error())
 		return nil, err
 	}
 
-	return k8s.NewClientForGroup(ctx, cfg, spv1alpha1.SchemeGroupVersion.Group)
+	scheme := pkgruntime.NewScheme()
+	err = spv1alpha1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("Failed to add StoragePool scheme. Err: " + err.Error())
+		return nil, err
+	}
+
+	err = corev1.AddToScheme(scheme)
+	if err != nil {
+		log.Errorf("Failed to add core v1 scheme. Err: " + err.Error())
+		return nil, err
+	}
+
+	return client.New(cfg, client.Options{Scheme: scheme})
 }
 
 // getSPClient returns the StoragePool dynamic client.
