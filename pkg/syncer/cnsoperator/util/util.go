@@ -18,8 +18,11 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,10 +30,13 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
+	vimtypes "github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -87,6 +93,44 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 		return "", err
 	}
 	return pv.Spec.CSI.VolumeHandle, nil
+}
+
+// GetVolumeIDPvcMappingInNamespace scans through all PVs in the namespace and
+// returns PVC to volumeID and volumeI to PVC mapping.
+func GetVolumeIDPvcMappingInNamespace(ctx context.Context,
+	namespace string) (map[string]string, map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	volumeIdToPvc := make(map[string]string)
+	pvcToVolumeId := make(map[string]string)
+
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to get k8sclient with error: %v", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	pvcList, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to list PersistentVolumes with error %v.", err)
+		return volumeIdToPvc, pvcToVolumeId, err
+	}
+
+	for _, pvc := range pvcList.Items {
+		pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvc.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			log.Errorf("failed to get PersistentVolume for PVC %s. Error %s.", pvc.Name, err)
+			return volumeIdToPvc, pvcToVolumeId, err
+		}
+		volumeIdToPvc[pv.Spec.CSI.VolumeHandle] = pv.Spec.ClaimRef.Name
+		pvcToVolumeId[pv.Spec.ClaimRef.Name] = pv.Spec.CSI.VolumeHandle
+	}
+
+	log.Debugf("volumeIdToPvc map %+v", volumeIdToPvc)
+	log.Debugf("pvcToVolumeId map %+v", pvcToVolumeId)
+
+	return volumeIdToPvc, pvcToVolumeId, nil
+
 }
 
 // GetTKGVMIP finds the external facing IP address of a TKG VM object from a
@@ -208,4 +252,84 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 
 	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
 		wcpNetworkConfigMap, kubeSystemNamespace)
+}
+
+// GetVCDatacenterFromConfig returns datacenter registered for each vCenter
+func GetVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
+	var err error
+	vcdcMap := make(map[string][]string)
+	for key, value := range cfg.VirtualCenter {
+		dcList := strings.Split(value.Datacenters, ",")
+		for _, dc := range dcList {
+			dcMoID := strings.TrimSpace(dc)
+			if dcMoID != "" {
+				vcdcMap[key] = append(vcdcMap[key], dcMoID)
+			}
+		}
+	}
+	if len(vcdcMap) == 0 {
+		err = errors.New("unable get vCenter datacenters from vsphere config")
+	}
+	return vcdcMap, err
+}
+
+// getVMFromVcenter returns the VM from vCenter for the given nodeUUID.
+func GetVMFromVcenter(ctx context.Context, nodeUUID string,
+	configInfo *config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+
+	dc, err := GetDatacenterObject(ctx, configInfo)
+	if err != nil {
+		log.Errorf("failed to get datacenter for node: %s. Err: %+q", nodeUUID, err)
+		return nil, err
+	}
+
+	vm, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+	if err != nil {
+		log.Errorf("failed to find the VM with UUID: %s Err: %+v",
+			nodeUUID, err)
+		return nil, err
+	}
+
+	return vm, nil
+}
+
+// GetDatacenterObject returns the datacenter object for the vCenter.
+func GetDatacenterObject(ctx context.Context,
+	configInfo *config.ConfigurationInfo) (*cnsvsphere.Datacenter, error) {
+	log := logger.GetLogger(ctx)
+
+	vcdcMap, err := GetVCDatacentersFromConfig(configInfo.Cfg)
+	if err != nil {
+		log.Errorf("failed to find datacenter moref from config. Err: %s", err)
+		return nil, err
+	}
+
+	var host, dcMoref string
+	for key, value := range vcdcMap {
+		host = key
+		dcMoref = value[0]
+	}
+
+	// Get datacenter object
+	var dc *cnsvsphere.Datacenter
+	vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	if err != nil {
+		log.Errorf("failed to get virtual center instance with error: %v", err)
+		return nil, err
+	}
+	err = vcenter.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to VC with error: %v", err)
+		return nil, err
+	}
+	dc = &cnsvsphere.Datacenter{
+		Datacenter: object.NewDatacenter(vcenter.Client.Client,
+			vimtypes.ManagedObjectReference{
+				Type:  "Datacenter",
+				Value: dcMoref,
+			}),
+		VirtualCenterHost: host,
+	}
+	return dc, nil
 }

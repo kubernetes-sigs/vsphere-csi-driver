@@ -17,10 +17,14 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"os"
+
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // AddToManagerFuncs is a list of functions to add all Controllers to the Manager
@@ -30,8 +34,12 @@ var AddToManagerFuncs []func(manager.Manager, cnstypes.CnsClusterFlavor,
 // AddToManager adds all Controllers to the Manager
 func AddToManager(manager manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
+	ctx := logger.NewContextWithLogger(context.Background())
+	log := logger.GetLogger(ctx)
 	for _, f := range AddToManagerFuncs {
 		if err := f(manager, clusterFlavor, configInfo, volumeManager); err != nil {
+			log.Errorf("failed to initialize controller. Error: %s", err.Error())
+			os.Exit(1)
 			return err
 		}
 	}
