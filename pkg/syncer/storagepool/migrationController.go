@@ -161,22 +161,19 @@ func (m *migrationController) migrateVolume(ctx context.Context,
 		return false, err
 	}
 
-	if pv.Spec.CSI == nil {
-		return false, fmt.Errorf("failed to get volumeID" +
-			"as the CSI spec of the PV " + pvName + " is empty")
+	var volumeID string
+	if pv.Spec.CSI != nil {
+		volumeID = pv.Spec.CSI.VolumeHandle
 	}
-
-	volumeID := pv.Spec.CSI.VolumeHandle
 	if volumeID == "" {
 		return false, fmt.Errorf("failed to get volumeID corresponding to pv " + pvName)
 	}
 
-	if pvc.ObjectMeta.Annotations == nil {
-		return false, fmt.Errorf(
-			"failed to get target StoragePool of PVC " + pvc.Name + " as no annotations are present")
+	var targetSPName string
+	var found bool
+	if pvc.ObjectMeta.Annotations != nil {
+		targetSPName, found = pvc.ObjectMeta.Annotations[targetSPAnnotationKey]
 	}
-
-	targetSPName, found := pvc.ObjectMeta.Annotations[targetSPAnnotationKey]
 	if !found {
 		return false, fmt.Errorf(
 			"failed to get target StoragePool of PVC %v. target SP name present in annotations: %v. Error: %v",
@@ -245,10 +242,12 @@ func (m *migrationController) MigrateVolumes(ctx context.Context,
 			continue
 		}
 
-		if pvc.ObjectMeta.Annotations == nil {
-			// Log the error and assume that source SP is under disk decommission.
-			log.Warn("Could not get source StoragePool name for PVC " + pvcName)
-		} else if sourceSPName, found := pvc.ObjectMeta.Annotations[k8scloudoperator.StoragePoolAnnotationKey]; !found {
+		var sourceSPName string
+		var found bool
+		if pvc.ObjectMeta.Annotations != nil {
+			sourceSPName, found = pvc.ObjectMeta.Annotations[k8scloudoperator.StoragePoolAnnotationKey]
+		}
+		if !found {
 			// Log the error and assume that source SP is under disk decommission.
 			log.Warn("Could not get source StoragePool name for PVC " + pvcName)
 		} else {
