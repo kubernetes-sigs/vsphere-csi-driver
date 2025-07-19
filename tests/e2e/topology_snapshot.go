@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("[topology-snapshot] Topology-Snapshot", func() {
 			pvc3.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv3 := getPvFromClaim(client, statefulset.Namespace, pvc3.ClaimName)
+		pv3 := getPvFromClaim(client, nil, statefulset.Namespace, pvc3.ClaimName)
 		volHandle3 := pv3.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle3).NotTo(gomega.BeEmpty())
 

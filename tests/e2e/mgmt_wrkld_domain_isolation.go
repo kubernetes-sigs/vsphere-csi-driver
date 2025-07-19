@@ -94,6 +94,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		vmClass                 string
 		cnsopC                  ctlrclient.Client
 		contentLibId            string
+		adminClient             clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -103,6 +104,17 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// making vc connection
 		client = f.ClientSet
 		bootstrap()
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		// reading vc session id
 		if vcRestSessionId == "" {
@@ -495,7 +507,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
@@ -1656,7 +1668,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		ginkgo.By("Creating pvc using WFFC and Immediate binding")
-		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclassImm, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

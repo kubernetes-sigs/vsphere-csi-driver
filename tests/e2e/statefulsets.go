@@ -82,18 +82,34 @@ var _ = ginkgo.Describe("statefulset", func() {
 		stsReplicas                int32
 		allowedTopologies          []v1.TopologySelectorLabelRequirement
 		isQuotaValidationSupported bool
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		namespace = getNamespaceToRunTests(f)
+		var err error
 		client = f.ClientSet
+		namespace = getNamespaceToRunTests(f)
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+
 		bootstrap()
-		sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
-		if err == nil && sc != nil {
-			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
-				*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+
+		if vanillaCluster {
+			sc, err := client.StorageV1().StorageClasses().Get(ctx, defaultNginxStorageClassName, metav1.GetOptions{})
+			if err == nil && sc != nil {
+				gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, sc.Name,
+					*metav1.NewDeleteOptions(0))).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		scParameters = make(map[string]string)
@@ -127,7 +143,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}
 
 		if stretchedSVC {
-			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
 			framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		}
 
@@ -141,13 +157,13 @@ var _ = ginkgo.Describe("statefulset", func() {
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
-		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
-		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
-		if !apierrors.IsNotFound(err) {
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+		//ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+		//fss.DeleteAllStatefulSets(ctx, client, namespace)
+		//ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
+		//err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+		//if !apierrors.IsNotFound(err) {
+		//	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		//}
 		if supervisorCluster {
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
@@ -194,8 +210,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		} else {
 			storageClassName = storagePolicyName
 			ginkgo.By("Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			scParameters[scParamStoragePolicyID] = profileID
 		}
 
 		restConfig := getRestConfigClient()
@@ -241,6 +255,10 @@ var _ = ginkgo.Describe("statefulset", func() {
 		gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
 			"Number of Pods in the statefulset should match with number of replicas")
 
+		defer func() {
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
+		}()
+
 		// Get the list of Volumes attached to Pods before scale down
 		var volumesBeforeScaleDown []string
 		for _, sspod := range ssPodsBeforeScaleDown.Items {
@@ -248,7 +266,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
@@ -297,7 +315,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						if vanillaCluster {
 							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -331,7 +349,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -361,7 +379,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify scale up operation should not introduced new volume")
 					gomega.Expect(isValuePresentInTheList(volumesBeforeScaleDown, pv.Spec.CSI.VolumeHandle)).To(gomega.BeTrue())
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
@@ -437,8 +455,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 		} else {
 			storageClassName = storagePolicyName
 			ginkgo.By("Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			scParameters[scParamStoragePolicyID] = profileID
 		}
 
 		ginkgo.By("Creating service")
@@ -470,7 +486,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -499,7 +515,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						if vanillaCluster {
 							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -533,7 +549,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -564,7 +580,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 					var vmUUID string
@@ -635,8 +651,6 @@ var _ = ginkgo.Describe("statefulset", func() {
 			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 			framework.Logf("storageClassName %v", storageClassName)
 			ginkgo.By("CNS_TEST: Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storageClassName)
-			scParameters[scParamStoragePolicyID] = profileID
 		}
 
 		if !vcptocsi {
@@ -690,7 +704,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 						ctx, pvclaimName, metav1.GetOptions{})
 					gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					//Minimum Version of k8s Support for Resize migrated volume is k8s 1.26 and
 					//CSI by default migrates volume.Hence Manual Migration is not needed
 					if vcptocsi {
@@ -771,7 +785,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 						ctx, pvclaimName, metav1.GetOptions{})
 					gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 					if vcptocsi {
 						ginkgo.By("Verify annotations on PVCs created after migration")
@@ -841,10 +855,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			storageClassName = "nginx-sc-default"
 		} else {
 			ginkgo.By("Running for WCP setup")
-
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			scParameters[scParamStoragePolicyID] = profileID
-			// create resource quota
+			storageClassName = storagePolicyName
 		}
 
 		ginkgo.By("scale down CSI driver POD to 1 , so that it will" +
@@ -898,7 +909,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleUp = append(volumesBeforeScaleUp, pv.Spec.CSI.VolumeHandle)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
@@ -1029,7 +1040,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		}()
 
 		ginkgo.By("Creating statfulset and deployment from storageclass")
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, _, _ := createStsDeployment(ctx, client, adminClient, namespace, sc, true,
 			false, 3, "", 1, "")
 		replicas := *(statefulset.Spec.Replicas)
 		csiNs := GetAndExpectStringEnvVar(envCSINamespace)
@@ -1041,7 +1052,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, adminClient, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -1095,7 +1106,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Scale up statefulset replica to 5")
 		replicas = replicas + 2
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			replicas, true, true)
 
 		ginkgo.By("Exit the host from maintenance mode")

@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -576,7 +576,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
@@ -632,7 +632,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle

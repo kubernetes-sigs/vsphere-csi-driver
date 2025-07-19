@@ -298,7 +298,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -700,7 +700,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -899,7 +899,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -1099,7 +1099,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -1336,7 +1336,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)

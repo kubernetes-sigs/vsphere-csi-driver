@@ -61,6 +61,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		replicas                   int32
 		isVsanHealthServiceStopped bool
 		isWcpServicestopped        bool
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -70,6 +71,18 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		// making vc connection
 		client = f.ClientSet
 		bootstrap()
+		var err error
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		// reading vc session id
 		if vcRestSessionId == "" {
@@ -185,7 +198,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		}
 
 		ginkgo.By("Creating pvc")
-		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclassZ1, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -226,7 +239,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// get ds name
-		pv := getPvFromClaim(client, namespace, pvclaim1.Name)
+		pv := getPvFromClaim(client, adminClient, namespace, pvclaim1.Name)
 		volHandle := pv.Spec.CSI.VolumeHandle
 		s1 := rand.NewSource(time.Now().UnixNano())
 		r1 := rand.New(s1)
@@ -325,7 +338,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		}
 
 		ginkgo.By("Creating pvc")
-		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSizeLarge, storageclassZ2, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -431,10 +444,10 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		}
 
 		ginkgo.By("Creating pvc")
-		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim1, _, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclassZ1, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, _, err = createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		_, _, err = createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclassZ2, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

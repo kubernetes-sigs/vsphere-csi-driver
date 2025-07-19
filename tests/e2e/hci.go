@@ -170,7 +170,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, nil, client, pods, true)
 		}()
 
 		ginkgo.By("Storage vmotion workers to local vsan datastore")
@@ -229,7 +229,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false, false, replicas, "", 0, "")
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -263,11 +263,11 @@ var _ bool = ginkgo.Describe("hci", func() {
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+1, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, replicas+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPods, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-1, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, ssPods, replicas-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Enable vsan network on the host's vmknic in remote cluster")
@@ -276,11 +276,11 @@ var _ bool = ginkgo.Describe("hci", func() {
 		vmknic4VsanDown = false
 
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPods, err = fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-2, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, ssPods, replicas-2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})
@@ -313,7 +313,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 
 		ginkgo.By("Create a sts with 3 replicas")
 		var replicas int32 = 3
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false, false, replicas, "", 0, "")
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false, false, replicas, "", 0, "")
 
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
@@ -321,7 +321,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -365,11 +365,11 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}
 
 		ginkgo.By("Perform sts scale up and down and verify they are successful")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, replicas+1, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, replicas+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPods, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, replicas-1, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset, ssPods, replicas-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, statefulset, mountPath)).NotTo(gomega.HaveOccurred())
 	})
 
@@ -414,7 +414,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -510,11 +510,11 @@ var _ bool = ginkgo.Describe("hci", func() {
 		gomega.Expect(waitForAllNodes2BeReady(ctx, client)).To(gomega.Succeed())
 
 		ginkgo.By("Scale up statefulset2 and scale down statefulset1 to 2 replicas")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts2, replicas2+1, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts2, replicas2+1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts2, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPods1, err := fss.GetPodList(ctx, client, sts1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, sts1, ssPods1, replicas1-1, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts1, ssPods1, replicas1-1, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts1, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Power on the host used in step 3")
@@ -525,11 +525,11 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}
 
 		ginkgo.By("Scale up statefulset2 to 3 replicas and scale down statefulset1 to 1 replica")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts2, replicas2+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts2, replicas2+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts2, mountPath)).NotTo(gomega.HaveOccurred())
 		ssPods1, err = fss.GetPodList(ctx, client, sts1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, sts1, ssPods1, replicas1-2, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts1, ssPods1, replicas1-2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts1, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})
@@ -573,7 +573,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -651,7 +651,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		time.Sleep(5 * time.Minute)
 
 		ginkgo.By("Scale up statefulset to 3 replicas")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-integrate isolated host back into vsan cluster")
@@ -661,7 +661,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}
 
 		ginkgo.By("Scale up statefulset to 5 replicas")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})
@@ -705,7 +705,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -776,7 +776,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}()
 
 		ginkgo.By("Scale up statefulset")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-integrate isolated host back into vsan cluster")
@@ -787,7 +787,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}
 
 		ginkgo.By("Scale up statefulset")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})
@@ -831,7 +831,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -911,7 +911,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		gomega.Expect(waitForAllNodes2BeReady(ctx, client)).To(gomega.Succeed())
 
 		ginkgo.By("Scale up statefulset")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Re-integrate isolated host back into vsan cluster")
@@ -921,7 +921,7 @@ var _ bool = ginkgo.Describe("hci", func() {
 		}
 
 		ginkgo.By("Scale up statefulset")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, sts, replicas+2, true, true)
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, sts, replicas+2, true, true)
 		gomega.Expect(fss.CheckMount(ctx, client, sts, mountPath)).NotTo(gomega.HaveOccurred())
 
 	})

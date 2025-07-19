@@ -66,6 +66,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		isVsanHealthServiceStopped bool
 		isSPSServiceStopped        bool
 		fsType                     string
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -75,6 +76,17 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		isVsanHealthServiceStopped = false
 		isSPSServiceStopped = false
@@ -159,7 +171,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify "+
 		"volume expansion with no filesystem before expansion", ginkgo.Label(p0,
 		block, vanilla, wcp, tkg, core, vc70), func() {
-		invokeTestForVolumeExpansion(f, client, namespace, "", storagePolicyName, profileID)
+		invokeTestForVolumeExpansion(f, client, adminClient, namespace, "", storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is supported if allowVolumeExpansion
@@ -183,7 +195,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify volume expansion "+
 		"with initial filesystem before expansion", ginkgo.Label(p0, block, vanilla, tkg, core, vc70), func() {
-		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, fsType, "", storagePolicyName, profileID)
+		invokeTestForVolumeExpansionWithFilesystem(f, client, adminClient, namespace, fsType, "", storagePolicyName, profileID)
 	})
 
 	// Test to verify offline volume expansion workflow with xfs filesystem.
@@ -205,7 +217,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] Verify offline volume expansion workflow "+
 		"with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, core, vc70), func() {
-		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
+		invokeTestForVolumeExpansionWithFilesystem(f, client, adminClient, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is not supported if allowVolumeExpansion
@@ -221,7 +233,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest]  [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify volume "+
 		"expansion not allowed", ginkgo.Label(p2, block, vanilla, tkg, core, vc70), func() {
-		invokeTestForInvalidVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
+		invokeTestForInvalidVolumeExpansion(f, client, adminClient, namespace, storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is not supported if new size is
@@ -237,7 +249,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor]  [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify "+
 		"volume shrinking not allowed", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
-		invokeTestForInvalidVolumeShrink(f, client, namespace, storagePolicyName, profileID)
+		invokeTestForInvalidVolumeShrink(f, client, adminClient, namespace, storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is not support for static provisioning.
@@ -255,7 +267,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify volume expansion is not supported for PVC "+
 		"using vSAN-Default-Storage-Policy", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
-		invokeTestForInvalidVolumeExpansionStaticProvision(f, client, namespace, storagePolicyName, profileID)
+		invokeTestForInvalidVolumeExpansionStaticProvision(f, adminClient, client, namespace, storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion can happen multiple times
@@ -275,7 +287,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify "+
 		"volume expansion can happen multiple times", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
-		invokeTestForExpandVolumeMultipleTimes(f, client, namespace, "", storagePolicyName, profileID)
+		invokeTestForExpandVolumeMultipleTimes(f, client, adminClient, namespace, "", storagePolicyName, profileID)
 	})
 
 	// Test to verify volume expansion is not supported for file volume
@@ -320,7 +332,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -393,7 +405,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with fstype set to xfs and allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, xfsFSType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, xfsFSType)
 
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -447,7 +459,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		volHandle, pvclaim, pv, storageclass := createStaticPVC(ctx, f, client,
+		volHandle, pvclaim, pv, storageclass := createStaticPVC(ctx, f, adminClient, client,
 			namespace, defaultDatastore, pandoraSyncWaitTime)
 
 		defer func() {
@@ -499,7 +511,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -575,7 +587,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		defer cancel()
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -618,7 +630,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		}()
 
 		ginkgo.By("Increase PVC size and verify Volume resize")
-		increaseOnlineVolumeMultipleTimes(ctx, f, client, namespace, volHandle, pvclaim, pod)
+		increaseOnlineVolumeMultipleTimes(ctx, f, adminClient, client, namespace, volHandle, pvclaim, pod)
 	})
 
 	/*
@@ -647,7 +659,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var expectedErrMsg string
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -780,7 +792,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		// featureEnabled := isFssEnabled(vcAddress, cnsNewSyncFSS)
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -894,7 +906,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1037,7 +1049,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VVOL datastore with allowVolumeExpansion set to true, Create PVC")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVVOLdatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedVVOLdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1127,7 +1139,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared NFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedNFSdatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedNFSdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1223,7 +1235,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		ginkgo.By("Create StorageClass on shared VMFS datastore with allowVolumeExpansion set to true")
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVMFSdatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedVMFSdatastoreURL, storagePolicyName, namespace, fsType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1338,7 +1350,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvclaim, pv, fcdID)
 		volHandle := pv.Spec.CSI.VolumeHandle
 
@@ -1497,7 +1509,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv = getPvFromClaim(client, namespace, pvclaim.Name)
+		pv = getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 
 		defer func() {
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -1583,7 +1595,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var err error
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1734,7 +1746,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		var err error
 
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -1888,7 +1900,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2016,7 +2028,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2130,7 +2142,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass on shared VSAN datastore with allowVolumeExpansion set to true")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -2254,7 +2266,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass on shared VSAN datastore with allowVolumeExpansion set to true")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
@@ -2441,7 +2453,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Create StorageClass with allowVolumeExpansion set to true, Create PVC")
 		sharedVSANDatastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		volHandle, pvclaim, pv, storageclass = createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
+			ctx, f, adminClient, client, sharedVSANDatastoreURL, storagePolicyName, namespace, fsType)
 
 		defer func() {
 			if !supervisorCluster {
@@ -2656,7 +2668,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 // increaseOnlineVolumeMultipleTimes this method increases the same volume
 // multiple times and verifies PVC and Filesystem size.
-func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framework,
+func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framework, adminClient clientset.Interface,
 	client clientset.Interface, namespace string, volHandle string, pvclaim *v1.PersistentVolumeClaim, pod *v1.Pod) {
 
 	var originalSizeInMb, fsSize int64
@@ -2689,7 +2701,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 
 	ginkgo.By("Waiting for controller resize to finish")
 	framework.Logf("PVC name : %s ", pvclaim.Name)
-	pv := getPvFromClaim(client, namespace, pvclaim.Name)
+	pv := getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 	pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	err = waitForPvResize(pv, client, pvcSize, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2739,7 +2751,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 }
 
 // createStaticPVC this method creates static PVC
-func createStaticPVC(ctx context.Context, f *framework.Framework,
+func createStaticPVC(ctx context.Context, f *framework.Framework, adminClient clientset.Interface,
 	client clientset.Interface, namespace string, defaultDatastore *object.Datastore,
 	pandoraSyncWaitTime int) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
 	curtime := time.Now().Unix()
@@ -2802,7 +2814,7 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 
 	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	pv = getPvFromClaim(client, namespace, pvc.Name)
+	pv = getPvFromClaim(client, adminClient, namespace, pvc.Name)
 	verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 	volHandle := pv.Spec.CSI.VolumeHandle
@@ -2816,7 +2828,7 @@ func createStaticPVC(ctx context.Context, f *framework.Framework,
 // createSCwithVolumeExpansionTrueAndDynamicPVC creates storageClass with
 // allowVolumeExpansion set to true and Creates PVC. Waits till PV, PVC
 // are in bound.
-func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framework.Framework,
+func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framework.Framework, adminClient clientset.Interface,
 	client clientset.Interface, dsurl string, storagePolicyName string, namespace string,
 	fstype string) (string, *v1.PersistentVolumeClaim, *v1.PersistentVolume, *storagev1.StorageClass) {
 	scParameters := make(map[string]string)
@@ -2886,7 +2898,7 @@ func createSCwithVolumeExpansionTrueAndDynamicPVC(ctx context.Context, f *framew
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			newpv := getPvFromClaim(client, namespace, pvc.Name)
+			newpv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2988,7 +3000,7 @@ func increaseSizeOfPvcAttachedToPod(f *framework.Framework, client clientset.Int
 	}
 }
 
-func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface,
+func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Interface, adminClient clientset.Interface,
 	namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -3059,7 +3071,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			newpv := getPvFromClaim(client, namespace, pvc.Name)
+			newpv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3233,7 +3245,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 
 }
 
-func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client clientset.Interface,
+func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client clientset.Interface, adminClient clientset.Interface,
 	namespace string, fstype string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -3292,7 +3304,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			newpv := getPvFromClaim(client, namespace, pvc.Name)
+			newpv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3471,7 +3483,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 }
 
 func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientset.Interface,
-	namespace string, storagePolicyName string, profileID string) {
+	adminClient clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -3526,7 +3538,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3548,7 +3560,7 @@ func invokeTestForInvalidVolumeExpansion(f *framework.Framework, client clientse
 }
 
 func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.Interface,
-	namespace string, storagePolicyName string, profileID string) {
+	adminClient clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scParameters := make(map[string]string)
@@ -3619,7 +3631,7 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3652,7 +3664,7 @@ func invokeTestForInvalidVolumeShrink(f *framework.Framework, client clientset.I
 	gomega.Expect(err).To(gomega.HaveOccurred())
 }
 
-func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
+func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework, adminClient clientset.Interface,
 	client clientset.Interface, namespace string, storagePolicyName string, profileID string) {
 	ginkgo.By("Invoking Test for Invalid Volume Expansion for Static Provisioning")
 
@@ -3783,7 +3795,7 @@ func invokeTestForInvalidVolumeExpansionStaticProvision(f *framework.Framework,
 }
 
 func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clientset.Interface,
-	namespace string, expectedContent string, storagePolicyName string, profileID string) {
+	adminClient clientset.Interface, namespace string, expectedContent string, storagePolicyName string, profileID string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ginkgo.By("Invoking Test to verify Multiple Volume Expansions on the same volume")
@@ -3855,7 +3867,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 			"after migration")
 		for _, pvc := range pvclaims {
 			vpath := getvSphereVolumePathFromClaim(ctx, client, namespace, pvc.Name)
-			newpv := getPvFromClaim(client, namespace, pvc.Name)
+			newpv := getPvFromClaim(client, adminClient, namespace, pvc.Name)
 			framework.Logf("Processing PVC: %s", pvc.Name)
 			crd, err := waitForCnsVSphereVolumeMigrationCrd(ctx, vpath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

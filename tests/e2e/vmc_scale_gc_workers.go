@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
 					volumeID := pv.Spec.CSI.VolumeHandle
 					// svcPVCName refers to PVC Name in the supervisor cluster.
@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
 					volumeID := pv.Spec.CSI.VolumeHandle
 					// svcPVCName refers to PVC Name in the supervisor cluster.
@@ -272,7 +272,7 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
 					volumeID := pv.Spec.CSI.VolumeHandle
 					// svcPVCName refers to PVC Name in the supervisor cluster.
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("Scale TKG Worker nodes", func() {
 				gomega.Expect(apierrs.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
 						verifyIsDetachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,

@@ -161,7 +161,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		}()
 
 		ginkgo.By("Create a statefulset")
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false,
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false,
 			false, stsReplicas, "", 3, "")
 
 		ginkgo.By("Create volume snapshot class")
@@ -172,7 +172,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, pvclaim := range allPvcs.Items {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 			volHandle = pv.Spec.CSI.VolumeHandle
 			volHandles = append(volHandles, volHandle)
 			volumeSnapshot, _, snapshotCreated,
@@ -216,11 +216,11 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		ginkgo.By("Verifying statefulset scale up went fine on statefulset")
 		// Scale up replicas of statefulset1 and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			stsReplicas, false, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
@@ -311,7 +311,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		}()
 
 		ginkgo.By("Create a statefulset")
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false,
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false,
 			false, stsReplicas, "", 3, "")
 
 		ginkgo.By("Create volume snapshot class")
@@ -322,7 +322,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, pvclaim := range allPvcs.Items {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 			volHandle = pv.Spec.CSI.VolumeHandle
 			volHandles = append(volHandles, volHandle)
 			volumeSnapshot, _, snapshotCreated,
@@ -382,11 +382,11 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		ginkgo.By("Verifying statefulset scale up went fine on statefulset")
 		// Scale up replicas of statefulset1 and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			stsReplicas, false, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
@@ -475,7 +475,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 			}
 		}()
 
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false,
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false,
 			false, stsReplicas, "", 3, "")
 
 		ginkgo.By("Create volume snapshot class")
@@ -486,7 +486,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for _, pvclaim := range allPvcs.Items {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 			volHandle = pv.Spec.CSI.VolumeHandle
 			volHandles = append(volHandles, volHandle)
 			volumeSnapshot, _, snapshotCreated,
@@ -545,11 +545,11 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		ginkgo.By("Verifying statefulset scale up went fine on statefulset")
 		// Scale up replicas of statefulset1 and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			stsReplicas, false, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
@@ -681,7 +681,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
@@ -840,7 +840,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		defer func() {
 			ginkgo.By("Delete Pods")
-			deletePodsAndWaitForVolsToDetach(ctx, client, newPodList, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, newPodList, true)
 		}()
 
 		ginkgo.By("wait for pvcs to be bound")
@@ -962,7 +962,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		defer func() {
 			ginkgo.By("Delete pods created in test")
-			deletePodsAndWaitForVolsToDetach(ctx, client, newPodList, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, newPodList, true)
 		}()
 
 		ginkgo.By("wait for pvcs to be bound")
@@ -1088,7 +1088,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		}()
 
 		ginkgo.By("Create statefulset")
-		statefulset, _, _ := createStsDeployment(ctx, client, namespace, sc, false,
+		statefulset, _, _ := createStsDeployment(ctx, client, nil, namespace, sc, false,
 			false, stsReplicas, "", 3, "")
 
 		ginkgo.By("Create volume snapshot class")
@@ -1100,7 +1100,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		ginkgo.By("Create volume snapshots from PVCs created")
 		for _, pvclaim := range allPvcs.Items {
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvclaim.Name)
 			volHandle = pv.Spec.CSI.VolumeHandle
 			volHandles = append(volHandles, volHandle)
 			volumeSnapshot, _, snapshotCreated,
@@ -1167,11 +1167,11 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		ginkgo.By("Verifying statefulset scale up went fine on statefulset")
 		// Scale up replicas of statefulset1 and verify CNS entries for volumes
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, nil, namespace, statefulset,
 			stsReplicas, false, true)
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, pods, true)
 		}()
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
@@ -1316,7 +1316,7 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		}()
 
 		defer func() {
-			deletePodsAndWaitForVolsToDetach(ctx, client, newPodList, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, nil, newPodList, true)
 		}()
 
 		ginkgo.By("wait for pvcs to be bound")

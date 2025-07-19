@@ -856,7 +856,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -901,7 +901,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		_, datastoreUrlsRack2, _, _, err := fetchDatastoreListMap(ctx, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i := 0; i < len(pvclaims); i++ {
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 			isCorrectPlacement := multiVCe2eVSphere.verifyPreferredDatastoreMatchInMultiVC(pv.Spec.CSI.VolumeHandle,
 				datastoreUrlsRack2)
 			gomega.Expect(isCorrectPlacement).To(gomega.BeTrue(), fmt.Sprintf("Volume provisioning has happened on the wrong "+
@@ -1090,7 +1090,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -1122,7 +1122,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(pvclaimsNew); i++ {
-				pv := getPvFromClaim(client, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsNew[i].Namespace, pvclaimsNew[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsNew[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -1146,7 +1146,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		ginkgo.By("Updating labels for PVC and PV")
 		for i := 0; i < len(pvclaims); i++ {
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 			framework.Logf("Updating labels %+v for pvc %s in namespace %s", labels, pvclaims[i].Name,
 				pvclaims[i].Namespace)
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaims[i].Name, metav1.GetOptions{})
@@ -1189,7 +1189,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		ginkgo.By("Waiting for labels to be updated for PVC and PV")
 		for i := 0; i < len(pvclaims); i++ {
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			framework.Logf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 				labels, pvclaims[i].Name, pvclaims[i].Namespace)
@@ -1272,7 +1272,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)
@@ -1426,7 +1426,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = multiVCe2eVSphere.waitForCNSVolumeToBeDeletedInMultiVC(pv.Spec.CSI.VolumeHandle)

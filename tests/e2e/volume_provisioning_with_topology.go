@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Basic-Topology-Aware-Provisionin
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		if allowedTopologies == nil {
 			zoneValues = allZones
 			regionValues = allRegions

@@ -346,7 +346,7 @@ func snapshotOperationWhileServiceDown(serviceName string, namespace string,
 	}
 
 	ginkgo.By("Create PVC")
-	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, nil, "",
+	pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, nil, namespace, nil, "",
 		diskSize, storageclass, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle

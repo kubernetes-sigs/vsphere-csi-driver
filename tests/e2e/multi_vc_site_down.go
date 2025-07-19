@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+		deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -350,7 +350,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 			false, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -466,7 +466,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		}
 		wg.Wait()
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Bring down all ESXI hosts in VC2 in a multi-setup")
@@ -604,7 +604,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		}
 		wg.Wait()
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Bring down all ESXI hosts in VC1 in a multi-setup")
@@ -814,7 +814,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Power on the suspended datastore residing on VC-2")

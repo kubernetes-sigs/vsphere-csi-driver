@@ -461,7 +461,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -859,7 +859,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			podAntiAffinityToSet, parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -883,7 +883,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			ginkgo.By("Creating Pod")
 			pvclaims = append(pvclaims, pvclaimsList[i])
@@ -902,7 +902,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		defer func() {
 			ginkgo.By("Deleting PVC's and PV's")
 			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
@@ -918,7 +918,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			}
 			ginkgo.By("Verify volume is detached from the node")
 			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 				isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
 					pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1442,7 +1442,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -1537,7 +1537,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		err = waitForStsPodsToBeInReadyRunningState(ctx, client, namespace, statefulSets)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -1635,7 +1635,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 		defer func() {
 			ginkgo.By("Deleting PVC's and PV's")
 			for i := 0; i < len(pvclaimsList); i++ {
-				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaimsList[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, poll, pollTimeoutShort))
@@ -1643,7 +1643,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 		}()
 
 		ginkgo.By("Bring down Vsan-health service on VC1")
@@ -1675,7 +1675,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 
 		ginkgo.By("Updating labels for PVC and PV")
 		for i := 0; i < len(pvclaimsList); i++ {
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 			framework.Logf("Updating labels %+v for pvc %s in namespace %s", labels, pvclaimsList[i].Name,
 				pvclaimsList[i].Namespace)
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaimsList[i].Name, metav1.GetOptions{})
@@ -1698,7 +1698,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 
 		ginkgo.By("Waiting for labels to be updated for PVC and PV")
 		for i := 0; i < len(pvclaimsList); i++ {
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 
 			framework.Logf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 				labels, pvclaimsList[i].Name, pvclaimsList[i].Namespace)
@@ -1793,7 +1793,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			parallelStatefulSetCreation, false, "", nil, verifyTopologyAffinity, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, nil, namespace)
 			deleteService(namespace, client, service)
 		}()
 
@@ -1951,7 +1951,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify volume is detached from the node")
-			pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, pvc.Namespace, pvc.Name)
 			isDiskDetached, err := multiVCe2eVSphere.waitForVolumeDetachedFromNodeInMultiVC(client,
 				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2029,7 +2029,7 @@ var _ = ginkgo.Describe("[multivc-positive] MultiVc-Topology-Positive", func() {
 			deleteService(namespace, client, service)
 		}()
 		ginkgo.By("Creating statefulset with replica 3 and a deployment")
-		statefulset, deployment, volumesBeforeScaleUp := createStsDeployment(ctx, client, namespace, sc, true,
+		statefulset, deployment, volumesBeforeScaleUp := createStsDeployment(ctx, client, nil, namespace, sc, true,
 			false, 3, "", 1, "")
 
 		ginkgo.By("Verify PV node affinity and that the PODS are running on appropriate node")

@@ -1920,7 +1920,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "5Gi",
@@ -2015,7 +2015,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "1Gi",
@@ -2120,7 +2120,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "7Gi",

@@ -95,7 +95,7 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
 				svPvcName := volumespec.PersistentVolumeClaim.ClaimName
-				pv := getPvFromClaim(client, namespace, svPvcName)
+				pv := getPvFromClaim(client, nil, namespace, svPvcName)
 
 				// Get SVC PVC
 				svcPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, svPvcName, metav1.GetOptions{})
@@ -121,7 +121,7 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 				}
 
 				// Verify SV PV node affinity details
-				svcPV := getPvFromClaim(client, namespace, svPvcName)
+				svcPV := getPvFromClaim(client, nil, namespace, svPvcName)
 				_, err = verifyVolumeTopologyForLevel5(svcPV, allowedTopologiesMap)
 				if err != nil {
 					return fmt.Errorf("topology verification failed for SVC PV %s: %w", svcPV.Name, err)

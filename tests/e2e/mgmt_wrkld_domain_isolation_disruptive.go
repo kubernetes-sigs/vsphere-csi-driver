@@ -68,6 +68,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		isVcRebooted               bool
 		isSPSServiceStopped        bool
 		isHostInMaintenanceMode    bool
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -77,6 +78,17 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		// making vc connection
 		client = f.ClientSet
 		bootstrap()
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		// reading vc session id
 		if vcRestSessionId == "" {
@@ -245,7 +257,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, adminClient, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 			volhandle := pv.Spec.CSI.VolumeHandle
 			volhandles = append(volhandles, volhandle)
 
@@ -300,7 +312,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		}()
 
 		ginkgo.By("Perform scaleup operation. Increase the replica count from 3 to 6")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			stsReplicas, false, true)
 
 		ginkgo.By("Creating pvc with requested topology annotation set to zone2")
@@ -353,7 +365,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Perform scaleup operation. Increase the replica count from 6 to 9")
 		stsReplicas = 9
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			stsReplicas, false, true)
 
 		ginkgo.By("Restoring a snapshot-1 to create a new volume and attach it to a new Pod")
@@ -438,7 +450,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, adminClient, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 			volhandle := pv.Spec.CSI.VolumeHandle
 			volhandles = append(volhandles, volhandle)
 			ginkgo.By("Creating Pod")
@@ -487,7 +499,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		}
 
 		ginkgo.By("Perform scaleup operation. Increase the replica count from 3 to 6")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			stsReplicas, false, true)
 
 		ginkgo.By("Creating pvc with requested topology annotation set to zone3")
@@ -531,7 +543,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Perform scaleup operation. Increase the replica count from 6 to 9")
 		stsReplicas = 9
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			stsReplicas, false, true)
 
 		ginkgo.By("Restoring a snapshot to create a new volume and attach it to a new Pod")
@@ -638,7 +650,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, adminClient, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 			volhandle := pv.Spec.CSI.VolumeHandle
 			volhandles = append(volhandles, volhandle)
 			ginkgo.By("Creating Pod")
@@ -675,7 +687,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Verify pod node attachment after sps service bring up")
 		for i := 0; i < len(podList); i++ {
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			pv := getPvFromClaim(client, adminClient, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
 			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 				pv.Spec.CSI.VolumeHandle, podList[i].Spec.NodeName))
 			vmUUID := getNodeUUID(ctx, client, podList[i].Spec.NodeName)
@@ -709,7 +721,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Perform scaleup operation. Increase the replica count from 3 to 6")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+		scaleUpStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset,
 			stsReplicas, false, true)
 
 		ginkgo.By("Rebooting VC")
@@ -744,7 +756,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		stsReplicas = 1
 		ssPods, err := fss.GetPodList(ctx, client, statefulset)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		scaleDownStsAndVerifyPodMetadata(ctx, client, namespace, statefulset, ssPods, stsReplicas, true, true)
+		scaleDownStsAndVerifyPodMetadata(ctx, client, adminClient, namespace, statefulset, ssPods, stsReplicas, true, true)
 
 		ginkgo.By("Restoring a snapshot-1 to create a new volume and attach it to a new Pod")
 		_, _, _ = verifyVolumeRestoreOperation(ctx, client,

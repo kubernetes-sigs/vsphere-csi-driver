@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		datacenters         []string
 		defaultDatacenter   *object.Datacenter
 		datastoreURL        string
+		adminClient         clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -68,13 +69,29 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 
 		bootstrap()
 		client = f.ClientSet
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		namespace = getNamespaceToRunTests(f)
 
 		// parameters set for storage policy
 		scParameters = make(map[string]string)
 
 		// fetching node list and checking node status
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -154,8 +171,8 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		//ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
+		//fss.DeleteAllStatefulSets(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -209,7 +226,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -509,7 +526,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			pvc1.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv1 := getPvFromClaim(client, statefulset.Namespace, pvc1.ClaimName)
+		pv1 := getPvFromClaim(client, adminClient, statefulset.Namespace, pvc1.ClaimName)
 		volHandle1 := pv1.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
 
@@ -609,7 +626,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
@@ -880,7 +897,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		volHandle := pv.Spec.CSI.VolumeHandle
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
