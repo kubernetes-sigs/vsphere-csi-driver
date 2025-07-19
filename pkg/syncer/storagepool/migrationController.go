@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -65,16 +66,16 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	sp := &v1alpha1.StoragePool{}
 	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: targetSPName}, sp)
 	if err != nil {
-		return fmt.Errorf("failed to get StoragePool object with name " + targetSPName)
+		return errors.New("failed to get StoragePool object with name " + targetSPName)
 	}
 
 	if sp.Spec.Parameters == nil {
-		return fmt.Errorf("failed to find datastoreUrl in StoragePool " + targetSPName)
+		return errors.New("failed to find datastoreUrl in StoragePool " + targetSPName)
 	}
 
 	datastoreURL, found := sp.Spec.Parameters["datastoreUrl"]
 	if !found {
-		return fmt.Errorf("failed to find datastoreUrl in StoragePool " + targetSPName)
+		return errors.New("failed to find datastoreUrl in StoragePool " + targetSPName)
 	}
 
 	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterIDs, datastoreURL)
@@ -150,7 +151,7 @@ func (m *migrationController) migrateVolume(ctx context.Context,
 
 	pvName := pvc.Spec.VolumeName
 	if pvName == "" {
-		return false, fmt.Errorf(
+		return false, errors.New(
 			"could not find PV from the spec for PVC " + pvcName + " in namespace " + pvc.Namespace)
 	}
 
@@ -166,7 +167,7 @@ func (m *migrationController) migrateVolume(ctx context.Context,
 		volumeID = pv.Spec.CSI.VolumeHandle
 	}
 	if volumeID == "" {
-		return false, fmt.Errorf("failed to get volumeID corresponding to pv " + pvName)
+		return false, errors.New("failed to get volumeID corresponding to pv " + pvName)
 	}
 
 	var targetSPName string

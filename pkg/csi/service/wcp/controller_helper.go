@@ -446,8 +446,7 @@ func getStoragePoolInfo(ctx context.Context, spName string) ([]string, string, e
 	}
 
 	// Extract the accessibleNodes field.
-	if sp.Status.AccessibleNodes == nil ||
-		len(sp.Status.AccessibleNodes) == 0 {
+	if len(sp.Status.AccessibleNodes) == 0 {
 		return nil, "", fmt.Errorf("failed to find accessible nodes in StoragePool %s", spName)
 	}
 

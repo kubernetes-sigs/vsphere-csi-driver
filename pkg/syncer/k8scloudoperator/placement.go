@@ -59,8 +59,6 @@ const (
 	spPolicyAntiPreferred = "placement.beta.vmware.com/storagepool_antiAffinityPreferred"
 	// AntiAffinityRequired placement policy for storagepool.
 	spPolicyAntiRequired = "placement.beta.vmware.com/storagepool_antiAffinityRequired"
-	// Resource name to get storage class.
-	resourceName = "storagepools"
 	// StoragePool type name for vsan-direct.
 	vsanDirect                = "vsanD"
 	invalidParamsErr          = "FAILED_PLACEMENT-InvalidParams"
