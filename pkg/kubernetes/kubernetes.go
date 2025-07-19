@@ -56,6 +56,7 @@ import (
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
+	storagepoolAPIs "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool"
 	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -286,15 +287,21 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add CNSVolumeInfo to scheme with error: %+v", err)
 			return nil, err
 		}
+
+		err = storagepoolAPIs.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add StoragePool scheme with error :%+v", err)
+			return nil, err
+		}
 	}
-	client, err := client.New(config, client.Options{
+
+	c, err := client.New(config, client.Options{
 		Scheme: scheme,
 	})
 	if err != nil {
 		log.Errorf("failed to create client for group %s with err: %+v", groupName, err)
 	}
-	return client, err
-
+	return c, err
 }
 
 // NewCnsFileAccessConfigWatcher creates a new ListWatch for VirtualMachines
