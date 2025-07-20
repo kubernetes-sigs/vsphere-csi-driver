@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v6/clientset/versioned"
 	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -32,6 +33,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -367,70 +369,158 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 	pvcName string, pvcNamespace string, k8sClient clientset.Interface) (bool, error) {
 	log := logger.GetLogger(ctx)
 
-	// Check if the Supervisor volume is not in use by any pods (PodVMs) in the namespace.
-	pods, err := k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{})
+	// If the PVC is in use by any PodVM, we cannot unregister it.
+	inUse, err := checkPodsForPVC(ctx, pvcName, pvcNamespace, k8sClient)
 	if err != nil {
-		log.Errorf("Failed to list pods in namespace %s with error - %s",
-			pvcNamespace, err.Error())
-		return false, err
+		return false, logger.LogNewErrorf(log,
+			"Failed to check if PVC %s in namespace %s is in use by PodVM.",
+			pvcName, pvcNamespace)
 	}
 
-	for _, pod := range pods.Items {
-		for _, vol := range pod.Spec.Volumes {
-			if vol.PersistentVolumeClaim != nil &&
-				vol.PersistentVolumeClaim.ClaimName == pvcName {
-				log.Debugf("Volume %s cannot be unregistered as it is in use by pod %s in namespace %s",
-					spec.VolumeID, pod.Name, pvcNamespace)
-				return false, nil
-			}
-		}
+	if inUse {
+		log.Debugf("PVC %s in namespace %s is in use by PodVM. Cannot unregister volume %s",
+			pvcName, pvcNamespace, spec.VolumeID)
+		return false, nil
 	}
 
-	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	cfg, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize rest clientconfig. Error: %+v", err)
 		log.Error(msg)
 		return false, err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	// Check if the PVC has any associated Snapshot(s).
+	inUse, err = checkSnapshotsForPVC(ctx, pvcName, pvcNamespace, *cfg)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
-		log.Error(msg)
-		return false, err
+		return false, logger.LogNewErrorf(log,
+			"Failed to check if PVC %s in namespace %s has any associated snapshots.",
+			pvcName, pvcNamespace)
 	}
 
+	if inUse {
+		log.Debugf("PVC %s in namespace %s has associated snapshots. Cannot unregister volume %s",
+			pvcName, pvcNamespace, spec.VolumeID)
+		return false, nil
+	}
+
+	// TODO: this needs more nuance. If the volume is in use by a TKG VM, we cannot unregister it.
 	if spec.ForceUnregister {
 		log.Debugf("ForceUnregister is set to true. Skipping checks to see if volume %s is in use by "+
 			"virtual machine(s) in namespace %s", spec.VolumeID, pvcNamespace)
 		return true, nil
 	}
 
-	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, pvcNamespace)
+	// Check if the PVC is in use by any VirtualMachine in the namespace.
+	inUse, err = checkVMsForPVC(ctx, pvcName, pvcNamespace, *cfg)
 	if err != nil {
-		err = fmt.Errorf("listing virtualmachines failed with error: %s", err)
-		log.Error(err)
-		return false, err
+		return false, logger.LogNewErrorf(log,
+			"Failed to check if PVC %s in namespace %s is in use by VirtualMachine.",
+			pvcName, pvcNamespace)
 	}
 
-	log.Debugf("Found %d VirtualMachines in namespace %s", len(vmList.Items), pvcNamespace)
-	for _, vmInstance := range vmList.Items {
-		log.Debugf("Checking if volume %s is in use by VirtualMachine %s in namespace %s",
-			spec.VolumeID, vmInstance.Name, pvcNamespace)
-		for _, vmVol := range vmInstance.Spec.Volumes {
-			if vmVol.PersistentVolumeClaim != nil &&
-				vmVol.PersistentVolumeClaim.ClaimName == pvcName {
-				// If the volume is specified in the VirtualMachine's spec, then it is
-				// either, in the process of being attached to the VM or is already attached.
-				// In either case, we cannot unregister the volume.
-				log.Debugf("Volume %s cannot be unregistered as it is in use by VirtualMachine %s in namespace %s",
-					spec.VolumeID, vmInstance.Name, pvcNamespace)
-				return false, nil
-			}
-		}
+	if inUse {
+		log.Debugf("PVC %s in namespace %s is in use by VirtualMachine. Cannot unregister volume %s",
+			pvcName, pvcNamespace, spec.VolumeID)
+		return false, nil
 	}
 
 	return true, nil
+}
+
+func checkPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
+	k8sClient clientset.Interface) (bool, error) {
+	log := logger.GetLogger(ctx)
+	pods, err := k8sClient.CoreV1().Pods(pvcNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "Failed to list pods in namespace %s for PVC %s. Error: %s",
+			pvcNamespace, pvcName, err.Error())
+	}
+
+	for _, pod := range pods.Items {
+		for _, vol := range pod.Spec.Volumes {
+			if vol.PersistentVolumeClaim == nil ||
+				vol.PersistentVolumeClaim.ClaimName != pvcName {
+				continue
+			}
+
+			log.Debugf("PVC %s is in use by pod %s in namespace %s",
+				pvcName, pod.Name, pvcNamespace)
+			return true, nil
+		}
+	}
+	log.Debugf("PVC %s is not in use by any pod in namespace %s", pvcName, pvcNamespace)
+	return false, nil
+}
+
+func checkSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
+	cfg rest.Config) (bool, error) {
+	log := logger.GetLogger(ctx)
+	c, err := snapshotclient.NewForConfig(&cfg)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Failed to initialize snapshot client for PVC %s in namespace %s. Error: %s",
+			pvcName, pvcNamespace, err.Error())
+	}
+
+	snapshotList, err := c.SnapshotV1().VolumeSnapshots(pvcNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Failed to list VolumeSnapshots in namespace %s for PVC %s. Error: %s",
+			pvcNamespace, pvcName, err.Error())
+	}
+
+	for _, snap := range snapshotList.Items {
+		if snap.Spec.Source.PersistentVolumeClaimName == nil ||
+			*snap.Spec.Source.PersistentVolumeClaimName != pvcName {
+			continue
+		}
+
+		log.Debugf("PVC %s has associated snapshot %s in namespace %s",
+			pvcName, snap.Name, pvcNamespace)
+		return true, nil
+	}
+
+	log.Debugf("PVC %s has no associated snapshots in namespace %s", pvcName, pvcNamespace)
+	return false, nil
+}
+
+func checkVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
+	cfg rest.Config) (bool, error) {
+	log := logger.GetLogger(ctx)
+	c, err := k8s.NewClientForGroup(ctx, &cfg, vmoperatorv1alpha4.GroupName)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Failed to initialize vmOperator client for PVC %s in namespace %s. Error: %s",
+			pvcName, pvcNamespace, err.Error())
+	}
+
+	vmList, err := utils.ListVirtualMachines(ctx, c, pvcNamespace)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Failed to list VirtualMachines in namespace %s for PVC %s. Error: %s",
+			pvcNamespace, pvcName, err.Error())
+	}
+
+	for _, vmInstance := range vmList.Items {
+		log.Debugf("Checking if volume %s is in use by VirtualMachine %s in namespace %s",
+			pvcName, vmInstance.Name, pvcNamespace)
+		for _, vmVol := range vmInstance.Spec.Volumes {
+			if vmVol.PersistentVolumeClaim == nil ||
+				vmVol.PersistentVolumeClaim.ClaimName != pvcName {
+				continue
+			}
+
+			// If the volume is specified in the VirtualMachine's spec, then it is
+			// either, in the process of being attached to the VM or is already attached.
+			// In either case, we cannot unregister the volume.
+			log.Debugf("PVC %s cannot be unregistered as it is in use by VirtualMachine %s in namespace %s",
+				pvcName, vmInstance.Name, pvcNamespace)
+			return true, nil
+		}
+	}
+	log.Debugf("PVC %s is not in use by any VirtualMachine in namespace %s", pvcName, pvcNamespace)
+	return false, nil
 }
 
 // setInstanceError sets error and records an event on the CnsUnregisterVolume

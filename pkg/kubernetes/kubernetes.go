@@ -41,7 +41,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/discovery"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -73,7 +72,7 @@ const (
 )
 
 type CustomResourceVersion struct {
-	Group    string
+	Group   string
 	Kind    string
 	Version string
 }
