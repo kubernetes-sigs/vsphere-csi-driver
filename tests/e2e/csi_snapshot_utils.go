@@ -349,7 +349,7 @@ func deleteVolumeSnapshot(ctx context.Context, snapc *snapclient.Clientset, name
 	}
 	snapshotContentCreated := false
 
-	if performCnsQueryVolumeSnapshot {
+	if performCnsQueryVolumeSnapshot && !latebinding {
 		framework.Logf("Verify snapshot entry %v is deleted from CNS for volume %v", snapshotID, volHandle)
 		err = waitForCNSSnapshotToBeDeleted(volHandle, snapshotID)
 		if err != nil {
@@ -489,7 +489,7 @@ func createDynamicVolumeSnapshot(ctx context.Context, namespace string,
 		return volumeSnapshot, snapshotContent, false, false, snapshotId, "", err
 	}
 
-	if performCnsQueryVolumeSnapshot {
+	if performCnsQueryVolumeSnapshot && !latebinding {
 		ginkgo.By("Query CNS and check the volume snapshot entry")
 		err = waitForCNSSnapshotToBeCreated(volHandle, snapshotId)
 		if err != nil {
@@ -684,6 +684,8 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
 	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
 
+	var volHandle2 string
+	var persistentvolumes2 []*v1.PersistentVolume
 	ginkgo.By("Create PVC from snapshot")
 	pvcSpec := getPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 		v1.ReadWriteOnce, volumeSnapshot.Name, snapshotapigroup)
@@ -691,14 +693,17 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
-	if guestCluster {
-		volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+	if !latebinding {
+		ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+		persistentvolumes2, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle2 = persistentvolumes2[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle2 = getVolumeIDFromSupervisorCluster(volHandle2)
+		}
+		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 	}
-	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
 
 	var pod *v1.Pod
 	if verifyPodCreation {
@@ -770,35 +775,38 @@ func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interfac
 		return pvclaim, nil, fmt.Errorf("failed to create PVC: %w", err)
 	}
 
-	// Wait for PVC to be bound to a PV
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
-	if err != nil {
-		return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)
-	}
-
-	// Get VolumeHandle from the PV
-	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
-	if guestCluster {
-		volHandle = getVolumeIDFromSupervisorCluster(volHandle)
-	}
-	if volHandle == "" {
-		return pvclaim, persistentvolumes, fmt.Errorf("volume handle is empty")
-	}
-
-	// Verify the volume in CNS if required
-	if verifyCNSVolume {
-		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	if !latebinding {
+		ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
 		if err != nil {
-			return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
+			return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)
 		}
-		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
-			return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+
+		// Get VolumeHandle from the PV
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		if guestCluster {
+			volHandle = getVolumeIDFromSupervisorCluster(volHandle)
 		}
+		if volHandle == "" {
+			return pvclaim, persistentvolumes, fmt.Errorf("volume handle is empty")
+		}
+
+		// Verify the volume in CNS if required
+		if verifyCNSVolume {
+			ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+			queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+			if err != nil {
+				return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
+			}
+			if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
+				return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+			}
+		}
+		return pvclaim, persistentvolumes, nil
 	}
 
-	return pvclaim, persistentvolumes, nil
+	return pvclaim, nil, nil
 }
 
 // waitForVolumeSnapshotContentReadyToUse waits for the volume's snapshot content to be in ReadyToUse

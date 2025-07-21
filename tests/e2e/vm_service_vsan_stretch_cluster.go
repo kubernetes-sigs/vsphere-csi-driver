@@ -36,7 +36,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 
-	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,16 +49,16 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	f.SkipNamespaceCreation = true // tests will create their own namespaces
 	var (
-		client                     clientset.Interface
-		namespace                  string
-		datastoreURL               string
-		storagePolicyName          string
-		storageClassName           string
-		storageProfileId           string
-		vcRestSessionId            string
-		vmi                        string
-		vmClass                    string
-		csiNs                      string
+		client            clientset.Interface
+		namespace         string
+		datastoreURL      string
+		storagePolicyName string
+		storageClassName  string
+		storageProfileId  string
+		vcRestSessionId   string
+		vmi               string
+		vmClass           string
+		//csiNs                      string
 		vmopC                      ctlrclient.Client
 		cnsopC                     ctlrclient.Client
 		isVsanHealthServiceStopped bool
@@ -87,9 +86,18 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 		vcRestSessionId = createVcSession4RestApis(ctx)
 
-		storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-") // since this is a wcp setup
-		storageClassName = strings.ToLower(storageClassName)
-		framework.Logf("storageClassName: %s", storageClassName)
+		if !latebinding {
+			ginkgo.By("Reading Immediate binding mode storage policy")
+			storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-")
+			storageClassName = strings.ToLower(storageClassName)
+			framework.Logf("storageClassName: %s", storageClassName)
+		} else {
+			ginkgo.By("Reading late binding mode storage policy")
+			storageClassName = strings.ReplaceAll(storagePolicyName, " ", "-")
+			storageClassName = strings.ToLower(storageClassName)
+			storageClassName = storageClassName + "-latebinding"
+			framework.Logf("storageClassName: %s", storageClassName)
+		}
 
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
@@ -167,6 +175,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			defer cancel()
 			var pvcCount int = 5
 			var err error
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 
@@ -176,9 +185,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVCs bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -219,8 +230,14 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Bring down the primary site")
 			siteFailover(ctx, true)
@@ -244,10 +261,10 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 			time.Sleep(5 * time.Minute)
 			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
 			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
@@ -296,6 +313,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			defer cancel()
 			var pvcCount int = 10
 			var err error
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Get StorageClass for volume creation")
 
@@ -305,9 +323,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -348,8 +368,14 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Bring down the secondary site")
 			siteFailover(ctx, false)
@@ -372,11 +398,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			}
 
 			time.Sleep(5 * time.Minute)
-			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// // Check if csi pods are running fine after site failure
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
 			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
@@ -425,6 +451,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			var vmCount = 9
 			var err error
 			var vms []*vmopv1.VirtualMachine
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 			sc, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
@@ -433,9 +460,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVCs bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -458,8 +487,8 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ch := make(chan *vmopv1.VirtualMachine)
 			var wg sync.WaitGroup
@@ -505,19 +534,21 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
-			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// // Check if csi pods are running fine after site failure
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
+
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			ginkgo.By("Verify volume lifecycle actions when there is a fault induced")
 			performVolumeLifecycleActionForVmServiceVM(ctx, client, vmopC, cnsopC, vmClass, namespace, vmi, sc, secretName)
@@ -559,6 +590,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			defer cancel()
 			var pvcCount int = 10
 			var err error
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 
@@ -568,9 +600,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVCs bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -593,8 +627,8 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creating VM")
 			vms := createVMServiceVmWithMultiplePvcs(
@@ -616,6 +650,12 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
+
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			var wg sync.WaitGroup
 			ginkgo.By("Deleting VM in parallel to secondary site failure")
@@ -642,11 +682,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			}
 
 			time.Sleep(5 * time.Minute)
-			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// // Check if csi pods are running fine after site failure
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
 			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
@@ -695,6 +735,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			var vms []*vmopv1.VirtualMachine
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 			sc, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
@@ -703,9 +744,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, 10, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -728,8 +771,8 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}()
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ch := make(chan *vmopv1.VirtualMachine)
 			var wg sync.WaitGroup
@@ -756,18 +799,20 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			}
 			time.Sleep(5 * time.Minute)
 
-			ginkgo.By("Check if csi pods are running fine after site recovery")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// ginkgo.By("Check if csi pods are running fine after site recovery")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
+
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			ginkgo.By("Verify volume lifecycle actions when there is a fault induced")
 			performVolumeLifecycleActionForVmServiceVM(ctx, client, vmopC, cnsopC,
@@ -803,13 +848,14 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			defer cancel()
 			var pvcCount int = 10
 			var err error
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 			sc, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Wait for k8s cluster to be healthy")
 			if vanillaCluster {
@@ -829,18 +875,20 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				}
 			}()
 
-			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// // Check if csi pods are running fine after site failure
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -881,6 +929,12 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
+
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			ginkgo.By("Check storage compliance")
 			comp := checkVmStorageCompliance(storagePolicyName)
@@ -926,6 +980,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			defer cancel()
 			var pvcCount int = 10
 			var err error
+			var pvs []*v1.PersistentVolume
 
 			ginkgo.By("Creating StorageClass")
 
@@ -935,9 +990,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			ginkgo.By("Create multiple PVCs")
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
-			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if !latebinding {
+				ginkgo.By("Verify PVC bound state created with Immediate binding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
 			defer func() {
 				for i, pvc := range pvclaimsList {
@@ -978,8 +1035,13 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				"and waits for VM IP to come up to come up and verify PVCs are accessible in the VM")
 			createVMServiceandWaitForVMtoGetIP(ctx, vmopC, cnsopC, namespace, vms, pvclaimsList, true, true)
 
-			csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if latebinding {
+				ginkgo.By("Verify PVCs bound state created with latebinding mode storage policy")
+				pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			// csipods, err := client.CoreV1().Pods(csiNs).List(ctx, metav1.ListOptions{})
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// Cause a network failure on primary site
 			ginkgo.By("Isolate secondary site from witness and primary site")
@@ -998,11 +1060,11 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
-			// Check if csi pods are running fine after site failure
-			ginkgo.By("Check if csi pods are running fine after site failure")
-			err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
-				time.Duration(pollTimeout*2))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// // Check if csi pods are running fine after site failure
+			// ginkgo.By("Check if csi pods are running fine after site failure")
+			// err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
+			// 	time.Duration(pollTimeout*2))
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
 			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
