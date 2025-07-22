@@ -428,6 +428,7 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 	return true, nil
 }
 
+// checkPodsForPVC checks if the PVC is in use by any Pod in the specified namespace.
 func checkPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	k8sClient clientset.Interface) (bool, error) {
 	log := logger.GetLogger(ctx)
@@ -453,6 +454,7 @@ func checkPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	return false, nil
 }
 
+// checkSnapshotsForPVC checks if the PVC has any associated snapshots.
 func checkSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) (bool, error) {
 	log := logger.GetLogger(ctx)
@@ -485,6 +487,7 @@ func checkSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace stri
 	return false, nil
 }
 
+// checkVMsForPVC checks if the PVC is in use by any VirtualMachine in the specified namespace.
 func checkVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) (bool, error) {
 	log := logger.GetLogger(ctx)
