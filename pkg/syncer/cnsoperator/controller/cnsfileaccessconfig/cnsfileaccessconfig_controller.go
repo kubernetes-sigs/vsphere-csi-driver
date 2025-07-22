@@ -69,6 +69,7 @@ const (
 var (
 	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+	volumePermissionLockMap *sync.Map
 )
 
 // Add creates a new CnsFileAccessConfig Controller and adds it to the Manager.
@@ -96,7 +97,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			}
 		}
 	}
-
+	volumePermissionLockMap = &sync.Map{}
 	// Initialize the k8s orchestrator interface.
 	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes,
 		cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
@@ -621,6 +622,10 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx context.Context, volumeID string,
 	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, skipConfigureVolumeACL bool) error {
 	log := logger.GetLogger(ctx)
+	volumePermissionLock, _ := volumePermissionLockMap.LoadOrStore(volumeID, &sync.Mutex{})
+	instanceLock, _ := volumePermissionLock.(*sync.Mutex)
+	instanceLock.Lock()
+	defer instanceLock.Unlock()
 	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
@@ -663,6 +668,10 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 	volumeID string, vm *vmoperatorv1alpha4.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig,
 	removePermission bool) error {
 	log := logger.GetLogger(ctx)
+	volumePermissionLock, _ := volumePermissionLockMap.LoadOrStore(volumeID, &sync.Mutex{})
+	instanceLock, _ := volumePermissionLock.(*sync.Mutex)
+	instanceLock.Lock()
+	defer instanceLock.Unlock()
 	tkgVMIP, err := r.getVMExternalIP(ctx, vm)
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get external facing IP address for VM: %s/%s instance. Error: %+v",
