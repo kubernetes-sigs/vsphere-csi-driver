@@ -369,7 +369,6 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 	pvcName string, pvcNamespace string, k8sClient clientset.Interface) (bool, error) {
 	log := logger.GetLogger(ctx)
 
-	// If the PVC is in use by any PodVM, we cannot unregister it.
 	inUse, err := checkPodsForPVC(ctx, pvcName, pvcNamespace, k8sClient)
 	if err != nil {
 		return false, logger.LogNewErrorf(log,
@@ -377,6 +376,7 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 			pvcName, pvcNamespace)
 	}
 
+	// If the PVC is in use by any PodVM, we cannot unregister it.
 	if inUse {
 		log.Debugf("PVC %s in namespace %s is in use by PodVM. Cannot unregister volume %s",
 			pvcName, pvcNamespace, spec.VolumeID)
@@ -390,7 +390,6 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 		return false, err
 	}
 
-	// Check if the PVC has any associated Snapshot(s).
 	inUse, err = checkSnapshotsForPVC(ctx, pvcName, pvcNamespace, *cfg)
 	if err != nil {
 		return false, logger.LogNewErrorf(log,
@@ -398,20 +397,36 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 			pvcName, pvcNamespace)
 	}
 
+	// If the PVC has any associated snapshots, we cannot unregister it.
 	if inUse {
 		log.Debugf("PVC %s in namespace %s has associated snapshots. Cannot unregister volume %s",
 			pvcName, pvcNamespace, spec.VolumeID)
 		return false, nil
 	}
 
-	// TODO: this needs more nuance. If the volume is in use by a TKG VM, we cannot unregister it.
+	// TODO: check the TKG label and the finaliser on the PVC
+	inUse, err = checkTKCVMsForPVC(ctx, pvcName, pvcNamespace, k8sClient)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"Failed to check if PVC %s in namespace %s is in use by TKC VirtualMachine.",
+			pvcName, pvcNamespace)
+	}
+
+	// If the PVC is in use by any TKC workload, we cannot unregister it.
+	if inUse {
+		log.Debugf("PVC %s in namespace %s is in use by TKC Workload. Cannot unregister volume %s",
+			pvcName, pvcNamespace, spec.VolumeID)
+		return false, nil
+	}
+
+	// If ForceUnregister is set to true, we skip the checks to see if the volume is in use by
+	// any VirtualMachine in the namespace.
 	if spec.ForceUnregister {
 		log.Debugf("ForceUnregister is set to true. Skipping checks to see if volume %s is in use by "+
 			"virtual machine(s) in namespace %s", spec.VolumeID, pvcNamespace)
 		return true, nil
 	}
 
-	// Check if the PVC is in use by any VirtualMachine in the namespace.
 	inUse, err = checkVMsForPVC(ctx, pvcName, pvcNamespace, *cfg)
 	if err != nil {
 		return false, logger.LogNewErrorf(log,
@@ -419,6 +434,7 @@ func isVolumeUnregisterable(ctx context.Context, spec cnsunregistervolumev1alpha
 			pvcName, pvcNamespace)
 	}
 
+	// If the PVC is in use by any VirtualMachine, we cannot unregister it.
 	if inUse {
 		log.Debugf("PVC %s in namespace %s is in use by VirtualMachine. Cannot unregister volume %s",
 			pvcName, pvcNamespace, spec.VolumeID)
@@ -454,7 +470,7 @@ func checkPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	return false, nil
 }
 
-// checkSnapshotsForPVC checks if the PVC has any associated snapshots.
+// checkSnapshotsForPVC checks if the PVC has any associated snapshots in the specified namespace.
 func checkSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) (bool, error) {
 	log := logger.GetLogger(ctx)
@@ -484,6 +500,13 @@ func checkSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace stri
 	}
 
 	log.Debugf("PVC %s has no associated snapshots in namespace %s", pvcName, pvcNamespace)
+	return false, nil
+}
+
+// checkTKCVMsForPVC checks if the PVC is in use by any TKC Virtual Machine in the specified namespace.
+func checkTKCVMsForPVC(ctx context.Context, pvcName, pvcNamespace string,
+	k8sClient clientset.Interface) (bool, error) {
+	// TODO: implement
 	return false, nil
 }
 
