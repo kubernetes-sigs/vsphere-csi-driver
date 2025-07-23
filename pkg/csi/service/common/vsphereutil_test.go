@@ -114,6 +114,9 @@ func (m *mockVolumeManager) MonitorCreateVolumeTask(ctx context.Context,
 	return nil, "", nil
 }
 
+func (m *mockVolumeManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
+}
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	volumeId := "dummy-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
