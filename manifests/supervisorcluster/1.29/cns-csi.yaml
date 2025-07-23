@@ -560,7 +560,7 @@ data:
   "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
-  "WCP_VMService_BYOK": "false"
+  "WCP_VMService_BYOK": "true"
   "file-volume-with-vm-service": "false"
   "csi-transaction-support": "false"
   "linked-clone-support": "false"
