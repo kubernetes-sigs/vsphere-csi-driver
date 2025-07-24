@@ -441,8 +441,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			}, nil
 		})
 
-		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, error) {
-			return []string{"cluster-a", "cluster-b"}, nil
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a", "cluster-b"}, true, nil
 		})
 
 		patches.ApplyMethod(

@@ -50,6 +50,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
@@ -122,6 +123,8 @@ var (
 	csiNodeTopologyInformer *cache.SharedIndexInformer
 	// zoneInformer is an informer watching the namespaced zone instances in supervisor cluster.
 	zoneInformer cache.SharedIndexInformer
+	// startZoneInformerOnce ensures zone informer is started only once
+	startZoneInformerOnce sync.Once
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -1796,21 +1799,37 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context,
 	restClientConfig *restclient.Config, namespace string) error {
 	log := logger.GetLogger(ctx)
+	var startErr error
+	startZoneInformerOnce.Do(func() {
+		var err error
+		if restClientConfig == nil {
+			restClientConfig, err = clientconfig.GetConfig()
+			if err != nil {
+				startErr = logger.LogNewErrorf(log, "failed to get restClientConfig. Error: %+v", err)
+				return
+			}
+		}
+		// Create an informer for Zone instances.
+		dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
+			"v1alpha1", "zones", namespace, restClientConfig, false)
+		if err != nil {
+			startErr = logger.LogNewErrorf(log, "failed to create dynamic informer for Zones CR. Error: %+v", err)
+			return
+		}
+		zoneInformer = dynInformer.Informer()
 
-	// Create an informer for Zone instances.
-	dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
-		"v1alpha1", "zones", namespace, restClientConfig, false)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create dynamic informer for Zones CR. Error: %+v", err)
-	}
-	zoneInformer = dynInformer.Informer()
-
-	// Start informer.
-	go func() {
-		log.Info("Informer to watch on Zones CR starting..")
-		zoneInformer.Run(make(chan struct{}))
-	}()
-	return nil
+		// Start informer in goroutine
+		go func() {
+			log.Info("Informer to watch on Zones CR starting..")
+			zoneInformer.Run(make(chan struct{}))
+		}()
+		// Wait for informer cache to sync
+		if !cache.WaitForCacheSync(ctx.Done(), zoneInformer.HasSynced) {
+			startErr = logger.LogNewErrorf(log, "Zone informer cache sync failed")
+			return
+		}
+	})
+	return startErr
 }
 
 // GetZonesForNamespace fetches the zones associated with a namespace.

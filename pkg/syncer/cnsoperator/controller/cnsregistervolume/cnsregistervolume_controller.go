@@ -101,7 +101,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			var err error
-			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+			clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
 			if err != nil {
 				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err
@@ -123,6 +123,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 					log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
 					return nil
 				}
+			}
+		}
+		if isMultipleClustersPerVsphereZoneEnabled {
+			err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, nil, metav1.NamespaceAll)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
 			}
 		}
 	}
