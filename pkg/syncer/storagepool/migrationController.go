@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -26,10 +27,11 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -56,19 +58,22 @@ func initMigrationController(vc *cnsvsphere.VirtualCenter, clusterIDs []string) 
 
 func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID string, targetSPName string) error {
 	log := logger.GetLogger(ctx)
-	k8sDynamicClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return err
 	}
-	sp, err := k8sDynamicClient.Resource(*spResource).Get(ctx, targetSPName, metav1.GetOptions{})
+
+	sp := &v1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: targetSPName}, sp)
 	if err != nil {
-		return fmt.Errorf("failed to get StoragePool object with name %v", targetSPName)
+		return errors.New("failed to get StoragePool object with name " + targetSPName)
 	}
 
-	datastoreURL, found, err := unstructured.NestedString(sp.Object, "spec", "parameters", "datastoreUrl")
-	if !found || err != nil {
-		return fmt.Errorf("failed to find datastoreUrl in StoragePool %s", targetSPName)
+	datastoreURL, found := sp.Spec.Parameters["datastoreUrl"]
+	if !found {
+		return errors.New("failed to find datastoreUrl in StoragePool " + targetSPName)
 	}
+
 	dsInfo, err := cnsvsphere.GetDatastoreInfoByURL(ctx, m.vc, m.clusterIDs, datastoreURL)
 	if err != nil {
 		return fmt.Errorf("failed to get datastore corresponding to URL %v", datastoreURL)
@@ -123,53 +128,58 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 }
 
 func (m *migrationController) migrateVolume(ctx context.Context,
-	pvc *unstructured.Unstructured) (done bool, err error) {
+	pvc v1.PersistentVolumeClaim) (done bool, err error) {
 	log := logger.GetLogger(ctx)
 	pvcName := pvc.GetName()
 	pvcNamespace := pvc.GetNamespace()
 
 	defer func() {
-		_, err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
+		err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
 		if err != nil {
 			log.Errorf("Failed to remove target SP annotation from PVC %v. Error: %v", pvcName, err)
 		}
 	}()
 
-	pvResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
-	k8sDynamicClient, spResource, err := getSPClient(ctx)
+	k8sClient, err := getK8sClient(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	pvName, found, err := unstructured.NestedString(pvc.Object, "spec", "volumeName")
-	if !found || err != nil {
-		return false, fmt.Errorf(
-			"could not get PV name bounded to PVC %v. PV info present in pvc resource: %v. Error: %v",
-			pvcName, found, err)
+	pvName := pvc.Spec.VolumeName
+	if pvName == "" {
+		return false, errors.New(
+			"could not find PV from the spec for PVC " + pvcName + " in namespace " + pvc.Namespace)
 	}
-	pv, err := k8sDynamicClient.Resource(pvResource).Get(ctx, pvName, metav1.GetOptions{})
+
+	pv := &v1.PersistentVolume{}
+	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: pvName}, pv)
 	if err != nil {
-		log.Errorf("Failed to get PV resource with name %v. Err: %v", pvName, err)
+		log.Errorf("Failed to get PV resource with name %s. Err: %s", pvName, err)
 		return false, err
 	}
 
-	volumeID, found, err := unstructured.NestedString(pv.Object, "spec", "csi", "volumeHandle")
-	if !found || err != nil {
-		return false, fmt.Errorf(
-			"failed to get volumeID corresponding to pv %v. VolumeID info present in spec: %v. Error: %v",
-			pvName, found, err)
+	var volumeID string
+	if pv.Spec.CSI != nil {
+		volumeID = pv.Spec.CSI.VolumeHandle
 	}
-	targetSPName, found, err := unstructured.NestedString(pvc.Object, "metadata", "annotations", targetSPAnnotationKey)
-	if !found || err != nil {
+	if volumeID == "" {
+		return false, errors.New("failed to get volumeID corresponding to pv " + pvName)
+	}
+
+	targetSPName, found := pvc.ObjectMeta.Annotations[targetSPAnnotationKey]
+	if !found {
 		return false, fmt.Errorf(
 			"failed to get target StoragePool of PVC %v. target SP name present in annotations: %v. Error: %v",
 			pvcName, found, err)
 	}
-	targetSP, err := k8sDynamicClient.Resource(*spResource).Get(ctx, targetSPName, metav1.GetOptions{})
+
+	targetSP := &v1alpha1.StoragePool{}
+	err = k8sClient.Get(ctx, k8stypes.NamespacedName{Name: targetSPName}, targetSP)
 	if err != nil {
-		log.Errorf("Failed to get target StoragePool resource %v. Err: %v", targetSPName, err)
+		log.Errorf("Failed to get target StoragePool resource %s. Err: %s", targetSPName, err)
 		return false, err
 	}
+
 	log.Debugf("Migrating volume %v to SP %v", volumeID, targetSP.GetName())
 
 	// Retry the relocateCNSVolume() if we face connectivity issues with VC.
@@ -206,18 +216,18 @@ func (m *migrationController) migrateVolume(ctx context.Context,
 // is updated on PVC to reflect new StoragePool targetSPAnnotationKey annotation
 // is removed from PVC for both successful and unsuccessful migrations.
 func (m *migrationController) MigrateVolumes(ctx context.Context,
-	pvcList []*unstructured.Unstructured, abortOnFirstFailure bool) (
-	successfulMigrations []*unstructured.Unstructured, unsuccessfulMigrations []*unstructured.Unstructured) {
+	pvcList []v1.PersistentVolumeClaim, abortOnFirstFailure bool) (
+	successfulMigrations []v1.PersistentVolumeClaim, unsuccessfulMigrations []v1.PersistentVolumeClaim) {
 	log := logger.GetLogger(ctx)
 	shouldAbort := false
-	successfulMigrations = make([]*unstructured.Unstructured, 0)
-	unsuccessfulMigrations = make([]*unstructured.Unstructured, 0)
+	successfulMigrations = make([]v1.PersistentVolumeClaim, 0)
+	unsuccessfulMigrations = make([]v1.PersistentVolumeClaim, 0)
 	for _, pvc := range pvcList {
 		pvcName := pvc.GetName()
 		pvcNamespace := pvc.GetNamespace()
 		if shouldAbort {
 			log.Infof("Migration for PVC %v has been aborted.", pvcName)
-			_, err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
+			err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
 			if err != nil {
 				log.Errorf("Failed to remove target SP annotation from PVC %v. Error: %v", pvcName, err)
 			}
@@ -225,18 +235,16 @@ func (m *migrationController) MigrateVolumes(ctx context.Context,
 			continue
 		}
 
-		// Check if disk decomm. of source StoragePool has been aborted/ terminated.
-		sourceSPName, found, err := unstructured.NestedString(pvc.Object, "metadata", "annotations",
-			k8scloudoperator.StoragePoolAnnotationKey)
-		if !found || err != nil || sourceSPName == "" {
+		sourceSPName, found := pvc.ObjectMeta.Annotations[k8scloudoperator.StoragePoolAnnotationKey]
+		if !found {
 			// Log the error and assume that source SP is under disk decommission.
-			log.Warnf("Could not get source StoragePool name for PVC %v. Error: %v", pvcName, err)
+			log.Warn("Could not get source StoragePool name for PVC " + pvcName)
 		} else {
 			drainMode, found, err := getDrainMode(ctx, sourceSPName)
 			if (!found || (drainMode != fullDataEvacuationMM && drainMode != ensureAccessibilityMM)) && err == nil {
 				log.Infof("Disk decommission of StoragePool %v has been aborted/ terminated. Aborting migration of %v",
 					sourceSPName, pvcName)
-				_, err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
+				err := removeTargetSPAnnotationOnPVC(ctx, pvcName, pvcNamespace)
 				if err != nil {
 					log.Errorf("Failed to remove target SP annotation from PVC %v. Error: %v", pvcName, err)
 				}
@@ -298,7 +306,7 @@ func updateSourceSPAnnotationOnPVC(ctx context.Context, pvcName, pvcNamespace, n
 }
 
 func removeTargetSPAnnotationOnPVC(ctx context.Context,
-	pvcName, pvcNamespace string) (*unstructured.Unstructured, error) {
+	pvcName, pvcNamespace string) error {
 	log := logger.GetLogger(ctx)
 	patch := map[string]interface{}{
 		"metadata": map[string]interface{}{
@@ -309,21 +317,21 @@ func removeTargetSPAnnotationOnPVC(ctx context.Context,
 	}
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	pvcResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
 	k8sDynamicClient, _, err := getSPClient(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	updatedPVC, err := k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx,
+	_, err = k8sDynamicClient.Resource(pvcResource).Namespace(pvcNamespace).Patch(ctx,
 		pvcName, k8stypes.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	log.Debugf("Successfully removed target StoragePool information from %v. Updated PVC: %v",
-		pvcName, updatedPVC.GetName())
-	return updatedPVC, nil
+
+	log.Debugf("Successfully removed target StoragePool information from " + pvcName)
+	return nil
 }

@@ -25,11 +25,8 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 var (
@@ -293,14 +290,11 @@ func deleteStoragePools(ctx context.Context, validStoragePoolNames map[string]bo
 	for _, sp := range splist.Items {
 		spName := sp.GetName()
 		if _, valid := validStoragePoolNames[spName]; !valid {
-			driver, found, err := unstructured.NestedString(sp.Object, "spec", "driver")
-			if found && err == nil && driver == csitypes.Name {
-				log.Infof("Deleting StoragePool %s", spName)
-				err := spClient.Resource(*spResource).Delete(ctx, spName, *metav1.NewDeleteOptions(0))
-				if err != nil {
-					log.Errorf("Error deleting StoragePool %s. Err: %v", spName, err)
-				}
+			err = deleteStoragePool(ctx, spName)
+			if err != nil {
+				log.Warnf("Error deleting StoragePool %s. Err: %s", spName, err)
 			}
+
 			// Also delete entry from intendedStateMap.
 			spCtl.deleteIntendedState(ctx, spName)
 		}
