@@ -257,7 +257,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			configInfo.Cfg.Global.CAFile = cnsconfig.SupervisorCAFilePath
 		}
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+			clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
 			if err != nil {
 				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 				return err

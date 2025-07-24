@@ -50,6 +50,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
@@ -122,6 +123,8 @@ var (
 	csiNodeTopologyInformer *cache.SharedIndexInformer
 	// zoneInformer is an informer watching the namespaced zone instances in supervisor cluster.
 	zoneInformer cache.SharedIndexInformer
+	// startZoneInformerOnce ensures zone informer is started only once
+	startZoneInformerOnce sync.Once
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -1792,25 +1795,64 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 	return sharedDatastoresForclusterMorefs, nil
 }
 
-// StartZonesInformer listens on changes to Zone instances.
-func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context,
-	restClientConfig *restclient.Config, namespace string) error {
+// StartZonesInformer watches on changes to Zone instances.
+func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config,
+	namespace string) error {
+
 	log := logger.GetLogger(ctx)
+	var initErr error
+	var stopCh chan struct{}
 
-	// Create an informer for Zone instances.
-	dynInformer, err := k8s.GetDynamicInformer(ctx, "topology.tanzu.vmware.com",
-		"v1alpha1", "zones", namespace, restClientConfig, false)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create dynamic informer for Zones CR. Error: %+v", err)
+	// Internal reset function - closes stopCh and resets globals
+	resetForRetry := func() {
+		if stopCh != nil {
+			close(stopCh)
+			stopCh = nil
+		}
+		zoneInformer = nil
+		startZoneInformerOnce = sync.Once{}
 	}
-	zoneInformer = dynInformer.Informer()
 
-	// Start informer.
-	go func() {
-		log.Info("Informer to watch on Zones CR starting..")
-		zoneInformer.Run(make(chan struct{}))
-	}()
-	return nil
+	// Internal initialization function
+	startInternal := func() error {
+		if restClientConfig == nil {
+			cfg, err := clientconfig.GetConfig()
+			if err != nil {
+				return logger.LogNewErrorf(log,
+					"failed to get restClientConfig. Error: %+v", err)
+			}
+			restClientConfig = cfg
+		}
+
+		dynInformer, err := k8s.GetDynamicInformer(ctx,
+			"topology.tanzu.vmware.com", "v1alpha1", "zones",
+			namespace, restClientConfig, false)
+		if err != nil {
+			return logger.LogNewErrorf(log,
+				"failed to create dynamic informer for Zones CR. Error: %+v", err)
+		}
+		zoneInformer = dynInformer.Informer()
+
+		stopCh = make(chan struct{})
+		go func() {
+			log.Info("Informer to watch on Zones CR starting..")
+			zoneInformer.Run(stopCh)
+		}()
+
+		if !cache.WaitForCacheSync(ctx.Done(), zoneInformer.HasSynced) {
+			return logger.LogNewErrorf(log, "Zone informer cache sync failed")
+		}
+		return nil
+	}
+
+	// Execute initialization only once
+	startZoneInformerOnce.Do(func() {
+		initErr = startInternal()
+		if initErr != nil {
+			resetForRetry()
+		}
+	})
+	return initErr
 }
 
 // GetZonesForNamespace fetches the zones associated with a namespace.

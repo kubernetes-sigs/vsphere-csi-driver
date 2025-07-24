@@ -22,6 +22,16 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/onsi/gomega"
+	"k8s.io/client-go/dynamic"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
@@ -535,4 +545,80 @@ func TestParseCSISnapshotID(t *testing.T) {
 			assert.Equal(t, tt.expectedCnsSnapshotID, actualCnsSnapshotID)
 		})
 	}
+}
+
+func TestGetClusterComputeResourceMoIds_MultipleClustersPerAZ(t *testing.T) {
+	gomega.RegisterTestingT(t)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	az1 := &unstructured.Unstructured{}
+	az1.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "topology.tanzu.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "AvailabilityZone",
+	})
+	az1.SetName("zone-a")
+	_ = unstructured.SetNestedStringSlice(az1.Object, []string{"domain-c1", "domain-c2"},
+		"spec", "clusterComputeResourceMoIDs")
+
+	az2 := &unstructured.Unstructured{}
+	az2.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "topology.tanzu.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "AvailabilityZone",
+	})
+	az2.SetName("zone-b")
+	_ = unstructured.SetNestedStringSlice(az2.Object, []string{"domain-c3"}, "spec", "clusterComputeResourceMoIDs")
+
+	fakeClient := fake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
+	patches.ApplyFuncVar(&getAvailabilityZoneClient, func() (dynamic.Interface, error) {
+		return fakeClient, nil
+	})
+
+	// Patch newDynamicClientForConfig alias to return the fake client
+	patches.ApplyFunc(dynamic.NewForConfig, func(cfg *rest.Config) (dynamic.Interface, error) {
+		return fakeClient, nil
+	})
+
+	moIDs, multiple, err := GetClusterComputeResourceMoIds(context.Background())
+
+	gomega.Expect(err).To(gomega.BeNil())
+	gomega.Expect(multiple).To(gomega.BeTrue())
+	gomega.Expect(moIDs).To(gomega.ContainElements("domain-c1", "domain-c2", "domain-c3"))
+}
+
+func TestGetClusterComputeResourceMoIds_SingleClusterPerAZ(t *testing.T) {
+	gomega.RegisterTestingT(t)
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	az1 := &unstructured.Unstructured{}
+	az1.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "topology.tanzu.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "AvailabilityZone",
+	})
+	az1.SetName("zone-a")
+	_ = unstructured.SetNestedStringSlice(az1.Object, []string{"domain-c1"}, "spec", "clusterComputeResourceMoIDs")
+
+	az2 := &unstructured.Unstructured{}
+	az2.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "topology.tanzu.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "AvailabilityZone",
+	})
+	az2.SetName("zone-b")
+	_ = unstructured.SetNestedStringSlice(az2.Object, []string{"domain-c2"}, "spec", "clusterComputeResourceMoIDs")
+
+	fakeClient := fake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
+	patches.ApplyFuncVar(&getAvailabilityZoneClient, func() (dynamic.Interface, error) {
+		return fakeClient, nil
+	})
+
+	moIDs, multiple, err := GetClusterComputeResourceMoIds(context.Background())
+	gomega.Expect(err).To(gomega.BeNil())
+	gomega.Expect(multiple).To(gomega.BeFalse())
+	gomega.Expect(moIDs).To(gomega.ContainElements("domain-c1", "domain-c2"))
 }

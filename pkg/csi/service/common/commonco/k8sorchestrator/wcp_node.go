@@ -36,7 +36,7 @@ var clusterComputeResourceMoIds []string
 func (c *K8sOrchestrator) InitializeCSINodes(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err error
-	clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+	clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get clusterComputeResourceMoIds. Error: %v", err)
 	}
