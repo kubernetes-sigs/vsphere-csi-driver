@@ -91,6 +91,11 @@ func CreateBlockVolumeUtil(
 		}
 	}
 
+	username, err := vc.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
 	if opts.FilterSuspendedDatastores {
 		sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
 		if err != nil {
@@ -401,10 +406,15 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{})
 		datastores = append(datastores, ds.Reference())
 	}
 
+	username, err := params.Vcenter.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := params.CNSConfig.Global.ClusterID
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		params.CNSConfig.VirtualCenter[params.Vcenter.Config.Host].User, params.ClusterFlavor,
+		username, params.ClusterFlavor,
 		params.CNSConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -563,9 +573,14 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	if useSupervisorId {
 		clusterID = cnsConfig.Global.SupervisorID
 	}
+
+	username, err := vc.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		cnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		username, clusterFlavor,
 		cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
