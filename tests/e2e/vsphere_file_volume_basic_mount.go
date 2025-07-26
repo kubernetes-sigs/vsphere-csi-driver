@@ -312,7 +312,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			nil, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -445,7 +445,7 @@ func invokeTestForCreateFileVolumeAndMount(f *framework.Framework, client client
 	var storageclass *storagev1.StorageClass
 	var pvclaim *v1.PersistentVolumeClaim
 	var err error
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {

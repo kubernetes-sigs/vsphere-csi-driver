@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -298,7 +298,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -362,7 +362,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -565,7 +565,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -700,7 +700,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -767,7 +767,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -899,7 +899,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -966,7 +966,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1099,7 +1099,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)
@@ -1163,7 +1163,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 
 		// Create SC with WFC BindingMode
 		ginkgo.By("Creating Storage Class with WFC Binding Mode and allowed topolgies of 5 levels")
-		storageclass, err := createStorageClass(client, nil, allowedTopologyForSC, "",
+		storageclass, err := createStorageClass(client, nil, nil, allowedTopologyForSC, "",
 			bindingMode, false, "nginx-sc")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1336,7 +1336,7 @@ var _ = ginkgo.Describe("[topology-sitedown] Topology-SiteDown", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, pod.Name)

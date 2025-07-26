@@ -44,11 +44,23 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		storagePolicyName string
 		scParameters      map[string]string
 		isVcRebooted      bool
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -111,7 +123,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		// decide which test setup is available to run
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for Vanilla setup")
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, nil, "", nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
@@ -119,7 +131,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
 		} else if stretchedSVC {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
@@ -131,24 +143,24 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if !supervisorCluster || !stretchedSVC {
+			if vanillaCluster || guestCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvc, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, adminClient, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		defer func() {

@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 			volhandles := []string{}
 			for _, vol := range pod.Spec.Volumes {
 				if vol.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, namespace, vol.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, client, namespace, vol.PersistentVolumeClaim.ClaimName)
 					volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
 				}
 			}
@@ -555,7 +555,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		)
 
 		ginkgo.By("Delete pods")
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsToDelete, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsToDelete, true)
 		podsToDelete = []*v1.Pod{}
 
 		volIdsToWaitForDeletion := fetchCnsVolID4VcpPvcs(
@@ -564,7 +564,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		vmdkToWaitForDeletion := []string{}
 		ginkgo.By("Delete namespace created for test14")
 		for _, pvc := range pvcs14 {
-			pv := getPvFromClaim(client, ns.Name, pvc.Name)
+			pv := getPvFromClaim(client, nil, ns.Name, pvc.Name)
 			vmdkToWaitForDeletion = append(vmdkToWaitForDeletion, pv.Spec.VsphereVolume.VolumePath)
 		}
 		err = client.CoreV1().Namespaces().Delete(ctx, ns.Name, *metav1.NewDeleteOptions(0))
@@ -572,7 +572,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 
 		ginkgo.By("Delete pvcs")
 		for _, pvc := range append(vcpPvcsPreMig, vcpPvcsPostMig...) {
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			framework.Logf("Deleting PVC %v", pvc.Name)
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -619,12 +619,12 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		podsToDelete = createMultiplePods(ctx, client, pvclaims2d, false)
 
 		ginkgo.By("Deleting pods created post reset")
-		deletePodsAndWaitForVolsToDetach(ctx, client, podsToDelete, false)
+		deletePodsAndWaitForVolsToDetach(ctx, client, nil, podsToDelete, false)
 		podsToDelete = []*v1.Pod{}
 
 		ginkgo.By("Delete VCP PVCs post reset")
 		for _, pvc := range []*v1.PersistentVolumeClaim{pvc20reset, pvc19, pvc20} {
-			pv := getPvFromClaim(client, namespace, pvc.Name)
+			pv := getPvFromClaim(client, nil, namespace, pvc.Name)
 			vmdkToWaitForDeletion = append(vmdkToWaitForDeletion, pv.Spec.VsphereVolume.VolumePath)
 			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1107,9 +1107,9 @@ func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods
 				)
 			}
 			var volHandle string
-			volHandle = getVolHandle4Pvc(ctx, client, pvc)
+			volHandle = getVolHandle4Pvc(ctx, client, nil, pvc)
 			if guestCluster {
-				pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+				pv := getPvFromClaim(client, nil, pvc.Namespace, pvc.Name)
 				volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
 				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 			}
@@ -1126,15 +1126,18 @@ func verifyVolMountsInPods(ctx context.Context, client clientset.Interface, pods
 }
 
 // getVolHandle4Pv fetches volume handle for given PVC
-func getVolHandle4Pvc(ctx context.Context, client clientset.Interface, pvc *v1.PersistentVolumeClaim) string {
-	pv := getPvFromClaim(client, pvc.Namespace, pvc.Name)
+func getVolHandle4Pvc(ctx context.Context, client clientset.Interface, adminClient clientset.Interface, pvc *v1.PersistentVolumeClaim) string {
+	pv := getPvFromClaim(client, adminClient, pvc.Namespace, pvc.Name)
 	return getVolHandle4Pv(ctx, client, pv)
 }
 
 // deletePodsAndWaitForVolsToDetach Delete given pod and wait for its volumes to detach
 func deletePodsAndWaitForVolsToDetach(
-	ctx context.Context, client clientset.Interface, pods []*v1.Pod, verifyDetachment bool,
+	ctx context.Context, client clientset.Interface, adminClient clientset.Interface, pods []*v1.Pod, verifyDetachment bool,
 ) {
+	if !supervisorCluster || adminClient == nil {
+		adminClient = client
+	}
 	volhandles2d := [][]string{}
 	if verifyDetachment {
 		for _, pod := range pods {
@@ -1152,7 +1155,7 @@ func deletePodsAndWaitForVolsToDetach(
 				if strings.Contains(vol.Name, "token") {
 					continue
 				}
-				pv := getPvFromClaim(client, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, adminClient, pod.Namespace, vol.PersistentVolumeClaim.ClaimName)
 				volhandles = append(volhandles, getVolHandle4Pv(ctx, client, pv))
 			}
 			volhandles2d = append(volhandles2d, volhandles)

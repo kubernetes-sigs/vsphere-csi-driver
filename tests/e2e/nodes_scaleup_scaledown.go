@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 
 						isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
 							client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					_, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					ginkgo.By("After scale up, verify the attached volumes match those in CNS Cache")

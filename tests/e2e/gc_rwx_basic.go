@@ -44,6 +44,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		namespace         string
 		scParameters      map[string]string
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -52,6 +53,17 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		bootstrap()
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -92,7 +104,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -102,8 +114,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
+			adminClient, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -199,7 +211,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -209,8 +221,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
+			adminClient, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
@@ -346,7 +358,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -356,7 +368,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Basic File Volume Provision Test", ginkgo
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 

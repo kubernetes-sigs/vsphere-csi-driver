@@ -76,7 +76,7 @@ func createStorageClassWithMultiplePVCs(client clientset.Interface, namespace st
 		if len(storageClassName) > 0 {
 			scName = storageClassName
 		}
-		sc, err = createStorageClass(client, scParameters,
+		sc, err = createStorageClass(client, nil, scParameters,
 			allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
 		if err != nil {
 			return sc, nil, err
@@ -562,7 +562,7 @@ func verifyStandalonePodAffinity(ctx context.Context, client clientset.Interface
 	for _, volumespec := range pod.Spec.Volumes {
 		if volumespec.PersistentVolumeClaim != nil {
 			// get pv details
-			pv := getPvFromClaim(client, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+			pv := getPvFromClaim(client, nil, pod.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 			if pv == nil {
 				return fmt.Errorf("failed to get PV for claim: %s", volumespec.PersistentVolumeClaim.ClaimName)
 			}
@@ -609,7 +609,7 @@ func volumePlacementVerificationForSts(ctx context.Context, client clientset.Int
 
 		for _, volumespec := range sspod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				if !multivc {
 					isCorrectPlacement = e2eVSphere.verifyPreferredDatastoreMatch(pv.Spec.CSI.VolumeHandle,
 						datastoreUrls)

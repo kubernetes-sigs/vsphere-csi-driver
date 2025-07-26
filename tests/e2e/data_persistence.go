@@ -68,6 +68,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		storagePolicyName string
 		svcPVCName        string // PVC Name in the Supervisor Cluster.
 		datastoreURL      string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, nil, "", nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
@@ -137,12 +138,12 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 			scParameters[scParamStoragePolicyID] = profileID
 			// Create resource quota.
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "",
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "",
 				storagePolicyName)
 		} else {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -154,7 +155,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -314,7 +315,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		ginkgo.By("Creating Storage Class with XFS as fstype and PVC")
 		scParameters[scParamFsType] = xfsFSType
-		sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -322,7 +323,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -488,7 +489,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, nil, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")

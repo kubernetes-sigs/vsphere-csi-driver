@@ -39,6 +39,7 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 		namespace         string
 		scParameters      map[string]string
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -46,6 +47,17 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 		namespace = getNamespaceToRunTests(f)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -95,7 +107,7 @@ var _ = ginkgo.Describe("[csi-guest] File Share on Non File Service enabled setu
 		scParameters[svStorageClassName] = storagePolicyName
 
 		ginkgo.By("Creating a Storage class and PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

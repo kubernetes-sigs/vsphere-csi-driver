@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace,
 			nil, nil, "", allowedTopologies, bindingMode, false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
-		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv = getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 		vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)

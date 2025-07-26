@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("[file-vanilla-snapshot] Volume Snapshot file volume Tes
 
 		// Check if it is file volumes setups
 		if rwxAccessMode {
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

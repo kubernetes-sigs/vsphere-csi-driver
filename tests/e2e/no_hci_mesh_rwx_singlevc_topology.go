@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with allowed "+
 			"topolgies specified "+
 			"and tagged with non-compatible shared datastore", accessmode, nfs4FSType))
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, labelsMap, scParameters,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, labelsMap, scParameters,
 			diskSize, allowedTopologyForSC,
 			bindingModeImm, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -922,7 +922,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with invalid "+
 			"allowed topolgies specified", accessmode, nfs4FSType))
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, labelsMap, scParameters, "",
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, labelsMap, scParameters, "",
 			allowedTopologyForSC, "", false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1235,7 +1235,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q and set allowVolumeExpansion "+
 			"to true with all allowed topolgies specified", accessmode, nfs4FSType))
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, labelsMap, scParameters,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, labelsMap, scParameters,
 			diskSize, allowedTopologyForSC, bindingModeImm, true, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1270,7 +1270,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 		}
 
 		ginkgo.By("Verify if controller resize failed")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, pollTimeoutShort)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, nil, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Volume expansion should fail for file volume")
@@ -1307,7 +1307,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with no allowed "+
 			"topolgies specified", accessmode, nfs4FSType))
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, labelsMap, scParameters,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, labelsMap, scParameters,
 			diskSize, nil, bindingModeImm, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1378,7 +1378,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		ginkgo.By(fmt.Sprintf("Creating Storage Class with access mode %q and fstype %q with no "+
 			"allowed topolgies specified", accessmode, nfs4FSType))
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, labelsMap, scParameters,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil, namespace, labelsMap, scParameters,
 			diskSize, allowedTopologyForSC, bindingModeImm, false, accessmode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -1468,7 +1468,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 
 		defer func() {
 			for i := 0; i < len(pvclaims); i++ {
-				pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+				pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 				err = fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[i].Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
@@ -1484,7 +1484,7 @@ var _ = ginkgo.Describe("[rwx-nohci-singlevc-positive] RWX-Topology-NoHciMesh-Si
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			depl = append(depl, deploymentList...)
 
-			pv := getPvFromClaim(client, pvclaims[i].Namespace, pvclaims[i].Name)
+			pv := getPvFromClaim(client, nil, pvclaims[i].Namespace, pvclaims[i].Name)
 
 			ginkgo.By("Verify volume metadata for deployment pod, pvc and pv")
 			err = waitAndVerifyCnsVolumeMetadata(ctx, pv.Spec.CSI.VolumeHandle, pvclaims[i], pv, &pods.Items[0])

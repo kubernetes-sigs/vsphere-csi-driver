@@ -44,6 +44,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		volHealthCheck    bool
 		isSTSDeleted      bool
 		isServiceDeleted  bool
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -53,6 +54,17 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		isSTSDeleted = false
 		isServiceDeleted = false
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -72,7 +84,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer cancel()
 		if !isSTSDeleted {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}
 		if !isServiceDeleted {
 			ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -150,7 +162,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(ctx, client, namespace)
+				deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 				isSTSDeleted = true
 			}
 		}()
@@ -173,7 +185,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 						volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
@@ -271,7 +283,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -307,7 +319,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		}
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
@@ -396,7 +408,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		defer func() {
 			if !isSTSDeleted {
 				ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-				fss.DeleteAllStatefulSets(ctx, client, namespace)
+				deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 				isSTSDeleted = true
 			}
 		}()
@@ -418,7 +430,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 						volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
@@ -516,7 +528,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(client, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(client, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 
 					pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -552,7 +564,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] TKG RWX for STS with GC worker nodes scal
 		}
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		isSTSDeleted = true
 
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))

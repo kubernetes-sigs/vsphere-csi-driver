@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		datacenters         []string
 		defaultDatacenter   *object.Datacenter
 		datastoreURL        string
+		adminClient         clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -68,13 +69,29 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 
 		bootstrap()
 		client = f.ClientSet
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		namespace = getNamespaceToRunTests(f)
 
 		// parameters set for storage policy
 		scParameters = make(map[string]string)
 
 		// fetching node list and checking node status
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -155,7 +172,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		defer cancel()
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -205,11 +222,11 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		scParameters[svStorageClassName] = zonalPolicy
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, zonalPolicy)
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, zonalPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, pvs, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := pvs[0].Spec.CSI.VolumeHandle
@@ -284,7 +301,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		err = verifyPVnodeAffinityAndPODnodedetailsForStandalonePodLevel5(ctx, client, pod, allowedTopologies)
 
 		ginkgo.By("Restore snapshot to create a new volume")
-		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, adminClient, namespace, storageclass,
 			volumeSnapshot, diskSize, true)
 		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
 		defer func() {
@@ -348,7 +365,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		scParameters[svStorageClassName] = zonalWffcPolicy
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, zonalWffcPolicy)
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, zonalWffcPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
@@ -470,7 +487,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		scParameters[svStorageClassName] = zonalPolicy
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, zonalPolicy)
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, zonalPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -488,7 +505,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			int32(stsReplicas), true, allowedTopologies, true, true,
 			zonalPolicy, "", storageclass, zonalPolicy)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 		}()
 
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -509,7 +526,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			pvc1.ClaimName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv1 := getPvFromClaim(client, statefulset.Namespace, pvc1.ClaimName)
+		pv1 := getPvFromClaim(client, adminClient, statefulset.Namespace, pvc1.ClaimName)
 		volHandle1 := pv1.Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle1).NotTo(gomega.BeEmpty())
 
@@ -544,7 +561,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			v1.ReadWriteOnce, volumeSnapshot1.Name, snapshotapigroup)
 		restoreVol1, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		restorepv1, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		restorepv1, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{restoreVol1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		restoreVolHandle1 := restorepv1[0].Spec.CSI.VolumeHandle
@@ -605,11 +622,11 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		scParameters[svStorageClassName] = zonalPolicy
 
 		ginkgo.By("Create storage class")
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, zonalPolicy)
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, zonalPolicy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create PVC")
-		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
+		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, adminClient, namespace, labelsMap, "",
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
@@ -639,7 +656,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		}
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for conditions on pvc")
@@ -767,7 +784,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		}
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for conditions on pvc")
@@ -857,7 +874,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		pvcName := "cns-pvc-" + curtimestring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, zonalPolicy)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, zonalPolicy)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring,
@@ -880,7 +897,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		volHandle := pv.Spec.CSI.VolumeHandle
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 

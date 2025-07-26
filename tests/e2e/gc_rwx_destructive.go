@@ -47,6 +47,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		isTKGDeleted        bool
 		missingPodAndVolume map[string]string
 		labels_ns           map[string]string
+	//	adminClient         clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -60,6 +61,13 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
+		var err error
+		/*if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}*/
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -206,7 +214,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvclaim, err := clientNewGc.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
 						volumespec.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
@@ -289,7 +297,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
 					gomega.Expect(pvcNameInSV).NotTo(gomega.BeEmpty())
@@ -340,7 +348,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					persistentvolume := getPvFromClaim(clientNewGc, statefulset.Namespace,
+					persistentvolume := getPvFromClaim(clientNewGc, nil, statefulset.Namespace,
 						volumespec.PersistentVolumeClaim.ClaimName)
 					pvcNameInSV := persistentvolume.Spec.CSI.VolumeHandle
 					gomega.Expect(pvcNameInSV).NotTo(gomega.BeEmpty())
@@ -355,7 +363,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 
 		//Test for the deployment
 		ginkgo.By("Creating a PVC for Deployment test")
-		storageclasspvc, pvclaim, err := createPVCAndStorageClass(ctx, clientNewGc,
+		storageclasspvc, pvclaim, err := createPVCAndStorageClass(ctx, clientNewGc, nil,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

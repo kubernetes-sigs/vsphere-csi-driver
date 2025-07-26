@@ -680,7 +680,7 @@ func createPreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnaps
 // verifyVolumeRestoreOperation verifies if volume(PVC) restore from given snapshot
 // and creates pod and checks attach volume operation if verifyPodCreation is set to true
 func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interface,
-	namespace string, storageclass *storagev1.StorageClass,
+	adminClient clientset.Interface, namespace string, storageclass *storagev1.StorageClass,
 	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
 	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
 
@@ -691,7 +691,7 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 	pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+	persistentvolumes2, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
@@ -759,11 +759,14 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 
 // createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
 // and verifies cns metadata of that volume if verifyCNSVolume is set to true
-func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface, namespace string,
-	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface, adminClient clientset.Interface,
+	namespace string, pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
 	ds string, storageclass *storagev1.StorageClass,
 	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, error) {
 
+	if vanillaCluster || adminClient == nil {
+		adminClient = client
+	}
 	// Create PVC
 	pvclaim, err := createPVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
 	if err != nil {
@@ -771,7 +774,7 @@ func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interfac
 	}
 
 	// Wait for PVC to be bound to a PV
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+	persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
 	if err != nil {
 		return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)

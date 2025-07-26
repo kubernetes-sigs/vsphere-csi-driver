@@ -25,6 +25,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		cancel               context.CancelFunc
 		nimbusGeneratedVcPwd string
 		clientIndex          int
+		adminClient          clientset.Interface
 	)
 	const (
 		configSecret = "vsphere-config-secret"
@@ -35,7 +36,23 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		namespace = getNamespaceToRunTests(f)
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -76,12 +93,12 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 		createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		// Create Storage class and PVC
 		ginkgo.By("Creating Storage Class and PVC")
-		_, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		_, pvc, err := createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 			scParameters, "", nil, "", true, "", storagePolicyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())

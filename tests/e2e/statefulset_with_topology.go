@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 
 		for _, volumespec := range pod.Spec.Volumes {
 			if volumespec.PersistentVolumeClaim != nil {
-				pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+				pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 				pvRegion, pvZone, err = verifyVolumeTopology(pv, zoneValues, regionValues)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ssPodsAfterDelete, err := fss.GetPodList(ctx, client, statefulset)

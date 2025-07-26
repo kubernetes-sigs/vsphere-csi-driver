@@ -47,12 +47,24 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		scParameters      map[string]string
 		storagePolicyName string
 		volHealthCheck    bool
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
 		volHealthCheck = false
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster || guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -127,7 +139,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -140,7 +152,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -399,7 +411,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteOnce)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -409,7 +421,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -519,7 +531,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		scParameters[svStorageClassName] = storagePolicyName
 		ginkgo.By("Creating a PVC")
-		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 			namespace, nil, scParameters, diskSize, nil, "", false, v1.ReadWriteMany)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -532,7 +544,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 

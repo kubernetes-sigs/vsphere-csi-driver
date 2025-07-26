@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, nil, "", allowedTopologies, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to provision volume with err: %v", err))
 
 		ginkgo.By("Verify if volume is provisioned in specified zone and region")
-		pv = getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv = getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		pvRegion, pvZone, err := verifyVolumeTopology(pv, zoneValues, regionValues)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

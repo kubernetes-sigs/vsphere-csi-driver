@@ -52,13 +52,20 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		client            clientset.Interface
 		namespace         string
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		var err error
-		if k8senvsv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senvsv != "" {
-			client, err = createKubernetesClientFromConfig(k8senvsv)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 		namespace = os.Getenv("SVC_NAMESPACE")
 
@@ -66,7 +73,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
+		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, adminClient)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -97,7 +104,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var pv *v1.PersistentVolume
 
 		ginkgo.By("Creating a PVC")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
@@ -221,7 +228,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
@@ -250,7 +257,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						volumesBeforeScaleDown = append(volumesBeforeScaleDown, volumespec.PersistentVolumeClaim.ClaimName)
 
 						if vanillaCluster {
@@ -286,7 +293,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -316,7 +323,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, volumespec.PersistentVolumeClaim.ClaimName)
 
 					var vmUUID string
@@ -458,7 +465,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					// Verify the attached volume match the one in CNS cache
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
@@ -488,7 +495,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 				gomega.Expect(apierrors.IsNotFound(err), gomega.BeTrue())
 				for _, volumespec := range sspod.Spec.Volumes {
 					if volumespec.PersistentVolumeClaim != nil {
-						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+						pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						if vanillaCluster {
 							isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(
 								client, pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName)
@@ -523,7 +530,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					err := verifyVolumeMetadataInCNS(&e2eVSphere, pv.Spec.CSI.VolumeHandle,
 						volumespec.PersistentVolumeClaim.ClaimName, pv.ObjectMeta.Name, sspod.Name)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -554,7 +561,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range pod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
 					var vmUUID string
@@ -708,7 +715,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 						ctx, pvclaimName, metav1.GetOptions{})
 					gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, adminClient, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					volumesBeforeScaleDown = append(volumesBeforeScaleDown, pvclaimName)
 
 					ginkgo.By("Expanding current pvc")
@@ -822,7 +829,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var err error
 
 		ginkgo.By("Create PVC ")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvc, err = fpv.CreatePVC(ctx, client, namespace,
@@ -944,7 +951,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var runAsUser int64
 
 		ginkgo.By("Creating a PVC")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
@@ -1034,7 +1041,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var pvclaim *v1.PersistentVolumeClaim
 
 		ginkgo.By("Creating a PVC")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
@@ -1118,7 +1125,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var err error
 
 		ginkgo.By("Creating a PVC")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,
@@ -1219,7 +1226,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 
 		// decide which test setup is available to run
 		ginkgo.By("Creating a PVC")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pvclaim, err = fpv.CreatePVC(ctx, client, namespace,

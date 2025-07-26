@@ -168,7 +168,7 @@ func invokeTestForFstype(f *framework.Framework, client clientset.Interface,
 	var err error
 
 	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 		scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
@@ -230,7 +230,7 @@ func invokeTestForInvalidFstype(f *framework.Framework, client clientset.Interfa
 	var err error
 
 	ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+	storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil,
 		scParameters, "", nil, "", false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {

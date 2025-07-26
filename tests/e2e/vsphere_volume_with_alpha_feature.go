@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamDatastoreURL] = datastoreURL
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace,
 			nil, scParameters, diskSize, nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("Alpha feature check", func() {
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
 
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace,
 			nil, scParameters, "", nil, "", false, accessMode)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {

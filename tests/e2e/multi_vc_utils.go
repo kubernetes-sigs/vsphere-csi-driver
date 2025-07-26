@@ -158,7 +158,11 @@ func setSpecificAllowedTopology(allowedTopologies []v1.TopologySelectorLabelRequ
 If we have multiple statefulsets, deployment Pods, PVCs/PVs created on a given namespace and for performing
 cleanup of these multiple sts creation, deleteAllStsAndPodsPVCsInNamespace is used
 */
-func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
+func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interface, adminClient clientset.Interface, ns string) {
+
+	if !supervisorCluster || adminClient == nil {
+		adminClient = c
+	}
 	StatefulSetPoll := 10 * time.Second
 	StatefulSetTimeout := 10 * time.Minute
 	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(),
@@ -203,7 +207,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 
 	pollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
+			pvList, err := adminClient.CoreV1().PersistentVolumes().List(context.TODO(),
 				metav1.ListOptions{LabelSelector: labels.Everything().String()})
 			if err != nil {
 				framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
@@ -468,7 +472,7 @@ func performOfflineVolumeExpansin(client clientset.Interface,
 	}
 
 	ginkgo.By("Waiting for controller volume resize to finish")
-	err = waitForPvResizeForGivenPvc(expandedPvc, client, totalResizeWaitPeriod)
+	err = waitForPvResizeForGivenPvc(expandedPvc, client, nil, totalResizeWaitPeriod)
 	if err != nil {
 		return fmt.Errorf("error waiting for controller volume resize: %v", err)
 	}

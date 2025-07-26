@@ -67,6 +67,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		restConfig                 *restclient.Config
 		isVsanHealthServiceStopped bool
 		isGCCSIDeploymentPODdown   bool
+		adminClient                clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -74,6 +75,17 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -99,7 +111,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
 
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters,
 			"", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -107,7 +119,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv = persistentvolumes[0]
 		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -279,7 +291,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for resize on SVC PV")
@@ -520,7 +532,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		svcCsiDeployment = updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for PVC request size change on SVC PVC")
@@ -659,7 +671,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for resize on SVC PV")
@@ -752,7 +764,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for PVC request size change on SVC PVC")
@@ -912,7 +924,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for resize on SVC PV")
@@ -1025,7 +1037,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for PVC request size change on SVC PVC")
@@ -1242,7 +1254,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			scParameters[scParamFsType] = ext4FSType
 		}
 		scParameters[svStorageClassName] = thickProvPolicy
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", true, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvcs []*v1.PersistentVolumeClaim
 		pvcs = append(pvcs, pvc)
@@ -1349,7 +1361,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		isGCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for GC PV resize to finish")
-		err = waitForPvResizeForGivenPvc(pvc, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvc, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 		time.Sleep(2 * time.Second)
 
@@ -1450,7 +1462,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			scParameters[scParamFsType] = ext4FSType
 		}
 		scParameters[svStorageClassName] = thickProvPolicy
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", true, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		var pvcs []*v1.PersistentVolumeClaim
 		pvcs = append(pvcs, pvc)
@@ -1707,7 +1719,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for resize on SVC PV")
@@ -1822,7 +1834,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 		ginkgo.By("Checking for resize on SVC PV")
@@ -1895,7 +1907,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -1920,7 +1932,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "5Gi",
@@ -1990,7 +2002,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -2015,7 +2027,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "1Gi",
@@ -2095,7 +2107,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -2120,7 +2132,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 
 		gcPVC, gcPV, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svpvcName, "7Gi",
@@ -2252,7 +2264,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		svcCsiDeployment = updateDeploymentReplica(svcClient, 1, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Checking for PVC request size change on SVC PVC")
@@ -2424,7 +2436,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		isGCCSIDeploymentPODdown = false
 
 		ginkgo.By("Waiting for GC PV resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))

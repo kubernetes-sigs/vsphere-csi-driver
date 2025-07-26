@@ -47,7 +47,7 @@ func createFileVolumeAndMount(f *framework.Framework, client clientset.Interface
 	const mntPath = "/mnt/volume1/"
 	// Create Storage class and PVC.
 	ginkgo.By("Creating Storage Class")
-	storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+	storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 		namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {

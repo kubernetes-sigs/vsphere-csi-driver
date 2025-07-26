@@ -65,6 +65,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
 		nodeList                   *v1.NodeList
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -72,6 +73,17 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 		defer cancel()
 		client = f.ClientSet
 		var err error
+
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
@@ -177,7 +189,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -250,7 +262,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			for _, vm := range vms {
@@ -306,7 +318,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -379,7 +391,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			for _, vm := range vms {
@@ -434,7 +446,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -512,7 +524,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
@@ -569,7 +581,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -649,7 +661,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify all the VMservice vms created before " +
@@ -704,7 +716,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, 10, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -762,7 +774,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creates a loadbalancing service for ssh with each VM" +
@@ -839,7 +851,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -936,7 +948,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, sc, pvcCount, nil)
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			defer func() {
@@ -1005,7 +1017,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Waiting for all claims to be in bound state")
-			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, pollTimeout)
+			pvs, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaimsList, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			for _, vm := range vms {

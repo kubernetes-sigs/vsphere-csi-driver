@@ -98,7 +98,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			scParameters[scParamFsType] = nfs4FSType
 			// Create Storage class and PVC
 			ginkgo.By(fmt.Sprintf("Creating Storage Class with %q", nfs4FSType))
-			storageclass, pvc, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvc, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, "", nil, "", false, v1.ReadWriteMany)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

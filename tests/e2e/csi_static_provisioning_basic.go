@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		nonSharedDatastoreURL      string
 		fullSyncWaitTime           int
 		isQuotaValidationSupported bool
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -87,6 +88,16 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithCancel(context.Background())
 		defer cancel()
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -215,7 +226,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", false, vsanDefaultStorageClassInSVC)
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", false, vsanDefaultStorageClassInSVC)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storageclass.GetName(), metav1.GetOptions{})
@@ -229,6 +240,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	}
 
 	testCleanUpUtil := func(ctx context.Context, restClientConfig *restclient.Config,
+		adminClient clientset.Interface,
 		cnsRegistervolume *cnsregistervolumev1alpha1.CnsRegisterVolume, namespace string,
 		pvcName string, pvName string) {
 		if guestCluster {
@@ -240,7 +252,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc = nil
 
 		ginkgo.By("Verify PV should be deleted automatically")
-		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvName, poll,
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, adminClient, pvName, poll,
 			supervisorClusterOperationsTimeout))
 		pv = nil
 
@@ -581,7 +593,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		scParameters := make(map[string]string)
 		scParameters[svStorageClassName] = storagePolicyNameForSharedDatastores
-		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, namespace, nil,
+		storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil,
 			scParameters, "", nil, "", false, "")
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -601,7 +613,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName := volumeID
@@ -710,7 +722,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(svcClient, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(svcClient, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		// Creating label for PV.
@@ -772,7 +784,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimestring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 		framework.Logf("Storage class : %s", storageclass.Name)
 
 		ginkgo.By("Creating FCD (CNS Volume)")
@@ -796,7 +808,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -827,7 +839,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 		}()
 
 	})
@@ -859,7 +871,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
@@ -888,7 +900,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -929,7 +941,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 
 			//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
 			_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
@@ -974,7 +986,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		curtimeinstring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimeinstring
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
@@ -1011,7 +1023,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 		pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -1052,7 +1064,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
 				vmUUID, pv.Spec.CSI.VolumeHandle))
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 			if isQuotaValidationSupported {
 				//Validates PVC quota in both StoragePolicyQuota and StoragePolicyUsage CR
 				_, _, storagePolicyQuota_afterCleanUp, _, storagePolicyUsage_AfterCleanup, _ :=
@@ -1089,7 +1101,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Create CNS register volume with above created FCD , AccessMode is set to ReadWriteMany ")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteMany)
@@ -1149,7 +1161,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1178,7 +1190,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc1, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespace, pvcName)
+		pv1 := getPvFromClaim(client, nil, namespace, pvcName)
 
 		ginkgo.By("Create CnsregisteVolume with already used FCD")
 		pvcName2 := pvcName + "duplicatefcd"
@@ -1208,7 +1220,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify newly created PV, PVC")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName2, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv2 := getPvFromClaim(client, namespace, pvcName2)
+		pv2 := getPvFromClaim(client, adminClient, namespace, pvcName2)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID2)
 
 		defer func() {
@@ -1220,7 +1232,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client,
 				pv2.Name, poll, supervisorClusterOperationsTimeout))
 
-			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc1.Name, pv1.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, nil, namespace, pvc1.Name, pv1.Name)
 		}()
 
 	})
@@ -1253,7 +1265,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Create FCD")
 		fcdID1, err := e2eVSphere.createFCDwithValidProfileID(ctx,
@@ -1282,7 +1294,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc1, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespace, pvcName)
+		pv1 := getPvFromClaim(client, adminClient, namespace, pvcName)
 
 		ginkgo.By("Create CnsregisteVolume with already created PVC")
 		cnsRegisterVolume = getCNSRegisterVolumeSpec(ctx, namespace, fcdID2, "", pvcName, v1.ReadWriteOnce)
@@ -1310,7 +1322,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, updatedpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv2 := getPvFromClaim(client, namespace, updatedpvcName)
+		pv2 := getPvFromClaim(client, adminClient, namespace, updatedpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID2)
 
 		defer func() {
@@ -1319,10 +1331,10 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				"Failed to delete PVC ", pvc2.Name)
 
 			ginkgo.By("Verify PV should be deleted automatically")
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pv2.Name,
+			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, adminClient, pv2.Name,
 				poll, supervisorClusterOperationsTimeout))
 
-			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc1.Name, pv1.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, nil, namespace, pvc1.Name, pv1.Name)
 		}()
 
 	})
@@ -1353,7 +1365,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1399,11 +1411,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc.Name, pv.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, nil, namespace, pvc.Name, pv.Name)
 		}()
 
 	})
@@ -1434,7 +1446,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvcName := "cns-pvc-" + curtimeinstring
 		framework.Logf("pvc name :%s", pvcName)
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Creating Resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
@@ -1479,11 +1491,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC")
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := getPvFromClaim(client, namespace, pvcName)
+		pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, nil, namespace, pvc.Name, pv.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, nil, namespace, pvc.Name, pv.Name)
 		}()
 	})
 
@@ -1566,7 +1578,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, _, _ := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("Create FCD")
 		fcdID, err := e2eVSphere.createFCD(ctx, "staticfcd"+curtimeinstring, diskSizeInMinMb, defaultDatastore.Reference())
@@ -1678,12 +1690,12 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			pvName := "static-pv-" + fcdID
 			framework.Logf("Deleting PersistentVolume %s", pvName)
 			framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvName))
-			pv, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pvName, metav1.GetOptions{})
+			pv, err = adminClient.CoreV1().PersistentVolumes().Get(context.TODO(), pvName, metav1.GetOptions{})
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			if pv != nil {
-				framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvName))
+				framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, adminClient, pvName))
 			}
 			pv = nil
 		}()
@@ -1717,7 +1729,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		_, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		_, svNamespace := getSvcClientAndNamespace()
@@ -1782,7 +1794,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", svpvcName)
 		namespace = getNamespaceToRunTests(f)
 
-		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		_, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		// Get supvervisor cluster client.
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -1815,7 +1827,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 		svcPVC, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).Get(ctx, svpvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		svcPV := getPvFromClaim(svcClient, svNamespace, svpvcName)
+		svcPV := getPvFromClaim(svcClient, nil, svNamespace, svpvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, svcClient, svcPVC, svcPV, fcdID)
 		// TODO: add volume health check after PVC creation.
 
@@ -1881,7 +1893,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(volumeExists).NotTo(gomega.BeFalse())
 
 		defer func() {
-			testCleanUpUtil(ctx, restConfig, nil, svNamespace, svcPVC.Name, svcPV.Name)
+			testCleanUpUtil(ctx, restConfig, adminClient, nil, svNamespace, svcPVC.Name, svcPV.Name)
 		}()
 
 	})
@@ -1918,7 +1930,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("pvc name :%s", pvcName)
 
 		// Get a config to talk to the apiserver.
-		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		restConfig, storageclass, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, adminClient, storagePolicyName)
 
 		ginkgo.By("create resource quota")
 		setStoragePolicyQuota(ctx, restConfig, storageclass.Name, namespace, rqLimit)
@@ -1941,7 +1953,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
 			pvc1.Namespace, pvc1.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv1 := getPvFromClaim(client, namespaceToDelete, pvc1.Name)
+		pv1 := getPvFromClaim(client, adminClient, namespaceToDelete, pvc1.Name)
 
 		ginkgo.By("Create CNS register volume with above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespaceToDelete, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -1958,7 +1970,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespaceToDelete).Get(ctx, pvcName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		framework.Logf("Statically created PVC :%s", pvc2.Name)
-		pv2 := getPvFromClaim(client, namespaceToDelete, pvcName)
+		pv2 := getPvFromClaim(client, adminClient, namespaceToDelete, pvcName)
 		verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc2, pv2, fcdID)
 
 		ginkgo.By("Creating pod")
@@ -1978,11 +1990,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			client, namespaceToDelete, poll, supervisorClusterOperationsTimeout))
 
 		ginkgo.By("Verify PV got deleted")
-		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client,
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, adminClient,
 			pv1.Name, poll, supervisorClusterOperationsTimeout))
 		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv1.Spec.CSI.VolumeHandle))
 
-		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client,
+		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, adminClient,
 			pv2.Name, poll, supervisorClusterOperationsTimeout))
 		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle))
 
@@ -2041,7 +2053,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By("verify created PV, PVC and check the bidirectional reference")
 			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv := getPvFromClaim(client, namespace, pvcName)
+			pv := getPvFromClaim(client, adminClient, namespace, pvcName)
 			pvName := pvc.Spec.VolumeName
 			// pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
 			volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
@@ -2056,7 +2068,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 				pvc = nil
 
 				ginkgo.By("PV will be in released state , hence delete PV explicitly")
-				framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pv.GetName()))
+				framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, adminClient, pv.GetName()))
 				pv = nil
 
 				ginkgo.By("Verify CRD should be deleted automatically")
@@ -2226,7 +2238,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv = getPvFromClaim(client, namespace, pvcName)
+			pv = getPvFromClaim(client, adminClient, namespace, pvcName)
 			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 		}
 
@@ -2261,9 +2273,19 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		framework.Logf("Deleting PersistentVolume %s", pv.Name)
-		err = fpv.DeletePersistentVolume(ctx, client, pv.Name)
+		if vanillaCluster {
+			err = fpv.DeletePersistentVolume(ctx, client, pv.Name)
+		} else {
+			err = fpv.DeletePersistentVolume(ctx, adminClient, pv.Name)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+		if vanillaCluster {
+			_, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+
+		} else {
+			_, err = adminClient.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+		}
+
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -2407,7 +2429,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
 			pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv = getPvFromClaim(client, namespace, pvcName)
+			pv = getPvFromClaim(client, adminClient, namespace, pvcName)
 			verifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
 		}
 
@@ -2442,9 +2464,17 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		}
 
 		framework.Logf("Deleting PersistentVolume %s", pv.Name)
-		err = fpv.DeletePersistentVolume(ctx, client, pv.Name)
+		if vanillaCluster {
+			err = fpv.DeletePersistentVolume(ctx, client, pv.Name)
+		} else {
+			err = fpv.DeletePersistentVolume(ctx, adminClient, pv.Name)
+		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+		if vanillaCluster {
+			_, err = client.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+		} else {
+			_, err = adminClient.CoreV1().PersistentVolumes().Get(context.TODO(), pv.Name, metav1.GetOptions{})
+		}
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

@@ -62,10 +62,22 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		scParameters      map[string]string
 		storagePolicyName string
 		datastoreURL      string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -106,7 +118,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamDatastoreURL] = datastoreURL
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
@@ -114,12 +126,12 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
 			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else if guestCluster {
 			ginkgo.By("CNS_TEST: Running for GC setup")
 			scParameters[svStorageClassName] = storagePolicyName
-			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclasspvc, pvclaim, err = createPVCAndStorageClass(ctx, client, adminClient,
 				namespace, nil, scParameters, diskSize, nil, "", false, "")
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

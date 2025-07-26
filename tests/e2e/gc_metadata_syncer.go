@@ -62,11 +62,23 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvc                        *v1.PersistentVolumeClaim
 		isVsanHealthServiceStopped bool
 		labels_ns                  map[string]string
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		if guestCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		svcClient, svNamespace = getSvcClientAndNamespace()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -123,7 +135,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -132,7 +144,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -214,7 +226,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -224,7 +236,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -295,7 +307,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -305,7 +317,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -407,7 +419,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		statefulset := fss.CreateStatefulSet(ctx, client, manifestPath, namespace)
 		defer func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, adminClient, namespace)
 			if supervisorCluster {
 				ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 				err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
@@ -436,7 +448,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range sspod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s in namespace %s",
 						pvclabels, volumespec.PersistentVolumeClaim.ClaimName, namespace))
 					pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -473,7 +485,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, volumespec := range spod.Spec.Volumes {
 				if volumespec.PersistentVolumeClaim != nil {
-					pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
+					pv := getPvFromClaim(client, nil, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 					ginkgo.By(fmt.Sprintf("Updating labels %+v for pv %s", pvlabels, pv.Name))
 					pv.Labels = pvlabels
 					pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
@@ -518,7 +530,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -528,7 +540,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -636,7 +648,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		defer cancel()
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -646,7 +658,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -721,7 +733,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		defer cancel()
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -729,7 +741,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -851,11 +863,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		defer cancel()
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc1, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc1, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sc2, pvc2, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc2, pvc2, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -866,7 +878,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc1.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc1, pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -920,7 +932,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		defer cancel()
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
@@ -930,7 +942,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -997,7 +1009,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("CNS_TEST: Running for GC setup")
 		ginkgo.By("Creating Storage Class and PVC")
 		scParameters[svStorageClassName] = storagePolicyName
-		sc, pvc, err := createPVCAndStorageClass(ctx, client, namespace, nil, scParameters, "", nil, "", false, "")
+		sc, pvc, err := createPVCAndStorageClass(ctx, client, adminClient, namespace, nil, scParameters, "", nil, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1006,7 +1018,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -1149,7 +1161,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("Creating Storage Class and PVC")
 
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, "")
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1168,10 +1180,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 		// svcPVCName refers to PVC Name in the supervisor cluster.
 		svcPVCName := volumeID
@@ -1260,7 +1272,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		scParameters = make(map[string]string)
 		scParameters[scParamFsType] = ext4FSType
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclassNewGC, err := createStorageClass(clientNewGc,
+		storageclassNewGC, err := createStorageClass(clientNewGc, adminClient,
 			scParameters, nil, v1.PersistentVolumeReclaimDelete, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1272,7 +1284,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, clientNewGc, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pvNewGC := getPvFromClaim(clientNewGc, pvcNew.Namespace, pvcNew.Name)
+		pvNewGC := getPvFromClaim(clientNewGc, nil, pvcNew.Namespace, pvcNew.Name)
 		volumeIDNewGC := pvNewGC.Spec.CSI.VolumeHandle
 		// svcNewPVCName refers to PVC Name in the supervisor cluster.
 		svcNewPVCName := volumeIDNewGC
@@ -1372,7 +1384,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		ginkgo.By("Creating Storage Class and PVC")
 
 		scParameters[svStorageClassName] = storagePolicyName
-		storageclass, err := createStorageClass(client, scParameters, nil, "", "", true, "")
+		storageclass, err := createStorageClass(client, adminClient, scParameters, nil, "", "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1391,10 +1403,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		_, err = WaitForPVClaimBoundPhase(ctx, client, adminClient, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		pv := getPvFromClaim(client, pvclaim.Namespace, pvclaim.Name)
+		pv := getPvFromClaim(client, nil, pvclaim.Namespace, pvclaim.Name)
 		volumeID := pv.Spec.CSI.VolumeHandle
 
 		pvAnnotations := pv.Annotations

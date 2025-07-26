@@ -71,6 +71,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		storagePolicyName          string
 		scParameters               map[string]string
 		isVsanHealthServiceStopped bool
+		adminClient                clientset.Interface
 	)
 
 	const (
@@ -80,12 +81,28 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		var nodeList *v1.NodeList
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 		if vanillaCluster {
 			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if !supervisorCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -221,14 +238,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil,
 				scParameters, "", nil, "", true, "", storagePolicyName)
 
 		}
@@ -243,7 +260,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -308,14 +325,14 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		// Decide which test setup is available to run.
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil, nil, "", nil, "", false, "")
 		} else {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+			sc, pvc, err = createPVCAndStorageClass(ctx, client, adminClient, namespace, nil,
 				scParameters, "", nil, "", true, "", storagePolicyName)
 		}
 
@@ -328,7 +345,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -368,7 +385,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+		err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -403,7 +420,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	// 11. cleanup to remove pvs and pvcliams.
 	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-serialized] Verify Multiple PVCs are "+
 		"deleted/updated after full sync", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
-		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
+		sc, err := createStorageClass(client, nil, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -503,7 +520,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		for _, pv := range pvs {
 			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 			if !apierrors.IsNotFound(err) {
 				// Skip if failure is "not found" - object may already been deleted
 				// by test.
@@ -788,7 +805,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		ginkgo.By("create a pvc pvc1, wait for pvc bound to pv")
 		volHandle, pvc, pv, storageclass := createSCwithVolumeExpansionTrueAndDynamicPVC(
-			ctx, f, client, "", storagePolicyName, namespace, ext4FSType)
+			ctx, f, adminClient, client, "", storagePolicyName, namespace, ext4FSType)
 		defer func() {
 			if !supervisorCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))

@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -326,7 +326,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -498,7 +498,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -628,7 +628,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -750,7 +750,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")
@@ -880,7 +880,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 			pvcs, err := client.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, claim := range pvcs.Items {
-				pv := getPvFromClaim(client, namespace, claim.Name)
+				pv := getPvFromClaim(client, nil, namespace, claim.Name)
 				err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				ginkgo.By("Verify it's PV and corresponding volumes are deleted from CNS")

@@ -69,6 +69,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		sshWcpConfig        *ssh.ClientConfig
 		svcNamespace        string
 		pandoraSyncWaitTime int
+		adminClient         clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -76,10 +77,25 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		defer cancel()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
-
+		var nodeList *v1.NodeList
+		var err error
 		bootstrap()
 
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		if supervisorCluster {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if devopsK8sEnv := GetAndExpectStringEnvVar("DEVOPS_KUBE_CONFIG"); devopsK8sEnv != "" {
+				client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
+		if vanillaCluster {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, client)
+		} else {
+			nodeList, err = fnodes.GetReadySchedulableNodes(ctx, adminClient)
+		}
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -265,15 +281,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
 				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 			}
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
@@ -285,7 +301,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			if vanillaCluster {
 				ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 				scParameters[scParamStoragePolicyName] = policyName
-				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 					namespace, nil, scParameters, "", nil, "", false, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvcs = append(pvcs, pvclaim)
@@ -294,13 +310,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				ginkgo.By("CNS_TEST: Running for WCP setup")
 
 				if wcpVsanDirectCluster {
-					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+					storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
 						pvcVsandNames[i], podVsandNames[i], policyName, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
-					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+					storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					pvclaim, err = createPVC(ctx, client, namespace, nil, "", storageclass, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -350,7 +366,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
@@ -377,7 +393,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Delete pods created before terminating the test")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 			ginkgo.By("Delete the PVCs created in step 3")
 			for i, pvc := range pvcs {
@@ -400,7 +416,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Delete pods created in step 5")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 	})
 
@@ -515,15 +531,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
 				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 			}
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
@@ -535,7 +551,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			if vanillaCluster {
 				ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 				scParameters[scParamStoragePolicyName] = policyName
-				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 					namespace, nil, scParameters, largeSize, nil, "", false, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvcs = append(pvcs, pvclaim)
@@ -543,13 +559,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			} else if supervisorCluster {
 				ginkgo.By("CNS_TEST: Running for WCP setup")
 				if wcpVsanDirectCluster {
-					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+					storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = createVsanDPvcAndPod(sshWcpConfig, svcMasterIp, svcNamespace,
 						pvcVsandNames[i], podVsandNames[i], policyName, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				} else {
-					storageclass, err = client.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
+					storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, policyName, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					pvclaim, err = createPVC(ctx, client, namespace, nil, largeSize, storageclass, "")
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -597,12 +613,12 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By("Delete pods created before terminating the test")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 			ginkgo.By("Delete the PVCs created in step 3")
 			for i, pvc := range pvcs {
@@ -743,14 +759,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
@@ -767,7 +783,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = policyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, largeSize, nil, "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
@@ -798,7 +814,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Delete the PVCs created in step 3")
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if guestCluster {
 				volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -835,7 +851,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		start := time.Now()
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, adminClient,
 			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*4)
 		elapsed := time.Since(start)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -952,14 +968,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, policyName, svNamespace, resourceQuotaLimit)
@@ -978,7 +994,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = policyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, "", nil, "", true, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
@@ -1029,7 +1045,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, adminClient,
 			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1039,7 +1055,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Delete the PVCs created in step 3")
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if guestCluster {
 				volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -1078,7 +1094,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			pods = createMultiplePods(ctx, client, pvcs2d, true) // only 1 will be created here
 			defer func() {
 				ginkgo.By("Delete pod")
-				deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+				deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 			}()
 		}
 		ginkgo.By("Get filesystem size for mount point /mnt/volume1 before expansion")
@@ -1095,11 +1111,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 		if !guestCluster {
-			err = waitForPvResize(pvs[0], client, newSize, totalResizeWaitPeriod*2)
+			err = waitForPvResize(pvs[0], client, adminClient, newSize, totalResizeWaitPeriod*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			svcPVCName := pvs[0].Spec.CSI.VolumeHandle
-			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod*2)
+			err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod*2)
 			framework.ExpectNoError(err, "While waiting for pvc resize to finish")
 
 			ginkgo.By("Checking for resize on SVC PV")
@@ -1248,15 +1264,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
 				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 			}
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
@@ -1268,7 +1284,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			if vanillaCluster {
 				ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 				scParameters[scParamStoragePolicyName] = policyName
-				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+				storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 					namespace, nil, scParameters, "", nil, "", true, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pvcs = append(pvcs, pvclaim)
@@ -1331,12 +1347,12 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			ginkgo.By("Delete pods created before terminating the test")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 			ginkgo.By("Delete the PVCs created in step 3")
 			for i, pvc := range pvcs {
@@ -1579,15 +1595,15 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		policyNames = append(policyNames, policyName)
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
 				setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 			}
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
@@ -1598,7 +1614,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = policyName
-			storageclass, err = createStorageClass(client,
+			storageclass, err = createStorageClass(client, nil,
 				scParameters, nil, "", "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
@@ -1652,7 +1668,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -1688,7 +1704,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		rand.New(rand.NewSource(time.Now().Unix()))
@@ -1714,11 +1730,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var pvcName string
 		if wcpVsanDirectCluster && supervisorCluster {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		} else {
 			ginkgo.By("delete pod1")
 			pvcName = pods[1].Spec.Volumes[0].VolumeSource.PersistentVolumeClaim.ClaimName // for recreating pod1
-			deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[1]}, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[1]}, true)
 
 		}
 
@@ -1778,7 +1794,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		if !(wcpVsanDirectCluster && supervisorCluster) {
 			ginkgo.By("Delete pods created in step 5")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		} else {
 			ginkgo.By("Delete the pod created")
 			err = fpod.DeletePodWithWait(ctx, client, pods[1])
@@ -1867,14 +1883,14 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, []string{policyName}, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			setStoragePolicyQuota(ctx, restClientConfig, policyName, namespace, resourceQuotaLimit)
 
 		} else if guestCluster {
-			_, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(client, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, []string{policyName}, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 
 			restClientConfig := getRestConfigClient()
@@ -1888,7 +1904,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = policyName
-			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, "", nil, "", true, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else if supervisorCluster {
@@ -1938,8 +1954,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx,
-			client, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx,
+			client, adminClient, []*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
@@ -1948,7 +1964,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Delete the PVCs created in step 3")
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 			volumeID := pv.Spec.CSI.VolumeHandle
 			if guestCluster {
 				volumeID = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -1989,11 +2005,11 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			pods = createMultiplePods(ctx, client, pvcs2d, true) // only 1 will be created here
 			defer func() {
 				ginkgo.By("Delete pod")
-				deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+				deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 			}()
 		}
 		ginkgo.By("Delete pod")
-		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 
 		// Modify PVC spec to trigger volume expansion
 		// We expand the PVC while no pod is using it to ensure offline expansion
@@ -2018,7 +2034,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Waiting for controller volume resize to finish")
-		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+		err = waitForPvResizeForGivenPvc(pvclaim, client, adminClient, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if guestCluster {
@@ -2058,7 +2074,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Deleting the pod")
-			deletePodsAndWaitForVolsToDetach(ctx, client, newPods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, newPods, true)
 		}()
 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2101,7 +2117,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		// Delete POD
 		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", newPods[0].Name, namespace))
-		deletePodsAndWaitForVolsToDetach(ctx, client, newPods, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, newPods, true)
 
 	})
 
@@ -2197,7 +2213,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			scParameters[scParamStoragePolicyName] = policyName
 			policyNames = append(policyNames, policyName)
 			policyIds = append(policyIds, policyID)
-			storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client,
+			storageclass, pvclaim, err := createPVCAndStorageClass(ctx, client, nil,
 				namespace, nil, scParameters, "", nil, "", false, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvcs = append(pvcs, pvclaim)
@@ -2217,7 +2233,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -2250,7 +2266,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Delete pods")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		//Get snapshot client using the rest config
@@ -2446,13 +2462,13 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 				scParameters[scParamStoragePolicyName] = policyName
 				policyNames = append(policyNames, policyName)
 				policyIds = append(policyIds, policyIds[i])
-				storageclass, err := createStorageClass(client,
+				storageclass, err := createStorageClass(client, nil,
 					scParameters, nil, "", "", true, "")
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				scs = append(scs, storageclass)
 			}
 		} else if supervisorCluster {
-			assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 
 			for _, policyName := range policyNames {
@@ -2466,7 +2482,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		} else if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			assignPolicyToWcpNamespace(svcClient, ctx, svNamespace, policyNames, resourceQuotaLimit)
+			assignPolicyToWcpNamespace(svcClient, nil, ctx, svNamespace, policyNames, resourceQuotaLimit)
 			time.Sleep(5 * time.Minute)
 			restClientConfig := getRestConfigClient()
 			for _, policyName := range policyNames {
@@ -2504,7 +2520,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -2541,7 +2557,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Delete pods")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		fsSizes := []int64{}
@@ -2578,7 +2594,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 		wg.Wait()
 		for i := range pvcs {
-			err = waitForPvResize(pvs[i], client, newSize, totalResizeWaitPeriod*2)
+			err = waitForPvResize(pvs[i], client, adminClient, newSize, totalResizeWaitPeriod*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "resize exceeded timeout")
 		}
 		elapsed := time.Since(start)
@@ -2681,7 +2697,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 		policyNames = append(policyNames, policyName)
 
-		assignPolicyToWcpNamespace(client, ctx, namespace, policyNames, resourceQuotaLimit)
+		assignPolicyToWcpNamespace(client, adminClient, ctx, namespace, policyNames, resourceQuotaLimit)
 		time.Sleep(5 * time.Minute)
 		restClientConfig := getRestConfigClient()
 		for _, policyName := range policyNames {
@@ -2720,7 +2736,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify that the created CNS volumes are compliant and have correct policy id")
@@ -2733,7 +2749,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pod}, true)
 
 			ginkgo.By("Delete the PVCs created in step 3")
 			for i, pvc := range pvcs {
@@ -2744,7 +2760,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			}
 		}()
 
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pod}, true)
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
 		dsUrlWhereVolumeIsPresent := fetchDsUrl4CnsVol(e2eVSphere, volumeID)
@@ -2784,7 +2800,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Relocate back to vsand datstore")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pod}, true)
 
 		dsRefDest = getDsMoRefFromURL(ctx, srcVsandDsUrl)
 		_, err = e2eVSphere.cnsRelocateVolume(e2eVSphere, ctx, volumeID, dsRefDest)
@@ -2810,7 +2826,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete pods created in step 5")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pod}, true)
 
 	})
 
@@ -2908,7 +2924,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -2926,7 +2942,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -2960,7 +2976,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -2993,7 +3009,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("delete pod1")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[1]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[1]}, true)
 
 		ginkgo.By("Updating policy volume allocation from lzt -> ezt")
 		err = updateVmfsPolicyAlloctype(ctx, pc, eztAllocType, policyName, policyID)
@@ -3033,7 +3049,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[0]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[0]}, true)
 
 	})
 
@@ -3136,7 +3152,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -3154,7 +3170,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -3188,7 +3204,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -3221,7 +3237,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("delete pod1")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[1]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[1]}, true)
 
 		ginkgo.By("Start relocation of volume to a different datastore")
 		for _, volId := range volIds {
@@ -3251,7 +3267,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		for _, pvclaim := range pvcs {
 			ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s in namespace %s",
 				labels, pvclaim.Name, namespace))
-			pv := getPvFromClaim(client, namespace, pvclaim.Name)
+			pv := getPvFromClaim(client, adminClient, namespace, pvclaim.Name)
 			err = e2eVSphere.waitForLabelsToBeUpdated(pv.Spec.CSI.VolumeHandle, labels,
 				string(cnstypes.CnsKubernetesEntityTypePVC), pvclaim.Name, pvclaim.Namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3278,7 +3294,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[0]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[0]}, true)
 	})
 
 	/*
@@ -3380,7 +3396,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		scParameters[scParamStoragePolicyName] = policyName
-		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
+		storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client, nil,
 			namespace, nil, scParameters, "", nil, "", true, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvclaim2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
@@ -3398,7 +3414,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("Verify the PVCs created in step 3 are bound")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, adminClient, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		volIds := []string{}
@@ -3432,7 +3448,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		pods := createMultiplePods(ctx, client, pvclaims2d, true)
 		defer func() {
 			ginkgo.By("Delete the pod created")
-			deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
+			deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, pods, true)
 		}()
 
 		ginkgo.By("Verify if VolumeID is created on the given datastores")
@@ -3483,7 +3499,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}()
 
 		ginkgo.By("delete pod1")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[1]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[1]}, true)
 
 		ginkgo.By("Start relocation of volume to a different datastore")
 		for _, volId := range volIds {
@@ -3567,7 +3583,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Delete the pod created")
-		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pods[0]}, true)
+		deletePodsAndWaitForVolsToDetach(ctx, client, adminClient, []*v1.Pod{pods[0]}, true)
 
 	})
 

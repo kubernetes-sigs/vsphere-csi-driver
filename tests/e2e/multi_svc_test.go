@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Create a Pvc and attach a pod to it
-				_, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParametersList[i], "", nil, "", false, "",
+				_, pvclaim, err = createPVCAndStorageClass(ctx, client, nil, namespace, nil, scParametersList[i], "", nil, "", false, "",
 					storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
