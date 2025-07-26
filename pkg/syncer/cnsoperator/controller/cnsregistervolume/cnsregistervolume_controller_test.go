@@ -177,6 +177,12 @@ func (m *mockVolumeManager) SetListViewNotReady(ctx context.Context) {
 
 }
 
+func (m *mockVolumeManager) BatchAttachVolumes(ctx context.Context,
+	vm *cnsvsphere.VirtualMachine,
+	volumeIDs []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
+	return []cnsvolume.BatchAttachResult{}, "", nil
+}
+
 func (m *mockVolumeManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
 	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
 	return &cnstypes.CnsQueryResult{
@@ -365,6 +371,15 @@ func (m *mockCOCommon) GetZonesForNamespace(ns string) map[string]struct{} {
 func (m *mockCOCommon) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
 	ns string, zones []string) ([]string, error) {
 	return []string{"cluster-a"}, nil
+}
+
+func (m *mockCOCommon) GetPvcObjectByName(ctx context.Context, pvcName string,
+	namespace string) (*corev1.PersistentVolumeClaim, error) {
+	return nil, nil
+}
+
+func (m *mockCOCommon) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+	return "vol-1", true
 }
 
 var _ = Describe("Reconcile Accessibility Logic", func() {

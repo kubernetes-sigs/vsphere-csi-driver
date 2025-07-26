@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -50,6 +51,8 @@ var (
 	CnsNodeVMAttachmentSingular = "cnsnodevmattachment"
 	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
+	// CnsNodeVmBatchAttachmentPlural is plural of CnsNodeVmBatchAttachment
+	CnsNodeVmBatchAttachmentPlural = "cnsnodevmbatchattachments"
 	// CnsVolumeMetadataSingular is Singular of CnsVolumeMetadata
 	CnsVolumeMetadataSingular = "cnsvolumemetadata"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
@@ -118,6 +121,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{},
 		&cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment{},
+		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachmentList{},
 	)
 
 	scheme.AddKnownTypes(
