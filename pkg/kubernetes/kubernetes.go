@@ -72,6 +72,16 @@ const (
 	pollTime = 5 * time.Second
 )
 
+type CustomResourceVersion struct {
+	Group   string
+	Kind    string
+	Version string
+}
+
+func (c CustomResourceVersion) String() string {
+	return fmt.Sprintf("Group: %s, Kind: %s, Version: %s", c.Group, c.Kind, c.Version)
+}
+
 // GetKubeConfig helps retrieve Kubernetes Config.
 func GetKubeConfig(ctx context.Context) (*restclient.Config, error) {
 	log := logger.GetLogger(ctx)
