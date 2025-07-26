@@ -1305,65 +1305,6 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 	return matchingNodeVMs, completeTopologySegments, nil
 }
 
-// getNodesMatchingTopologySegment takes in topology segments as parameter and returns list
-// of node VMs which belong to all the segments.
-func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx context.Context,
-	segments map[string]string) ([]*cnsvsphere.VirtualMachine, error) {
-	log := logger.GetLogger(ctx)
-
-	var matchingNodeVMs []*cnsvsphere.VirtualMachine
-	// Fetch node topology information from informer cache.
-	nodeTopologyStore := volTopology.csiNodeTopologyInformer.GetStore()
-	for _, val := range nodeTopologyStore.List() {
-		var nodeTopologyInstance csinodetopologyv1alpha1.CSINodeTopology
-		// Validate the object received.
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(val.(*unstructured.Unstructured).Object,
-			&nodeTopologyInstance)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to convert unstructured object %+v to "+
-				"CSINodeTopology instance. Error: %+v", val, err)
-		}
-
-		// Check CSINodeTopology instance `Status` field for success.
-		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			return nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
-				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
-				nodeTopologyInstance.Status.ErrorMessage)
-		}
-		// Convert array of labels to map.
-		topoLabels := make(map[string]string)
-		for _, topoLabel := range nodeTopologyInstance.Status.TopologyLabels {
-			topoLabels[topoLabel.Key] = topoLabel.Value
-		}
-		// Check for a match of labels in every segment.
-		isMatch := true
-		for key, value := range segments {
-			if topoLabels[key] != value {
-				log.Debugf("Node %q with topology %+v did not match the topology requirement - %q: %q ",
-					nodeTopologyInstance.Name, topoLabels, key, value)
-				isMatch = false
-				break
-			}
-		}
-		if isMatch {
-			var nodeVM *cnsvsphere.VirtualMachine
-			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				nodeVM, err = volTopology.nodeMgr.GetNodeVMAndUpdateCache(ctx,
-					nodeTopologyInstance.Spec.NodeUUID, nil)
-			} else {
-				nodeVM, err = volTopology.nodeMgr.GetNodeVMByNameAndUpdateCache(ctx,
-					nodeTopologyInstance.Spec.NodeID)
-			}
-			if err != nil {
-				log.Errorf("failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
-				return nil, err
-			}
-			matchingNodeVMs = append(matchingNodeVMs, nodeVM)
-		}
-	}
-	return matchingNodeVMs, nil
-}
-
 // GetTopologyInfoFromNodes retrieves the topology information of the given
 // list of node names using the information from CSINodeTopology instances.
 func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context, reqParams interface{}) (
