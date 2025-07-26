@@ -92,6 +92,11 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) bool {
 	var featureState bool
 	var err error
+
+	if featureName == common.SharedDiskFss {
+		return true
+	}
+
 	c.featureStatesLock.RLock()
 	if flag, ok := c.featureStates[featureName]; ok {
 		c.featureStatesLock.RUnlock()

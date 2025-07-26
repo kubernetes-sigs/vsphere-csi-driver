@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2020-2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -251,7 +251,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Currently file volume registration is not supported.
 	ok := isBlockVolumeRegisterRequest(ctx, instance)
 	if !ok {
-		msg := fmt.Sprintf("AccessMode: %s is not supported", instance.Spec.AccessMode)
+		// File volumes are not supported, so error out.
+		msg := fmt.Sprintf("AccessMode: %s is not supported with volumemode %s",
+			instance.Spec.AccessMode, instance.Spec.VolumeMode)
 		log.Error(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -270,10 +272,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvNodeAffinity *v1.VolumeNodeAffinity
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
-	createSpec := constructCreateSpecForInstance(r, instance, vc.Config.Host, isTKGSHAEnabled)
+	createSpec := constructCreateSpecForInstance(ctx, r, instance, vc.Config.Host, isTKGSHAEnabled)
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
-	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
 		msg := "failed to create CNS volume"
@@ -525,8 +526,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				Namespace:  instance.Namespace,
 				Name:       instance.Spec.PvcName,
 			}
-			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
-				accessMode, storageClassName, claimRef)
+			pvSpec := getPersistentVolumeSpec(ctx, pvName, volumeID, capacityInMb,
+				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
@@ -553,8 +554,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 	// Create PVC mapping to above created PV.
 	log.Infof("Creating PVC: %s", instance.Spec.PvcName)
+	// Use the same volumeMode as PV
 	pvcSpec, err := getPersistentVolumeClaimSpec(ctx, instance.Spec.PvcName, instance.Namespace, capacityInMb,
-		storageClassName, accessMode, pvName, datastoreAccessibleTopology)
+		storageClassName, accessMode, *pv.Spec.VolumeMode, pvName, datastoreAccessibleTopology)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create spec for PVC: %q. Error: %v", instance.Spec.PvcName, err)
 		log.Errorf(msg)
@@ -744,14 +746,27 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 		msg = "VolumeID and DiskURLPath cannot be specified together"
 	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
 		instance.Spec.AccessMode != v1.ReadWriteOnce {
-		msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+			if instance.Spec.AccessMode == v1.ReadWriteMany && instance.Spec.VolumeMode == v1.PersistentVolumeFilesystem {
+				// File volume is not support for disk URL path.
+				msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %s and volumeMode: %s",
+					instance.Spec.AccessMode, instance.Spec.VolumeMode)
+			}
+		} else {
+			msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %q", instance.Spec.AccessMode)
+		}
 	}
 	if instance.Spec.VolumeID != "" {
-		pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
-		if found {
-			if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
-				msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
-					"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
+		// Accessmode is required if volumeID is specified by the user.
+		if instance.Spec.AccessMode == "" {
+			msg = "AccessMode cannot be empty when volumeID is specified"
+		} else {
+			pvName, found := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
+			if found {
+				if pvName != staticPvNamePrefix+instance.Spec.VolumeID {
+					msg = fmt.Sprintf("PV: %q with the volume ID: %q "+
+						"is already present. Can not create multiple PV with same volume Id.", pvName, instance.Spec.VolumeID)
+				}
 			}
 		}
 	}
@@ -767,6 +782,13 @@ func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolu
 	if instance.Spec.AccessMode != "" {
 		if instance.Spec.AccessMode == v1.ReadWriteOnce {
 			return true
+		}
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+			// Shared block volume
+			if instance.Spec.AccessMode == v1.ReadWriteMany &&
+				(instance.Spec.VolumeMode == v1.PersistentVolumeBlock || instance.Spec.VolumeMode == "") {
+				return true
+			}
 		}
 	} else {
 		if instance.Spec.DiskURLPath != "" {
