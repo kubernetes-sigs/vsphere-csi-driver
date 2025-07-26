@@ -411,11 +411,7 @@ func (driver *vsphereCSIDriver) NodeGetInfo(
 
 	var maxVolumesPerNode int64
 	var maxAllowedVolumesPerNode int64
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MaxPVSCSITargetsPerVM) {
-		maxAllowedVolumesPerNode = maxAllowedBlockVolumesPerNodeInvSphere8
-	} else {
-		maxAllowedVolumesPerNode = maxAllowedBlockVolumesPerNode
-	}
+	maxAllowedVolumesPerNode = maxAllowedBlockVolumesPerNodeInvSphere8
 	if v := os.Getenv("MAX_VOLUMES_PER_NODE"); v != "" {
 		if value, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if value < 0 {
