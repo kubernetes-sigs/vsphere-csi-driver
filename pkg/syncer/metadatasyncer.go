@@ -878,16 +878,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		go func() {
 			for ; true; <-volumeResizeEnablementTicker.C {
 				ctx, log = logger.GetNewContextWithLogger()
-				if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VolumeExtend) {
-					log.Debugf("ExpandVolume feature is disabled on the cluster")
-				} else {
-					if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
-						log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v",
-							err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
-						continue
-					}
-					break
+				if err := initResizeReconciler(ctx, k8sClient, metadataSyncer.supervisorClient); err != nil {
+					log.Warnf("Error while initializing volume resize reconciler. Err:%+v. Retry will be triggered at %v",
+						err, time.Now().Add(common.DefaultFeatureEnablementCheckInterval))
+					continue
 				}
+				break
 			}
 		}()
 	}
