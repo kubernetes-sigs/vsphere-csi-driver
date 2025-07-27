@@ -358,7 +358,6 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 func getReleasedVanillaFSS() map[string]struct{} {
 	return map[string]struct{}{
 		common.CSIMigration:                   {},
-		common.OnlineVolumeExtend:             {},
 		common.BlockVolumeSnapshot:            {},
 		common.CSIWindowsSupport:              {},
 		common.ListVolumes:                    {},

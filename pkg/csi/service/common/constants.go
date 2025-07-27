@@ -379,9 +379,6 @@ const (
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
 	// VolumeHealth is the feature flag name for volume health.
 	VolumeHealth = "volume-health"
-
-	// OnlineVolumeExtend guards the feature for online volume expansion.
-	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
