@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -610,6 +611,164 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		Expect(pvcSpec).NotTo(BeNil())
 		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelVirtualMachineName))
 		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelStoragePolicyReservationName))
+	})
+})
+
+var _ = Describe("checkExistingPVCDataSourceRef", func() {
+	var (
+		ctx       context.Context
+		k8sclient *k8sfake.Clientset
+		namespace string
+		pvcName   string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		k8sclient = k8sfake.NewSimpleClientset()
+		namespace = "test-namespace"
+		pvcName = "test-pvc"
+	})
+
+	Context("when PVC does not exist", func() {
+		It("should return nil without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists without DataSourceRef", func() {
+		BeforeEach(func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: nil,
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return the PVC without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Name).To(Equal(pvcName))
+			Expect(pvc.Spec.DataSourceRef).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with VolumeSnapshot DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "snapshot.storage.k8s.io"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VolumeSnapshot",
+						Name:     "test-snapshot",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error since VolumeSnapshots are not supported for CNSRegisterVolume", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with supported DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "vmoperator.vmware.com"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VirtualMachine",
+						Name:     "test-vm",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return the PVC without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Name).To(Equal(pvcName))
+			Expect(pvc.Spec.DataSourceRef.Kind).To(Equal("VirtualMachine"))
+			Expect(*pvc.Spec.DataSourceRef.APIGroup).To(Equal("vmoperator.vmware.com"))
+		})
+	})
+
+	Context("when PVC exists with unsupported DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "unsupported.example.com"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "UnsupportedKind",
+						Name:     "test-resource",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with empty APIGroup DataSourceRef", func() {
+		BeforeEach(func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: nil,
+						Kind:     "SomeKind",
+						Name:     "test-resource",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error for unsupported empty APIGroup", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
 	})
 })
 
