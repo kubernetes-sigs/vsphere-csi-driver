@@ -19,8 +19,14 @@ package common
 import (
 	"context"
 	"testing"
+	"time"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapshotfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 // TestUseVslmAPIsFuncForVC67Update3l tests UseVslmAPIs method for VC version 6.7 Update 3l
@@ -197,4 +203,144 @@ func TestCheckAPIForVC70u3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckAPI method failing for VC %q", vcVersion)
 	}
+}
+
+// TestWaitForPVCDeletedWithWatch tests the WaitForPVCDeletedWithWatch function
+func TestWaitForPVCDeletedWithWatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Test case 1: PVC already deleted (not found)
+	t.Run("PVC already deleted", func(t *testing.T) {
+		k8sclient := fake.NewSimpleClientset()
+
+		err := WaitForPVCDeletedWithWatch(ctx, k8sclient, "test-pvc", "test-namespace", time.Second*5)
+		if err != nil {
+			t.Fatalf("Expected no error when PVC is already deleted, got: %v", err)
+		}
+	})
+
+	// Test case 2: PVC exists and gets deleted during watch
+	t.Run("PVC gets deleted during watch", func(t *testing.T) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-namespace",
+			},
+		}
+		k8sclient := fake.NewSimpleClientset(pvc)
+
+		// Start watching in a goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			err := WaitForPVCDeletedWithWatch(ctx, k8sclient, "test-pvc", "test-namespace", time.Second*5)
+			errChan <- err
+		}()
+
+		// Give the watch time to start
+		time.Sleep(time.Millisecond * 100)
+
+		// Delete the PVC
+		err := k8sclient.CoreV1().PersistentVolumeClaims("test-namespace").Delete(ctx, "test-pvc", metav1.DeleteOptions{})
+		if err != nil {
+			t.Fatalf("Failed to delete PVC: %v", err)
+		}
+
+		// Wait for the watch to complete
+		select {
+		case err := <-errChan:
+			if err != nil {
+				t.Fatalf("Expected no error when PVC is deleted during watch, got: %v", err)
+			}
+		case <-time.After(time.Second * 2):
+			t.Fatal("Watch did not complete within expected time")
+		}
+	})
+
+	// Test case 3: Watch timeout
+	t.Run("Watch timeout", func(t *testing.T) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-namespace",
+			},
+		}
+		k8sclient := fake.NewSimpleClientset(pvc)
+
+		err := WaitForPVCDeletedWithWatch(ctx, k8sclient, "test-pvc", "test-namespace", time.Millisecond*100)
+		if err == nil {
+			t.Fatal("Expected timeout error when PVC is not deleted")
+		}
+	})
+}
+
+// TestWaitForVolumeSnapshotDeletedWithWatch tests the WaitForVolumeSnapshotDeletedWithWatch function
+func TestWaitForVolumeSnapshotDeletedWithWatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Test case 1: VolumeSnapshot already deleted (not found)
+	t.Run("VolumeSnapshot already deleted", func(t *testing.T) {
+		snapshotClient := snapshotfake.NewSimpleClientset()
+
+		err := WaitForVolumeSnapshotDeletedWithWatch(ctx, snapshotClient, "test-snapshot", "test-namespace", time.Second*5)
+		if err != nil {
+			t.Fatalf("Expected no error when VolumeSnapshot is already deleted, got: %v", err)
+		}
+	})
+
+	// Test case 2: VolumeSnapshot exists and gets deleted during watch
+	t.Run("VolumeSnapshot gets deleted during watch", func(t *testing.T) {
+		snapshot := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-snapshot",
+				Namespace: "test-namespace",
+			},
+		}
+		snapshotClient := snapshotfake.NewSimpleClientset(snapshot)
+
+		// Start watching in a goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			err := WaitForVolumeSnapshotDeletedWithWatch(ctx, snapshotClient, "test-snapshot", "test-namespace", time.Second*5)
+			errChan <- err
+		}()
+
+		// Give the watch time to start
+		time.Sleep(time.Millisecond * 100)
+
+		// Delete the VolumeSnapshot
+		err := snapshotClient.SnapshotV1().VolumeSnapshots("test-namespace").Delete(
+			ctx, "test-snapshot", metav1.DeleteOptions{})
+		if err != nil {
+			t.Fatalf("Failed to delete VolumeSnapshot: %v", err)
+		}
+
+		// Wait for the watch to complete
+		select {
+		case err := <-errChan:
+			if err != nil {
+				t.Fatalf("Expected no error when VolumeSnapshot is deleted during watch, got: %v", err)
+			}
+		case <-time.After(time.Second * 2):
+			t.Fatal("Watch did not complete within expected time")
+		}
+	})
+
+	// Test case 3: Watch timeout
+	t.Run("Watch timeout", func(t *testing.T) {
+		snapshot := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-snapshot",
+				Namespace: "test-namespace",
+			},
+		}
+		snapshotClient := snapshotfake.NewSimpleClientset(snapshot)
+
+		err := WaitForVolumeSnapshotDeletedWithWatch(
+			ctx, snapshotClient, "test-snapshot", "test-namespace", time.Millisecond*100)
+		if err == nil {
+			t.Fatal("Expected timeout error when VolumeSnapshot is not deleted")
+		}
+	})
 }

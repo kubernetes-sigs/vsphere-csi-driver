@@ -652,7 +652,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		}
 
 		// Wait for PVC to be deleted from supervisor cluster
-		err = common.WaitForPVCDeleted(ctx, c.supervisorClient,
+		err = common.WaitForPVCDeletedWithWatch(ctx, c.supervisorClient,
 			req.VolumeId, c.supervisorNamespace,
 			time.Duration(getProvisionTimeoutInMin(ctx))*time.Minute)
 		if err != nil {
@@ -1831,7 +1831,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 		}
 
 		// Wait for VolumeSnapshot to be deleted from supervisor cluster
-		err = common.WaitForVolumeSnapshotDeleted(ctx, c.supervisorSnapshotterClient,
+		err = common.WaitForVolumeSnapshotDeletedWithWatch(ctx, c.supervisorSnapshotterClient,
 			supervisorVolumeSnapshotName, c.supervisorNamespace,
 			time.Duration(getSnapshotTimeoutInMin(ctx))*time.Minute)
 		if err != nil {
