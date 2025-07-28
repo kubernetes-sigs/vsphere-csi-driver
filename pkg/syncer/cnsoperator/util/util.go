@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2021-2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,6 +37,8 @@ import (
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -50,6 +52,12 @@ var networkInfoGVR = schema.GroupVersionResource{
 	Group:    "crd.nsx.vmware.com",
 	Version:  "v1alpha1",
 	Resource: "networkinfos",
+}
+
+var namespaceNetworkInfoGVR = schema.GroupVersionResource{
+	Group:    "nsx.vmware.com",
+	Version:  "v1alpha1",
+	Resource: "namespacenetworkinfos",
 }
 
 const (
@@ -113,9 +121,16 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		return "", err
 	}
 
+	isFileVolumesWithVmServiceVmSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.FileVolumesWithVmService)
+
 	var networkNames []string
 	for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
-		networkNames = append(networkNames, networkInterface.Network.Name)
+		if !isFileVolumesWithVmServiceVmSupported {
+			networkNames = append(networkNames, networkInterface.Network.Name)
+		} else if networkInterface.Network.Name != "" {
+			networkNames = append(networkNames, networkInterface.Network.Name)
+		}
 	}
 	log.Debugf("VirtualMachine %s/%s is configured with networks %v", vmNamespace, vmName, networkNames)
 
@@ -137,8 +152,27 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 			}
 		}
 		if ip == "" {
-			return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s",
-				vmNamespace, vmName)
+			if !isFileVolumesWithVmServiceVmSupported {
+				return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s",
+					vmNamespace, vmName)
+			}
+			if len(networkNames) != 0 {
+				// If networkNames for VirtualNetwork were found on the VM,
+				// then some error happened in getting the SNAT IP from VirtualNetwork CR.
+				return "", fmt.Errorf("failed to get SNAT IP annotation for VirtualMachine %s/%s "+
+					"from VirtualNetwrok",
+					vmNamespace, vmName)
+			}
+			// It is likely an NSX setup with VM service VMs.
+			// For TKG service VMs, virtual network CR will always be present.
+			ip, err = getSnatIpFromNamespaceNetworkInfo(ctx, dc, vmNamespace, vmName)
+			if err != nil {
+				log.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo. Err %s", err)
+				return "", fmt.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo %s/%s",
+					vmNamespace, vmName)
+			}
+			log.Infof("Obtained SNAT IP %s from NamespaceNetworkInfo for VirtualMachine %s/%s",
+				ip, vmNamespace, vmName)
 		}
 	} else if network_provider_type == VDSNetworkProvider {
 		ip = virtualMachineInstance.Status.Network.PrimaryIP4
@@ -186,6 +220,35 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
 	return ip, nil
+}
+
+// getSnatIpFromNamespaceNetworkInfo finds VM's SNAT IP from the namespace's default NamespaceNetworkInfo CR.
+func getSnatIpFromNamespaceNetworkInfo(ctx context.Context, dc dynamic.Interface,
+	vmNamespace string, vmName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Determining SNAT IP for VM %s in namespace %s via NamespaceNetworkInfo CR", vmNamespace, vmName)
+
+	namespaceNetworkInfoInstance, err := dc.Resource(namespaceNetworkInfoGVR).Namespace(vmNamespace).Get(ctx,
+		vmNamespace, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	log.Debugf("Got namespaceNetworkInfo instance %s/%s", vmNamespace, namespaceNetworkInfoInstance.GetName())
+	snatIP, found, err := unstructured.NestedString(namespaceNetworkInfoInstance.Object, "topology", "defaultEgressIP")
+	if err != nil {
+		return "", fmt.Errorf("failed to get defaultEgressIP from namespaceNetworkInfo %s/%s with error: %v",
+			vmNamespace, vmName, err)
+
+	}
+	if !found {
+		return "", fmt.Errorf("defaultEgressIP is not found on namespaceNetworkInfo %s/%s", vmNamespace, vmName)
+
+	}
+	if snatIP == "" {
+		return "", fmt.Errorf("empty SNAT IP for VM %s on namespaceNetworkInfo instance %s/%s", vmName, vmNamespace,
+			namespaceNetworkInfoInstance.GetName())
+	}
+	return snatIP, nil
 }
 
 // GetNetworkProvider reads the network-config configmap in Supervisor cluster.

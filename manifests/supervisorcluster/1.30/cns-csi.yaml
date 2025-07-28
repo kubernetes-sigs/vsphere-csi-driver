@@ -120,6 +120,9 @@ rules:
   - apiGroups: ["cluster.x-k8s.io"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["nsx.vmware.com"]
+    resources: ["namespacenetworkinfos"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
