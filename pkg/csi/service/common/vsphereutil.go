@@ -223,7 +223,7 @@ func CreateBlockVolumeUtil(
 		clusterID = manager.CnsConfig.Global.SupervisorID
 	}
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		username, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -517,6 +517,11 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 	}
 
+	username, err := vc.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
 	if filterSuspendedDatastores {
 		datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
 		if err != nil {
@@ -574,10 +579,6 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		clusterID = cnsConfig.Global.SupervisorID
 	}
 
-	username, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, csifault.CSIInternalFault, err
-	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(clusterID,
 		username, clusterFlavor,
