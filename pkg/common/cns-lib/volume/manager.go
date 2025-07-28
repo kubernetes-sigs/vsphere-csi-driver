@@ -480,7 +480,8 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 		} else {
 			// Validate if the volume is already registered.
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
-			resp, err := validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
+			var resp *CnsVolumeInfo
+			resp, err = validateCreateVolumeResponseFault(ctx, volNameFromInputSpec, volumeOperationRes)
 			if err == nil {
 				*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
 					(*volumeOperationDetails).QuotaDetails,
