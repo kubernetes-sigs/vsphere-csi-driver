@@ -465,6 +465,8 @@ const (
 	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
 	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
 	LinkedCloneSupport = "linked-clone-support"
+	// StoragePolicyReservationSupport is FSS that tells whether StoragePolicyReservation is supported in CSI
+	StoragePolicyReservationSupport = "storage-policy-reservation-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{

@@ -1089,34 +1089,55 @@ func syncStorageQuotaReserved(ctx context.Context,
 	for ns := range namespaces {
 		totalStoragePolicyReserved = make(map[string]*resource.Quantity)
 		log.Debugf("syncStorageQuotaReserved: processing storage quota sync for namespace %q", ns)
-		// calculate storagepolicyusage reserved values for given namespace
+		// calculate VM service's storagepolicyusage reserved values for given namespace
 		spuVmServiceReserved, err := calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx,
 			cnsOperatorClient, ns)
 		if err != nil {
 			log.Errorf("syncStorageQuotaReserved: error while calculating expected VmService StoragePolicyUsage"+
 				" reserved value, Error: %v", err)
 			continue
-		} else if spuVmServiceReserved != nil {
+		}
+		if spuVmServiceReserved != nil {
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(spuVmServiceReserved, totalStoragePolicyReserved)
 		}
+
 		// calculate pending and under expansion PVC's reserved values for given namespace
 		pvcReserved, err := calculatePVCReservedForNamespace(ctx, volumeMap, ns, metadataSyncer)
 		if err != nil {
 			log.Errorf("syncStorageQuotaReserved: error while calculating expected PVC reserved value for"+
 				" given namespace %q, Error: %v", ns, err)
 			continue
-		} else if pvcReserved != nil {
+		}
+		if pvcReserved != nil {
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(pvcReserved, totalStoragePolicyReserved)
 		}
+
 		// calculate reserved values for not ready snapshots
 		vsReserved, err := calculateVolumeSnapshotReservedForNamespace(ctx, ns, metadataSyncer)
 		if err != nil {
 			log.Errorf("syncStorageQuotaReserved: error while calculating expected VolumeSnapshot reserved value for"+
 				" given namespace %q, Error: %v", ns, err)
 			continue
-		} else if vsReserved != nil {
+		}
+		if vsReserved != nil {
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(vsReserved, totalStoragePolicyReserved)
 		}
+
+		// TODO: For now this FSS is added in CSI ConfigMap. Once this FSS is available in Capabilities CR, remove
+		// it from CSI ConfigMap and fetch FSS value from Capabilities CR.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+			// calculate expected reserved values for StoragePolicyReservation CRs for given namespace
+			sprReserved, err := calculateSPRReservedForNamespace(ctx, cnsOperatorClient, ns)
+			if err != nil {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected reserved value for"+
+					" StoragePolicyReservation in namespace %q, Error: %v", ns, err)
+				continue
+			}
+			if sprReserved != nil {
+				totalStoragePolicyReserved = mergeStoragePolicyReserved(sprReserved, totalStoragePolicyReserved)
+			}
+		}
+
 		expectedReservedValues = append(expectedReservedValues, sqperiodicsyncv1alpha1.ExpectedReservedValues{
 			Namespace: ns,
 			Reserved:  totalStoragePolicyReserved,
@@ -1155,7 +1176,6 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 		if storagePolicyUsage.Spec.ResourceExtensionName == VMServiceExtensionServiceName {
 			log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Processing StoragePolicyUsage"+
 				" Name: %q, Namespace: %q", storagePolicyUsage.Name, storagePolicyUsage.Namespace)
-			storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId] = resource.NewQuantity(0, resource.BinarySI)
 			if storagePolicyUsage.DeletionTimestamp != nil {
 				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace:"+
 					" StoragePolicyUsage is marked for deletion, ignoring Name: %q, Namespace: %q",
@@ -1167,6 +1187,10 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 					" status not populated, continue processing other PVCs Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
+			}
+			if storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId] == nil {
+				storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId] = resource.NewQuantity(0,
+					resource.BinarySI)
 			}
 			storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId].Add(
 				*storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Reserved)
@@ -1304,6 +1328,169 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 		}
 	}
 	return storagePolicyIdToReservedMap, nil
+}
+
+// calculateSPRReservedForNamespace calculates the expected reserved capacity values for StoragePolicyReservation
+// CRs in the given namespace and returns map of storage policy ID to expected reserved capacity for that policy.
+func calculateSPRReservedForNamespace(ctx context.Context, cnsOperatorClient client.Client,
+	namespace string) (map[string]*resource.Quantity, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("calculateSPRReservedForNamespace: Fetching StoragePolicyReservation CRs for namespace %q",
+		namespace)
+	sprList := &storagepolicyv1alpha2.StoragePolicyReservationList{}
+	err := cnsOperatorClient.List(ctx, sprList, &client.ListOptions{Namespace: namespace})
+	if err != nil {
+		return nil, err
+	}
+	if len(sprList.Items) == 0 {
+		log.Debugf("calculateSPRReservedForNamespace: There are no StoragePolicyReservation CRs in namespace %q",
+			namespace)
+		return nil, nil
+	}
+
+	storagePolicyIdToReservedMap := make(map[string]*resource.Quantity)
+	for _, storagePolicyReservation := range sprList.Items {
+		log.Debugf("calculateSPRReservedForNamespace: Processing StoragePolicyReservation CR, "+
+			"Name: %q, Namespace: %q", storagePolicyReservation.Name, storagePolicyReservation.Namespace)
+		expectedReservedMap, err := getExpectedReservedCapacityForSPR(ctx, storagePolicyReservation)
+		if err != nil {
+			return nil, err
+		}
+		for storagePolicyId, capacity := range expectedReservedMap {
+			if storagePolicyIdToReservedMap[storagePolicyId] == nil {
+				storagePolicyIdToReservedMap[storagePolicyId] = resource.NewQuantity(0,
+					resource.BinarySI)
+			}
+			storagePolicyIdToReservedMap[storagePolicyId].Add(*capacity)
+		}
+	}
+	return storagePolicyIdToReservedMap, nil
+}
+
+// getExpectedReservedCapacityForSPR gets the expected reserved capacity for given StoragePolicyReservation.
+func getExpectedReservedCapacityForSPR(ctx context.Context,
+	spr storagepolicyv1alpha2.StoragePolicyReservation) (map[string]*resource.Quantity, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Fetching expected reserved capacity for StoragePolicyReservation, Name: %q, Namespace: %q",
+		spr.Name, spr.Namespace)
+
+	// Calculate requested capacity by StorageClass from Spec
+	requestedCapacityMap := calculateRequestedCapacityByStorageClass(spr)
+
+	// Calculate approved capacity by StorageClass from Status
+	approvedCapacityMap := calculateApprovedCapacityByStorageClass(spr)
+
+	// Calculate expected reserved capacity by StorageClass based on requested and approved capacity map
+	expectedReservedCapacityMap := calculateExpectedReservedCapacity(ctx, requestedCapacityMap,
+		approvedCapacityMap)
+
+	// Get storageclass to storage policy ID mapping
+	scToStoragePolicyIDMap, err := fetchStorageClassToStoragePolicyMapping(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert StorageClass capacity map to StoragePolicyID capacity map
+	storagePolicyExpectedReservedMap := make(map[string]*resource.Quantity)
+	for storageClassName, expectedReservedCapacity := range expectedReservedCapacityMap {
+		if expectedReservedCapacity.IsZero() {
+			continue
+		}
+
+		log.Infof("Calculated expected reserved capacity for StorageClass: %s, "+
+			"ExpectedReservedCapacity: %s", storageClassName, expectedReservedCapacity.String())
+		// Get storage policy ID from StorageClass
+		if storagePolicyID, ok := scToStoragePolicyIDMap[storageClassName]; ok {
+			// Create storage policy ID to capacity map
+			capacity := expectedReservedCapacity.DeepCopy()
+			storagePolicyExpectedReservedMap[storagePolicyID] = &capacity
+		} else {
+			log.Errorf("Couldn't find storage policy ID for StorageClass %s in the map, continuing for "+
+				"other storage classes", storageClassName)
+			continue
+		}
+	}
+	log.Infof("Successfully calculated expected reserved capacity values for StoragePolicyReservation, "+
+		"Name: %q, Namespace: %q", spr.Name, spr.Namespace)
+	return storagePolicyExpectedReservedMap, nil
+}
+
+// calculateRequestedCapacityByStorageClass aggregates requested capacity by StorageClass from Spec
+func calculateRequestedCapacityByStorageClass(
+	spr storagepolicyv1alpha2.StoragePolicyReservation) map[string]resource.Quantity {
+	capacityMap := make(map[string]resource.Quantity)
+
+	for _, requested := range spr.Spec.Requested {
+		for _, reservationRequest := range requested.ReservationRequests {
+			if reservationRequest.Request == nil || reservationRequest.Request.IsZero() {
+				continue
+			}
+
+			if existingCapacity, exists := capacityMap[reservationRequest.StorageClassName]; exists {
+				existingCapacity.Add(*reservationRequest.Request)
+				capacityMap[reservationRequest.StorageClassName] = existingCapacity
+			} else {
+				capacityMap[reservationRequest.StorageClassName] = *reservationRequest.Request
+			}
+		}
+	}
+
+	return capacityMap
+}
+
+// calculateApprovedCapacityByStorageClass aggregates approved capacity by StorageClass from Status
+func calculateApprovedCapacityByStorageClass(
+	spr storagepolicyv1alpha2.StoragePolicyReservation) map[string]resource.Quantity {
+	capacityMap := make(map[string]resource.Quantity)
+
+	for _, approved := range spr.Status.Approved {
+		// Check if Request is nil or zero
+		if approved.Request == nil || approved.Request.IsZero() {
+			continue
+		}
+
+		capacity := *approved.Request
+
+		if existingCapacity, exists := capacityMap[approved.StorageClassName]; exists {
+			existingCapacity.Add(capacity)
+			capacityMap[approved.StorageClassName] = existingCapacity
+		} else {
+			capacityMap[approved.StorageClassName] = capacity
+		}
+	}
+
+	return capacityMap
+}
+
+// calculateExpectedReservedCapacity calculates the difference between requested and approved capacity
+// for each StorageClass and returns the map of StorageClass to expected reserved capacity
+func calculateExpectedReservedCapacity(ctx context.Context, requestedMap,
+	approvedMap map[string]resource.Quantity) map[string]resource.Quantity {
+	log := logger.GetLogger(ctx)
+	expectedReservedCapacityMap := make(map[string]resource.Quantity)
+
+	for storageClassName, requestedCapacity := range requestedMap {
+		approvedCapacity, exists := approvedMap[storageClassName]
+		if !exists {
+			// All requested capacity is extra if nothing is approved
+			expectedReservedCapacityMap[storageClassName] = requestedCapacity
+			continue
+		}
+
+		// Calculate the difference
+		extraCapacity := requestedCapacity.DeepCopy()
+		extraCapacity.Sub(approvedCapacity)
+
+		// Only include positive differences (extra reserved quota)
+		if extraCapacity.Sign() > 0 {
+			expectedReservedCapacityMap[storageClassName] = extraCapacity
+		} else if extraCapacity.Sign() < 0 {
+			log.Infof("WARNING: Negative extra reserved quota found for StorageClass: %s, "+
+				"ExtraCapacity: %s", storageClassName, extraCapacity.String())
+		}
+	}
+
+	return expectedReservedCapacityMap
 }
 
 // updateStorageQuotaPeriodicSyncCR update the StorageQuotaPeriodSync CR status
