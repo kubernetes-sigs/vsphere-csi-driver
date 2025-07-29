@@ -70,20 +70,11 @@ func initTestInputData(testConfig *config.TestInputData) {
 		kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 		os.Setenv(constants.KubeconfigEnvVar, kubeconfig)
 	}
-
-	framework.AfterReadingAllFlags(&framework.TestContext)
 	clusterFlavor := cnstypes.CnsClusterFlavor(os.Getenv(constants.EnvClusterFlavor))
-
 	setClusterFlavor(testConfig, clusterFlavor)
 	setSShdPort(testConfig)
-
-	if os.Getenv(constants.BusyBoxImageEnvVar) != "" {
-		testConfig.BusyBoxGcr.Image = os.Getenv(constants.BusyBoxImageEnvVar)
-	}
-
-	if os.Getenv(constants.WindowsImageEnvVar) != "" {
-		testConfig.WindowsOnMcr.Image = os.Getenv(constants.WindowsImageEnvVar)
-	}
+	env.SetRequiredImages(testConfig)
+	env.SetKubeEnv()
 }
 
 // this function sets the boolean variables w.r.t the Cluster type.
@@ -206,6 +197,9 @@ func setSShdPort(testConfig *config.TestInputData) {
 	}
 }
 
+/*
+This function add ip and port map to testinput data
+*/
 func safeInsertToMap(testConfig *config.TestInputData, key, value string) {
 	if key != "" && value != "" {
 		testConfig.TestBedInfo.IpPortMap[key] = value
