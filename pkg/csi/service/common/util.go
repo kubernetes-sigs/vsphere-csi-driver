@@ -34,7 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	crconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -63,6 +63,19 @@ var getVCenterInternal = func(ctx context.Context, manager *Manager) (*cnsvspher
 		return nil, err
 	}
 	return vcenter, nil
+}
+
+// getAvailabilityZoneClient returns AZ Client that can be overridden for testing
+var getAvailabilityZoneClient = func() (dynamic.Interface, error) {
+	cfg, err := crconfig.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
+	}
+	azClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
+	}
+	return azClient, nil
 }
 
 // GetVCenter returns VirtualCenter object from specified Manager object.
@@ -373,18 +386,12 @@ func Contains(list []string, item string) bool {
 
 // GetClusterComputeResourceMoIds helps find ClusterComputeResourceMoIds from
 // AvailabilityZone CRs on the supervisor cluster.
-func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
+// returns true if any AZ in the supervisor has multiple clusters
+func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, bool, error) {
 	log := logger.GetLogger(ctx)
-	// Get a config to talk to the apiserver.
-	cfg, err := config.GetConfig()
+	azClient, err := getAvailabilityZoneClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Kubernetes config. Err: %+v", err)
-	}
-
-	// Create a new AvailabilityZone client.
-	azClient, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
+		return nil, false, fmt.Errorf("failed to create AvailabilityZone client using config. Err: %+v", err)
 	}
 	azResource := schema.GroupVersionResource{
 		Group: "topology.tanzu.vmware.com", Version: "v1alpha1", Resource: "availabilityzones"}
@@ -399,27 +406,31 @@ func GetClusterComputeResourceMoIds(ctx context.Context) ([]string, error) {
 		_, ok := err.(*apiMeta.NoKindMatchError)
 		if ok {
 			log.Infof("AvailabilityZone CR is not registered on the cluster")
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("failed to get AvailabilityZone lists. err: %+v", err)
+		return nil, false, fmt.Errorf("failed to get AvailabilityZone lists. err: %+v", err)
 	}
 	if len(azList.Items) == 0 {
-		return nil, fmt.Errorf("could not find any AvailabilityZone")
+		return nil, false, fmt.Errorf("could not find any AvailabilityZone")
 	}
 
 	var (
 		clusterComputeResourceMoIds []string
+		multipleClustersPerAZ       bool
 	)
 	for _, az := range azList.Items {
 		clusterComputeResourceMoIdSlice, found, err := unstructured.NestedStringSlice(az.Object, "spec",
 			"clusterComputeResourceMoIDs")
 		if !found || err != nil {
-			return nil, fmt.Errorf("failed to get ClusterComputeResourceMoIDs "+
+			return nil, multipleClustersPerAZ, fmt.Errorf("failed to get ClusterComputeResourceMoIDs "+
 				"from AvailabilityZone instance: %+v, err:%+v", az.Object, err)
+		}
+		if len(clusterComputeResourceMoIdSlice) > 1 {
+			multipleClustersPerAZ = true
 		}
 		clusterComputeResourceMoIds = append(clusterComputeResourceMoIds, clusterComputeResourceMoIdSlice...)
 	}
-	return clusterComputeResourceMoIds, nil
+	return clusterComputeResourceMoIds, multipleClustersPerAZ, nil
 }
 
 // MergeMaps merges two maps to create a new one, the key-value pair from first

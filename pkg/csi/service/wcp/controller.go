@@ -40,6 +40,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -118,7 +119,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		clusterComputeResourceMoIds, err = common.GetClusterComputeResourceMoIds(ctx)
+		clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
 			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 			return err
@@ -152,6 +153,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.PodVMOnStretchedSupervisor)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultipleClustersPerVsphereZone) {
+		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, nil, metav1.NamespaceAll)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
+		}
+	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
