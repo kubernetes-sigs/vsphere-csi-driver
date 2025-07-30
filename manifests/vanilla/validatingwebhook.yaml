@@ -149,7 +149,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: vsphere-webhook
-          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/syncer:v3.5.0-rc.1
+          image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/syncer:v3.5.1-rc.1
           args:
             - "--operation-mode=WEBHOOK_SERVER"
             - "--fss-name=internal-feature-states.csi.vsphere.vmware.com"
