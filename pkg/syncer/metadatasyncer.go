@@ -136,6 +136,7 @@ const (
 	VMServiceExtensionServiceName        = "vmware-system-vmop-webhook-service"
 	scParamStoragePolicyID               = "storagePolicyID"
 	StorageQuotaPeriodicSyncInstanceName = "storage-quota-periodic-sync"
+	FileVolumePrefix                     = "file:"
 )
 
 // newInformer returns uninitialized metadataSyncInformer.
@@ -3909,7 +3910,15 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 					for _, pv := range volumes {
 						// Verify the StorageClass, StoragePolicyId match with the storagePolicyUsage spec
 						// using the cnsVolumeInfo CR for the volume
-						if cnsVolumeInfo, ok := cnsVolumeInfoMap[pv.Spec.CSI.VolumeHandle]; ok {
+						volumeHandle := pv.Spec.CSI.VolumeHandle
+						// For file volumes replace prefix "file:" with "file-", since CnsVolumeInfo CR
+						// is created as "file-<uuid>". For example, see below.
+						// cnsvolumeinfo name: file-e6a32a53-2783-42cd-a854-4df28582f04c
+						// pv.Spec.volumeHandle: file:e6a32a53-2783-42cd-a854-4df28582f04c
+						if strings.HasPrefix(pv.Spec.CSI.VolumeHandle, FileVolumePrefix) {
+							volumeHandle = strings.Replace(pv.Spec.CSI.VolumeHandle, ":", "-", 1)
+						}
+						if cnsVolumeInfo, ok := cnsVolumeInfoMap[volumeHandle]; ok {
 							if cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName &&
 								cnsVolumeInfo.Spec.StoragePolicyID == storagePolicyUsage.Spec.StoragePolicyId &&
 								cnsVolumeInfo.Spec.Namespace == storagePolicyUsage.Namespace {
