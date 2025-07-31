@@ -549,7 +549,6 @@ spec:
 ---
 apiVersion: v1
 data:
-  "volume-health": "true"
   "file-volume": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
