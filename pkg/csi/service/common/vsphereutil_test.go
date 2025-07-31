@@ -117,6 +117,12 @@ func (m *mockVolumeManager) MonitorCreateVolumeTask(ctx context.Context,
 	return nil, "", nil
 }
 
+func (m *mockVolumeManager) BatchAttachVolumes(ctx context.Context,
+	vm *vsphere.VirtualMachine,
+	volumeIDs []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
+	return []cnsvolume.BatchAttachResult{}, "", nil
+}
+
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	volumeId := "dummy-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,

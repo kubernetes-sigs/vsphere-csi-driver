@@ -18,8 +18,11 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,10 +30,13 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
+	vimtypes "github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -208,4 +214,87 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 
 	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
 		wcpNetworkConfigMap, kubeSystemNamespace)
+}
+
+// GetVCDatacenterFromConfig returns datacenter registered for each vCenter
+func GetVCDatacentersFromConfig(cfg *config.Config) ([]string, string, error) {
+	dcList := make([]string, 0)
+	vcHost := ""
+	if len(cfg.VirtualCenter) > 1 {
+		return dcList, vcHost, fmt.Errorf("invalid configuration. Expected only 1 VC but found %d", len(cfg.VirtualCenter))
+	}
+
+	for host, value := range cfg.VirtualCenter {
+		vcHost = host
+		datacentersOnVcenter := strings.Split(value.Datacenters, ",")
+		for _, dc := range datacentersOnVcenter {
+			dcMoID := strings.TrimSpace(dc)
+			if dcMoID != "" {
+				dcList = append(dcList, dcMoID)
+			}
+		}
+	}
+	if len(dcList) == 0 {
+		return dcList, vcHost, errors.New("unable get vCenter datacenters from vsphere config")
+	}
+	return dcList, vcHost, nil
+}
+
+// GetVMFromVcenter returns the VM from vCenter for the given nodeUUID.
+func GetVMFromVcenter(ctx context.Context, nodeUUID string,
+	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+
+	dcList, err := GetDatacenterObjectList(ctx, configInfo)
+	if err != nil {
+		log.Errorf("failed to get datacenter for node: %s. Err: %+q", nodeUUID, err)
+		return nil, err
+	}
+
+	for _, dc := range dcList {
+		vm, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, true)
+		if err != nil {
+			log.Errorf("failed to find the VM with UUID: %s Err: %+v",
+				nodeUUID, err)
+			continue
+		}
+		return vm, nil
+	}
+	return nil, cnsvsphere.ErrVMNotFound
+}
+
+// GetDatacenterObjectList returns the list datacenters on the vCenter.
+func GetDatacenterObjectList(ctx context.Context,
+	configInfo config.ConfigurationInfo) ([]cnsvsphere.Datacenter, error) {
+	log := logger.GetLogger(ctx)
+
+	dcList, host, err := GetVCDatacentersFromConfig(configInfo.Cfg)
+	if err != nil {
+		log.Errorf("failed to find datacenter moref from config. Err: %s", err)
+		return nil, err
+	}
+
+	datacenterList := make([]cnsvsphere.Datacenter, 0)
+	for _, dcMoref := range dcList {
+		vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, &configInfo, false)
+		if err != nil {
+			log.Errorf("failed to get virtual center instance with error: %v", err)
+			return nil, err
+		}
+		err = vcenter.Connect(ctx)
+		if err != nil {
+			log.Errorf("failed to connect to VC with error: %v", err)
+			return nil, err
+		}
+		dc := &cnsvsphere.Datacenter{
+			Datacenter: object.NewDatacenter(vcenter.Client.Client,
+				vimtypes.ManagedObjectReference{
+					Type:  "Datacenter",
+					Value: dcMoref,
+				}),
+			VirtualCenterHost: host,
+		}
+		datacenterList = append(datacenterList, *dc)
+	}
+	return datacenterList, nil
 }

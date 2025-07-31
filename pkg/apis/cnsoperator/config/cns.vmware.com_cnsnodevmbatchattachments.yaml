@@ -1,0 +1,154 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: cnsnodevmbatchattachments.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsNodeVmBatchAttachment
+    listKind: CnsNodeVmBatchAttachmentList
+    plural: cnsnodevmbatchattachments
+    singular: cnsnodevmbatchattachment
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CnsNodeVmBatchAttachment is the Schema for the cnsnodevmbatchattachments
+          API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsNodeVmBatchAttachmentSpec defines the desired state of
+              CnsNodeVmBatchAttachment
+            properties:
+              nodeuuid:
+                description: |-
+                  NodeUUID indicates the UUID of the node where the volume needs to be attached to.
+                  Here NodeUUID is the bios UUID of the node.
+                type: string
+              volumes:
+                description: VolumeSpec reflects the desired state for each volume.
+                items:
+                  properties:
+                    name:
+                      description: Name of the volume as given by the user.
+                      type: string
+                    persistentVolumeClaim:
+                      description: PersistentVolumeClaim contains details about the
+                        volume's desired state.
+                      properties:
+                        claimName:
+                          description: ClaimName is the PVC name.
+                          type: string
+                        controllerKey:
+                          description: ControllerKey is the object key for the controller
+                            object for this device.
+                          type: string
+                        diskMode:
+                          description: DiskMode is the desired mode to use when attaching
+                            the volume
+                          type: string
+                        sharingMode:
+                          description: SharingMode indicates the shraring mode if
+                            the virtual disk while attaching.
+                          type: string
+                        unitNumber:
+                          description: UnitNumber of this device on its controller.
+                          type: string
+                      required:
+                      - claimName
+                      type: object
+                  required:
+                  - name
+                  - persistentVolumeClaim
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - nodeuuid
+            - volumes
+            type: object
+          status:
+            description: CnsNodeVmBatchAttachmentStatus defines the observed state
+              of CnsNodeVmBatchAttachment
+            properties:
+              error:
+                description: Error is the overall error status for the instance.
+                type: string
+              volumes:
+                description: VolumeStatus reflects the status for each volume.
+                items:
+                  properties:
+                    name:
+                      description: Name of the volume as given by the user.
+                      type: string
+                    persistentVolumeClaim:
+                      description: PersistentVolumeClaim contains details about the
+                        volume's current state.
+                      properties:
+                        attached:
+                          description: |-
+                            If volume is not attached, Attached will be set to false.
+                            If volume is attached, Attached will be set to true.
+                            If volume is detached successfully, its entry will be removed from VolumeStatus.
+                          type: boolean
+                        claimName:
+                          description: ClaimName is the PVC name.
+                          type: string
+                        cnsVolumeId:
+                          description: CnsVolumeID is the volume ID for the PVC.
+                          type: string
+                        diskuuid:
+                          description: Diskuuid is the ID obtained when volume is
+                            attached to a VM.
+                          type: string
+                        error:
+                          description: Error indicates the error which may have occurred
+                            during attach/detach.
+                          type: string
+                      required:
+                      - attached
+                      - claimName
+                      type: object
+                  required:
+                  - name
+                  - persistentVolumeClaim
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

@@ -98,6 +98,9 @@ type COCommonInterface interface {
 	GetPVNameFromCSIVolumeID(volumeID string) (string, bool)
 	// GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
 	GetPVCNameFromCSIVolumeID(volumeID string) (string, string, bool)
+	// GetVolumeIDFromPVCName returns volumeID the given pvcName using pvcToVolumeIDMap.
+	// PVC name is its namespaced name.
+	GetVolumeIDFromPVCName(pvcName string) (string, bool)
 	// InitializeCSINodes creates CSINode instances for each K8s node with the appropriate topology keys.
 	InitializeCSINodes(ctx context.Context) error
 	// StartZonesInformer starts a dynamic informer which listens on Zones CR in
@@ -118,6 +121,8 @@ type COCommonInterface interface {
 	// UpdatePersistentVolumeLabel Updates the PV label with the specified key value.
 	UpdatePersistentVolumeLabel(ctx context.Context, pvName string, key string, value string) error
 	GetActiveClustersForNamespaceInRequestedZones(ctx context.Context, ns string, zones []string) ([]string, error)
+	// GetPvcObjectByName return PVC object for the given PVC name
+	GetPvcObjectByName(ctx context.Context, pvcName string, namespace string) (*v1.PersistentVolumeClaim, error)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

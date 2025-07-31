@@ -39,7 +39,7 @@ spec:
             properties:
               nodeuuid:
                 description: NodeUUID indicates the UUID of the node where the volume
-                  needs to be attached to. Here NodeUUID is the bios UUID of the node.
+                  needs to be attached to. Here NodeUUID is the instance UUID of the node.
                 type: string
               volumename:
                 description: VolumeName indicates the name of the volume on the supervisor

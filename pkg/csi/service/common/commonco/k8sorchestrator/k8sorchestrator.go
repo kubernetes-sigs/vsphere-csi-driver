@@ -105,6 +105,15 @@ type volumeIDToPvcMap struct {
 	items map[string]string
 }
 
+// Map of pvc to volumeID.
+// Key is the namespaced pvc name and value volumeID.
+// The methods to add, remove and get entries from the map in a threadsafe
+// manner are defined.
+type pvcToVolumeIDMap struct {
+	*sync.RWMutex
+	items map[string]string
+}
+
 // Adds an entry to volumeIDToPvcMap in a thread safe manner.
 func (m *volumeIDToPvcMap) add(volumeHandle, pvcName string) {
 	m.Lock()
@@ -125,6 +134,28 @@ func (m *volumeIDToPvcMap) get(volumeHandle string) (string, bool) {
 	defer m.RUnlock()
 	pvcname, found := m.items[volumeHandle]
 	return pvcname, found
+}
+
+// Adds an entry to pvcToVolumeIDMap in a thread safe manner.
+func (m *pvcToVolumeIDMap) add(pvcName, volumeHandle string) {
+	m.Lock()
+	defer m.Unlock()
+	m.items[pvcName] = volumeHandle
+}
+
+// Removes a pvcName from pvcToVolumeIDMap in a thread safe manner.
+func (m *pvcToVolumeIDMap) remove(pvcName string) {
+	m.Lock()
+	defer m.Unlock()
+	delete(m.items, pvcName)
+}
+
+// Returns the volumeID corresponding to the pvc name.
+func (m *pvcToVolumeIDMap) get(pvcName string) (string, bool) {
+	m.RLock()
+	defer m.RUnlock()
+	volumeID, found := m.items[pvcName]
+	return volumeID, found
 }
 
 // Map of the volumeName which refers to the PVName, to the list of node names in the cluster.
@@ -218,6 +249,7 @@ type K8sOrchestrator struct {
 	informerManager      *k8s.InformerManager
 	clusterFlavor        cnstypes.CnsClusterFlavor
 	volumeIDToPvcMap     *volumeIDToPvcMap
+	pvcToVolumeIDMap     *pvcToVolumeIDMap
 	nodeIDToNameMap      *nodeIDToNameMap
 	volumeNameToNodesMap *volumeNameToNodesMap // used when ListVolume FSS is enabled
 	volumeIDToNameMap    *volumeIDToNameMap    // used when ListVolume FSS is enabled
@@ -885,6 +917,11 @@ func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnsty
 		items:   make(map[string]string),
 	}
 
+	k8sOrchestratorInstance.pvcToVolumeIDMap = &pvcToVolumeIDMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[string]string),
+	}
+
 	k8sOrchestratorInstance.volumeIDToNameMap = &volumeIDToNameMap{
 		RWMutex: &sync.RWMutex{},
 		items:   make(map[string]string),
@@ -933,7 +970,7 @@ func initVolumeHandleToPvcMap(ctx context.Context, controllerClusterFlavor cnsty
 // the existing PVCs as well.
 func pvcAdded(obj interface{}) {}
 
-// pvAdded adds a volume to the volumeIDToPvcMap if it's already in Bound phase.
+// pvAdded adds a volume to the volumeIDToPvcMap and  pvcToVolumeIDMap if it's already in Bound phase.
 // This ensures that all existing PVs in the cluster are added to the map, even
 // across container restarts.
 func pvAdded(obj interface{}) {
@@ -952,7 +989,8 @@ func pvAdded(obj interface{}) {
 			objVal := pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name
 
 			k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
-			log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
+			k8sOrchestratorInstance.pvcToVolumeIDMap.add(objVal, objKey)
+			log.Debugf("pvAdded: Added '%s and %s' mapping to volumeIDToPvcMap and pvcToVolumeIDMap", objKey, objVal)
 		}
 		k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.CSI.VolumeHandle, pv.Name)
 		log.Debugf("pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.CSI.VolumeHandle, pv.Name)
@@ -970,7 +1008,7 @@ func pvAdded(obj interface{}) {
 	}
 }
 
-// pvUpdated updates the volumeIDToPvcMap when a PV goes to Bound phase.
+// pvUpdated updates the volumeIDToPvcMap and pvcToVolumeIDMap when a PV goes to Bound phase.
 func pvUpdated(oldObj, newObj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	// Get old and new PV objects.
@@ -998,7 +1036,9 @@ func pvUpdated(oldObj, newObj interface{}) {
 				objVal := newPv.Spec.ClaimRef.Namespace + "/" + newPv.Spec.ClaimRef.Name
 
 				k8sOrchestratorInstance.volumeIDToPvcMap.add(objKey, objVal)
-				log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToPvcMap", objKey, objVal)
+				k8sOrchestratorInstance.pvcToVolumeIDMap.add(objVal, objKey)
+				log.Debugf("pvUpdated: Added '%s and %s' mapping to pvcToVolumeIDMap and pvcToVolumeID",
+					objKey, objVal)
 			}
 			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.CSI.VolumeHandle, newPv.Name)
 			log.Debugf("pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap", newPv.Spec.CSI.VolumeHandle, newPv.Name)
@@ -1019,7 +1059,7 @@ func pvUpdated(oldObj, newObj interface{}) {
 	}
 }
 
-// pvDeleted deletes an entry from volumeIDToPvcMap when a PV gets deleted.
+// pvDeleted deletes an entry from volumeIDToPvcMap and pvcToVolumeIDMap when a PV gets deleted.
 func pvDeleted(obj interface{}) {
 	_, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
@@ -1027,14 +1067,16 @@ func pvDeleted(obj interface{}) {
 		log.Warnf("PVDeleted: unrecognized object %+v", obj)
 		return
 	}
-	log.Debugf("PV: %s deleted. Removing entry from volumeIDToPvcMap", pv.Name)
+	log.Debugf("PV: %s deleted. Removing entry from volumeIDToPvcMap and pvcToVolumeIDMap", pv.Name)
 
 	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
 		k8sOrchestratorInstance.volumeIDToPvcMap.remove(pv.Spec.CSI.VolumeHandle)
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToPvcMap", pv.Spec.CSI.VolumeHandle)
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
-
+		k8sOrchestratorInstance.pvcToVolumeIDMap.remove(pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name)
+		log.Debugf("k8sorchestrator: Deleted key %s from pvcToVolumeID",
+			pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name)
 	}
 	if pv.Spec.VsphereVolume != nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
@@ -1389,6 +1431,19 @@ func (c *K8sOrchestrator) DisableFSS(ctx context.Context, featureName string) er
 	log := logger.GetLogger(ctx)
 	return logger.LogNewErrorCode(log, codes.Unimplemented,
 		"DisableFSS is not implemented.")
+}
+
+// GetPvcObjectByName returns PVC object for the given pvc name in the said namespace.
+func (c *K8sOrchestrator) GetPvcObjectByName(ctx context.Context, pvcName string,
+	namespace string) (*v1.PersistentVolumeClaim, error) {
+	log := logger.GetLogger(ctx)
+	pvcObj, err := c.informerManager.GetPVCLister().PersistentVolumeClaims(namespace).Get(pvcName)
+	if err != nil {
+		log.Errorf("failed to get pvc: %s in namespace: %s. err=%v", pvcName, namespace, err)
+		return nil, err
+	}
+	return pvcObj, nil
+
 }
 
 // IsFakeAttachAllowed checks if the volume is eligible to be fake attached
@@ -1879,6 +1934,12 @@ func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (
 
 	parts := strings.Split(namespacedName, "/")
 	return parts[1], parts[0], true
+}
+
+// GetVolumeIDFromPVCName returns volumeID the given pvcName using pvcToVolumeIDMap.
+// PVC name is its namespaced name.
+func (c *K8sOrchestrator) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+	return c.pvcToVolumeIDMap.get(pvcName)
 }
 
 // IsLinkedCloneRequest checks if the pvc is a linked clone request
