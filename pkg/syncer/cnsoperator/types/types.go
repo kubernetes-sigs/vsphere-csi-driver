@@ -36,4 +36,9 @@ const (
 
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
+
+	// Label that points to a VM name. This is added to CNSRegisterVolume CR and PVC.
+	LabelVirtualMachineName = "vm.consumer.storage.com/name"
+	// Label that points to a StoragePolicyReservation CR name. This is added to CNSRegisterVolume CR and PVC.
+	LabelStoragePolicyReservationName = "quota.storage.vmware.com/storagepolicyreservation-name"
 )

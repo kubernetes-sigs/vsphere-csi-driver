@@ -47,6 +47,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 type mockVolumeManager struct {
@@ -450,10 +451,16 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
 			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 			return &cnstypes.CnsVolume{
-				VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
-				DatastoreUrl:    "dummy-ds-url",
-				StoragePolicyId: "dummy-storage-policy-id",
-			}, nil
+					VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
+					DatastoreUrl:    "dummy-ds-url",
+					StoragePolicyId: "dummy-storage-policy-id",
+					BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+						CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{
+							CapacityInMb: 1024,
+						},
+					},
+				},
+				nil
 		})
 
 		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
@@ -521,6 +528,88 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		result, err := r.Reconcile(ctx, req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{RequeueAfter: 0}))
+	})
+
+	It("should add vm name and storage policy reservation labels to PVC when both present on CR", func() {
+		// Test the getPersistentVolumeClaimSpec function directly
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-volume-with-labels",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					cnsoperatortypes.LabelVirtualMachineName:           "test-vm-name",
+					cnsoperatortypes.LabelStoragePolicyReservationName: "test-storage-policy-reservation-name",
+				},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:    "test-pvc-with-labels",
+				VolumeID:   "dummy-volume-id",
+				AccessMode: "ReadWriteOnce",
+			},
+		}
+
+		// Test getPersistentVolumeClaimSpec function directly
+		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
+			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pvcSpec).NotTo(BeNil())
+		Expect(pvcSpec.Labels).To(HaveKeyWithValue(cnsoperatortypes.LabelVirtualMachineName, "test-vm-name"))
+		Expect(pvcSpec.Labels).To(HaveKeyWithValue(cnsoperatortypes.LabelStoragePolicyReservationName,
+			"test-storage-policy-reservation-name"))
+	})
+
+	It("should not add labels to PVC when not present on CR", func() {
+		// Test the getPersistentVolumeClaimSpec function directly without labels
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-volume-without-labels",
+				Namespace: "test-ns",
+				// No labels set
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:    "test-pvc-without-labels",
+				VolumeID:   "dummy-volume-id",
+				AccessMode: "ReadWriteOnce",
+			},
+		}
+
+		// Test getPersistentVolumeClaimSpec function directly
+		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
+			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pvcSpec).NotTo(BeNil())
+		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelVirtualMachineName))
+		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelStoragePolicyReservationName))
+	})
+
+	It("should not add vm name label when only that label is present on CR", func() {
+		// Test the getPersistentVolumeClaimSpec function directly with only vm name label
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-volume-with-vm-label",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					cnsoperatortypes.LabelVirtualMachineName: "test-vm-name",
+					// Missing storage policy reservation label
+				},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:    "test-pvc-with-vm-label",
+				VolumeID:   "dummy-volume-id",
+				AccessMode: "ReadWriteOnce",
+			},
+		}
+
+		// Test getPersistentVolumeClaimSpec function directly
+		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
+			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pvcSpec).NotTo(BeNil())
+		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelVirtualMachineName))
+		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelStoragePolicyReservationName))
 	})
 })
 
