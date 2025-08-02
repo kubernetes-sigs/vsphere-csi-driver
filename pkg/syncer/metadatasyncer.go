@@ -279,8 +279,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return logger.LogNewErrorf(log, "failed to initialize CSINodes creation. Error: %+v", err)
 			}
 		}
-		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.LinkedCloneSupport)
+
 		// Check if finalizer is added on CnsFileVolumeClient CRs, if not then add a finalizer.
 		// We want to protect CnsFileVolumeClient from getting abruptly deleted, as it is being used
 		// in CnsFileAccessConfig CR. So, in case of upgrade we will add finalizer if it is missing.
@@ -301,7 +300,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.WorkloadDomainIsolation)
 		if !IsWorkloadDomainIsolationSupported {
-			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor, "", "")
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.WorkloadDomainIsolation,
+				"", "")
 		}
 		if IsWorkloadDomainIsolationSupported {
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
@@ -310,6 +310,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				return err
 			}
 			log.Infof("Successfully initialized Topology service in syncer")
+		}
+		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.LinkedCloneSupport)
+		if !IsLinkedCloneSupportFSSEnabled {
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.LinkedCloneSupport, "", "")
 		}
 	}
 
@@ -322,8 +327,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		// false to true, but for other features instead of restarting CSI container, if possible we can implement
 		// some init() function which can initialize required things when capability value changes from false to true.
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor,
-				metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.WorkloadDomainIsolation,
+				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
+		}
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.LinkedCloneSupport,
+				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
 	}
 

@@ -155,9 +155,15 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	// some init() function which can initialize required things when capability value changes from false to true.
 	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.WorkloadDomainIsolationFSS)
+	isLinkedCloneSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.LinkedCloneSupportFSS)
 	if !isWorkloadDomainIsolationSupported {
-		go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, cnstypes.CnsClusterFlavorGuest,
-			config.GC.Endpoint, config.GC.Port)
+		go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			common.WorkloadDomainIsolation, config.GC.Port, config.GC.Endpoint)
+	}
+	if !isLinkedCloneSupported {
+		go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
 	}
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
@@ -352,7 +358,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 		}
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport) {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
 			// Check if this is a LinkedClone request
 			isLinkedCloneRequest, err = commonco.ContainerOrchestratorUtility.IsLinkedCloneRequest(ctx, pvcName, pvcNamespace)
 			if err != nil {
@@ -408,7 +414,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					finalizers = append(finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				}
 
-				if isLinkedCloneRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport) {
+				if isLinkedCloneRequest && commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+					common.LinkedCloneSupportFSS) {
 					labels[common.LinkedClonePVCLabel] = "true"
 				}
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
