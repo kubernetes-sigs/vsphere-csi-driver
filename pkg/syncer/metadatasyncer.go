@@ -300,8 +300,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		// capability value changes from false to true.
 		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.WorkloadDomainIsolation)
-		if !IsWorkloadDomainIsolationSupported {
-			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor, "", "")
+		if !IsWorkloadDomainIsolationSupported || !IsLinkedCloneSupportFSSEnabled {
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, "", "")
 		}
 		if IsWorkloadDomainIsolationSupported {
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
@@ -321,8 +321,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		// workload-isolation-domain feature we are restarting the container when capability changes dynamically from
 		// false to true, but for other features instead of restarting CSI container, if possible we can implement
 		// some init() function which can initialize required things when capability value changes from false to true.
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-			go k8sorchestrator.HandleEnablementOfWLDICapability(ctx, clusterFlavor,
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
+			!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
 		}
 	}
