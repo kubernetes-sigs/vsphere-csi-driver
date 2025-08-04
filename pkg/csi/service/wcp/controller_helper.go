@@ -82,7 +82,8 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributePvName ||
 		paramName == common.AttributePvcName ||
 		paramName == common.AttributePvcNamespace ||
-		paramName == common.AttributeStorageClassName
+		paramName == common.AttributeStorageClassName ||
+		paramName == common.AttributeIsLinkedCloneKey
 }
 
 // validateWCPCreateVolumeRequest is the helper function to validate
