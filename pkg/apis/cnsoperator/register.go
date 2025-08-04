@@ -71,6 +71,10 @@ var (
 	CnsStoragePolicyQuotaSingular = "storagepolicyquota"
 	// CnsStoragePolicyQuotaPlural is plural of StoragePolicyQuota
 	CnsStoragePolicyQuotaPlural = "storagepolicyquotas"
+	// CnsStoragePolicyReservationSingular is Singular of StoragePolicyReservation
+	CnsStoragePolicyReservationSingular = "storagepolicyreservation"
+	// CnsStoragePolicyReservationPlural is plural of StoragePolicyReservation
+	CnsStoragePolicyReservationPlural = "storagepolicyreservations"
 )
 
 var (
@@ -157,6 +161,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersionV2,
 		&storagepolicyv1alpha2.StoragePolicyQuota{},
 		&storagepolicyv1alpha2.StoragePolicyQuotaList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersionV2,
+		&storagepolicyv1alpha2.StoragePolicyReservation{},
+		&storagepolicyv1alpha2.StoragePolicyReservationList{},
 	)
 
 	scheme.AddKnownTypes(
