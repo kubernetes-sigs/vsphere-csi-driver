@@ -38,6 +38,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,10 +50,11 @@ import (
 
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -73,7 +75,7 @@ const (
 )
 
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
-	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
+	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CnsNodeVmBatchAttachment Controller as its a non-WCP CSI deployment")
@@ -115,17 +117,34 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	cfg, err := config.GetConfig()
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	// create a new dynamic client for config.
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to create client using config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, *dynamicClient, recorder))
 }
 
-func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
+func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
+	dynamicClient dynamic.DynamicClient,
 	recorder record.EventRecorder) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
 		configInfo: *configInfo, volumeManager: volumeManager,
 		vmOperatorClient: vmOperatorClient,
+		dynamicClient:    dynamicClient,
 		recorder:         recorder, instanceLock: sync.Map{}}
 }
 
@@ -159,13 +178,14 @@ type Reconciler struct {
 	// that reads objects from the cache and writes to the apiserver
 	client           client.Client
 	scheme           *runtime.Scheme
-	configInfo       config.ConfigurationInfo
+	configInfo       commonconfig.ConfigurationInfo
 	volumeManager    volumes.Manager
 	vmOperatorClient client.Client
 	recorder         record.EventRecorder
 	// instanceLock to ensure that for an instance we have only
 	// one reconciliation at a time.
-	instanceLock sync.Map
+	instanceLock  sync.Map
+	dynamicClient dynamic.DynamicClient
 }
 
 // getMaxWorkerThreads returns the maximum
@@ -287,7 +307,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			request.NamespacedName)
 	} else {
 		// If VM was found on vCenter, find the volumes to be detached from it.
-		volumesToDetach, err = getVolumesToDetach(batchAttachCtx, instance, vm, r.client)
+		volumesToDetach, err = getVolumesToDetach(batchAttachCtx, instance, vm, r.client, r.dynamicClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)

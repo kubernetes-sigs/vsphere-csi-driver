@@ -24,6 +24,10 @@ import (
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -67,6 +71,8 @@ func getNamespacedPvcName(namespace string, pvcName string) string {
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	vmUUID string,
+	dynamicClient dynamic.DynamicClient,
 	attachedFCDs map[string]bool,
 	volumeIdsInSpec map[string]string) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
@@ -84,11 +90,51 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 				msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
 				return pvcsToDetach, errors.New(msg)
 			}
-			pvcsToDetach[pvc] = attachedFcdId
+			// Ensure that this volume is not attached via the old CnsNodeVmAttachment CR.
+			isAttachedViaCnsNodeVmAttachment, err := isVolumeAttachedWithCnsNodeVmAttachment(ctx, dynamicClient, attachedFcdId,
+				vmUUID, instance.Namespace)
+			if err != nil {
+				log.Errorf("failed to find if PVC %s is attached to VM via CnsNodeVmAttachment CR. Err: %s",
+					pvc, err)
+				return pvcsToDetach, err
+			}
+			if !isAttachedViaCnsNodeVmAttachment {
+				pvcsToDetach[pvc] = attachedFcdId
+			}
 		}
 	}
 	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 	return pvcsToDetach, nil
+}
+
+func isVolumeAttachedWithCnsNodeVmAttachment(ctx context.Context, dynamicClient dynamic.DynamicClient,
+	volumeID string, vmUUID string, namespace string) (bool, error) {
+
+	log := logger.GetLogger(ctx)
+
+	gvr := schema.GroupVersionResource{
+		Group:    "cns.vmware.com",
+		Version:  "v1alpha1",
+		Resource: "cnsnodevmattachments",
+	}
+
+	name := volumeID + "-" + vmUUID
+
+	// Attempt to get the CR instance
+	_, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("CnsNodeVmAttachment CR not found")
+			return false, nil
+		}
+
+		log.Errorf("Failed to find CnsNodeVmAttachment CR not found")
+
+		return true, err
+	}
+
+	return true, nil
+
 }
 
 // removeStaleEntriesFromInstanceStatus removes the entries in instance status for which there is
@@ -144,7 +190,8 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 // volumes in spec and in attachedFCDs list.
 func getVolumesToDetachForVmFromVC(ctx context.Context,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
-	client client.Client,
+	vmUUID string,
+	client client.Client, dynamicClient dynamic.DynamicClient,
 	attachedFCDs map[string]bool) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -158,7 +205,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 
 	// Find out the volumes to detach by taking a diff between
 	// the instance spec and the FCDs currently attached to the VM on vCenter.
-	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, vmUUID, dynamicClient, attachedFCDs, volumeIdsInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
@@ -454,7 +501,7 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 // Instance is being deleted, then it adds all the volumes in the spec for detach.
 // If instance is not being deleted then finds the volumes to be detached by querying vCenter.
 func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAttachment,
-	vm *cnsvsphere.VirtualMachine, client client.Client) (map[string]string, error) {
+	vm *cnsvsphere.VirtualMachine, client client.Client, dynamicClient dynamic.DynamicClient) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
 	if instance.DeletionTimestamp != nil {
@@ -469,7 +516,7 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAt
 	}
 
 	// Find the volumes to detach from the vCenter.
-	volumesToDetach, err := getVolumesToDetachFromVM(ctx, client, instance, vm)
+	volumesToDetach, err := getVolumesToDetachFromVM(ctx, client, instance, vm, dynamicClient)
 	if err != nil {
 		log.Errorf("failed to find volumes to detach from the vCenter for instance %s", instance.Name)
 		return volumesToDetach, err
@@ -482,7 +529,8 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAt
 // which have to be detached from the VM.
 func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
-	vm *cnsvsphere.VirtualMachine) (map[string]string, error) {
+	vm *cnsvsphere.VirtualMachine,
+	dynamicClient dynamic.DynamicClient) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
 	// Query vCenter to find the list of FCDs which are attached to the VM.
@@ -494,7 +542,7 @@ func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.NodeUUID)
 
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
-	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, attachedFcdList)
+	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, vm.UUID, client, dynamicClient, attachedFcdList)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
 		return map[string]string{}, err
