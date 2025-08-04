@@ -23,7 +23,7 @@ set -o nounset
 set -o pipefail
 set -x
 
-DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-false}
+DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-true}
 
 # BASE_REPO is the root path of the image repository
 readonly BASE_IMAGE_REPO=us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere

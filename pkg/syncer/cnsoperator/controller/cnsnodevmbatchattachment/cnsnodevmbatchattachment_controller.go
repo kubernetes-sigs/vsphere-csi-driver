@@ -123,8 +123,9 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
 	recorder record.EventRecorder) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
-		scheme:     mgr.GetScheme(),
-		configInfo: *configInfo, volumeManager: volumeManager,
+		scheme:           mgr.GetScheme(),
+		configInfo:       *configInfo,
+		volumeManager:    volumeManager,
 		vmOperatorClient: vmOperatorClient,
 		recorder:         recorder, instanceLock: sync.Map{}}
 }
