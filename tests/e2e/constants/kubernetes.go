@@ -78,6 +78,7 @@ const (
 	Snapshotapigroup                          = "snapshot.storage.k8s.io"
 	DefaultNginxStorageClassName              = "nginx-sc"
 	MountPath                                 = "/usr/share/nginx/html"
+	ServiceName                               = "nginx"
 	SpsServiceName                            = "sps"
 	SnapshotterContainerName                  = "csi-snapshotter"
 	SshdPort                                  = "22"

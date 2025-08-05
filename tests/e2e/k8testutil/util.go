@@ -94,6 +94,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
+
+	apps "k8s.io/api/apps/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
@@ -7314,4 +7316,143 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	fmt.Println("All required storage policy usages are available.")
+}
+
+// ExitHostMM exits a host from maintenance mode with a particular timeout
+func ExitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
+	task, err := host.ExitMaintenanceMode(ctx, timeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResultEx(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v exited from maintenance mode", host)
+}
+
+/*
+createStafeulSetAndVerifyPVAndPodNodeAffinty creates user specified statefulset and
+further checks the node and volumes affinities
+*/
+func CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client clientset.Interface,
+	vs *config.E2eTestConfig, namespace string, parallelPodPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	podAntiAffinityToSet bool, parallelStatefulSetCreation bool, modifyStsSpec bool,
+	accessMode v1.PersistentVolumeAccessMode,
+	sc *storagev1.StorageClass, verifyTopologyAffinity bool, storagePolicy string) (*v1.Service,
+	*appsv1.StatefulSet, error) {
+
+	ginkgo.By("Create service")
+	service := CreateService(namespace, client)
+
+	framework.Logf("Create StatefulSet")
+	statefulset := CreateCustomisedStatefulSets(ctx, client, vs, namespace, parallelPodPolicy,
+		replicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet, modifyStsSpec,
+		"", accessMode, sc, storagePolicy)
+
+	if verifyTopologyAffinity {
+		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
+		err := VerifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, vs, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
+		}
+	}
+
+	return service, statefulset, nil
+}
+
+/*
+createCustomisedStatefulSets util methods creates statefulset as per the user's
+specific requirement and returns the customised statefulset
+*/
+func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig, namespace string,
+	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
+	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
+	framework.Logf("Preparing StatefulSet Spec")
+	statefulset := GetStatefulSetFromManifest(&config.E2eTestConfig{}, namespace)
+
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		defaultAccessMode := v1.ReadWriteOnce
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.AccessModes[0] = defaultAccessMode
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
+	}
+
+	if modifyStsSpec {
+		if vs.TestInput.TestBedInfo.MultipleSvc {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &storagePolicy
+		} else {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &sc.Name
+		}
+
+		if stsName != "" {
+			statefulset.Name = stsName
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+		}
+
+	}
+	if nodeAffinityToSet {
+		nodeSelectorTerms := GetNodeSelectorTerms(allowedTopologies)
+		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
+	}
+	if podAntiAffinityToSet {
+		statefulset.Spec.Template.Spec.Affinity = &v1.Affinity{
+			PodAntiAffinity: &v1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"key": "app",
+							},
+						},
+						TopologyKey: "topology.kubernetes.io/zone",
+					},
+				},
+			},
+		}
+
+	}
+	if isParallelPodMgmtPolicy {
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+	}
+	statefulset.Spec.Replicas = &replicas
+
+	framework.Logf("Creating statefulset")
+	CreateStatefulSet(namespace, statefulset, client)
+
+	framework.Logf("Wait for StatefulSet pods to be in up and running state")
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(ctx, client, statefulset, constants.MountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	return statefulset
+}
+
+// CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
+func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
+	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
+	framework.ExpectNoError(err)
+	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }
