@@ -19,7 +19,7 @@
 ARG GOLANG_IMAGE=golang:1.21
 
 # This build arg allows the specification of a custom base image.
-ARG BASE_IMAGE=gcr.io/cloud-provider-vsphere/extra/csi-driver-base:latest
+ARG BASE_IMAGE=photon:5.0
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
@@ -53,6 +53,8 @@ ARG GIT_COMMIT
 # This label will be overridden from driver base image
 LABEL git_commit=$GIT_COMMIT
 LABEL "maintainers"="Divyen Patel <divyenp@vmware.com>, Sandeep Pissay Srinivasa Rao <ssrinivas@vmware.com>, Xing Yang <yangxi@vmware.com>"
+
+RUN tdnf -y upgrade
 
 # install nfs-utils, util-linux and e2fsprogs
 # nfs-utils  : The nfs-utils package contains simple nfs client service.
