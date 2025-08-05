@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	v1 "k8s.io/api/core/v1"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 )
@@ -258,5 +259,63 @@ func TestGetNodesForVolumes(t *testing.T) {
 	expectedNodeNames["364908d2-82a1-4095-a8c9-0bcd9d62bddf"] = []string{"node-3", "node-8"}
 	if reflect.DeepEqual(nodeNames, expectedNodeNames) {
 		t.Errorf("Expected node names %v but got %v", expectedNodeNames, nodeNames)
+	}
+}
+
+func TestIsFileVolume(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		pv   *v1.PersistentVolume
+		want bool
+	}{
+		{
+			name: "No AccessModes",
+			pv: &v1.PersistentVolume{
+				Spec: v1.PersistentVolumeSpec{
+					AccessModes: []v1.PersistentVolumeAccessMode{},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "AccessMode ReadWriteMany",
+			pv: &v1.PersistentVolume{
+				Spec: v1.PersistentVolumeSpec{
+					AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "AccessMode ReadOnlyMany",
+			pv: &v1.PersistentVolume{
+				Spec: v1.PersistentVolumeSpec{
+					AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "RWO Block volume mode with FSS disabled",
+			pv: &v1.PersistentVolume{
+				Spec: v1.PersistentVolumeSpec{
+					AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+					VolumeMode:  func() *v1.PersistentVolumeMode { m := v1.PersistentVolumeBlock; return &m }(),
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8sOrchestratorInstance = &K8sOrchestrator{}
+			got := isFileVolume(ctx, tt.pv)
+			if got != tt.want {
+				t.Errorf("isFileVolume() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

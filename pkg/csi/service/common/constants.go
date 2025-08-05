@@ -448,7 +448,7 @@ const (
 	// FileVolumesWithVmService is an FSS to support file volumes with VM service VMs.
 	FileVolumesWithVmService = "file-volume-with-vm-service"
 	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
-	SharedDiskFss = "supports_shared_disks"
+	SharedDiskFss = "supports_shared_disks_with_VM_service_VMs"
 	// CSITranSactionSupport is an FSS for transaction support
 	CSITranSactionSupport = "csi-transaction-support"
 	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
@@ -466,6 +466,7 @@ var WCPFeatureStates = map[string]struct{}{
 	WorkloadDomainIsolation:    {},
 	VPCCapabilitySupervisor:    {},
 	VolFromSnapshotOnTargetDs:  {},
+	SharedDiskFss:              {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later

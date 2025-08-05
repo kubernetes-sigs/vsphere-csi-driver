@@ -974,7 +974,7 @@ func pvcAdded(obj interface{}) {}
 // This ensures that all existing PVs in the cluster are added to the map, even
 // across container restarts.
 func pvAdded(obj interface{}) {
-	_, log := logger.GetNewContextWithLogger()
+	ctx, log := logger.GetNewContextWithLogger()
 	pv, ok := obj.(*v1.PersistentVolume)
 	if pv == nil || !ok {
 		log.Warnf("pvAdded: unrecognized object %+v", obj)
@@ -982,7 +982,7 @@ func pvAdded(obj interface{}) {
 	}
 
 	if pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name {
-		if !isFileVolume(pv) && pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
+		if !isFileVolume(ctx, pv) && pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
 			// We should not be caching file volumes to the map.
 			// Add volume handle to PVC mapping.
 			objKey := pv.Spec.CSI.VolumeHandle
@@ -1010,7 +1010,7 @@ func pvAdded(obj interface{}) {
 
 // pvUpdated updates the volumeIDToPvcMap and pvcToVolumeIDMap when a PV goes to Bound phase.
 func pvUpdated(oldObj, newObj interface{}) {
-	_, log := logger.GetNewContextWithLogger()
+	ctx, log := logger.GetNewContextWithLogger()
 	// Get old and new PV objects.
 	oldPv, ok := oldObj.(*v1.PersistentVolume)
 	if oldPv == nil || !ok {
@@ -1028,7 +1028,7 @@ func pvUpdated(oldObj, newObj interface{}) {
 	if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
 		if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&
 			newPv.Spec.ClaimRef != nil {
-			if !isFileVolume(newPv) {
+			if !isFileVolume(ctx, newPv) {
 
 				log.Debugf("pvUpdated: PV %s went to Bound phase", newPv.Name)
 				// Add volume handle to PVC mapping.
