@@ -650,111 +650,111 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 	log.Infof("Initialized metadata syncer")
 
-	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
-	defer fullSyncTicker.Stop()
-	// Trigger full sync.
-	// If TriggerCsiFullSync feature gate is enabled, use TriggerCsiFullSync to
-	// trigger full sync. If not, directly invoke full sync methods.
-	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
-		log.Infof("%q feature flag is enabled. Using TriggerCsiFullSync API to trigger full sync",
-			common.TriggerCsiFullSync)
-		// Get a config to talk to the apiserver.
-		restConfig, err := config.GetConfig()
-		if err != nil {
-			log.Errorf("failed to get Kubernetes config. Err: %+v", err)
-			return err
-		}
-
-		cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-		if err != nil {
-			log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
-			return err
-		}
-		go func() {
-			for ; true; <-fullSyncTicker.C {
-				ctx, log = logger.GetNewContextWithLogger()
-				log.Infof("periodic fullSync is triggered")
-				triggerCsiFullSyncInstance, err := getTriggerCsiFullSyncInstance(ctx, cnsOperatorClient)
-				if err != nil {
-					log.Warnf("Unable to get the trigger full sync instance. Err: %+v", err)
-					continue
-				}
-
-				// Update TriggerCsiFullSync instance if full sync is not already in progress
-				if triggerCsiFullSyncInstance.Status.InProgress {
-					log.Info("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
-				} else if !triggerCsiFullSyncInstance.Status.InProgress &&
-					triggerCsiFullSyncInstance.Spec.TriggerSyncID != triggerCsiFullSyncInstance.Status.LastTriggerSyncID {
-					log.Info("FullSync is already triggered. Ignoring this current cycle of periodic full sync")
-				} else {
-					triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
-					err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
-					if err != nil {
-						log.Errorf("Failed to update TriggerCsiFullSync instance: %+v to increment the TriggerFullSyncId. "+
-							"Error: %v", triggerCsiFullSyncInstance, err)
-					} else {
-						log.Infof("Incremented TriggerSyncID from %d to %d as part of periodic run to trigger full sync",
-							triggerCsiFullSyncInstance.Spec.TriggerSyncID-1, triggerCsiFullSyncInstance.Spec.TriggerSyncID)
-					}
-				}
-			}
-		}()
-	} else {
-		log.Infof("%q feature flag is not enabled. Using the traditional way to directly invoke full sync",
-			common.TriggerCsiFullSync)
-
-		go func() {
-			for ; true; <-fullSyncTicker.C {
-				log.Infof("fullSync is triggered")
-				if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-					err := PvcsiFullSync(ctx, metadataSyncer)
-					if err != nil {
-						log.Infof("pvCSI full sync failed with error: %+v", err)
-					}
-				} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-					err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
-					if err != nil {
-						log.Infof("CSI full sync failed with error: %+v", err)
-					}
-				} else {
-					if !isMultiVCenterFssEnabled || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
-						err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
-						if err != nil {
-							log.Infof("CSI full sync failed with error: %+v", err)
-						}
-					} else {
-						vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
-						if err != nil {
-							log.Errorf("Failed to get all virtual configs for CSI full sync. Error: %+v", err)
-						}
-
-						log.Debugf("Starting full sync for Multi VC setup with %d VCs", len(vcconfigs))
-
-						isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-							common.TopologyAwareFileVolume)
-						if isTopologyAwareFileVolumeEnabled {
-							createMissingFileVolumeInfoCrs(ctx, metadataSyncer)
-						}
-
-						var csiFulSyncWg sync.WaitGroup
-						for _, vc := range vcconfigs {
-							csiFulSyncWg.Add(1)
-							vCenter := vc
-							go func() {
-								defer csiFulSyncWg.Done()
-								// TODO: Create/delete volumeInfo CRs if it was missed by metadatasyncer.
-								err := CsiFullSync(ctx, metadataSyncer, vCenter.Host)
-								if err != nil {
-									log.Infof("CSI full sync failed with error: %+v for VC %s", err, vCenter.Host)
-								}
-							}()
-						}
-						csiFulSyncWg.Wait()
-					}
-				}
-			}
-		}()
-	}
+	//fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
+	//defer fullSyncTicker.Stop()
+	//// Trigger full sync.
+	//// If TriggerCsiFullSync feature gate is enabled, use TriggerCsiFullSync to
+	//// trigger full sync. If not, directly invoke full sync methods.
+	//if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.TriggerCsiFullSync) {
+	//	log.Infof("%q feature flag is enabled. Using TriggerCsiFullSync API to trigger full sync",
+	//		common.TriggerCsiFullSync)
+	//	// Get a config to talk to the apiserver.
+	//	restConfig, err := config.GetConfig()
+	//	if err != nil {
+	//		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+	//		return err
+	//	}
+	//
+	//	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	//	if err != nil {
+	//		log.Errorf("Failed to create CnsOperator client. Err: %+v", err)
+	//		return err
+	//	}
+	//	go func() {
+	//		for ; true; <-fullSyncTicker.C {
+	//			ctx, log = logger.GetNewContextWithLogger()
+	//			log.Infof("periodic fullSync is triggered")
+	//			triggerCsiFullSyncInstance, err := getTriggerCsiFullSyncInstance(ctx, cnsOperatorClient)
+	//			if err != nil {
+	//				log.Warnf("Unable to get the trigger full sync instance. Err: %+v", err)
+	//				continue
+	//			}
+	//
+	//			// Update TriggerCsiFullSync instance if full sync is not already in progress
+	//			if triggerCsiFullSyncInstance.Status.InProgress {
+	//				log.Info("There is a full sync already in progress. Ignoring this current cycle of periodic full sync")
+	//			} else if !triggerCsiFullSyncInstance.Status.InProgress &&
+	//				triggerCsiFullSyncInstance.Spec.TriggerSyncID != triggerCsiFullSyncInstance.Status.LastTriggerSyncID {
+	//				log.Info("FullSync is already triggered. Ignoring this current cycle of periodic full sync")
+	//			} else {
+	//				triggerCsiFullSyncInstance.Spec.TriggerSyncID = triggerCsiFullSyncInstance.Spec.TriggerSyncID + 1
+	//				err = updateTriggerCsiFullSyncInstance(ctx, cnsOperatorClient, triggerCsiFullSyncInstance)
+	//				if err != nil {
+	//					log.Errorf("Failed to update TriggerCsiFullSync instance: %+v to increment the TriggerFullSyncId. "+
+	//						"Error: %v", triggerCsiFullSyncInstance, err)
+	//				} else {
+	//					log.Infof("Incremented TriggerSyncID from %d to %d as part of periodic run to trigger full sync",
+	//						triggerCsiFullSyncInstance.Spec.TriggerSyncID-1, triggerCsiFullSyncInstance.Spec.TriggerSyncID)
+	//				}
+	//			}
+	//		}
+	//	}()
+	//} else {
+	//	log.Infof("%q feature flag is not enabled. Using the traditional way to directly invoke full sync",
+	//		common.TriggerCsiFullSync)
+	//
+	//	go func() {
+	//		for ; true; <-fullSyncTicker.C {
+	//			log.Infof("fullSync is triggered")
+	//			if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+	//				err := PvcsiFullSync(ctx, metadataSyncer)
+	//				if err != nil {
+	//					log.Infof("pvCSI full sync failed with error: %+v", err)
+	//				}
+	//			} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+	//				err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
+	//				if err != nil {
+	//					log.Infof("CSI full sync failed with error: %+v", err)
+	//				}
+	//			} else {
+	//				if !isMultiVCenterFssEnabled || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+	//					err := CsiFullSync(ctx, metadataSyncer, metadataSyncer.configInfo.Cfg.Global.VCenterIP)
+	//					if err != nil {
+	//						log.Infof("CSI full sync failed with error: %+v", err)
+	//					}
+	//				} else {
+	//					vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
+	//					if err != nil {
+	//						log.Errorf("Failed to get all virtual configs for CSI full sync. Error: %+v", err)
+	//					}
+	//
+	//					log.Debugf("Starting full sync for Multi VC setup with %d VCs", len(vcconfigs))
+	//
+	//					isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+	//						common.TopologyAwareFileVolume)
+	//					if isTopologyAwareFileVolumeEnabled {
+	//						createMissingFileVolumeInfoCrs(ctx, metadataSyncer)
+	//					}
+	//
+	//					var csiFulSyncWg sync.WaitGroup
+	//					for _, vc := range vcconfigs {
+	//						csiFulSyncWg.Add(1)
+	//						vCenter := vc
+	//						go func() {
+	//							defer csiFulSyncWg.Done()
+	//							// TODO: Create/delete volumeInfo CRs if it was missed by metadatasyncer.
+	//							err := CsiFullSync(ctx, metadataSyncer, vCenter.Host)
+	//							if err != nil {
+	//								log.Infof("CSI full sync failed with error: %+v for VC %s", err, vCenter.Host)
+	//							}
+	//						}()
+	//					}
+	//					csiFulSyncWg.Wait()
+	//				}
+	//			}
+	//		}
+	//	}()
+	//}
 
 	// Trigger get pv to backingDiskObjectId mapping on vanilla cluster
 	pvToBackingDiskObjectIdFSSEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
