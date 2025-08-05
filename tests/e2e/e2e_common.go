@@ -464,16 +464,9 @@ var (
 
 // multiSvc env variables
 var (
-	vcSessionWaitTime                   = 5 * time.Minute
 	envStoragePolicyNameForSharedDsSvc1 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC1"
 	envStoragePolicyNameForSharedDsSvc2 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC2"
-	envSupervisorClusterNamespace1      = "SVC_NAMESPACE1"
-	envNfsDatastoreName                 = "NFS_DATASTORE_NAME"
-	envNfsDatastoreIP                   = "NFS_DATASTORE_IP"
 	pwdRotationTimeout                  = 10 * time.Minute
-	roleCnsDatastore                    = "CNS-SUPERVISOR-DATASTORE"
-	roleCnsSearchAndSpbm                = "CNS-SUPERVISOR-SEARCH-AND-SPBM"
-	roleCnsHostConfigStorageAndCnsVm    = "CNS-SUPERVISOR-HOST-CONFIG-STORAGE-AND-CNS-VM"
 )
 
 // For rwx

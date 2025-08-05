@@ -100,9 +100,7 @@ import (
 var (
 	defaultCluster         *object.ClusterComputeResource
 	svcClient              clientset.Interface
-	svcClient1             clientset.Interface
 	svcNamespace           string
-	svcNamespace1          string
 	vsanHealthClient       *VsanClient
 	clusterComputeResource []*object.ClusterComputeResource
 	defaultDatastore       *object.Datastore
@@ -1111,31 +1109,6 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
 	}
 	return svcClient, svcNamespace
-}
-
-// create kubernetes client for multi-supervisors clusters and returns it along with namespaces
-func getMultiSvcClientAndNamespace() ([]clientset.Interface, []string, []error) {
-	var err error
-	if svcClient == nil {
-		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG"); k8senv != "" {
-			svcClient, err = createKubernetesClientFromConfig(k8senv)
-			if err != nil {
-				return []clientset.Interface{}, []string{}, []error{err, nil}
-			}
-		}
-		svcNamespace = GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	}
-	if svcClient1 == nil {
-		if k8senv := GetAndExpectStringEnvVar("KUBECONFIG1"); k8senv != "" {
-			svcClient1, err = createKubernetesClientFromConfig(k8senv)
-			if err != nil {
-				return []clientset.Interface{}, []string{}, []error{nil, err}
-			}
-		}
-		svcNamespace1 = GetAndExpectStringEnvVar(envSupervisorClusterNamespace1)
-	}
-	// returns list of clientset, namespace and error if any for both svc
-	return []clientset.Interface{svcClient, svcClient1}, []string{svcNamespace, svcNamespace1}, []error{}
 }
 
 // updateCSIDeploymentTemplateFullSyncInterval helps to update the
@@ -8370,4 +8343,22 @@ func initializeClusterClientsByUserRoles(client clientset.Interface) (clientset.
 		adminClient = client
 	}
 	return adminClient, client
+}
+
+// getSvcConfigSecretData returns data obtained fom csi config secret
+// in namespace where CSI is deployed
+func getSvcConfigSecretData(client clientset.Interface, ctx context.Context,
+	csiNamespace string) (e2eTestConfig, error) {
+	var vsphereCfg e2eTestConfig
+	currentSecret, err := client.CoreV1().Secrets(csiNamespace).Get(ctx, configSecret, metav1.GetOptions{})
+	if err != nil {
+		return vsphereCfg, err
+	}
+	originalConf := string(currentSecret.Data[vsphereCloudProviderConfiguration])
+	vsphereCfg, err = readConfigFromSecretString(originalConf)
+	if err != nil {
+		return vsphereCfg, err
+	}
+
+	return vsphereCfg, nil
 }

@@ -14,7 +14,7 @@
 	limitations under the License.
 */
 
-package e2e
+package multiSvc
 
 import (
 	"context"
@@ -35,7 +35,15 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
+
+var e2eTestConfig *config.E2eTestConfig
 
 var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	var (
@@ -71,31 +79,31 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		//getting list of clientset and namespace for both svc
-		clients, namespaces, errors = getMultiSvcClientAndNamespace()
+		clients, namespaces, errors = k8testutil.GetMultiSvcClientAndNamespace()
 		if len(errors) > 0 {
 			framework.Failf("Unable get client and namespace for supervisor clusters")
 		}
 
-		bootstrap()
+		e2eTestConfig = bootstrap.Bootstrap()
 
 		//getting total number of supervisor clusters and list of their compute cluster path
 		var err error
-		numberOfSvc, computeClusterPaths, err = getSvcCountAndComputeClusterPath()
+		numberOfSvc, computeClusterPaths, err = GetSvcCountAndComputeClusterPath(e2eTestConfig)
 		framework.ExpectNoError(err, "Unable to find any compute cluster")
 		if !(numberOfSvc > 0) {
 			framework.Failf("Unable to find any supervisor cluster")
 		}
 		// list of storage policy for both the supervisors
-		envStoragePolicyNameForSharedDatastoresList := []string{envStoragePolicyNameForSharedDsSvc1,
-			envStoragePolicyNameForSharedDsSvc2}
+		envStoragePolicyNameForSharedDatastoresList := []string{constants.EnvStoragePolicyNameForSharedDsSvc1,
+			constants.EnvStoragePolicyNameForSharedDsSvc2}
 		for i := 0; i < numberOfSvc; i++ {
-			storagePolicyNames[i] = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastoresList[i])
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNames[i])
+			storagePolicyNames[i] = env.GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastoresList[i])
+			profileID := vcutil.GetSpbmPolicyID(storagePolicyNames[i], e2eTestConfig)
 			scParameters := make(map[string]string)
 			scParametersList[i] = scParameters
 			// adding profileID to storageClass param - StoragePolicyID
-			scParametersList[i][scParamStoragePolicyID] = profileID
-			scParametersList[i][scParamFsType] = ext4FSType
+			scParametersList[i][constants.ScParamStoragePolicyID] = profileID
+			scParametersList[i][constants.ScParamFsType] = constants.Ext4FSType
 		}
 
 		// Checking for any ready and schedulable node
@@ -108,29 +116,29 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		}
 
 		// Getting all env variables here
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
-		dataCenter = GetAndExpectStringEnvVar(datacenter)
-		computeCluster = GetAndExpectStringEnvVar(envComputeClusterName)
-		datastoreName = GetAndExpectStringEnvVar(envNfsDatastoreName)
-		datastoreIP = GetAndExpectStringEnvVar(envNfsDatastoreIP)
-		kubeconfig = GetAndExpectStringEnvVar("KUBECONFIG")
-		kubeconfig1 = GetAndExpectStringEnvVar("KUBECONFIG1")
+		csiNamespace = env.GetAndExpectStringEnvVar(constants.EnvCSINamespace)
+		dataCenter = env.GetAndExpectStringEnvVar(constants.Datacenter)
+		computeCluster = env.GetAndExpectStringEnvVar(constants.EnvComputeClusterName)
+		datastoreName = env.GetAndExpectStringEnvVar(constants.EnvNfsDatastoreName)
+		datastoreIP = env.GetAndExpectStringEnvVar(constants.EnvNfsDatastoreIP)
+		kubeconfig = env.GetAndExpectStringEnvVar("KUBECONFIG")
+		kubeconfig1 = env.GetAndExpectStringEnvVar("KUBECONFIG1")
 
 		ginkgo.By("Getting User and Supervisor-Id for both the supervisors")
 		// Iterating through number of svc to read it's config secret to get supervisor id and service account user
 		wcpServiceAccUsers = []string{}
 		for i := 0; i < numberOfSvc; i++ {
-			vsphereCfg, err := getSvcConfigSecretData(clients[i], ctx, csiNamespace)
+			vsphereCfg, err := k8testutil.GetSvcConfigSecretData(clients[i], ctx, csiNamespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			supervisorIds = append(supervisorIds, vsphereCfg.Global.SupervisorID)
+			supervisorIds = append(supervisorIds, vsphereCfg.TestInput.Global.SupervisorID)
 			// Getting service account user without domain name after spilittin it by @
-			wcpServiceAccUsers = append(wcpServiceAccUsers, strings.Split(string(vsphereCfg.Global.User), "@")[0])
+			wcpServiceAccUsers = append(wcpServiceAccUsers, strings.Split(string(vsphereCfg.TestInput.Global.User), "@")[0])
 		}
 
 		sshClientConfig = &ssh.ClientConfig{
 			User: "root",
 			Auth: []ssh.AuthMethod{
-				ssh.Password(nimbusVcPwd),
+				ssh.Password(constants.NimbusVcPwd),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
@@ -144,30 +152,30 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		// move back host to cluster
 		if isHostRemoved {
 			ginkgo.By("Moving host back to the cluster 1")
-			err := moveHostToCluster(computeClusterPaths[0], hostToBeRemoved)
+			err := MoveHostToCluster(e2eTestConfig, computeClusterPaths[0], hostToBeRemoved)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		// exit host from MM
 		if isHostInMM {
 			ginkgo.By("Exit host from MM")
-			exitHostMM(ctx, hostsInCluster[0], timeout)
+			k8testutil.ExitHostMM(ctx, hostsInCluster[0], timeout)
 		}
 		// unmount ds from cluster1
 		if isDsMountedOnSvc1 {
 			ginkgo.By("Remove mounted datastore from supervisor cluster 1")
-			err := UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[0])
+			err := UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[0])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		// unmount ds from cluster2
 		if isDsMountedOnSvc2 {
 			ginkgo.By("Remove mounted datastore from supervisor cluster 2")
-			err := UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[1])
+			err := UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[1])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		// mount datastore back to host
 		if isDsUnmountedFromHost {
 			ginkgo.By("Mount back datastore to host in the supervisor cluster 1")
-			err := mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, hostPath)
+			err := MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, hostPath)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -176,9 +184,9 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			// Changing kubeconfig for second supervisor
 			var err error
 			if i == 1 {
-				os.Setenv(kubeconfigEnvVar, kubeconfig1)
+				os.Setenv(constants.KubeconfigEnvVar, kubeconfig1)
 				framework.TestContext.KubeConfig = kubeconfig1
-				clients[i], err = createKubernetesClientFromConfig(kubeconfig1)
+				clients[i], err = k8testutil.CreateKubernetesClientFromConfig(kubeconfig1)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 			}
@@ -186,13 +194,13 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespaces[i]))
 			fss.DeleteAllStatefulSets(ctx, clients[i], namespaces[i])
 			ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespaces[i]))
-			err = clients[i].CoreV1().Services(namespaces[i]).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
+			err = clients[i].CoreV1().Services(namespaces[i]).Delete(ctx, constants.ServiceName, *metav1.NewDeleteOptions(0))
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 
 			ginkgo.By(fmt.Sprintf("Deleting all PVCs in namespace: %v", namespaces[i]))
-			pvcList := getAllPVCFromNamespace(clients[i], namespaces[i])
+			pvcList := k8testutil.GetAllPVCFromNamespace(clients[i], namespaces[i])
 			for _, pvc := range pvcList.Items {
 				framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, clients[i], pvc.Name, namespaces[i]),
 					"Failed to delete PVC", pvc.Name)
@@ -208,15 +216,15 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				}
 			}
 
-			setResourceQuota(clients[i], namespaces[i], defaultrqLimit)
+			k8testutil.SetResourceQuota(clients[i], namespaces[i], constants.DefaultrqLimit)
 
 			/* resetting and performing cleanup of kubeconfig export variable so that for
 			next testcase it should pickup the default svc kubeconfig set in the env. export variable */
 			if i == numberOfSvc-1 {
-				os.Setenv(kubeconfigEnvVar, kubeconfig)
+				os.Setenv(constants.KubeconfigEnvVar, kubeconfig)
 				framework.TestContext.KubeConfig = kubeconfig
 				// setting it to first/default kubeconfig
-				clients[0], err = createKubernetesClientFromConfig(kubeconfig)
+				clients[0], err = k8testutil.CreateKubernetesClientFromConfig(kubeconfig)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -234,7 +242,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Workload creation on each of the clusters",
-		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -245,33 +253,33 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				namespace := namespaces[n]
 				// Changing kubeconfig for second supervisor
 				if n == 1 {
-					os.Setenv(kubeconfigEnvVar, kubeconfig1)
+					os.Setenv(constants.KubeconfigEnvVar, kubeconfig1)
 					framework.TestContext.KubeConfig = kubeconfig1
-					client, err = createKubernetesClientFromConfig(kubeconfig1)
+					client, err = k8testutil.CreateKubernetesClientFromConfig(kubeconfig1)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 						fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 				}
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
-				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-					true, 3, false, nil,
-					false, false, true, "", nil, false, storagePolicyNames[n])
+				service, statefulset, err := k8testutil.CreateStatefulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+					e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+					storagePolicyNames[n])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
-					deleteService(namespace, client, service)
+					k8testutil.DeleteService(namespace, client, service)
 				}()
 
 				framework.Logf("Scale up sts replica count to 5")
 				scaleUpReplicaCount = 5
-				err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-					true)
+				err = k8testutil.ScaleUpStatefulSetPod(ctx, client, e2eTestConfig, statefulset, namespace,
+					scaleUpReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Scale down sts replica count to 1")
 				scaleDownReplicaCount = 1
-				err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-					true)
+				err = k8testutil.ScaleDownStatefulSetPod(ctx, e2eTestConfig, client, statefulset, namespace,
+					scaleDownReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			}
@@ -292,7 +300,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify volume lifecycle ops post password rotation",
-		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -303,43 +311,45 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				client := clients[i]
 				namespace := namespaces[i]
 				if i == 1 {
-					os.Setenv(kubeconfigEnvVar, kubeconfig1)
+					os.Setenv(constants.KubeconfigEnvVar, kubeconfig1)
 					framework.TestContext.KubeConfig = kubeconfig1
-					client, err = createKubernetesClientFromConfig(kubeconfig1)
+					client, err = k8testutil.CreateKubernetesClientFromConfig(kubeconfig1)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 						fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 				}
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
-				service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-					true, 3, false, nil, false, false, true, "", nil, false, storagePolicyNames[i])
+				service, statefulset, err := k8testutil.CreateStatefulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+					e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+					storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
-					deleteService(namespace, client, service)
+					k8testutil.DeleteService(namespace, client, service)
 				}()
 
 				ginkgo.By("Perform password rotation on the supervisor")
-				passwordRotated, err := performPasswordRotationOnSupervisor(client, ctx, csiNamespace, vcAddress)
+				passwordRotated, err := k8testutil.PerformPasswordRotationOnSupervisor(client, ctx, csiNamespace,
+					e2eTestConfig.TestInput.TestBedInfo.VcAddress, e2eTestConfig)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(passwordRotated).To(gomega.BeTrue())
 
 				// scaling up/down sts created before password rotation
 				framework.Logf("Scale up sts replica count to 5")
 				scaleUpReplicaCount = 5
-				err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
-					true)
+				err = k8testutil.ScaleUpStatefulSetPod(ctx, client, e2eTestConfig, statefulset, namespace,
+					scaleUpReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				framework.Logf("Scale down sts replica count to 1")
 				scaleDownReplicaCount = 1
-				err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
-					true)
+				err = k8testutil.ScaleDownStatefulSetPod(ctx, e2eTestConfig, client, statefulset, namespace,
+					scaleDownReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Create a Pvc and attach a pod to it
-				_, pvclaim, err = createPVCAndStorageClass(ctx, client, namespace, nil, scParametersList[i], "", nil, "", false, "",
-					storagePolicyNames[i])
+				_, pvclaim, err = k8testutil.CreatePVCAndStorageClass(ctx, e2eTestConfig, client, namespace, nil,
+					scParametersList[i], "", nil, "", false, "", storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -351,13 +361,15 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				var volHandle string
 				pvclaims = append(pvclaims, pvclaim)
 				ginkgo.By("Waiting for pvc to be in bound state")
-				persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+				persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+					framework.ClaimProvisionTimeout)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				pv := persistentvolumes[0]
 				volHandle = pv.Spec.CSI.VolumeHandle
 				// Create a Pod to use this PVC, and verify volume has been attached
 				ginkgo.By("Creating pod to attach PV to the node")
-				pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+				pod, err := k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil,
+					[]*v1.PersistentVolumeClaim{pvclaim}, false, constants.ExecCommand)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					ginkgo.By("Deleting the pod")
@@ -369,10 +381,10 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 				var exists bool
 				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle, pod.Spec.NodeName))
 				annotations := pod.Annotations
-				vmUUID, exists = annotations[vmUUIDLabel]
-				gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+				vmUUID, exists = annotations[constants.VmUUIDLabel]
+				gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", constants.VmUUIDLabel))
 				framework.Logf("VMUUID : %s", vmUUID)
-				isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle, vmUUID)
+				isDiskAttached, err := vcutil.IsVolumeAttachedToVM(client, e2eTestConfig, volHandle, vmUUID)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
@@ -391,14 +403,15 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify permissions of the service account",
-		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			ginkgo.By("Verify permission on root folder for each of the wcp service account users")
 			for _, user := range wcpServiceAccUsers {
 				framework.Logf("Verifying permission on root folder for user : %s", user)
-				userPermission, err := verifyPermissionForWcpStorageUser(ctx, "RootFolder", "", user, roleCnsSearchAndSpbm)
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "RootFolder", "", user,
+					constants.RoleCnsSearchAndSpbm)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not valid for root folder")
 			}
@@ -406,16 +419,16 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			ginkgo.By("Verify permission on clusters for each of the wcp service account users")
 			// creating array of roles for both service account users as per the desired cluster permission
 			roles := [][]string{
-				{roleCnsHostConfigStorageAndCnsVm, roleCnsSearchAndSpbm},
-				{roleCnsSearchAndSpbm, roleCnsHostConfigStorageAndCnsVm},
+				{constants.RoleCnsHostConfigStorageAndCnsVm, ""},
+				{"", constants.RoleCnsHostConfigStorageAndCnsVm},
 			}
 			// iterating through compute cluster paths
 			for i, path := range computeClusterPaths {
 				role := roles[i%2] // Alternates between the two roles
 				// iterating through service account users
 				for j, user := range wcpServiceAccUsers {
-					framework.Logf("Verifying permission on root folder for user: %s", user)
-					userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Cluster", path, user, role[j])
+					framework.Logf("Verifying permission on root folder for user: %s", wcpServiceAccUsers[i])
+					userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Cluster", path, user, role[j])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not valid for compute-cluster path")
 				}
@@ -423,29 +436,29 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 			ginkgo.By("Verify service account permission on each of the datastore")
 			// Getting list of all datastores
-			dataCenters, err := e2eVSphere.getAllDatacenters(ctx)
+			dataCenters, err := vcutil.GetAllDatacenters(ctx, e2eTestConfig)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			datastores, err := getDatastoreNamesFromDCs(sshClientConfig, dataCenters)
+			datastores, err := GetDatastoreNamesFromDCs(sshClientConfig, e2eTestConfig, dataCenters)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// Iterating thorugh datastores to verify permission for svc account users
 			for _, datastorePath := range datastores {
 				// roleForUser array to store roles for both svc account user based on datastore
 				var roleForUser []string
-
 				switch {
-				case strings.Contains(datastorePath, "local"):
-					roleForUser = []string{roleCnsSearchAndSpbm, roleCnsSearchAndSpbm}
-				case strings.Contains(datastorePath, "nfs"):
-					roleForUser = []string{roleCnsDatastore, roleCnsDatastore}
+				case strings.Contains(datastorePath, "vsanDatastore (2)"):
+					roleForUser = []string{constants.RoleCnsDatastore, ""}
+				case strings.Contains(datastorePath, "nfs") || strings.Contains(datastorePath, "sharedVmfs"):
+					roleForUser = []string{constants.RoleCnsDatastore, constants.RoleCnsDatastore}
 				case strings.Contains(datastorePath, "vsanDatastore (1)"):
-					roleForUser = []string{roleCnsSearchAndSpbm, roleCnsDatastore}
-				default: // for "vsanDatastore"
-					roleForUser = []string{roleCnsDatastore, roleCnsSearchAndSpbm}
+					roleForUser = []string{"", constants.RoleCnsDatastore}
+				default: // for "local-0"
+					roleForUser = []string{"", ""}
 				}
 
 				// iterating through service account users
 				for j, user := range wcpServiceAccUsers {
-					userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Datastore", datastorePath, user, roleForUser[j])
+					userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+						datastorePath, user, roleForUser[j])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not valid for datastore")
 				}
@@ -470,7 +483,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Verify that an alarm is raised when a shared datastore "+
-		"becomes non-shared", ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		"becomes non-shared", ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -478,94 +491,94 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		var alarmPresent bool
 
 		ginkgo.By("Adding a shared datastore to supervisor cluster 1")
-		err := mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, computeClusterPaths[0])
+		err := MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, computeClusterPaths[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDsMountedOnSvc1 = true
 		defer func() {
 			if isDsMountedOnSvc1 {
 				ginkgo.By("Remove mounted datastore from supervisor cluster 1")
-				err = UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[0])
+				err = UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[0])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDsMountedOnSvc1 = false
 			}
 		}()
 
-		datastorePath := "/" + dataCenter + "/datastore/" + datastoreName
+		datastorePath := dataCenter + "/datastore/" + datastoreName
 		ginkgo.By("Verify datastore has permission for storage service account from supervisor cluster 1")
-		userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Cluster", datastorePath,
-			wcpServiceAccUsers[0], roleCnsDatastore)
+		userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Cluster", datastorePath,
+			wcpServiceAccUsers[0], constants.RoleCnsDatastore)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not changed for datastore "+
 			"in supervisor cluster 1")
 
 		ginkgo.By("Unmount datastore from one of the host from supervisor cluster 1")
-		clusterComputeResource, _, err := getClusterName(ctx, &e2eVSphere)
+		clusterComputeResource, _, err := vcutil.GetClusterName(ctx, e2eTestConfig)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		hostsInCluster = getHostsByClusterName(ctx, clusterComputeResource, computeCluster)
+		hostsInCluster = vcutil.GetHostsByClusterName(ctx, clusterComputeResource, computeCluster)
 		hostIP1, err := hostsInCluster[0].ManagementIPs(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		hostToBeRemoved = hostIP1[0].String()
 		hostPath = computeClusterPaths[0] + "/" + hostToBeRemoved
 		framework.Logf("Unmount datastore from host : %v", hostToBeRemoved)
-		err = UnMountNfsDatastoreFromClusterOrHost(datastoreName, hostToBeRemoved)
+		err = UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, hostToBeRemoved)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDsUnmountedFromHost = true
 		defer func() {
 			if isDsUnmountedFromHost {
 				ginkgo.By("Remove mounted datastore from host in the supervisor cluster 1")
-				err = mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, hostPath)
+				err = MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, hostPath)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isDsUnmountedFromHost = false
 			}
 		}()
 
 		ginkgo.By("Verify an alarm is raised for unmounted datastore and host in the supervisor cluster 1")
-		alarm := "Datastore not accessible to all hosts under the cluster"
-		alarmPresent, err = isAlarmPresentOnDatacenter(ctx, dataCenter, alarm, true)
+		alarm := "Datastore no longer accessible to all hosts in the cluster compute resource"
+		alarmPresent, err = IsAlarmPresentOnDatacenter(ctx, e2eTestConfig, dataCenter, alarm, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(alarmPresent).To(gomega.BeTrue())
 
 		ginkgo.By("Remove host from the cluster from STEP 3 and Verify alarm has disappeared")
-		enterHostIntoMM(ctx, hostsInCluster[0], ensureAccessibilityMModeType, timeout, false)
+		vcutil.EnterHostIntoMM(ctx, hostsInCluster[0], constants.EnsureAccessibilityMModeType, timeout, false)
 		isHostInMM = true
 		defer func() {
 			if isHostInMM {
-				exitHostMM(ctx, hostsInCluster[0], timeout)
+				vcutil.ExitHostMM(ctx, hostsInCluster[0], timeout)
 				isHostInMM = false
 			}
 		}()
 
-		isHostRemoved, err := removeEsxiHostFromCluster(dataCenter, computeCluster, hostToBeRemoved)
+		isHostRemoved, err := RemoveEsxiHostFromCluster(e2eTestConfig, dataCenter, computeCluster, hostToBeRemoved)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isHostRemoved).To(gomega.BeTrue(), "Host was not removed from cluster")
 		defer func() {
 			if isHostRemoved {
 				ginkgo.By("Adding host back to the cluster 1")
-				err = moveHostToCluster(computeClusterPaths[0], hostToBeRemoved)
+				err = MoveHostToCluster(e2eTestConfig, computeClusterPaths[0], hostToBeRemoved)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				isHostRemoved = false
 			}
 		}()
 
-		alarmPresent, err = isAlarmPresentOnDatacenter(ctx, dataCenter, alarm, false)
+		alarmPresent, err = IsAlarmPresentOnDatacenter(ctx, e2eTestConfig, dataCenter, alarm, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(alarmPresent).To(gomega.BeTrue())
 
 		ginkgo.By("Add host back to cluster and Verify alarm has appeared again")
-		err = moveHostToCluster(computeClusterPaths[0], hostToBeRemoved)
+		err = MoveHostToCluster(e2eTestConfig, computeClusterPaths[0], hostToBeRemoved)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isHostRemoved = false
-		exitHostMM(ctx, hostsInCluster[0], timeout)
+		vcutil.ExitHostMM(ctx, hostsInCluster[0], timeout)
 		isHostInMM = false
-		alarmPresent, err = isAlarmPresentOnDatacenter(ctx, dataCenter, alarm, true)
+		alarmPresent, err = IsAlarmPresentOnDatacenter(ctx, e2eTestConfig, dataCenter, alarm, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(alarmPresent).To(gomega.BeTrue())
 
 		ginkgo.By("Mount datastore back to host in the cluster and Verify alarm has disappeared")
-		err = mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, hostPath)
+		err = MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, hostPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		isDsUnmountedFromHost = false
-		alarmPresent, err = isAlarmPresentOnDatacenter(ctx, dataCenter, alarm, false)
+		alarmPresent, err = IsAlarmPresentOnDatacenter(ctx, e2eTestConfig, dataCenter, alarm, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(alarmPresent).To(gomega.BeTrue())
 	})
@@ -586,20 +599,20 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Move a shared datastore from one SVC to another and check permission",
-		ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			var roleForSvcUser []string
 
 			ginkgo.By("Adding a shared datastore to supervisor cluster 1")
-			err := mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, computeClusterPaths[0])
+			err := MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, computeClusterPaths[0])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isDsMountedOnSvc1 = true
 			defer func() {
 				if isDsMountedOnSvc1 {
 					ginkgo.By("Remove mounted datastore from supervisor cluster 1")
-					err = UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[0])
+					err = UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[0])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					isDsMountedOnSvc1 = false
 				}
@@ -607,45 +620,48 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 			datastorePath := "/" + dataCenter + "/datastore/" + datastoreName
 			ginkgo.By("Verify datastore has permission for storage service account from supervisor cluster 1")
-			roleForSvcUser = []string{roleCnsDatastore, roleCnsSearchAndSpbm}
+			roleForSvcUser = []string{constants.RoleCnsDatastore, ""}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
 
 			ginkgo.By("Adding same shared datastore to supervisor cluster 2")
-			err = mountNfsDatastoreOnClusterOrHost(datastoreName, datastoreIP, computeClusterPaths[1])
+			err = MountNfsDatastoreOnClusterOrHost(e2eTestConfig, datastoreName, datastoreIP, computeClusterPaths[1])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isDsMountedOnSvc2 = true
 			defer func() {
 				if isDsMountedOnSvc2 {
 					ginkgo.By("Remove mounted datastore from supervisor cluster 2")
-					err = UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[1])
+					err = UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[1])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					isDsMountedOnSvc2 = false
 				}
 			}()
 
 			ginkgo.By("Verify datastore has permission for storage service account from both the supervisor clusters")
-			roleForSvcUser = []string{roleCnsDatastore, roleCnsDatastore}
+			roleForSvcUser = []string{constants.RoleCnsDatastore, constants.RoleCnsDatastore}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
 
 			ginkgo.By("Removing mounted shared datastore from supervisor cluster 1")
-			err = UnMountNfsDatastoreFromClusterOrHost(datastoreName, computeClusterPaths[1])
+			err = UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig, datastoreName, computeClusterPaths[1])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			isDsMountedOnSvc2 = false
 			ginkgo.By("Verify datastore has permission for storage service account from the svc1 but not from svc2")
-			roleForSvcUser = []string{roleCnsDatastore, roleCnsSearchAndSpbm}
+			roleForSvcUser = []string{constants.RoleCnsDatastore, ""}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := verifyPermissionForWcpStorageUser(ctx, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
@@ -666,7 +682,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 	*/
 
 	ginkgo.It("[csi-multi-svc] Kill VC session from a service account and attempt CSI ops from "+
-		"the corresponding SVC", ginkgo.Label(p0, wcp, multiSvc, vc80), func() {
+		"the corresponding SVC", ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -675,19 +691,19 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		ginkgo.By("Getting VC session Id for both the supervisors")
 		for i := 0; i < numberOfSvc; i++ {
 			// getting session ids for each svc
-			sessionIDs, err := getVcSessionIDsforSupervisor(supervisorIds[i])
+			sessionIDs, err := GetVcSessionIDsforSupervisor(e2eTestConfig, supervisorIds[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// Storing it in oldSessionIds to validate later
 			oldSessionIds = append(oldSessionIds, sessionIDs)
 		}
 
 		ginkgo.By("Kill VC session from svc1")
-		err = killVcSessionIDs(oldSessionIds[0])
+		err = KillVcSessionIDs(e2eTestConfig, oldSessionIds[0])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify VC session Ids are changed for svc1 but not for svc2")
 		for i := 0; i < numberOfSvc; i++ {
-			isSessionIdSame, err := waitAndCompareSessionIDList(ctx, supervisorIds[i], oldSessionIds[i])
+			isSessionIdSame, err := WaitAndCompareSessionIDList(ctx, e2eTestConfig, supervisorIds[i], oldSessionIds[i])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// for first supervisor session id will change after killing vc session
 			if i == 0 {
@@ -704,32 +720,32 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 			namespace := namespaces[n]
 			// Changing kubeconfig for second supervisor
 			if n == 1 {
-				os.Setenv(kubeconfigEnvVar, kubeconfig1)
+				os.Setenv(constants.KubeconfigEnvVar, kubeconfig1)
 				framework.TestContext.KubeConfig = kubeconfig1
-				client, err = createKubernetesClientFromConfig(kubeconfig1)
+				client, err = k8testutil.CreateKubernetesClientFromConfig(kubeconfig1)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 					fmt.Sprintf("Error creating k8s client with %v: %v", kubeconfig1, err))
 			}
 
 			ginkgo.By("Create StatefulSet with 3 replica with parallel pod management")
-			service, statefulset, err := createStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, namespace,
-				true, 3, false, nil,
-				false, false, true, "", nil, false, storagePolicyNames[n])
+			service, statefulset, err := k8testutil.CreateStatefulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+				e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+				storagePolicyNames[n])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				fss.DeleteAllStatefulSets(ctx, client, namespace)
-				deleteService(namespace, client, service)
+				k8testutil.DeleteService(namespace, client, service)
 			}()
 
 			framework.Logf("Scale up sts replica count to 5")
 			scaleUpReplicaCount = 5
-			err = scaleUpStatefulSetPod(ctx, client, statefulset, namespace, scaleUpReplicaCount,
+			err = k8testutil.ScaleUpStatefulSetPod(ctx, client, e2eTestConfig, statefulset, namespace, scaleUpReplicaCount,
 				true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			framework.Logf("Scale down sts replica count to 1")
 			scaleDownReplicaCount = 1
-			err = scaleDownStatefulSetPod(ctx, client, statefulset, namespace, scaleDownReplicaCount,
+			err = k8testutil.ScaleDownStatefulSetPod(ctx, e2eTestConfig, client, statefulset, namespace, scaleDownReplicaCount,
 				true)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
