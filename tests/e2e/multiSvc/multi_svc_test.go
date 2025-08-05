@@ -47,7 +47,7 @@ import (
 
 var e2eTestConfig *config.E2eTestConfig
 
-var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
+var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 	var (
 		namespaces            []string
 		numberOfSvc           int
