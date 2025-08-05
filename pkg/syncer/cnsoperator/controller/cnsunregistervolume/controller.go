@@ -246,6 +246,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	// TODO: remove CNSPvcFinalizer from the PVC
+
 	err = k8s.DeletePersistentVolumeClaim(ctx, k8sClient, pvcName, pvcNamespace)
 	if err != nil {
 		log.Error(err)
