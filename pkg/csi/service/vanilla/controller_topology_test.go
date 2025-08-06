@@ -541,7 +541,7 @@ func TestCreateVolumeWithAccessibilityRequirements(t *testing.T) {
 			},
 		},
 	}
-	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctxtopology, queryFilter)
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctxtopology, &queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestCreateVolumeWithAccessibilityRequirements(t *testing.T) {
 	}
 
 	// Verify the volume has been deleted.
-	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctxtopology, queryFilter)
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctxtopology, &queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}

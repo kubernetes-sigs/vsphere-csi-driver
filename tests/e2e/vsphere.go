@@ -81,7 +81,7 @@ func (vs *vSphere) queryCNSVolumeWithResult(fcdID string) (*cnstypes.CnsQueryRes
 	}
 	req := cnstypes.CnsQueryVolume{
 		This:   cnsVolumeManagerInstance,
-		Filter: queryFilter,
+		Filter: &queryFilter,
 	}
 
 	err := connectCns(ctx, vs)

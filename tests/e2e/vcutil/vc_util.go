@@ -287,7 +287,7 @@ func QueryCNSVolumeWithResult(vs *config.E2eTestConfig, fcdID string) (*cnstypes
 	}
 	req := cnstypes.CnsQueryVolume{
 		This:   cnsclient.CnsVolumeManagerInstance,
-		Filter: queryFilter,
+		Filter: &queryFilter,
 	}
 
 	err := connections.ConnectCns(ctx, vs)
