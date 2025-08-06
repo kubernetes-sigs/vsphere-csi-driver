@@ -560,7 +560,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Create PVC mapping to above created PV.
 	log.Infof("Creating PVC: %s", instance.Spec.PvcName)
 	pvcSpec, err := getPersistentVolumeClaimSpec(ctx, instance.Spec.PvcName, instance.Namespace, capacityInMb,
-		storageClassName, accessMode, pvName, datastoreAccessibleTopology)
+		storageClassName, accessMode, pvName, datastoreAccessibleTopology, instance)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to create spec for PVC: %q. Error: %v", instance.Spec.PvcName, err)
 		log.Errorf(msg)

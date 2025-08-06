@@ -38,6 +38,7 @@ import (
 	cnsstoragepolicyquotasv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
@@ -279,12 +280,15 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 // specified storage class.
 func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace string, capacity int64,
 	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string,
-	datastoreAccessibleTopology []map[string]string) (*v1.PersistentVolumeClaim, error) {
+	datastoreAccessibleTopology []map[string]string,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume) (*v1.PersistentVolumeClaim, error) {
 
 	log := logger.GetLogger(ctx)
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
+
 	var (
 		segmentsArray  []string
+		pvcLabels      = make(map[string]string)
 		topoAnnotation = make(map[string]string)
 	)
 	if datastoreAccessibleTopology != nil {
@@ -299,10 +303,24 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		topoAnnotation[common.AnnVolumeAccessibleTopology] = "[" + strings.Join(segmentsArray, ",") + "]"
 	}
 
+	// TODO: For now this FSS is added in CSI ConfigMap. Once this FSS is available in Capabilities CR, remove
+	// it from CSI ConfigMap and fetch FSS value from Capabilities CR.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+		// Check if both labelVirtualMachineName and labelStoragePolicyReservationName are on CnsRegisterVolume CR.
+		// If both are present, add both to PVC
+		if vmName, vmOk := instance.Labels[cnsoperatortypes.LabelVirtualMachineName]; vmOk && vmName != "" {
+			if spName, spOk := instance.Labels[cnsoperatortypes.LabelStoragePolicyReservationName]; spOk && spName != "" {
+				pvcLabels[cnsoperatortypes.LabelVirtualMachineName] = vmName
+				pvcLabels[cnsoperatortypes.LabelStoragePolicyReservationName] = spName
+			}
+		}
+	}
+
 	claim := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   namespace,
+			Labels:      pvcLabels,
 			Annotations: topoAnnotation,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
