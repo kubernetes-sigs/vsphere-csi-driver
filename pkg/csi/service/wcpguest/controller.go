@@ -327,8 +327,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
 		volumeSource := req.GetVolumeContentSource()
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
-			volumeSource != nil {
+		if volumeSource != nil {
 			sourceSnapshot := volumeSource.GetSnapshot()
 			if sourceSnapshot == nil {
 				return nil, csifault.CSIInvalidArgumentFault,
@@ -493,8 +492,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		// Set the Snapshot VolumeContentSource in the CreateVolumeResponse
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) &&
-			volumeSnapshotName != "" {
+		if volumeSnapshotName != "" {
 			resp.Volume.ContentSource = &csi.VolumeContentSource{
 				Type: &csi.VolumeContentSource_Snapshot{
 					Snapshot: &csi.VolumeContentSource_SnapshotSource{
@@ -1603,11 +1601,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("CreateSnapshot: called with args %+v", *req)
-	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
-	}
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Search for supervisor PVC and ensure it exists
 		supervisorPVCName := req.SourceVolumeId
@@ -1735,10 +1728,6 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("DeleteSnapshot: called with args %+v", *req)
-	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotWCPEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "deleteSnapshot")
-	}
 	deleteSnapshotInternal := func() (*csi.DeleteSnapshotResponse, error) {
 		csiSnapshotID := req.GetSnapshotId()
 		// Retrieve the supervisor volumesnapshot
@@ -1828,10 +1817,6 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 	log.Infof("ListSnapshots: called with args %+v", *req)
-	isBlockVolumeSnapshotEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-	if !isBlockVolumeSnapshotEnabled {
-		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
-	}
 	listSnapshotsInternal := func() (*csi.ListSnapshotsResponse, error) {
 		log.Infof("ListSnapshots: called with args %+v", *req)
 		maxEntries := common.QuerySnapshotLimit

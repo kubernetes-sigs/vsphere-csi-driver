@@ -188,10 +188,8 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		if !resp.Allowed {
 			return
 		}
-		if featureGateBlockVolumeSnapshotEnabled {
-			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
-			resp.AdmissionResponse = *admissionResp.DeepCopy()
-		}
+		admissionResp := validatePVC(ctx, &req.AdmissionRequest)
+		resp.AdmissionResponse = *admissionResp.DeepCopy()
 	} else if req.Kind.Kind == "CnsFileAccessConfig" {
 		if featureFileVolumesWithVmServiceEnabled {
 			switch req.Operation {

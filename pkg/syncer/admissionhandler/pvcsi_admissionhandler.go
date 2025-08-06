@@ -126,10 +126,6 @@ func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (re
 
 	resp = admission.Allowed("")
 	if req.Kind.Kind == "PersistentVolumeClaim" {
-		if featureGateBlockVolumeSnapshotEnabled {
-			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
-			resp.AdmissionResponse = *admissionResp.DeepCopy()
-		}
 		// Do additional checks only if the previous checks were successful
 		if resp.Allowed && featureIsLinkedCloneSupportEnabled {
 			admissionResp := validateGuestPVCOperation(ctx, &req.AdmissionRequest)
@@ -152,9 +148,7 @@ func (g *CSIGuestMutationWebhook) Handle(ctx context.Context, req admission.Requ
 	if req.Kind.Kind == "PersistentVolumeClaim" {
 		switch req.Operation {
 		case admissionv1.Create:
-			if featureGateBlockVolumeSnapshotEnabled {
-				return g.mutateNewPVC(ctx, req)
-			}
+			return g.mutateNewPVC(ctx, req)
 		}
 	}
 	return

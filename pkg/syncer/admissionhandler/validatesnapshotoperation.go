@@ -39,10 +39,6 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			return admission.Denied(reason)
 		}
 		log.Debugf("Validating VolumeSnapshotClass: %q", vsclass.Name)
-		if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
-			// Disallow any operation on VolumeSnapshotClass object if block-volume-snapshot feature is not enabled
-			return admission.Denied(SnapshotFeatureNotEnabled)
-		}
 	} else if req.Kind.Kind == "VolumeSnapshotContent" {
 		vsc := snap.VolumeSnapshotContent{}
 		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
@@ -52,10 +48,6 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			return admission.Denied(reason)
 		}
 		log.Debugf("Validating VolumeSnapshotContent: %q", vsc.Name)
-		if vsc.Spec.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
-			// Disallow any operation on VolumeSnapshotContent object if block-volume-snapshot feature is not enabled
-			return admission.Denied(SnapshotFeatureNotEnabled)
-		}
 	} else if req.Kind.Kind == "VolumeSnapshot" {
 		vs := snap.VolumeSnapshot{}
 		// Handle VolumeSnapshot deletion with Linked Clone support.
@@ -78,7 +70,6 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			return admission.Denied(reason)
 		}
 		log.Debugf("Validating VolumeSnapshot: %q", vs.Name)
-		// Disallow any operation on VolumeSnapshot object if block-volume-snapshot feature is not enable
 		// If no volume snapshot class mentioned i.e. default volume snapshot class to be used, then
 		// following checks are skipped. Currently vSphere driver snapshot class is not marked default.
 		if *vs.Spec.VolumeSnapshotClassName != "" {
@@ -89,16 +80,13 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 				log.Warn(reason)
 				return admission.Denied(reason)
 			}
-			vsclass, err := snapshotterClient.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
+			_, err = snapshotterClient.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
 				*vs.Spec.VolumeSnapshotClassName, metav1.GetOptions{})
 			if err != nil {
 				reason := fmt.Sprintf("failed to Get VolumeSnapshotclass %s with error: %v.",
 					*vs.Spec.VolumeSnapshotClassName, err)
 				log.Warn(reason)
 				return admission.Denied(reason)
-			}
-			if vsclass.Driver == "csi.vsphere.vmware.com" && !featureGateBlockVolumeSnapshotEnabled {
-				return admission.Denied(SnapshotFeatureNotEnabled)
 			}
 		}
 	}

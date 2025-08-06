@@ -107,7 +107,6 @@ func getPVCAdmissionTest(t *testing.T) *pvcAdmissionTest {
 
 func TestValidatePVC(t *testing.T) {
 	testInstance := getPVCAdmissionTest(t)
-	featureGateBlockVolumeSnapshotEnabled = true
 	tests := []struct {
 		name             string
 		kubeObjs         []runtime.Object
