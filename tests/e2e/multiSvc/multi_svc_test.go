@@ -40,8 +40,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
-
-	// "sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/multiSvc"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
@@ -263,9 +261,9 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 				}
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
-				service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, e2eTestConfig, namespace,
-					true, 3, false, nil,
-					false, false, true, "", nil, false, storagePolicyNames[n])
+				service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+					e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+					storagePolicyNames[n])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -321,8 +319,9 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 				}
 
 				ginkgo.By("Create StatefulSet with 3 replicas with parallel pod management")
-				service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, e2eTestConfig, namespace,
-					true, 3, false, nil, false, false, true, "", nil, false, storagePolicyNames[i])
+				service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+					e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+					storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					fss.DeleteAllStatefulSets(ctx, client, namespace)
@@ -330,7 +329,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 				}()
 
 				ginkgo.By("Perform password rotation on the supervisor")
-				passwordRotated, err := k8testutil.PerformPasswordRotationOnSupervisor(client, ctx, csiNamespace, e2eTestConfig.TestInput.TestBedInfo.VcAddress, e2eTestConfig)
+				passwordRotated, err := k8testutil.PerformPasswordRotationOnSupervisor(client, ctx, csiNamespace,
+					e2eTestConfig.TestInput.TestBedInfo.VcAddress, e2eTestConfig)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(passwordRotated).To(gomega.BeTrue())
 
@@ -343,13 +343,13 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 
 				framework.Logf("Scale down sts replica count to 1")
 				scaleDownReplicaCount = 1
-				err = k8testutil.ScaleDownStatefulSetPod(ctx, e2eTestConfig, client, statefulset, namespace, scaleDownReplicaCount,
-					true)
+				err = k8testutil.ScaleDownStatefulSetPod(ctx, e2eTestConfig, client, statefulset, namespace,
+					scaleDownReplicaCount, true)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Create a Pvc and attach a pod to it
-				_, pvclaim, err = k8testutil.CreatePVCAndStorageClass(ctx, e2eTestConfig, client, namespace, nil, scParametersList[i], "", nil, "", false, "",
-					storagePolicyNames[i])
+				_, pvclaim, err = k8testutil.CreatePVCAndStorageClass(ctx, e2eTestConfig, client, namespace, nil,
+					scParametersList[i], "", nil, "", false, "", storagePolicyNames[i])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -367,7 +367,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 				volHandle = pv.Spec.CSI.VolumeHandle
 				// Create a Pod to use this PVC, and verify volume has been attached
 				ginkgo.By("Creating pod to attach PV to the node")
-				pod, err := k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, constants.ExecCommand)
+				pod, err := k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil,
+					[]*v1.PersistentVolumeClaim{pvclaim}, false, constants.ExecCommand)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				defer func() {
 					ginkgo.By("Deleting the pod")
@@ -408,7 +409,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 			ginkgo.By("Verify permission on root folder for each of the wcp service account users")
 			for _, user := range wcpServiceAccUsers {
 				framework.Logf("Verifying permission on root folder for user : %s", user)
-				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "RootFolder", "", user, constants.RoleCnsSearchAndSpbm)
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "RootFolder", "", user,
+					constants.RoleCnsSearchAndSpbm)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not valid for root folder")
 			}
@@ -455,7 +457,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 
 				// iterating through service account users
 				for j, user := range wcpServiceAccUsers {
-					userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore", datastorePath, user, roleForUser[j])
+					userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+						datastorePath, user, roleForUser[j])
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					gomega.Expect(userPermission).To(gomega.BeTrue(), "user permission is not valid for datastore")
 				}
@@ -620,7 +623,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 			roleForSvcUser = []string{constants.RoleCnsDatastore, constants.RoleCnsSearchAndSpbm}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
@@ -642,7 +646,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 			roleForSvcUser = []string{constants.RoleCnsDatastore, constants.RoleCnsDatastore}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
@@ -655,7 +660,8 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 			roleForSvcUser = []string{constants.RoleCnsDatastore, constants.RoleCnsSearchAndSpbm}
 			// iterating through service account users
 			for j, user := range wcpServiceAccUsers {
-				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore", datastorePath, user, roleForSvcUser[j])
+				userPermission, err := VerifyPermissionForWcpStorageUser(ctx, e2eTestConfig, "Datastore",
+					datastorePath, user, roleForSvcUser[j])
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(userPermission).To(gomega.BeTrue())
 			}
@@ -722,9 +728,9 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 			}
 
 			ginkgo.By("Create StatefulSet with 3 replica with parallel pod management")
-			service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client, e2eTestConfig, namespace,
-				true, 3, false, nil,
-				false, false, true, "", nil, false, storagePolicyNames[n])
+			service, statefulset, err := k8testutil.CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx, client,
+				e2eTestConfig, namespace, true, 3, false, nil, false, false, true, "", nil, false,
+				storagePolicyNames[n])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			defer func() {
 				fss.DeleteAllStatefulSets(ctx, client, namespace)

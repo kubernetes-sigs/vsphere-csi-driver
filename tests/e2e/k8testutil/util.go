@@ -94,8 +94,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
-
-	apps "k8s.io/api/apps/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
@@ -7365,8 +7363,8 @@ func CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 createCustomisedStatefulSets util methods creates statefulset as per the user's
 specific requirement and returns the customised statefulset
 */
-func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig, namespace string,
-	isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
+func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig,
+	namespace string, isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
 	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
@@ -7447,7 +7445,7 @@ func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 }
 
 // CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
-func CreateStatefulSet(ns string, ss *apps.StatefulSet, c clientset.Interface) {
+func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",

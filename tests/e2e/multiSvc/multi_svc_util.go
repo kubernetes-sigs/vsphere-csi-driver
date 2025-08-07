@@ -54,7 +54,8 @@ func GetSvcCountAndComputeClusterPath(e2eTestConfig *config.E2eTestConfig) (int,
 }
 
 // mountNfsDatastoreOnClusterOrHost method is used to add a new datastore to cluster
-func MountNfsDatastoreOnClusterOrHost(e2eTestConfig *config.E2eTestConfig, datastoreName string, datastoreIP string, clusterPath string) error {
+func MountNfsDatastoreOnClusterOrHost(e2eTestConfig *config.E2eTestConfig, datastoreName string, datastoreIP string,
+	clusterPath string) error {
 	mountDsOnCluster := vcutil.GovcLoginCmd(e2eTestConfig) + "govc datastore.create -type nfs -name " + datastoreName +
 		" -remote-host " + datastoreIP + " -remote-path /shared-nfs " + clusterPath
 	framework.Logf("Mount datastore on cluster/host - command : %s", mountDsOnCluster)
@@ -68,8 +69,10 @@ func MountNfsDatastoreOnClusterOrHost(e2eTestConfig *config.E2eTestConfig, datas
 }
 
 // UnMountNfsDatastoreFromClusterOrHost method is used to remove a datastore from cluster
-func UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig *config.E2eTestConfig, datastoreName string, clusterOrHostPath string) error {
-	UnMountDsOnCluster := vcutil.GovcLoginCmd(e2eTestConfig) + "govc datastore.remove -ds " + datastoreName + " " + clusterOrHostPath
+func UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig *config.E2eTestConfig, datastoreName string,
+	clusterOrHostPath string) error {
+	UnMountDsOnCluster := vcutil.GovcLoginCmd(e2eTestConfig) + "govc datastore.remove -ds " + datastoreName + " " +
+		clusterOrHostPath
 	framework.Logf("Un-mount datastore on cluster/Host - command : %s", UnMountDsOnCluster)
 	_, err := exec.Command("/bin/sh", "-c", UnMountDsOnCluster).Output()
 	if err != nil {
@@ -81,8 +84,8 @@ func UnMountNfsDatastoreFromClusterOrHost(e2eTestConfig *config.E2eTestConfig, d
 }
 
 // verifyPermissionForWcpStorageUser method is used to check permission of service account user
-func VerifyPermissionForWcpStorageUser(ctx context.Context, e2eTestConfig *config.E2eTestConfig, entity string, path string,
-	serviceAccountUser string, role string) (bool, error) {
+func VerifyPermissionForWcpStorageUser(ctx context.Context, e2eTestConfig *config.E2eTestConfig, entity string,
+	path string, serviceAccountUser string, role string) (bool, error) {
 	var permissionCheckSvcUser string = vcutil.GovcLoginCmd(e2eTestConfig)
 	var grepServiceAccUser string = " | grep " + serviceAccountUser + " | awk '{print $1}' "
 
@@ -117,8 +120,8 @@ func VerifyPermissionForWcpStorageUser(ctx context.Context, e2eTestConfig *confi
 }
 
 // isAlarmPresentOnDatacenter method is used to check if alarm is generated on a dataCenter
-func IsAlarmPresentOnDatacenter(ctx context.Context, e2eTestConfig *config.E2eTestConfig, datacenter string, alarmToVerify string,
-	alarmShouldExists bool) (bool, error) {
+func IsAlarmPresentOnDatacenter(ctx context.Context, e2eTestConfig *config.E2eTestConfig, datacenter string,
+	alarmToVerify string, alarmShouldExists bool) (bool, error) {
 	alarmCmd := vcutil.GovcLoginCmd(e2eTestConfig) + "govc events /" + datacenter + " | grep 'warning'"
 	framework.Logf("Get alarms from datacenter - command : %s", alarmCmd)
 	waitErr := wait.PollUntilContextTimeout(ctx, constants.HealthStatusPollInterval, constants.PollTimeoutSixMin, true,
@@ -164,7 +167,8 @@ func IsAlarmPresentOnDatacenter(ctx context.Context, e2eTestConfig *config.E2eTe
 }
 
 // removeEsxiHostFromCluster method is used to remove esxi hosts from cluster
-func RemoveEsxiHostFromCluster(e2eTestConfig *config.E2eTestConfig, datacenter string, cluster string, hostIP string) (bool, error) {
+func RemoveEsxiHostFromCluster(e2eTestConfig *config.E2eTestConfig, datacenter string, cluster string,
+	hostIP string) (bool, error) {
 	removeHostFromCluster := vcutil.GovcLoginCmd(e2eTestConfig) + "govc object.mv /" + datacenter + "/host/" + cluster +
 		"/" + hostIP + " /" + datacenter + "/host/"
 	framework.Logf("Remove an ESXi host from cluster command : %s", removeHostFromCluster)
@@ -264,7 +268,8 @@ func GetDatastoreNamesFromDCs(sshClientConfig *ssh.ClientConfig, e2eTestConfig *
 }
 
 // waitAndCompareSessionIDList method is used to match new session ids with old session ids
-func WaitAndCompareSessionIDList(ctx context.Context, e2eTestConfig *config.E2eTestConfig, supervisorId string, oldSessionIds []string) (bool, error) {
+func WaitAndCompareSessionIDList(ctx context.Context, e2eTestConfig *config.E2eTestConfig, supervisorId string,
+	oldSessionIds []string) (bool, error) {
 	var newSessionIds []string
 	var err error
 	var retryCount int
