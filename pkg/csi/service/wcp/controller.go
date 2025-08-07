@@ -507,7 +507,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
-	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
 	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -804,7 +803,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	volFromSnapshotOnTargetDs := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.VolFromSnapshotOnTargetDs)
 	createVolumeOpts := common.CreateBlockVolumeOptions{
-		FilterSuspendedDatastores:      filterSuspendedDatastores,
 		UseSupervisorId:                isTKGSHAEnabled,
 		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
 		IsByokEnabled:                  isByokEnabled,
@@ -1328,7 +1326,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		VolumeType:      common.FileVolumeType,
 	}
 
-	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 
@@ -1469,7 +1466,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	if isPodVMOnStretchSupervisorFSSEnabled {
 		volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
 			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores, vSphereClusterMorefs,
-			filterSuspendedDatastores, isTKGSHAEnabled, &cnsvolume.CreateVolumeExtraParams{
+			isTKGSHAEnabled, &cnsvolume.CreateVolumeExtraParams{
 				VolSizeBytes:                            volSizeBytes,
 				StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
 				Namespace:                               req.Parameters[common.AttributePvcNamespace],
@@ -1479,7 +1476,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	} else {
 		volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
 			c.manager.VolumeManager, c.manager.CnsConfig, &createVolumeSpec, candidateDatastores, []string{},
-			filterSuspendedDatastores, isTKGSHAEnabled, nil)
+			isTKGSHAEnabled, nil)
 	}
 	if err != nil {
 		return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,

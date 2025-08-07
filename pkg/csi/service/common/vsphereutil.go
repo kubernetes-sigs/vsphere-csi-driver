@@ -55,7 +55,6 @@ type VanillaCreateBlockVolParamsForMultiVC struct {
 
 // CreateBlockVolumeOptions defines the FSS required to create a block volume.
 type CreateBlockVolumeOptions struct {
-	FilterSuspendedDatastores,
 	UseSupervisorId,
 	IsVdppOnStretchedSvFssEnabled bool
 	IsByokEnabled                  bool
@@ -101,7 +100,6 @@ func CreateBlockVolumeUtil(
 
 	var clusterMorefs []vim25types.ManagedObjectReference
 	var datastoreInfoList []*vsphere.DatastoreInfo
-
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := manager.CnsConfig.Global.ClusterID
 	if opts.UseSupervisorId {
@@ -146,12 +144,10 @@ func CreateBlockVolumeUtil(
 		createSpec.ActiveClusters = clusterMorefs
 	} else {
 		var datastores []vim25types.ManagedObjectReference
-		if opts.FilterSuspendedDatastores {
-			sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
-			if err != nil {
-				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
-				return nil, csifault.CSIInternalFault, err
-			}
+		sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
+		if err != nil {
+			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+			return nil, csifault.CSIInternalFault, err
 		}
 
 		var datastoreObj *vsphere.Datastore
@@ -177,7 +173,7 @@ func CreateBlockVolumeUtil(
 						continue
 					}
 
-					if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+					if vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
 						continue
 					}
 					datastoreObj = datastoreInfoObj.Datastore
@@ -223,7 +219,7 @@ func CreateBlockVolumeUtil(
 					continue
 				}
 
-				if opts.FilterSuspendedDatastores && vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
+				if vsphere.IsVolumeCreationSuspended(ctx, datastoreInfoObj) {
 					continue
 				}
 				datastoreObj = datastoreInfoObj.Datastore
@@ -585,7 +581,7 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{},
 func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	vc *vsphere.VirtualCenter, volumeManager cnsvolume.Manager, cnsConfig *config.Config, spec *CreateVolumeSpec,
 	datastores []*vsphere.DatastoreInfo, vSphereClusterMorefs []string,
-	filterSuspendedDatastores, useSupervisorId bool, extraParams interface{}) (
+	useSupervisorId bool, extraParams interface{}) (
 	*cnsvolume.CnsVolumeInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var err error
@@ -600,15 +596,12 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			return nil, csifault.CSIInternalFault, err
 		}
 	}
-
 	var datastoreMorefs []vim25types.ManagedObjectReference
 	if len(datastores) != 0 {
-		if filterSuspendedDatastores {
-			datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
-			if err != nil {
-				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
-				return nil, csifault.CSIInternalFault, err
-			}
+		datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
+		if err != nil {
+			log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+			return nil, csifault.CSIInternalFault, err
 		}
 		if spec.ScParams.DatastoreURL == "" {
 			datastoreMorefs = getDatastoreMoRefs(datastores)

@@ -406,8 +406,6 @@ const (
 	ListVolumes = "list-volumes"
 	// PVtoBackingDiskObjectIdMapping is the feature to support pv to backingDiskObjectId mapping on vSphere CSI driver.
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
-	// Block Create Volume for datastores that are in suspended mode
-	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
 	// TopologyPreferentialDatastores is the feature gate for preferential
 	// datastore deployment in topology aware environments.
 	TopologyPreferentialDatastores = "topology-preferential-datastores"
