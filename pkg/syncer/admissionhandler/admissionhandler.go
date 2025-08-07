@@ -56,15 +56,14 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                              *interface{}
-	featureGateCsiMigrationEnabled            bool
-	featureGateBlockVolumeSnapshotEnabled     bool
-	featureGateTKGSHaEnabled                  bool
-	featureGateTopologyAwareFileVolumeEnabled bool
-	featureGateByokEnabled                    bool
-	featureFileVolumesWithVmServiceEnabled    bool
-	featureIsSharedDiskEnabled                bool
-	featureIsLinkedCloneSupportEnabled        bool
+	COInitParams                           *interface{}
+	featureGateCsiMigrationEnabled         bool
+	featureGateBlockVolumeSnapshotEnabled  bool
+	featureGateTKGSHaEnabled               bool
+	featureGateByokEnabled                 bool
+	featureFileVolumesWithVmServiceEnabled bool
+	featureIsSharedDiskEnabled             bool
+	featureIsLinkedCloneSupportEnabled     bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -184,8 +183,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		}
 		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.TopologyAwareFileVolume)
+
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
 
