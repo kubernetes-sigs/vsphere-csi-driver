@@ -63,6 +63,32 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
+// DatastoreRetriever interface abstracts vSphere datastore operations for testability
+type DatastoreRetriever interface {
+	// GetCandidateDatastoresInCluster retrieves candidate datastores for a specific cluster
+	GetCandidateDatastoresInCluster(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
+		includeVSANDirect bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error)
+	// GetSharedDatastoresInClusters retrieves shared datastores across multiple clusters
+	GetSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
+		vc *cnsvsphere.VirtualCenter) ([]*cnsvsphere.DatastoreInfo, error)
+}
+
+// VSphereDatastoreRetriever implements DatastoreRetriever using real vSphere operations
+type VSphereDatastoreRetriever struct{}
+
+// GetCandidateDatastoresInCluster implements DatastoreRetriever interface
+func (v *VSphereDatastoreRetriever) GetCandidateDatastoresInCluster(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter, clusterID string, includeVSANDirect bool) ([]*cnsvsphere.DatastoreInfo,
+	[]*cnsvsphere.DatastoreInfo, error) {
+	return cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, includeVSANDirect)
+}
+
+// GetSharedDatastoresInClusters implements DatastoreRetriever interface
+func (v *VSphereDatastoreRetriever) GetSharedDatastoresInClusters(ctx context.Context,
+	clusterMorefs []string, vc *cnsvsphere.VirtualCenter) ([]*cnsvsphere.DatastoreInfo, error) {
+	return getSharedDatastoresInClusters(ctx, clusterMorefs, vc)
+}
+
 var (
 	// controllerVolumeTopologyInstance is a singleton instance of controllerVolumeTopology
 	// created for vanilla flavor.
@@ -164,6 +190,8 @@ type wcpControllerVolumeTopology struct {
 	k8sConfig *restclient.Config
 	// azInformer is an informer instance on the AvailabilityZone custom resource.
 	azInformer cache.SharedIndexInformer
+	// datastoreRetriever provides abstraction for vSphere datastore operations
+	datastoreRetriever DatastoreRetriever
 }
 
 // InitTopologyServiceInController returns a singleton implementation of the
@@ -279,8 +307,9 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					return nil, err
 				}
 				wcpControllerVolumeTopologyInstance = &wcpControllerVolumeTopology{
-					k8sConfig:  config,
-					azInformer: *azInformer,
+					k8sConfig:          config,
+					azInformer:         *azInformer,
+					datastoreRetriever: &VSphereDatastoreRetriever{},
 				}
 			}
 		} else {
@@ -1504,7 +1533,8 @@ func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ct
 		// Call GetCandidateDatastores for each cluster moref. Ignore the vsanDirectDatastores for now.
 		if !isPodVMOnStretchedSupervisorEnabled {
 			// This code block assume we have 1 Cluster Per AZ
-			accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, params.Vc, clusterMorefs[0], false)
+			accessibleDs, _, err := volTopology.datastoreRetriever.GetCandidateDatastoresInCluster(ctx,
+				params.Vc, clusterMorefs[0], false)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
 					"failed to find candidate datastores to place volume in cluster %q. Error: %v",
@@ -1512,16 +1542,23 @@ func (volTopology *wcpControllerVolumeTopology) GetSharedDatastoresInTopology(ct
 			}
 			params.TopoSegToDatastoresMap[zone] = accessibleDs
 			sharedDatastores = append(sharedDatastores, accessibleDs...)
+			log.Debugf("PodVMOnStretchedSupervisor Not Enabled. Topology: %+v, Zone: %s, "+
+				"Topology Segments to Datastore Map: %+v, Datastores: %v",
+				params.TopologyRequirement, zone, params.TopoSegToDatastoresMap, sharedDatastores)
 		} else {
 			// This code block adds support for multiple vSphere Clusters Per AZ
 			// sharedDatastores will be calculated for all clusters within AZ
-			sharedDatastoresForclusterMorefs, err := getSharedDatastoresInClusters(ctx, clusterMorefs, params.Vc)
+			sharedDatastoresForclusterMorefs, err := volTopology.datastoreRetriever.GetSharedDatastoresInClusters(ctx,
+				clusterMorefs, params.Vc)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log, "failed to get shared datastores "+
 					"for clusters: %v, err: %v", clusterMorefs, err)
 			}
 			params.TopoSegToDatastoresMap[zone] = sharedDatastoresForclusterMorefs
 			sharedDatastores = append(sharedDatastores, sharedDatastoresForclusterMorefs...)
+			log.Debugf("PodVMOnStretchedSupervisor Enabled. Topology: %+v, Zone: %s, "+
+				"Topology Segments to Datastore Map: %+v, Datastores: %v",
+				params.TopologyRequirement, zone, params.TopoSegToDatastoresMap, sharedDatastores)
 		}
 	}
 	log.Infof("Shared datastores %v for topologyRequirement: %+v", sharedDatastores,
