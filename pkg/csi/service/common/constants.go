@@ -377,8 +377,6 @@ const (
 const (
 	// Default interval to check if the feature is enabled or not.
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
-	// OnlineVolumeExtend guards the feature for online volume expansion.
-	OnlineVolumeExtend = "online-volume-extend"
 	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
 	CSIMigration = "csi-migration"
 	// CSISVFeatureStateReplication is feature flag for SV feature state

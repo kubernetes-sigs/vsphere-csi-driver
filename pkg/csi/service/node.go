@@ -546,23 +546,21 @@ func (driver *vsphereCSIDriver) NodeExpandVolume(
 	}
 	log.Debugf("NodeExpandVolume: staging target path %s, getDevFromMount %+v", volumePath, *dev)
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
-		// Fetch the current block size.
-		currentBlockSizeBytes, err := driver.osUtils.GetBlockSizeBytes(ctx, dev.RealDev)
+	// Fetch the current block size.
+	currentBlockSizeBytes, err := driver.osUtils.GetBlockSizeBytes(ctx, dev.RealDev)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"error when getting size of block volume at path %s: %v", dev.RealDev, err)
+	}
+	// Check if a rescan is required.
+	if currentBlockSizeBytes < reqVolSizeBytes {
+		// If a device is expanded while it is attached to a VM, we need to
+		// rescan the device on the guest OS in order to see the modified size
+		// on the Guest OS.
+		// Refer to https://kb.vmware.com/s/article/1006371
+		err = driver.osUtils.RescanDevice(ctx, dev)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"error when getting size of block volume at path %s: %v", dev.RealDev, err)
-		}
-		// Check if a rescan is required.
-		if currentBlockSizeBytes < reqVolSizeBytes {
-			// If a device is expanded while it is attached to a VM, we need to
-			// rescan the device on the guest OS in order to see the modified size
-			// on the Guest OS.
-			// Refer to https://kb.vmware.com/s/article/1006371
-			err = driver.osUtils.RescanDevice(ctx, dev)
-			if err != nil {
-				return nil, logger.LogNewErrorCode(log, codes.Internal, err.Error())
-			}
+			return nil, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 		}
 	}
 
