@@ -440,6 +440,12 @@ var (
 	envTestbedInfoJsonPathVC3         = "TESTBEDINFO_JSON_VC3"
 )
 
+// For multiwriter
+var (
+	envSharedVmfsThickPolicy          = "SHARED_VMFS_THICK_STORAGE_POLICY"
+	envMultiWriterSharedStoragePolicy = "MULTI_WRITER_SHARED_STORAGE_POLICY"
+)
+
 // VolumeSnapshotClass env variables for tkg-snapshot
 var (
 	envVolSnapClassDel = "VOLUME_SNAPSHOT_CLASS_DELETE"
