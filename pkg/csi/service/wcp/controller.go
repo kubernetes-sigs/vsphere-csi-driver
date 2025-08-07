@@ -561,6 +561,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
 			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
 			if !isMultipleClustersPerVsphereZoneEnabled {
+				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+					commoncotypes.WCPTopologyFetchDSParams{
+						TopologyRequirement:    topologyRequirement,
+						Vc:                     vc,
+						TopoSegToDatastoresMap: topoSegToDatastoresMap})
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to find shared datastores for given topology requirement. Error: %v", err)
+				}
+
 				// if volume is created from snapshot, get the datastore accessible topology from the snapshot
 				if req.GetVolumeContentSource() != nil {
 					snapshotID := ""
@@ -582,15 +592,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 					}
 					log.Infof("Replaced with topologyRequirement %+v for creating volume %s from snapshot %s",
 						topologyRequirement, req.Name, snapshotID)
-				}
-				sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
-					commoncotypes.WCPTopologyFetchDSParams{
-						TopologyRequirement:    topologyRequirement,
-						Vc:                     vc,
-						TopoSegToDatastoresMap: topoSegToDatastoresMap})
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to find shared datastores for given topology requirement. Error: %v", err)
+
+					sharedDatastores, err = c.topologyMgr.GetSharedDatastoresInTopology(ctx,
+						commoncotypes.WCPTopologyFetchDSParams{
+							TopologyRequirement:    topologyRequirement,
+							Vc:                     vc,
+							TopoSegToDatastoresMap: topoSegToDatastoresMap})
+					if err != nil {
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+							"failed to find shared datastores for given topology requirement. Error: %v", err)
+					}
 				}
 			} else {
 				log.Infof("MultipleClustersPerVsphereZone capability is enabled. finding " +
