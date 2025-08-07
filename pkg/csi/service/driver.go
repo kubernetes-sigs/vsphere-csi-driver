@@ -147,8 +147,7 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 		return err
 	}
 
-	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
+	if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		CSINamespace := common.GetCSINamespace()
 		if cfg.Global.ClusterID == "" {
 			var clusterID string

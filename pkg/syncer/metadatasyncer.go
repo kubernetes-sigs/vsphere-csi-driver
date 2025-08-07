@@ -2246,8 +2246,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	log.Info("Reloading Configuration")
 	var cfg *cnsconfig.Config
 	var err error
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIInternalGeneratedClusterID) {
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		cfg, err = getConfig(ctx)
 	} else {
 		cfg, err = cnsconfig.GetConfig(ctx)
