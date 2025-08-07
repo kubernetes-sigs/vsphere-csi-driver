@@ -2217,10 +2217,6 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	var err error
-	// ListVolumes FSS is disabled so, return nil and an unimplemented error
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
-	}
 	controllerListVolumeInternal := func() (*csi.ListVolumesResponse, string, error) {
 		// Get volume ID to VMMap and vmMoidToHostMoid map
 		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
@@ -2356,10 +2352,8 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
 	var caps []*csi.ControllerServiceCapability
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
-		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
-			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
-	}
+	controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+		csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{

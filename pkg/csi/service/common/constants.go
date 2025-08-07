@@ -402,8 +402,6 @@ const (
 	// TKGsHA is the feature gate to check whether TKGS HA feature
 	// is enabled.
 	TKGsHA = "tkgs-ha"
-	// ListVolumes is the feature to support list volumes API
-	ListVolumes = "list-volumes"
 	// PVtoBackingDiskObjectIdMapping is the feature to support pv to backingDiskObjectId mapping on vSphere CSI driver.
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
