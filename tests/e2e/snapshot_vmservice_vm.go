@@ -56,7 +56,6 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		client                     clientset.Interface
 		namespace                  string
 		datastoreURL               string
-		storagePolicyName          string
 		storageClassName           string
 		storageProfileId           string
 		vcRestSessionId            string
@@ -91,16 +90,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
 			}
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		} else {
-			storagePolicyName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+			storageClassName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 		}
 
 		// creating vc session
 		vcRestSessionId = createVcSession4RestApis(ctx)
-
-		// reading storage class name for wcp setup "wcpglobal_storage_profile"
-		storageClassName = strings.ReplaceAll(storagePolicyName, "_", "-") // since this is a wcp setup
 
 		// fetching shared datastore url
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
@@ -110,7 +106,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
 		// reading storage profile id of "wcpglobal_storage_profile"
-		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		storageProfileId = e2eVSphere.GetSpbmPolicyID(storageClassName)
 
 		// creating/reading content library
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
