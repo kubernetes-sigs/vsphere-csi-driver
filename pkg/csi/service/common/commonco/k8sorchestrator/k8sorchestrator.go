@@ -1096,10 +1096,10 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 	return volumeIDs
 }
 
-// HandleEnablementOfWLDICapability starts a ticker and checks after every 2 minutes if
-// Workload_Domain_Isolation_Supported capability is enabled in capabilities CR or not.
+// HandleLateEnablementOfCapability starts a ticker and checks after every 2 minutes if
+// capability is enabled in capabilities CR or not.
 // If this capability was disabled and now got enabled, then container will be restarted.
-func HandleEnablementOfWLDICapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
+func HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
 	gcEndpoint, gcPort string) {
 	log := logger.GetLogger(ctx)
 	var restClientConfig *restclient.Config
@@ -1160,12 +1160,9 @@ func HandleEnablementOfWLDICapability(ctx context.Context, clusterFlavor cnstype
 			os.Exit(1)
 		}
 		log.Debugf("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
-
-		fssVal := WcpCapabilitiesMap[common.WorkloadDomainIsolation]
-		if fssVal {
-			log.Infof("%s capability has been enabled in capabilities CR %s. "+
-				"Restarting the container as capability has changed from false to true.",
-				common.WorkloadDomainIsolation, common.WCPCapabilitiesCRName)
+		if capVal, ok := WcpCapabilitiesMap[capability]; ok && capVal {
+			log.Infof("Capability %s changed state to %t in capabilities CR %s. "+
+				"Restarting the container as capability has changed.", capability, capVal, common.WCPCapabilitiesCRName)
 			os.Exit(1)
 		}
 	}

@@ -454,10 +454,12 @@ const (
 	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
 	// snapshots on different datastores feature is supported in CSI.
 	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
-	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
-	LinkedCloneSupport = "linked-clone-support"
 	// StoragePolicyReservationSupport is FSS that tells whether StoragePolicyReservation is supported in CSI
 	StoragePolicyReservationSupport = "storage-policy-reservation-support"
+	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
+	LinkedCloneSupport = "supports_FCD_linked_clone"
+	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
+	LinkedCloneSupportFSS = "linked-clone-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -467,6 +469,7 @@ var WCPFeatureStates = map[string]struct{}{
 	VPCCapabilitySupervisor:    {},
 	VolFromSnapshotOnTargetDs:  {},
 	SharedDiskFss:              {},
+	LinkedCloneSupport:         {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -475,6 +478,7 @@ var WCPFeatureStates = map[string]struct{}{
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	WorkloadDomainIsolation: {},
+	LinkedCloneSupport:      {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
@@ -483,4 +487,5 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 // or not on the supervisor cluster to decide if effective value of this FSS is enabled or disabled.
 var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	WorkloadDomainIsolationFSS: WorkloadDomainIsolation,
+	LinkedCloneSupportFSS:      LinkedCloneSupport,
 }
