@@ -349,6 +349,7 @@ const (
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
 	vc901                 = "vc901"
+	multiWriter           = "multiWriter"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -438,6 +439,14 @@ var (
 	envTestbedInfoJsonPathVC1         = "TESTBEDINFO_JSON_VC1"
 	envTestbedInfoJsonPathVC2         = "TESTBEDINFO_JSON_VC2"
 	envTestbedInfoJsonPathVC3         = "TESTBEDINFO_JSON_VC3"
+)
+
+// For multiwriter
+var (
+	envSharedVmfsThickPolicy          = "SHARED_VMFS_THICK_STORAGE_POLICY"
+	envMultiWriterSharedStoragePolicy = "MULTI_WRITER_SHARED_STORAGE_POLICY"
+	envMultiWriterSharedDatastoreURL  = "MULTI_WRITER_SHARED_VSPHERE_DATASTORE_URL"
+	envMultiWriterNFSStoragePolicy    = "MULTI_WRITER_NFS_SHARED_Policy"
 )
 
 // VolumeSnapshotClass env variables for tkg-snapshot
