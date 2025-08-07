@@ -48,7 +48,7 @@ func findVolumeCryptoKey(ctx context.Context, volumeName string) *types.CryptoKe
 	{
 		req := cnstypes.CnsQueryVolume{
 			This: cnsVolumeManagerInstance,
-			Filter: cnstypes.CnsQueryFilter{
+			Filter: &cnstypes.CnsQueryFilter{
 				Names: []string{volumeName},
 			},
 		}

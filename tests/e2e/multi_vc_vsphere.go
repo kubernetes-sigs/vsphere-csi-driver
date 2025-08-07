@@ -53,7 +53,7 @@ func (vs *multiVCvSphere) queryCNSVolumeWithResultInMultiVC(fcdID string) (*cnst
 	}
 	req := cnstypes.CnsQueryVolume{
 		This:   cnsVolumeManagerInstance,
-		Filter: queryFilter,
+		Filter: &queryFilter,
 	}
 	// Connects to multiple CNS clients
 	err := connectMultiVcCns(ctx, vs)

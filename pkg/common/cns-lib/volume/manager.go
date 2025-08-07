@@ -2071,7 +2071,7 @@ func (m *defaultManager) QueryVolume(ctx context.Context,
 			return nil, err
 		}
 		// Call the CNS QueryVolume.
-		res, err := m.virtualCenter.CnsClient.QueryVolume(ctx, queryFilter)
+		res, err := m.virtualCenter.CnsClient.QueryVolume(ctx, &queryFilter)
 		if err != nil {
 			log.Errorf("CNS QueryVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
