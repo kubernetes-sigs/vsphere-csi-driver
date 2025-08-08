@@ -81,6 +81,7 @@ const (
 	Vc90                  = "vc90"
 	Vc80                  = "vc80"
 	Vc70                  = "vc70"
+	Vc901                 = "vc901"
 	Wldi                  = "wldi"
 	VmServiceVm           = "vmServiceVm"
 	VcptocsiTest          = "vcptocsiTest"
