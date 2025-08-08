@@ -259,7 +259,7 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -572,6 +572,7 @@ data:
   "WCP_VMService_BYOK": "true"
   "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service": "false"
+  "csi-transaction-support": "false"
   "storage-policy-reservation-support": "false"
 kind: ConfigMap
 metadata:
@@ -770,7 +771,7 @@ metadata:
   labels:
     app: vsphere-csi-webhook
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
