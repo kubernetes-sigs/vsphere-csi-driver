@@ -420,8 +420,6 @@ const (
 	PodVMOnStretchedSupervisor = "PodVM_On_Stretched_Supervisor_Supported"
 	// StorageQuotaM2 enables support for snapshot quota feature
 	StorageQuotaM2 = "storage-quota-m2"
-	// VdppOnStretchedSupervisor enables support for vDPp workloads on stretched SV clusters
-	VdppOnStretchedSupervisor = "vdpp-on-stretched-supervisor"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
 	// CnsUnregisterVolume enables the creation of CRD and controller for CnsUnregisterVolume API.
