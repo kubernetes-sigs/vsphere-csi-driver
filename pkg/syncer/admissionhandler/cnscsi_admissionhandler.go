@@ -107,20 +107,20 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 			ClientCAName: clientCAName,
 		})}
 
-	if featureGateByokEnabled {
-		var err error
-		if mgrOpts.Scheme, err = crypto.NewK8sScheme(); err != nil {
-			return err
-		}
+	schema, err := crypto.NewK8sScheme()
+	if err != nil {
+		return err
+	}
 
-		mgrOpts.Client = client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{
-					&corev1.ConfigMap{},
-					&corev1.Secret{},
-				},
+	mgrOpts.Scheme = schema
+
+	mgrOpts.Client = client.Options{
+		Cache: &client.CacheOptions{
+			DisableFor: []client.Object{
+				&corev1.ConfigMap{},
+				&corev1.Secret{},
 			},
-		}
+		},
 	}
 
 	mgr, err := manager.New(crConfig.GetConfigOrDie(), mgrOpts)
@@ -172,12 +172,11 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 
 	resp = admission.Allowed("")
 	if req.Kind.Kind == "PersistentVolumeClaim" {
-		if featureGateByokEnabled {
-			resp = validatePVCRequestForCrypto(ctx, h.CryptoClient, req)
-			if !resp.Allowed {
-				return
-			}
+		resp = validatePVCRequestForCrypto(ctx, h.CryptoClient, req)
+		if !resp.Allowed {
+			return
 		}
+
 		if featureGateTKGSHaEnabled {
 			resp = validatePVCAnnotationForTKGSHA(ctx, req)
 			if !resp.Allowed {
@@ -289,12 +288,10 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 
 	var wasMutated bool
 
-	if featureGateByokEnabled {
-		if ok, err := setDefaultEncryptionClass(ctx, h.CryptoClient, newPVC); err != nil {
-			return admission.Denied(err.Error())
-		} else if ok {
-			wasMutated = true
-		}
+	if ok, err := setDefaultEncryptionClass(ctx, h.CryptoClient, newPVC); err != nil {
+		return admission.Denied(err.Error())
+	} else if ok {
+		wasMutated = true
 	}
 
 	if featureIsLinkedCloneSupportEnabled &&

@@ -58,7 +58,6 @@ type CreateBlockVolumeOptions struct {
 	FilterSuspendedDatastores,
 	UseSupervisorId,
 	IsVdppOnStretchedSvFssEnabled bool
-	IsByokEnabled                  bool
 	IsCSITransactionSupportEnabled bool
 	VolFromSnapshotOnTargetDs      bool
 }
@@ -371,31 +370,28 @@ func CreateBlockVolumeUtil(
 				log.Infof("VolFromSnapshotOnTargetDs is enabled, skip the compatible datastore check")
 			}
 		}
-		if opts.IsByokEnabled {
-			// Retrieve the encryption key ID from the source volume
-			snapshotVolumeCryptoKeyID, err = QueryVolumeCryptoKeyByID(ctx, manager.VolumeManager, cnsVolumeID)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
-					"failed to query volume crypto key for the snapshot %s with error %+v",
-					spec.ContentSourceSnapshotID, err)
-			}
+
+		// Retrieve the encryption key ID from the source volume
+		snapshotVolumeCryptoKeyID, err = QueryVolumeCryptoKeyByID(ctx, manager.VolumeManager, cnsVolumeID)
+		if err != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log,
+				"failed to query volume crypto key for the snapshot %s with error %+v",
+				spec.ContentSourceSnapshotID, err)
 		}
 	}
 
-	if opts.IsByokEnabled {
-		// Build crypto spec for the new volume.
-		var cryptoKeyID *vim25types.CryptoKeyId
-		if spec.CryptoKeyID != nil {
-			cryptoKeyID = &vim25types.CryptoKeyId{
-				KeyId:      spec.CryptoKeyID.KeyID,
-				ProviderId: &vim25types.KeyProviderId{Id: spec.CryptoKeyID.KeyProvider},
-			}
+	// Build crypto spec for the new volume.
+	var cryptoKeyID *vim25types.CryptoKeyId
+	if spec.CryptoKeyID != nil {
+		cryptoKeyID = &vim25types.CryptoKeyId{
+			KeyId:      spec.CryptoKeyID.KeyID,
+			ProviderId: &vim25types.KeyProviderId{Id: spec.CryptoKeyID.KeyProvider},
 		}
+	}
 
-		cryptoSpec := createCryptoSpec(snapshotVolumeCryptoKeyID, cryptoKeyID)
-		if cryptoSpec != nil {
-			createSpec.CreateSpec = &cnstypes.CnsBlockCreateSpec{CryptoSpec: cryptoSpec}
-		}
+	cryptoSpec := createCryptoSpec(snapshotVolumeCryptoKeyID, cryptoKeyID)
+	if cryptoSpec != nil {
+		createSpec.CreateSpec = &cnstypes.CnsBlockCreateSpec{CryptoSpec: cryptoSpec}
 	}
 
 	log.Debugf("vSphere CSI driver creating volume %s with create spec %+v", spec.Name, spew.Sdump(createSpec))

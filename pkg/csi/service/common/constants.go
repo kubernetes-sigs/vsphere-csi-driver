@@ -437,8 +437,6 @@ const (
 	MultipleClustersPerVsphereZone = "supports_multiple_clusters_per_zone"
 	// VPCCapabilitySupervisor is a supervisor capability indicating if VPC FSS is enabled
 	VPCCapabilitySupervisor = "VPC_Supported"
-	// WCP_VMService_BYOK_FSS enables Bring Your Own Key (BYOK) capabilities.
-	WCP_VMService_BYOK = "WCP_VMService_BYOK"
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
