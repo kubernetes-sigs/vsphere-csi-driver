@@ -259,7 +259,7 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -555,7 +555,6 @@ spec:
 ---
 apiVersion: v1
 data:
-  "volume-health": "true"
   "online-volume-extend": "true"
   "file-volume": "true"
   "trigger-csi-fullsync": "false"
@@ -658,7 +657,7 @@ webhooks:
         path: "/validate"
     rules:
       - apiGroups:   [""]
-        apiVersions: ["v1", "v1beta1"]
+        apiVersions: ["v1"]
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
@@ -772,7 +771,7 @@ metadata:
   labels:
     app: vsphere-csi-webhook
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
