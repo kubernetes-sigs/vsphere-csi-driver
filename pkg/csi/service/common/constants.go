@@ -390,9 +390,6 @@ const (
 	FakeAttach = "fake-attach"
 	// TriggerCSIFullSyync is feature flag to trigger full sync.
 	TriggerCsiFullSync = "trigger-csi-fullsync"
-	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
-	// in CSI volume manager.
-	CSIVolumeManagerIdempotency = "improved-csi-idempotency"
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
 	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
