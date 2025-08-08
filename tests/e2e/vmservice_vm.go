@@ -54,7 +54,6 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		client                     clientset.Interface
 		namespace                  string
 		datastoreURL               string
-		storagePolicyName          string
 		storageClassName           string
 		storageProfileId           string
 		vcRestSessionId            string
@@ -80,9 +79,9 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			if !(len(nodeList.Items) > 0) {
 				framework.Failf("Unable to find ready and schedulable Node")
 			}
-			storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
+			storageClassName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		} else {
-			storagePolicyName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
+			storageClassName = GetAndExpectStringEnvVar(envZonalStoragePolicyName)
 		}
 		bootstrap()
 		isVsanHealthServiceStopped = false
@@ -90,13 +89,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		vcRestSessionId = createVcSession4RestApis(ctx)
 
-		storageClassName = strings.ReplaceAll(storagePolicyName, "_", "-") // since this is a wcp setup
-
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		dsRef := getDsMoRefFromURL(ctx, datastoreURL)
 		framework.Logf("dsmoId: %v", dsRef.Value)
 
-		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		storageProfileId = e2eVSphere.GetSpbmPolicyID(storageClassName)
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
 			dsRef.Value)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1422,8 +1419,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		framework.Logf("pvc name :%s", pvcName)
 
 		ginkgo.By("Get storage Policy")
-		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName))
-		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storageClassName))
+		profileID := e2eVSphere.GetSpbmPolicyID(storageClassName)
 		framework.Logf("Profile ID :%s", profileID)
 		scParameters := make(map[string]string)
 		scParameters["storagePolicyID"] = profileID
