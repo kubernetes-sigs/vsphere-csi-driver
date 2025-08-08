@@ -661,7 +661,6 @@ metadata:
 apiVersion: v1
 data:
   "online-volume-extend": "true"
-  "file-volume": "true"
   "csi-sv-feature-states-replication": "false" # Do not enable for guest cluster, Refer PR#2386 for details
   "block-volume-snapshot": "true"
   "tkgs-ha": "true"
