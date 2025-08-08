@@ -154,9 +154,6 @@ type controllerVolumeTopology struct {
 	nodeMgr node.Manager
 	// clusterFlavor is the cluster flavor.
 	clusterFlavor cnstypes.CnsClusterFlavor
-	// isAcceptPreferredDatastoresFSSEnabled indicates whether the
-	// accept-preferred-datastores feature is enabled or not.
-	isTopologyPreferentialDatastoresFSSEnabled bool
 }
 
 // wcpControllerVolumeTopology implements the commoncotypes.ControllerTopologyService
@@ -222,36 +219,32 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					nodeMgr:                 nodeManager,
 					csiNodeTopologyInformer: *csiNodeTopologyInformer,
 					clusterFlavor:           clusterFlavor,
-					isTopologyPreferentialDatastoresFSSEnabled: c.IsFSSEnabled(ctx,
-						common.TopologyPreferentialDatastores),
 				}
 
-				if controllerVolumeTopologyInstance.isTopologyPreferentialDatastoresFSSEnabled {
-					// Get CNS config.
-					cnsCfg, err := cnsconfig.GetConfig(ctx)
-					if err != nil {
-						return nil, logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
-					}
-					// Fetch preferred datastores and store in cache at regular intervals.
-					go func() {
-						// Read tags under PreferredDatastoresCategory in 5min interval and store in cache.
-						ticker := time.NewTicker(time.Duration(cnsCfg.Global.CSIFetchPreferredDatastoresIntervalInMin) *
-							time.Minute)
-						for ; true; <-ticker.C {
-							ctx, log := logger.GetNewContextWithLogger()
-							log.Infof("Refreshing preferred datastores information...")
-							if isMultiVCSupportEnabled {
-								err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
-							} else {
-								err = refreshPreferentialDatastores(ctx)
-							}
-							if err != nil {
-								log.Errorf("failed to refresh preferential datastores in cluster. Error: %v", err)
-								os.Exit(1)
-							}
-						}
-					}()
+				// Get CNS config.
+				cnsCfg, err := cnsconfig.GetConfig(ctx)
+				if err != nil {
+					return nil, logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
 				}
+				// Fetch preferred datastores and store in cache at regular intervals.
+				go func() {
+					// Read tags under PreferredDatastoresCategory in 5min interval and store in cache.
+					ticker := time.NewTicker(time.Duration(cnsCfg.Global.CSIFetchPreferredDatastoresIntervalInMin) *
+						time.Minute)
+					for ; true; <-ticker.C {
+						ctx, log := logger.GetNewContextWithLogger()
+						log.Infof("Refreshing preferred datastores information...")
+						if isMultiVCSupportEnabled {
+							err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
+						} else {
+							err = refreshPreferentialDatastores(ctx)
+						}
+						if err != nil {
+							log.Errorf("failed to refresh preferential datastores in cluster. Error: %v", err)
+							os.Exit(1)
+						}
+					}
+				}()
 				log.Info("Topology service initiated successfully")
 			}
 		} else {
@@ -1107,19 +1100,11 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		)
 		// Fetch nodes with topology labels matching the topology segments.
 		log.Debugf("Getting list of nodeVMs for topology segments %+v", segments)
-		if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
-			matchingNodeVMs, completeTopologySegments, err = volTopology.getTopologySegmentsWithMatchingNodes(ctx,
-				segments)
-			if err != nil {
-				log.Errorf("failed to find nodes in topology segment %+v. Error: %+v", segments, err)
-				return nil, err
-			}
-		} else {
-			matchingNodeVMs, err = volTopology.getNodesMatchingTopologySegment(ctx, segments)
-			if err != nil {
-				log.Errorf("Failed to find nodes in topology segment %+v. Error: %+v", segments, err)
-				return nil, err
-			}
+		matchingNodeVMs, completeTopologySegments, err = volTopology.getTopologySegmentsWithMatchingNodes(ctx,
+			segments)
+		if err != nil {
+			log.Errorf("failed to find nodes in topology segment %+v. Error: %+v", segments, err)
+			return nil, err
 		}
 		if len(matchingNodeVMs) == 0 {
 			log.Warnf("No nodes in the cluster matched the topology requirement provided: %+v",
@@ -1137,68 +1122,66 @@ func (volTopology *controllerVolumeTopology) getSharedDatastoresInTopology(ctx c
 		}
 
 		// If applicable, filter the shared datastores with the preferred datastores for that segment.
-		if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
-			// If storage policy name is mentioned in storage class, check for
-			// datastore compatibility before proceeding with preferred datastores.
-			if params.StoragePolicyName != "" {
-				storagePolicyID, err := params.Vc.GetStoragePolicyIDByName(ctx, params.StoragePolicyName)
-				if err != nil {
-					return nil, logger.LogNewErrorf(log, "Error occurred while getting Profile Id "+
-						"from Storage Profile Name: %s. Error: %+v", params.StoragePolicyName, err)
-				}
-				// Check storage policy compatibility.
-				var sharedDSMoRef []vimtypes.ManagedObjectReference
-				for _, ds := range sharedDatastoresInTopology {
-					sharedDSMoRef = append(sharedDSMoRef, ds.Reference())
-				}
-				compat, err := params.Vc.PbmCheckCompatibility(ctx, sharedDSMoRef, storagePolicyID)
-				if err != nil {
-					return nil, logger.LogNewErrorf(log, "failed to find datastore compatibility "+
-						"with storage policy ID %q. Error: %+v", storagePolicyID, err)
-				}
-				compatibleDsMoids := make(map[string]struct{})
-				for _, ds := range compat.CompatibleDatastores() {
-					compatibleDsMoids[ds.HubId] = struct{}{}
-				}
-				log.Infof("Datastores compatible with storage policy %q are %+v", params.StoragePolicyName,
-					compatibleDsMoids)
-
-				// Filter compatible datastores from shared datastores list.
-				var compatibleDatastores []*cnsvsphere.DatastoreInfo
-				for _, ds := range sharedDatastoresInTopology {
-					if _, exists := compatibleDsMoids[ds.Reference().Value]; exists {
-						compatibleDatastores = append(compatibleDatastores, ds)
-					}
-				}
-				if len(compatibleDatastores) == 0 {
-					return nil, logger.LogNewErrorf(log, "No compatible shared datastores found "+
-						"for storage policy %q", params.StoragePolicyName)
-				}
-				sharedDatastoresInTopology = compatibleDatastores
+		// If storage policy name is mentioned in storage class, check for
+		// datastore compatibility before proceeding with preferred datastores.
+		if params.StoragePolicyName != "" {
+			storagePolicyID, err := params.Vc.GetStoragePolicyIDByName(ctx, params.StoragePolicyName)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "Error occurred while getting Profile Id "+
+					"from Storage Profile Name: %s. Error: %+v", params.StoragePolicyName, err)
 			}
+			// Check storage policy compatibility.
+			var sharedDSMoRef []vimtypes.ManagedObjectReference
+			for _, ds := range sharedDatastoresInTopology {
+				sharedDSMoRef = append(sharedDSMoRef, ds.Reference())
+			}
+			compat, err := params.Vc.PbmCheckCompatibility(ctx, sharedDSMoRef, storagePolicyID)
+			if err != nil {
+				return nil, logger.LogNewErrorf(log, "failed to find datastore compatibility "+
+					"with storage policy ID %q. Error: %+v", storagePolicyID, err)
+			}
+			compatibleDsMoids := make(map[string]struct{})
+			for _, ds := range compat.CompatibleDatastores() {
+				compatibleDsMoids[ds.HubId] = struct{}{}
+			}
+			log.Infof("Datastores compatible with storage policy %q are %+v", params.StoragePolicyName,
+				compatibleDsMoids)
 
-			// Fetch all preferred datastore URLs for the matching topology segments.
-			allPreferredDSURLs := make(map[string]struct{})
-			for _, topoSegs := range completeTopologySegments {
-				prefDS := getPreferredDatastoresInSegments(ctx, topoSegs)
-				for key, val := range prefDS {
-					allPreferredDSURLs[key] = val
+			// Filter compatible datastores from shared datastores list.
+			var compatibleDatastores []*cnsvsphere.DatastoreInfo
+			for _, ds := range sharedDatastoresInTopology {
+				if _, exists := compatibleDsMoids[ds.Reference().Value]; exists {
+					compatibleDatastores = append(compatibleDatastores, ds)
 				}
 			}
-			if len(allPreferredDSURLs) != 0 {
-				// If there are preferred datastores among the compatible
-				// datastores, choose the preferred datastores, otherwise
-				// choose the compatible datastores.
-				var preferredDS []*cnsvsphere.DatastoreInfo
-				for _, dsInfo := range sharedDatastoresInTopology {
-					if _, ok := allPreferredDSURLs[dsInfo.Info.Url]; ok {
-						preferredDS = append(preferredDS, dsInfo)
-					}
+			if len(compatibleDatastores) == 0 {
+				return nil, logger.LogNewErrorf(log, "No compatible shared datastores found "+
+					"for storage policy %q", params.StoragePolicyName)
+			}
+			sharedDatastoresInTopology = compatibleDatastores
+		}
+
+		// Fetch all preferred datastore URLs for the matching topology segments.
+		allPreferredDSURLs := make(map[string]struct{})
+		for _, topoSegs := range completeTopologySegments {
+			prefDS := getPreferredDatastoresInSegments(ctx, topoSegs)
+			for key, val := range prefDS {
+				allPreferredDSURLs[key] = val
+			}
+		}
+		if len(allPreferredDSURLs) != 0 {
+			// If there are preferred datastores among the compatible
+			// datastores, choose the preferred datastores, otherwise
+			// choose the compatible datastores.
+			var preferredDS []*cnsvsphere.DatastoreInfo
+			for _, dsInfo := range sharedDatastoresInTopology {
+				if _, ok := allPreferredDSURLs[dsInfo.Info.Url]; ok {
+					preferredDS = append(preferredDS, dsInfo)
 				}
-				if len(preferredDS) != 0 {
-					sharedDatastoresInTopology = preferredDS
-					log.Infof("Using preferred datastores: %+v", preferredDS)
-				}
+			}
+			if len(preferredDS) != 0 {
+				sharedDatastoresInTopology = preferredDS
+				log.Infof("Using preferred datastores: %+v", preferredDS)
 			}
 		}
 
@@ -1322,65 +1305,6 @@ func (volTopology *controllerVolumeTopology) getTopologySegmentsWithMatchingNode
 	return matchingNodeVMs, completeTopologySegments, nil
 }
 
-// getNodesMatchingTopologySegment takes in topology segments as parameter and returns list
-// of node VMs which belong to all the segments.
-func (volTopology *controllerVolumeTopology) getNodesMatchingTopologySegment(ctx context.Context,
-	segments map[string]string) ([]*cnsvsphere.VirtualMachine, error) {
-	log := logger.GetLogger(ctx)
-
-	var matchingNodeVMs []*cnsvsphere.VirtualMachine
-	// Fetch node topology information from informer cache.
-	nodeTopologyStore := volTopology.csiNodeTopologyInformer.GetStore()
-	for _, val := range nodeTopologyStore.List() {
-		var nodeTopologyInstance csinodetopologyv1alpha1.CSINodeTopology
-		// Validate the object received.
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(val.(*unstructured.Unstructured).Object,
-			&nodeTopologyInstance)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to convert unstructured object %+v to "+
-				"CSINodeTopology instance. Error: %+v", val, err)
-		}
-
-		// Check CSINodeTopology instance `Status` field for success.
-		if nodeTopologyInstance.Status.Status != csinodetopologyv1alpha1.CSINodeTopologySuccess {
-			return nil, logger.LogNewErrorf(log, "node %q not yet ready. Found CSINodeTopology instance "+
-				"status: %q with error message: %q", nodeTopologyInstance.Name, nodeTopologyInstance.Status.Status,
-				nodeTopologyInstance.Status.ErrorMessage)
-		}
-		// Convert array of labels to map.
-		topoLabels := make(map[string]string)
-		for _, topoLabel := range nodeTopologyInstance.Status.TopologyLabels {
-			topoLabels[topoLabel.Key] = topoLabel.Value
-		}
-		// Check for a match of labels in every segment.
-		isMatch := true
-		for key, value := range segments {
-			if topoLabels[key] != value {
-				log.Debugf("Node %q with topology %+v did not match the topology requirement - %q: %q ",
-					nodeTopologyInstance.Name, topoLabels, key, value)
-				isMatch = false
-				break
-			}
-		}
-		if isMatch {
-			var nodeVM *cnsvsphere.VirtualMachine
-			if volTopology.clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				nodeVM, err = volTopology.nodeMgr.GetNodeVMAndUpdateCache(ctx,
-					nodeTopologyInstance.Spec.NodeUUID, nil)
-			} else {
-				nodeVM, err = volTopology.nodeMgr.GetNodeVMByNameAndUpdateCache(ctx,
-					nodeTopologyInstance.Spec.NodeID)
-			}
-			if err != nil {
-				log.Errorf("failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
-				return nil, err
-			}
-			matchingNodeVMs = append(matchingNodeVMs, nodeVM)
-		}
-	}
-	return matchingNodeVMs, nil
-}
-
 // GetTopologyInfoFromNodes retrieves the topology information of the given
 // list of node names using the information from CSINodeTopology instances.
 func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx context.Context, reqParams interface{}) (
@@ -1448,37 +1372,35 @@ func (volTopology *controllerVolumeTopology) GetTopologyInfoFromNodes(ctx contex
 
 	// If the selected datastore is preferred in a zone which matches the topology requirement
 	// given by customer, set this zone as the node affinity terms.
-	if volTopology.isTopologyPreferentialDatastoresFSSEnabled {
-		// Get the intersection between topology requirements and accessible topology domains for given datastore URL.
-		var combinedAccessibleTopology []map[string]string
-		for _, topology := range params.TopologyRequirement.GetPreferred() {
-			reqSegments := topology.GetSegments()
-			for _, segments := range topologySegments {
-				isMatchingTopoReq := true
-				for reqCategory, reqTag := range reqSegments {
-					if tag, ok := segments[reqCategory]; ok && tag != reqTag {
-						isMatchingTopoReq = false
-						break
-					}
-				}
-				if isMatchingTopoReq {
-					combinedAccessibleTopology = append(combinedAccessibleTopology, segments)
+	// Get the intersection between topology requirements and accessible topology domains for given datastore URL.
+	var combinedAccessibleTopology []map[string]string
+	for _, topology := range params.TopologyRequirement.GetPreferred() {
+		reqSegments := topology.GetSegments()
+		for _, segments := range topologySegments {
+			isMatchingTopoReq := true
+			for reqCategory, reqTag := range reqSegments {
+				if tag, ok := segments[reqCategory]; ok && tag != reqTag {
+					isMatchingTopoReq = false
+					break
 				}
 			}
-		}
-		// Finally, filter the accessible topologies with topology domains where datastore is preferred.
-		var preferredAccessibleTopology []map[string]string
-		for _, segments := range combinedAccessibleTopology {
-			PreferredDSURLs := getPreferredDatastoresInSegments(ctx, segments)
-			if len(PreferredDSURLs) != 0 {
-				if _, ok := PreferredDSURLs[params.DatastoreURL]; ok {
-					preferredAccessibleTopology = append(preferredAccessibleTopology, segments)
-				}
+			if isMatchingTopoReq {
+				combinedAccessibleTopology = append(combinedAccessibleTopology, segments)
 			}
 		}
-		if len(preferredAccessibleTopology) != 0 {
-			return preferredAccessibleTopology, nil
+	}
+	// Finally, filter the accessible topologies with topology domains where datastore is preferred.
+	var preferredAccessibleTopology []map[string]string
+	for _, segments := range combinedAccessibleTopology {
+		PreferredDSURLs := getPreferredDatastoresInSegments(ctx, segments)
+		if len(PreferredDSURLs) != 0 {
+			if _, ok := PreferredDSURLs[params.DatastoreURL]; ok {
+				preferredAccessibleTopology = append(preferredAccessibleTopology, segments)
+			}
 		}
+	}
+	if len(preferredAccessibleTopology) != 0 {
+		return preferredAccessibleTopology, nil
 	}
 
 	// Check for each calculated topology segment to see if all nodes in that segment have access to this datastore.

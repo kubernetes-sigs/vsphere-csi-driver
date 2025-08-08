@@ -72,7 +72,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 				"use-csinode-id":                    "true",
 				"pv-to-backingdiskobjectid-mapping": "false",
 				"cnsmgr-suspend-create-volume":      "true",
-				"topology-preferential-datastores":  "true",
 				"multi-vcenter-csi-topology":        "true",
 				"listview-tasks":                    "true",
 				"storage-quota-m2":                  "false",
