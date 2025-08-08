@@ -50,6 +50,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
 
+var (
+	vmfsNamespace         = "com.vmware.storage.volumeallocation"
+	vmfsNamespaceEztValue = "Fully initialized"
+)
+
 // validateCreateBlockReqParam is a helper function used to validate the parameter
 // name received in the CreateVolume request for block volumes on WCP CSI driver.
 // Returns true if the parameter name is valid, false otherwise.
@@ -84,6 +89,51 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributePvcNamespace ||
 		paramName == common.AttributeStorageClassName ||
 		paramName == common.AttributeIsLinkedCloneKey
+}
+
+// verifyStoragePolicyForVmfsWithEageredZeroThick goes through each rule in the policy to
+// find out if it is fully intialized for VMFS datastores.
+// This check is required for RWX shared block volumes as for VMFS, the policy must be EZT.
+func verifyStoragePolicyForVmfsWithEageredZeroThick(ctx context.Context,
+	spbmPolicyContentList []vsphere.SpbmPolicyContent,
+	storagePolicyId string) error {
+	log := logger.GetLogger(ctx)
+
+	for _, polictContent := range spbmPolicyContentList {
+		for _, profile := range polictContent.Profiles {
+			for _, rule := range profile.Rules {
+				if rule.Ns == vmfsNamespace {
+					if rule.Value != vmfsNamespaceEztValue {
+						msg := fmt.Sprintf("Policy %s is for VMFS datastores. It must be fully initialized for "+
+							"RWX block volumes", storagePolicyId)
+						err := errors.New(msg)
+						log.Errorf(msg)
+						return err
+					}
+					log.Infof("Policy %s is for VMFS and is fully initialized", storagePolicyId)
+					return nil
+				}
+			}
+		}
+	}
+
+	log.Debugf("Policy %s validated correctly", storagePolicyId)
+	return nil
+}
+
+// validateStoragePolicyForVmfs checks whether the policy is compatible for VMFS datastores.
+// This function is only called for RWX shared block volumes.
+func validateStoragePolicyForVmfs(ctx context.Context,
+	vc *vsphere.VirtualCenter, storagePolicyId string) error {
+	log := logger.GetLogger(ctx)
+
+	spbmPolicyContentList, err := vc.PbmRetrieveContent(ctx, []string{storagePolicyId})
+	if err != nil {
+		log.Errorf("failed to retrieve policy %s", storagePolicyId)
+		return err
+	}
+
+	return verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, spbmPolicyContentList, storagePolicyId)
 }
 
 // validateWCPCreateVolumeRequest is the helper function to validate
