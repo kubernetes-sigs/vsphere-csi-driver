@@ -1130,25 +1130,29 @@ func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
 func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clientset.Interface,
 	vmopC ctlrclient.Client, cnsopC ctlrclient.Client, vmClass string, namespace string, vmi string,
 	sc *storagev1.StorageClass, secretName string) {
+	var volHandle string
 	ginkgo.By("Create a PVC")
 	pvc, err := createPVC(ctx, client, namespace, nil, "", sc, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	ginkgo.By("Waiting for all claims to be in bound state")
-	pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	pv := pvs[0]
-	volHandle := pv.Spec.CSI.VolumeHandle
-	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-	defer func() {
-		ginkgo.By("Delete PVCs")
-		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+	if !latebinding {
+		ginkgo.By("Waiting for all claims to be in bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := pvs[0]
+		volHandle = pv.Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		defer func() {
+			ginkgo.By("Delete PVCs")
+			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Waiting for CNS volumes to be deleted")
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Waiting for CNS volumes to be deleted")
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	}()
+		}()
+
+	}
 
 	ginkgo.By("Creating VM")
 	vm := createVmServiceVmWithPvcs(
@@ -1173,6 +1177,15 @@ func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clie
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
+	if latebinding {
+		ginkgo.By("Waiting for all claims to be in bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := pvs[0]
+		volHandle = pv.Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+	}
 	ginkgo.By("Wait and verify PVCs are attached to the VM")
 	gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 		[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
