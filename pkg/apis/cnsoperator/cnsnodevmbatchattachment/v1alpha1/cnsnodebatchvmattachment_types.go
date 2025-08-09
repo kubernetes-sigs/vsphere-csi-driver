@@ -24,11 +24,11 @@ import (
 type DiskMode string
 
 const (
-	// By setting DiskMode to IndependentPersistent, a virtual machine's disk is not captured in snapshots and
+	// By setting DiskMode to independent_persistent, a virtual machine's disk is not captured in snapshots and
 	// changes are permanently written to the disk, regardless of snapshot operations.
-	IndependentPersistent DiskMode = "IndependentPersistent"
+	IndependentPersistent DiskMode = "independent_persistent"
 	// Changes are immediately and permanently written to the virtual disk.
-	Persistent DiskMode = "Persistent"
+	Persistent DiskMode = "persistent"
 )
 
 // The sharing mode of the virtual disk.

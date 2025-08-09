@@ -398,7 +398,7 @@ func TestValidateBatchAttachRequestWithRwxPvc(t *testing.T) {
 	t.Run("TestValidateBatchAttachRequestWithRwxPvc", func(t *testing.T) {
 
 		batchAttachRequest := volumes.BatchAttachRequest{
-			DiskMode:      "Persistent",
+			DiskMode:      "persistent",
 			ControllerKey: "12345",
 			UnitNumber:    "9",
 		}
@@ -406,13 +406,13 @@ func TestValidateBatchAttachRequestWithRwxPvc(t *testing.T) {
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 		err := validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-rwx")
 		expectedErr := fmt.Errorf("incorrect input for PVC pvc-rwx in namespace test-ns with accessMode ReadWriteMany. " +
-			"DiskMode cannot be Persistent")
+			"DiskMode cannot be persistent")
 		assert.EqualError(t, expectedErr, err.Error())
 
 		batchAttachRequest = volumes.BatchAttachRequest{
 			ControllerKey: "",
 			UnitNumber:    "12",
-			DiskMode:      "IndependentPersistent",
+			DiskMode:      "independent_persistent",
 		}
 
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
