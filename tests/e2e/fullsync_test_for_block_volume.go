@@ -71,6 +71,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		storagePolicyName          string
 		scParameters               map[string]string
 		isVsanHealthServiceStopped bool
+		adminClient                clientset.Interface
 	)
 
 	const (
@@ -80,12 +81,15 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var nodeList *v1.NodeList
+		adminClient, client = initializeClusterClientsByUserRoles(client)
 		if vanillaCluster {
 			csiControllerNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -243,7 +247,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -328,7 +332,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -368,7 +372,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+		err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
@@ -503,7 +507,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		for _, pv := range pvs {
 			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 			if !apierrors.IsNotFound(err) {
 				// Skip if failure is "not found" - object may already been deleted
 				// by test.

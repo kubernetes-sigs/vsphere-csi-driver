@@ -49,6 +49,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		bootstrap()
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -137,14 +138,14 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			if !supervisorCluster || !stretchedSVC {
+			if vanillaCluster || guestCluster {
 				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 
 		ginkgo.By("Waiting for claim to be in bound phase")
-		pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvc, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvc).NotTo(gomega.BeEmpty())
