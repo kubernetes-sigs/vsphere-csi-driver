@@ -194,6 +194,10 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		log.Errorf("failed to create new client with err: %v", err)
 		return nil, nil, err
 	}
+
+	// Invoke KeepAlive on the vimClient RoundTripper to keep the connection alive
+	// every 10 minutes.
+	vimClient.RoundTripper = session.KeepAlive(vimClient.RoundTripper, 10*time.Minute)
 	err = vimClient.UseServiceVersion("vsan")
 	if err != nil && vc.Config.Host != "127.0.0.1" {
 		// Skipping error for simulator connection for unit tests.
