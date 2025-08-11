@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -83,6 +84,8 @@ var (
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	// isPodVMOnStretchSupervisorFSSEnabled is true when PodVMOnStretchedSupervisor FSS is enabled.
 	isPodVMOnStretchSupervisorFSSEnabled bool
+	// IsMultipleClustersPerVsphereZoneFSSEnabled is true when supports_multiple_clusters_per_zone FSS is enabled.
+	IsMultipleClustersPerVsphereZoneFSSEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -153,7 +156,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.PodVMOnStretchedSupervisor)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultipleClustersPerVsphereZone) {
+	IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.MultipleClustersPerVsphereZone)
+	if !IsMultipleClustersPerVsphereZoneFSSEnabled {
+		go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.MultipleClustersPerVsphereZone, "", "")
+	} else {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, nil, metav1.NamespaceAll)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
@@ -521,8 +529,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
-	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.MultipleClustersPerVsphereZone)
 
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
@@ -552,7 +558,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
 			if isVdppOnStretchedSVEnabled {
-				if isMultipleClustersPerVsphereZoneEnabled && c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
+				if IsMultipleClustersPerVsphereZoneFSSEnabled && c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 						"Creating volume with both zone and hostname in topology requirement is not "+
 							"supported on deployment with multiple vSphere Clusters per zone")
@@ -571,7 +577,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			// Initiate TKGs HA workflow when the topology requirement contains zone labels only.
 			log.Infof("Topology aware environment detected with requirement: %+v", topologyRequirement)
-			if !isMultipleClustersPerVsphereZoneEnabled {
+			if !IsMultipleClustersPerVsphereZoneFSSEnabled {
 				log.Debugf("Calling GetSharedDatastoresInTopology: storageTopologyType: %s, "+
 					"topologyRequirement %+v, topoSegToDatastoresMap %+v",
 					storageTopologyType, topologyRequirement, topoSegToDatastoresMap)
@@ -859,7 +865,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
 				Namespace:                               req.Parameters[common.AttributePvcNamespace],
 				IsPodVMOnStretchSupervisorFSSEnabled:    isPodVMOnStretchSupervisorFSSEnabled,
-				IsMultipleClustersPerVsphereZoneEnabled: isMultipleClustersPerVsphereZoneEnabled,
+				IsMultipleClustersPerVsphereZoneEnabled: IsMultipleClustersPerVsphereZoneFSSEnabled,
 			})
 		if err != nil {
 			if cnsvolume.IsNotSupportedFaultType(ctx, faultType) {
@@ -873,7 +879,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 						StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
 						Namespace:                               req.Parameters[common.AttributePvcNamespace],
 						IsPodVMOnStretchSupervisorFSSEnabled:    isPodVMOnStretchSupervisorFSSEnabled,
-						IsMultipleClustersPerVsphereZoneEnabled: isMultipleClustersPerVsphereZoneEnabled,
+						IsMultipleClustersPerVsphereZoneEnabled: IsMultipleClustersPerVsphereZoneFSSEnabled,
 					})
 			}
 		}
@@ -940,7 +946,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				}
 			}
 		} else if zoneLabelPresent {
-			if isMultipleClustersPerVsphereZoneEnabled && len(volumeInfo.Clusters) > 0 {
+			if IsMultipleClustersPerVsphereZoneFSSEnabled && len(volumeInfo.Clusters) > 0 {
 				// Calculate Volume Accessible Topology from Clusters returned in CreateVolume Response
 				azClusterMap := c.topologyMgr.GetAZClustersMap(ctx)
 				resp.Volume.AccessibleTopology = GetAccessibleTopologies(volumeInfo.Clusters, azClusterMap)
@@ -1325,10 +1331,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	)
 
 	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
-
-	isMultipleClustersPerVsphereZoneEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.MultipleClustersPerVsphereZone)
-
 	topologyRequirement = req.AccessibilityRequirements
 	// Volume Size - Default is 10 GiB.
 	volSizeBytes := int64(common.DefaultGbDiskSize * common.GbInBytes)
@@ -1397,7 +1399,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
 					"topology manager not initialized.")
 			}
-			if isMultipleClustersPerVsphereZoneEnabled {
+			if IsMultipleClustersPerVsphereZoneFSSEnabled {
 				log.Infof("MultipleClustersPerVsphereZone capability is enabled. Skipping to find candidate " +
 					"datastores for volume provisioning.")
 				pvcNamespace := req.Parameters[common.AttributePvcNamespace]
@@ -1509,7 +1511,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				StorageClassName:                        req.Parameters[common.AttributeStorageClassName],
 				Namespace:                               req.Parameters[common.AttributePvcNamespace],
 				IsPodVMOnStretchSupervisorFSSEnabled:    isPodVMOnStretchSupervisorFSSEnabled,
-				IsMultipleClustersPerVsphereZoneEnabled: isMultipleClustersPerVsphereZoneEnabled,
+				IsMultipleClustersPerVsphereZoneEnabled: IsMultipleClustersPerVsphereZoneFSSEnabled,
 			})
 	} else {
 		volumeInfo, faultType, err = common.CreateFileVolumeUtil(ctx, cnstypes.CnsClusterFlavorWorkload, vc,
@@ -1540,7 +1542,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
 	if isWorkloadDomainIsolationEnabled {
 		if zoneLabelPresent {
-			if isMultipleClustersPerVsphereZoneEnabled && len(volumeInfo.Clusters) > 0 {
+			if IsMultipleClustersPerVsphereZoneFSSEnabled && len(volumeInfo.Clusters) > 0 {
 				// Calculate Volume Accessible Topology from Clusters returned in CreateVolume Response
 				azClusterMap := c.topologyMgr.GetAZClustersMap(ctx)
 				resp.Volume.AccessibleTopology = GetAccessibleTopologies(volumeInfo.Clusters, azClusterMap)

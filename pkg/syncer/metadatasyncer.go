@@ -112,6 +112,8 @@ var (
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 	// IsLinkedCloneSupportFSSEnabled is true when linked-clone-support FSS is enabled.
 	IsLinkedCloneSupportFSSEnabled bool
+	// IsMultipleClustersPerVsphereZoneFSSEnabled is true when supports_multiple_clusters_per_zone FSS is enabled
+	IsMultipleClustersPerVsphereZoneFSSEnabled bool
 	// ResourceAPIgroupPVC is an empty string as PVC belongs to the core resource group denoted by `""`.
 	ResourceAPIgroupPVC = ""
 
@@ -315,6 +317,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			common.LinkedCloneSupport)
 		if !IsLinkedCloneSupportFSSEnabled {
 			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.LinkedCloneSupport, "", "")
+		}
+		IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.MultipleClustersPerVsphereZone)
+		if !IsMultipleClustersPerVsphereZoneFSSEnabled {
+			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.MultipleClustersPerVsphereZone, "", "")
 		}
 	}
 
