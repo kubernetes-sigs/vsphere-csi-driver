@@ -46,6 +46,6 @@ func handleFlags() {
 	framework.TestContext.KubeConfig = os.Getenv(constants.KubeconfigEnvVar)
 	mydir, err := os.Getwd()
 	framework.ExpectNoError(err)
-	framework.TestContext.RepoRoot = strings.ReplaceAll(mydir, "/tests/e2e", "")
+	framework.TestContext.RepoRoot = strings.ReplaceAll(mydir, "/tests/e2e/multiSvc", "")
 	flag.Parse()
 }

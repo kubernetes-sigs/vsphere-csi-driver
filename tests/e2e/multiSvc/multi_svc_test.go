@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("[csi-multi-svc-refactor] Multi-SVC", func() {
 		3. Delete all the sts and pvcs which belong to them
 	*/
 
-	ginkgo.It("[csi-multi-svc] Workload creation on each of the clusters",
+	ginkgo.It("[csi-multi-svc] Workload creation on each of the clusters-new",
 		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

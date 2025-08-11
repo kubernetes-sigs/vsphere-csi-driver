@@ -2556,12 +2556,12 @@ func DeleteService(ns string, c clientset.Interface, service *v1.Service) {
 
 // GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml
 // file present in the manifest path.
-func GetStatefulSetFromManifest(e2eTestConfig *config.E2eTestConfig, ns string) *appsv1.StatefulSet {
+func GetStatefulSetFromManifest(e2eTestConfig *config.TestInputData, ns string) *appsv1.StatefulSet {
 	ssManifestFilePath := filepath.Join(constants.ManifestPath, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
-	if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
+	if e2eTestConfig.TestBedInfo.WindowsEnv {
 		ss.Spec.Template.Spec.Containers[0].Image = constants.WindowsImageOnMcr
 		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
 		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", constants.WindowsExecCmd}
@@ -3053,6 +3053,7 @@ func TrimQuotes(str string) string {
 // Returns a de-serialized structured config data
 func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 	var config1 config.E2eTestConfig
+	var testInput config.TestInputData
 	var netPerm config.NetPermissionConfig
 	key, value := "", ""
 	var permissions vsanfstypes.VsanFileShareAccessType
@@ -3082,7 +3083,7 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 				value = words[1]
 				// Remove trailing '"]' characters from value.
 				value = strings.TrimSuffix(value, "]")
-				config1.TestInput.Global.VCenterHostname = TrimQuotes(value)
+				testInput.Global.VCenterHostname = TrimQuotes(value)
 				fmt.Printf("Key: VirtualCenter, Value: %s\n", value)
 			}
 			continue
@@ -3093,47 +3094,47 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 		switch key {
 		case "insecure-flag":
 			if strings.Contains(value, "true") {
-				config1.TestInput.Global.InsecureFlag = true
+				testInput.Global.InsecureFlag = true
 			} else {
-				config1.TestInput.Global.InsecureFlag = false
+				testInput.Global.InsecureFlag = false
 			}
 		case "cluster-id":
-			config1.TestInput.Global.ClusterID = value
+			testInput.Global.ClusterID = value
 		case "cluster-distribution":
-			config1.TestInput.Global.ClusterDistribution = value
+			testInput.Global.ClusterDistribution = value
 		case "user":
-			config1.TestInput.Global.User = value
+			testInput.Global.User = value
 		case "password":
-			config1.TestInput.Global.Password = value
+			testInput.Global.Password = value
 		case "datacenters":
-			config1.TestInput.Global.Datacenters = value
+			testInput.Global.Datacenters = value
 		case "port":
-			config1.TestInput.Global.VCenterPort = value
+			testInput.Global.VCenterPort = value
 		case "cnsregistervolumes-cleanup-intervalinmin":
-			config1.TestInput.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			testInput.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
-			config1.TestInput.Labels.TopologyCategories = value
+			testInput.Labels.TopologyCategories = value
 		case "global-max-snapshots-per-block-volume":
-			config1.TestInput.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			testInput.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "csi-fetch-preferred-datastores-intervalinmin":
-			config1.TestInput.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
+			testInput.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "query-limit":
-			config1.TestInput.Global.QueryLimit, strconvErr = strconv.Atoi(value)
+			testInput.Global.QueryLimit, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "list-volume-threshold":
-			config1.TestInput.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
+			testInput.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "ca-file":
-			config1.TestInput.Global.CaFile = value
+			testInput.Global.CaFile = value
 		case "supervisor-id":
-			config1.TestInput.Global.SupervisorID = value
+			testInput.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
-			config1.TestInput.Global.TargetVsanFileShareClusters = value
+			testInput.Global.TargetVsanFileShareClusters = value
 		case "fileVolumeActivated":
-			config1.TestInput.Global.FileVolumeActivated, strconvErr = strconv.ParseBool(value)
+			testInput.Global.FileVolumeActivated, strconvErr = strconv.ParseBool(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "ips":
 			netPerm.Ips = value
@@ -3145,6 +3146,7 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 			return config1, fmt.Errorf("unknown key %s in the input string", key)
 		}
 	}
+	config1.TestInput = &testInput
 	return config1, nil
 }
 
@@ -5783,7 +5785,7 @@ func CreateParallelStatefulSets(client clientset.Interface, namespace string,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func CreateParallelStatefulSetSpec(e2eTestConfig *config.E2eTestConfig,
+func CreateParallelStatefulSetSpec(e2eTestConfig *config.TestInputData,
 	namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
@@ -7343,7 +7345,7 @@ func CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 	service := CreateService(namespace, client)
 
 	framework.Logf("Create StatefulSet")
-	statefulset := CreateCustomisedStatefulSets(ctx, client, vs, namespace, parallelPodPolicy,
+	statefulset := CreateCustomisedStatefulSets(ctx, client, vs.TestInput, namespace, parallelPodPolicy,
 		replicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet, modifyStsSpec,
 		"", accessMode, sc, storagePolicy)
 
@@ -7363,13 +7365,13 @@ func CreateStafeulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client cl
 createCustomisedStatefulSets util methods creates statefulset as per the user's
 specific requirement and returns the customised statefulset
 */
-func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig,
+func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.TestInputData,
 	namespace string, isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
 	allowedTopologies []v1.TopologySelectorLabelRequirement,
 	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
 	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
 	framework.Logf("Preparing StatefulSet Spec")
-	statefulset := GetStatefulSetFromManifest(&config.E2eTestConfig{}, namespace)
+	statefulset := GetStatefulSetFromManifest(vs, namespace)
 
 	if accessMode == "" {
 		// If accessMode is not specified, set the default accessMode.
@@ -7382,7 +7384,7 @@ func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interfac
 	}
 
 	if modifyStsSpec {
-		if vs.TestInput.TestBedInfo.MultipleSvc {
+		if vs.TestBedInfo.MultipleSvc {
 			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 				Spec.StorageClassName = &storagePolicy
 		} else {
