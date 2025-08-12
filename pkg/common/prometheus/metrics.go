@@ -88,6 +88,8 @@ const (
 	PrometheusAccessibleVolumes = "accessible-volumes"
 	// PrometheusInaccessibleVolumes represents inaccessible volumes.
 	PrometheusInaccessibleVolumes = "inaccessible-volumes"
+	// PrometheusUnregisterVolumeOpType represents UnregisterVolume operation.
+	PrometheusUnregisterVolumeOpType = "unregister-volume"
 
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
