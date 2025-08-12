@@ -78,4 +78,20 @@ const (
 	VimFaultInvalidHostState = VimFaultPrefix + "InvalidHostState"
 	// VimFaultHostNotConnected is the fault returned from CNS when host is not connected.
 	VimFaultHostNotConnected = VimFaultPrefix + "HostNotConnected"
+	// VimFaultNotFound is the fault returned from CNS when the object is not found.
+	VimFaultNotFound = VimFaultPrefix + "NotFound"
+	// VimFaultInvalidState is the fault returned from CNS
+	// when the operation is not valid in the current state of the object.
+	VimFaultInvalidState = VimFaultPrefix + "InvalidState"
+	// VimFaultInvalidDatastore is the fault returned from CNS
+	// when the datastore is not valid for the operation being performed.
+	VimFaultInvalidDatastore = VimFaultPrefix + "InvalidDatastore"
+	// VimFaultTaskInProgress is the fault returned from CNS
+	// when the task is already in progress for the object.
+	VimFaultTaskInProgress = VimFaultPrefix + "TaskInProgress"
+	// VimFaultInvalidArgument is the fault returned from CNS
+	// when the argument provided is not valid for the operation being performed.
+	VimFaultInvalidArgument = VimFaultPrefix + "InvalidArgument"
+	// VimFaultCNSFault is the fault returned from CNS when a generic CNS fault occurs.
+	VimFaultCNSFault = VimFaultPrefix + "CnsFault"
 )

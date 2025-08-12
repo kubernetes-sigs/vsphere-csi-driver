@@ -40,7 +40,6 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -262,21 +261,15 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// TODO: use CNS UnregisterVolume API when it's implemented. And create a util func
-	// to handle this.
+	// TODO: Handle non-transient errors from CNS DeleteVolume API.
 	// Also, rethink the order in which the delete operations are performed.
 	// Maybe it's better to delete the CNS volume first and then delete the PVC and PV?
-	log.Info("CNS UnregisterVolume API not implemented yet. Using CNS DeleteVolume API instead for now")
-	_, err = r.volumeManager.DeleteVolume(ctx, instance.Spec.VolumeID, false)
-	if err != nil {
-		if cnsvsphere.IsNotFoundError(err) {
-			log.Infof("VolumeID %q not found in CNS. It may have already been deleted."+
-				"Marking the operation as success.", instance.Spec.VolumeID)
-		} else {
-			log.Errorf("Failed to delete volume %q in CNS with error %s.",
-				instance.Spec.VolumeID, err)
-			return reconcile.Result{}, err
-		}
+	e := r.volumeManager.UnregisterVolume(ctx, instance.Spec.VolumeID, false)
+	if e != nil {
+		msg := fmt.Sprintf("Failed to unregister volume %q with error: %+v", instance.Spec.VolumeID, e)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	} else {
 		log.Infof("Deleted CNS volume %q with deleteDisk set to false", instance.Spec.VolumeID)
 	}
