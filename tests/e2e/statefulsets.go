@@ -84,6 +84,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		isQuotaValidationSupported bool
 	)
 
+	//steps - test
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
