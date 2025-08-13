@@ -1099,7 +1099,7 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 // capability is enabled in capabilities CR or not.
 // If this capability was disabled and now got enabled, then container will be restarted.
 func HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
-	gcEndpoint, gcPort string) {
+	gcPort, gcEndpoint string) {
 	log := logger.GetLogger(ctx)
 	var restClientConfig *restclient.Config
 	var err error
