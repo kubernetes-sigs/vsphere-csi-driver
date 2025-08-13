@@ -187,13 +187,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
 
-	var cryptoClient crypto.Client
-
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK) {
-		var err error
-		if cryptoClient, err = crypto.NewClientWithDefaultConfig(ctx); err != nil {
-			return logger.LogNewErrorf(log, "failed to create an instance of crypto client. err=%v", err)
-		}
+	cryptoClient, err := crypto.NewClientWithDefaultConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create an instance of crypto client. err=%v", err)
 	}
 
 	c.manager = &common.Manager{
@@ -811,20 +807,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	var cryptoKeyID *common.CryptoKeyID
-	isByokEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
-	if isByokEnabled {
-		if encClass, err := c.manager.CryptoClient.GetEncryptionClassForPVC(
-			ctx,
-			pvcName,
-			pvcNamespace); err != nil {
+	if encClass, err := c.manager.CryptoClient.GetEncryptionClassForPVC(
+		ctx,
+		pvcName,
+		pvcNamespace); err != nil {
 
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get encryption class for PVC. Error: %+v", err)
-		} else if encClass != nil {
-			cryptoKeyID = &common.CryptoKeyID{
-				KeyID:       encClass.Spec.KeyID,
-				KeyProvider: encClass.Spec.KeyProvider,
-			}
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get encryption class for PVC. Error: %+v", err)
+	} else if encClass != nil {
+		cryptoKeyID = &common.CryptoKeyID{
+			KeyID:       encClass.Spec.KeyID,
+			KeyProvider: encClass.Spec.KeyProvider,
 		}
 	}
 
@@ -848,7 +841,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		FilterSuspendedDatastores:      filterSuspendedDatastores,
 		UseSupervisorId:                isTKGSHAEnabled,
 		IsVdppOnStretchedSvFssEnabled:  isVdppOnStretchedSVEnabled,
-		IsByokEnabled:                  isByokEnabled,
 		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
 		VolFromSnapshotOnTargetDs:      volFromSnapshotOnTargetDs,
 	}
