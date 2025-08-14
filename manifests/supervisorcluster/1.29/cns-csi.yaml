@@ -90,6 +90,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["storagepolicyquotas"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["storagepolicyreservations"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
     verbs: ["list"]
@@ -116,6 +119,9 @@ rules:
     verbs: ["get", "watch", "list"]
   - apiGroups: ["encryption.vmware.com"]
     resources: ["encryptionclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["clusters"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["nsx.vmware.com"]
     resources: ["namespacenetworkinfos"]
@@ -253,7 +259,7 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -376,6 +382,10 @@ spec:
           resources: {}
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -545,17 +555,13 @@ spec:
 ---
 apiVersion: v1
 data:
-  "volume-extend": "true"
-  "volume-health": "true"
   "online-volume-extend": "true"
   "file-volume": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
   "fake-attach": "true"
-  "async-query-volume": "true"
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "true"
-  "sibling-replica-bound-pvc-check": "true"
   "tkgs-ha": "true"
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
@@ -564,8 +570,10 @@ data:
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "true"
+  "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service": "false"
   "csi-transaction-support": "false"
+  "storage-policy-reservation-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -653,14 +661,15 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
-      - apiGroups:   ["cns.vmware.com"]
-        apiVersions: ["v1alpha1"]
-        operations: ["CREATE", "DELETE"]
-        resources:   ["cnsfileaccessconfigs"]
       - apiGroups:   ["snapshot.storage.k8s.io"]
         apiVersions: ["v1"]
         operations:  ["CREATE", "DELETE"]
         resources:   ["volumesnapshots"]
+        scope:       "Namespaced"
+      - apiGroups:   ["cns.vmware.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "DELETE"]
+        resources:   ["cnsfileaccessconfigs"]
         scope:       "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]
@@ -683,8 +692,8 @@ webhooks:
         path: "/mutate"
     rules:
       - apiGroups: [""]
-        apiVersions: ["v1", "v1beta1"]
-        operations: ["CREATE", "UPDATE"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
         resources: ["persistentvolumeclaims"]
         scope: "Namespaced"
       - apiGroups:   ["cns.vmware.com"]
@@ -707,6 +716,9 @@ rules:
   - apiGroups: ["snapshot.storage.k8s.io"]
     resources: ["volumesnapshots"]
     verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["encryption.vmware.com"]
     resources: ["encryptionclasses"]
     verbs: ["get", "list", "watch"]
@@ -759,7 +771,7 @@ metadata:
   labels:
     app: vsphere-csi-webhook
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:

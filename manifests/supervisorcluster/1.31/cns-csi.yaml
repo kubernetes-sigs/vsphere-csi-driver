@@ -40,7 +40,7 @@ rules:
     resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs"]
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsnodevmattachments","cnsnodevmbatchattachments", "cnsnodevmbatchattachments/status"]
+    resources: ["cnsnodevmattachments", "cnsnodevmbatchattachments", "cnsnodevmbatchattachments/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnscsisvfeaturestates"]
@@ -259,7 +259,7 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -771,7 +771,7 @@ metadata:
   labels:
     app: vsphere-csi-webhook
 spec:
-  replicas: 3
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
