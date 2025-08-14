@@ -63,6 +63,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 		migrationEnabledByDefault  bool
 	)
 
+	//Run these steps before test
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
