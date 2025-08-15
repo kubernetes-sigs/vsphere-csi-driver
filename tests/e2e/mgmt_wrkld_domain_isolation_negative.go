@@ -61,6 +61,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		replicas                   int32
 		isVsanHealthServiceStopped bool
 		isWcpServicestopped        bool
+		adminClient                clientset.Interface
+		devopsUser                 string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -71,6 +73,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		client = f.ClientSet
 		bootstrap()
 
+		adminClient, client = initializeClusterClientsByUserRoles(client)
 		// reading vc session id
 		if vcRestSessionId == "" {
 			vcRestSessionId = createVcSession4RestApis(ctx)
@@ -166,20 +169,20 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ1, storageProfileIdZ2},
-			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "", devopsUser)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read zonal class")
-		storageclassZ1, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
+		storageclassZ1, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		storageclassZ2, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
+		storageclassZ2, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -190,7 +193,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for PVC to reach Bound state.")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+		_, err = WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -310,16 +313,16 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ2},
-			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "", devopsUser)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read zonal class")
-		storageclassZ2, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
+		storageclassZ2, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -342,7 +345,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for PVC to reach Bound state.")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+		_, err = WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// startIndex=1 & endIndex=2 to set allowedTopologies to zone-2
@@ -408,24 +411,24 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ2, storageProfileIdZ1, sharedProfileId},
-			getSvcId(vcRestSessionId), []string{zone2, zone1}, "", "")
+			getSvcId(vcRestSessionId), []string{zone2, zone1}, "", "", devopsUser)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read storage class")
-		storageclassZ1, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
+		storageclassZ1, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ1, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		storageclassZ2, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
+		storageclassZ2, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZ2, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		sharedStorageClass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		sharedStorageClass, err := adminClient.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

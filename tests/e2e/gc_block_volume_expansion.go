@@ -67,6 +67,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		restConfig                 *restclient.Config
 		isVsanHealthServiceStopped bool
 		isGCCSIDeploymentPODdown   bool
+		adminClient                clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -74,6 +75,16 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		client = f.ClientSet
 		namespace = f.Namespace.Name
 		bootstrap()
+
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -107,7 +118,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		var pvclaims []*v1.PersistentVolumeClaim
 		pvclaims = append(pvclaims, pvclaim)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pv = persistentvolumes[0]
 		volHandle = getVolumeIDFromSupervisorCluster(pv.Spec.CSI.VolumeHandle)
@@ -146,7 +157,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			volumeExists := verifyVolumeExistInSupervisorCluster(svcPVCName)
 			gomega.Expect(volumeExists).To(gomega.BeFalse())
 		}
-		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+		err := adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		svcClient, svNamespace = getSvcClientAndNamespace()
 		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
@@ -1247,7 +1258,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		var pvcs []*v1.PersistentVolumeClaim
 		pvcs = append(pvcs, pvc)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvol := persistentvolumes[0]
 		volHandleSvc := getVolumeIDFromSupervisorCluster(pvol.Spec.CSI.VolumeHandle)
@@ -1261,7 +1272,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 			err = waitTillVolumeIsDeletedInSvc(svcPvcName, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -1455,7 +1466,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		var pvcs []*v1.PersistentVolumeClaim
 		pvcs = append(pvcs, pvc)
 		ginkgo.By("Waiting for all claims to be in bound state")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvcs, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvol := persistentvolumes[0]
 		svcPvcName := pvol.Spec.CSI.VolumeHandle
@@ -1468,7 +1479,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 			ginkgo.By("Verify volume is deleted in Supervisor Cluster")
 			err = waitTillVolumeIsDeletedInSvc(svcPvcName, poll, pollTimeoutShort)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
