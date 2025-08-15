@@ -219,6 +219,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Read zonal-2 storage policy which is tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZone2, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -326,6 +329,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy which is tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameZone24, metav1.GetOptions{})
@@ -440,6 +446,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy which is tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
@@ -599,6 +608,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy which is tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
@@ -784,6 +796,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy which is tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})

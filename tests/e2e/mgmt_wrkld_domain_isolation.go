@@ -240,6 +240,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Read zonal-2 storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -319,6 +322,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Fetch zone-1 storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -373,9 +379,12 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		replicas = 3
 
 		// reading zonal storage policy of zone-2 wrkld domain
-		storagePolicyNameWffc := GetAndExpectStringEnvVar(envZonal2StoragePolicyNameLateBidning)
 		storagePolicyNameImm := GetAndExpectStringEnvVar(envZonal2StoragePolicyName)
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyNameImm)
+
+		// append late-binding now as it knowns to k8s and not to vc
+		storagePolicyNameWffc := storagePolicyNameImm + "-latebinding"
+
 		/*
 			EX - zone -> zone-1, zone-2, zone-3, zone-4
 			so topValStartIndex=1 and topValEndIndex=2 will fetch the 1st index value from topology map string
@@ -395,6 +404,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Fetch zone-2 storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyNameWffc, metav1.GetOptions{})
@@ -467,11 +479,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		/*
-			EX - zone -> zone-1, zone-2, zone-3, zone-4, zone-5
+			EX - zone -> zone-1, zone-2, zone-3, zone-4
 			so topValStartIndex=1 and topValEndIndex=3 will fetch the 2nd and 3rd index from topology map string
 		*/
 		topValStartIndex := 0
-		topValEndIndex := 5
+		topValEndIndex := 4
 
 		ginkgo.By("Fetching allowed topology assigned to all zones")
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
@@ -488,6 +500,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Fetch shared storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -499,12 +514,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			diskSize, storageclass, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentVolumes[0].Spec.CSI.VolumeHandle
-		defer func() {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating a Deployment using pvc")
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
@@ -512,11 +521,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podList, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By("Delete Deployment")
-			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		output := readFileFromPod(namespace, podList.Items[0].Name, filePathPod1)
@@ -531,17 +535,11 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(strings.Contains(output2, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		ginkgo.By("Creating service")
-		service := CreateService(namespace, client)
-		defer func() {
-			deleteService(namespace, client, service)
-		}()
+		_ = CreateService(namespace, client)
 
 		ginkgo.By("Creating statefulset")
 		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, false, nil,
 			false, true, "", "", storageclass, storageclass.Name)
-		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
-		}()
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
 		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, dep, namespace,
@@ -569,26 +567,10 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a dynamic volume snapshot")
-		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
+		volumeSnapshot, _, _,
+			_, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
 			volumeSnapshotClass, pvclaim, volHandle, diskSize, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-
-				framework.Logf("Wait till the volume snapshot is deleted")
-				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
-					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Mark zone-2 for removal from wcp namespace")
 		err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace,
@@ -596,19 +578,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Restore a volume snapshot")
-		pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
+		_, _, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, storageclass,
 			volumeSnapshot, diskSize, true)
-		volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(ctx, client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Perform scaling operation on statefulset. Increase the replica count to 9 when zone is marked" +
 			" for removal")
@@ -622,7 +593,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete dynamic volume snapshot")
-		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
+		_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
 			volumeSnapshot, pandoraSyncWaitTime, volHandle, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
@@ -664,6 +635,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
@@ -736,6 +710,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
@@ -854,6 +831,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Read zonal storage policy of zone3")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, zonalStoragePolicyZone3, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
@@ -910,14 +890,14 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		// reading zonal storage policy of zone-1 and zone-2
 		storagePolicyNameZ1 := GetAndExpectStringEnvVar(envZonal1StoragePolicyName)
 		storageProfileIdZ1 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ1)
-		storagePolicyNameZ2 := GetAndExpectStringEnvVar(envZonal2StoragePolicyNameLateBidning)
+		storagePolicyNameZ2 := GetAndExpectStringEnvVar(envZonal2StoragePolicyName)
 		storageProfileIdZ2 := e2eVSphere.GetSpbmPolicyID(storagePolicyNameZ2)
 
 		// append late-binding now as it knowns to k8s and not to vc
 		storagePolicyNameZ2 = storagePolicyNameZ2 + "-latebinding"
 
 		// read datastore url
-		zonal2DsUrl := os.Getenv(envZonal2DatastoreUrl)
+		zonal2DsUrl := os.Getenv(envZone2DatastoreUrl)
 
 		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
@@ -929,6 +909,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Fetch storage class tagged to wcp namespace")
 		storageClassNames := []string{sharedStoragePolicyName, storagePolicyNameZ1, storagePolicyNameZ2}
@@ -1153,6 +1136,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		storageClassNames := []string{storagePolicyNameZ1, sharedStoragePolicyName}
 		storageClasses := make([]*storagev1.StorageClass, len(storageClassNames))
 		for i, name := range storageClassNames {
@@ -1307,6 +1293,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		// Create PVCs
 		ginkgo.By("Create 2 PVCs with different binding modes")
 		storageClassList := []*storagev1.StorageClass{zonalStorageClass, sharedStorageClass}
@@ -1339,7 +1328,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		deployments := []*appsv1.Deployment{}
 		depSpecs := [][]*v1.PersistentVolumeClaim{
 			{pvcList[0], pvcList[1]},
-			{pvcList[2]},
 		}
 		for _, pvcSet := range depSpecs {
 			dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
@@ -1524,6 +1512,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
+
 		ginkgo.By("Create static volume")
 		_, _, staticPvc, staticPv, err := createStaticVolumeOnSvc(ctx, client,
 			namespace, storageDatastoreUrlZone2, storagePolicyName)
@@ -1644,6 +1635,9 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			delTestWcpNs(vcRestSessionId, namespace)
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Read zonal class")
 		storageclassImm, err := client.StorageV1().StorageClasses().Get(ctx, zonalPolicy, metav1.GetOptions{})
