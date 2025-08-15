@@ -49,6 +49,16 @@ const (
 	scResourceNameSuffix = ".storageclass.storage.k8s.io/requests.storage"
 )
 
+var (
+	// Supported data source types for PVCs
+	supportedDataSourceTypes = []struct {
+		apiGroup string
+		kind     string
+	}{
+		{"vmoperator.vmware.com", "VirtualMachine"},
+	}
+)
+
 // isDatastoreAccessibleToCluster verifies if the datastoreUrl is accessible to
 // cluster with clusterID.
 func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCenter,

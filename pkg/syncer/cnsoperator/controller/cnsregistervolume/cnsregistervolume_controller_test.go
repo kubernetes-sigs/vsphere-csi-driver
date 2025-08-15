@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -612,6 +614,367 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelStoragePolicyReservationName))
 	})
 })
+
+var _ = Describe("checkExistingPVCDataSourceRef", func() {
+	var (
+		ctx       context.Context
+		k8sclient *k8sfake.Clientset
+		namespace string
+		pvcName   string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		k8sclient = k8sfake.NewSimpleClientset()
+		namespace = "test-namespace"
+		pvcName = "test-pvc"
+	})
+
+	Context("when PVC does not exist", func() {
+		It("should return nil without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists without DataSourceRef", func() {
+		BeforeEach(func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: nil,
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return the PVC without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Name).To(Equal(pvcName))
+			Expect(pvc.Spec.DataSourceRef).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with VolumeSnapshot DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "snapshot.storage.k8s.io"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VolumeSnapshot",
+						Name:     "test-snapshot",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error since VolumeSnapshots are not supported for CNSRegisterVolume", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with supported DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "vmoperator.vmware.com"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VirtualMachine",
+						Name:     "test-vm",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return the PVC without error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Name).To(Equal(pvcName))
+			Expect(pvc.Spec.DataSourceRef.Kind).To(Equal("VirtualMachine"))
+			Expect(*pvc.Spec.DataSourceRef.APIGroup).To(Equal("vmoperator.vmware.com"))
+		})
+	})
+
+	Context("when PVC exists with unsupported DataSourceRef", func() {
+		BeforeEach(func() {
+			apiGroup := "unsupported.example.com"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "UnsupportedKind",
+						Name:     "test-resource",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with empty APIGroup DataSourceRef", func() {
+		BeforeEach(func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: nil,
+						Kind:     "SomeKind",
+						Name:     "test-resource",
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return an error for unsupported empty APIGroup", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).ToNot(BeNil())
+			Expect(pvc).To(BeNil())
+		})
+	})
+})
+
+var _ = Describe("validatePVCTopologyCompatibility", func() {
+	var (
+		ctx                context.Context
+		pvc                *corev1.PersistentVolumeClaim
+		volumeDatastoreURL string
+		mockTopologyMgr    *mockTopologyService
+		mockVC             *cnsvsphere.VirtualCenter
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		volumeDatastoreURL = "dummy-datastore-url"
+		mockTopologyMgr = &mockTopologyService{}
+		mockVC = &cnsvsphere.VirtualCenter{}
+
+		pvc = &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-namespace",
+			},
+		}
+	})
+
+	Context("when PVC has no topology annotation", func() {
+		It("should return nil without error", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when PVC has empty topology annotation", func() {
+		BeforeEach(func() {
+			pvc.Annotations = map[string]string{
+				"csi.vsphere.volume-accessible-topology": "",
+			}
+		})
+
+		It("should return nil without error", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when PVC has invalid topology annotation", func() {
+		BeforeEach(func() {
+			pvc.Annotations = map[string]string{
+				"csi.vsphere.volume-accessible-topology": "invalid-json",
+			}
+		})
+
+		It("should return error for invalid JSON", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).ToNot(BeNil())
+			Expect(err.Error()).To(ContainSubstring("failed to parse topology annotation"))
+		})
+	})
+
+	Context("when topology manager fails", func() {
+		BeforeEach(func() {
+			pvc.Annotations = map[string]string{
+				"csi.vsphere.volume-accessible-topology": `[{"topology.kubernetes.io/zone":"zone-a"}]`,
+			}
+			mockTopologyMgr.shouldFail = true
+		})
+
+		It("should return error from topology manager", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).ToNot(BeNil())
+			Expect(err.Error()).To(ContainSubstring("failed to get topology for volume datastore"))
+		})
+	})
+
+	Context("when topologies are compatible", func() {
+		BeforeEach(func() {
+			pvc.Annotations = map[string]string{
+				"csi.vsphere.volume-accessible-topology": `[{"topology.kubernetes.io/zone":"zone-a"}]`,
+			}
+			mockTopologyMgr.returnTopology = []map[string]string{
+				{"topology.kubernetes.io/zone": "zone-a"},
+			}
+		})
+
+		It("should return nil without error", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when topologies are incompatible", func() {
+		BeforeEach(func() {
+			pvc.Annotations = map[string]string{
+				"csi.vsphere.volume-accessible-topology": `[{"topology.kubernetes.io/zone":"zone-a"}]`,
+			}
+			mockTopologyMgr.returnTopology = []map[string]string{
+				{"topology.kubernetes.io/zone": "zone-b"},
+			}
+		})
+
+		It("should return error for incompatible zones", func() {
+			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			Expect(err).ToNot(BeNil())
+			Expect(err.Error()).To(ContainSubstring("is not compatible with volume placement"))
+		})
+	})
+})
+
+var _ = Describe("isTopologyCompatible", func() {
+	It("should return true when all volume segments exist in PVC segments", func() {
+		pvcTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+			{"topology.kubernetes.io/zone": "zone-b"},
+		}
+		volumeTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+		}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeTrue())
+	})
+
+	It("should return true when volume has multiple segments all existing in PVC", func() {
+		pvcTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a", "topology.kubernetes.io/region": "us-west"},
+			{"topology.kubernetes.io/zone": "zone-b", "topology.kubernetes.io/region": "us-west"},
+		}
+		volumeTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+			{"topology.kubernetes.io/zone": "zone-b"},
+		}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeTrue())
+	})
+
+	It("should return false when volume segment does not exist in any PVC segment", func() {
+		pvcTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+		}
+		volumeTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-b"},
+		}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
+	})
+
+	It("should return false when some volume segments do not exist in PVC segments", func() {
+		pvcTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+		}
+		volumeTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+			{"topology.kubernetes.io/zone": "zone-b"}, // This doesn't exist in PVC
+		}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
+	})
+
+	It("should return true for empty volume segments", func() {
+		pvcTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+		}
+		volumeTopologySegments := []map[string]string{}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeTrue())
+	})
+
+	It("should return false for empty PVC segments with non-empty volume segments", func() {
+		pvcTopologySegments := []map[string]string{}
+		volumeTopologySegments := []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-a"},
+		}
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
+	})
+})
+
+// mockTopologyService implements commoncotypes.ControllerTopologyService for testing
+type mockTopologyService struct {
+	shouldFail     bool
+	returnTopology []map[string]string
+}
+
+func (m *mockTopologyService) GetTopologyInfoFromNodes(ctx context.Context,
+	reqParams interface{}) ([]map[string]string, error) {
+	if m.shouldFail {
+		return nil, fmt.Errorf("mock topology service failure")
+	}
+	if m.returnTopology != nil {
+		return m.returnTopology, nil
+	}
+	return []map[string]string{
+		{"topology.kubernetes.io/zone": "default-zone"},
+	}, nil
+}
+
+func (m *mockTopologyService) GetSharedDatastoresInTopology(ctx context.Context,
+	reqParams interface{}) ([]*cnsvsphere.DatastoreInfo, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockTopologyService) GetAZClustersMap(ctx context.Context) map[string][]string {
+	return map[string][]string{
+		"zone-a": {"cluster-1"},
+		"zone-b": {"cluster-2"},
+	}
+}
+
+func (m *mockTopologyService) ZonesWithMultipleClustersExist(ctx context.Context) bool {
+	return false
+}
 
 func TestCnsRegisterVolumeController(t *testing.T) {
 	backOffDuration = make(map[types.NamespacedName]time.Duration)

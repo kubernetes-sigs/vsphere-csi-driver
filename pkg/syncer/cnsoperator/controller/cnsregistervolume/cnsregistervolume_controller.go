@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -43,6 +44,7 @@ import (
 
 	clientConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	clientset "k8s.io/client-go/kubernetes"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -557,53 +559,82 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		setInstanceError(ctx, r, instance, "Duplicate Request")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	// Create PVC mapping to above created PV.
-	log.Infof("Creating PVC: %s", instance.Spec.PvcName)
-	pvcSpec, err := getPersistentVolumeClaimSpec(ctx, instance.Spec.PvcName, instance.Namespace, capacityInMb,
-		storageClassName, accessMode, pvName, datastoreAccessibleTopology, instance)
+
+	// Check if PVC already exists and has valid DataSourceRef
+	pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to create spec for PVC: %q. Error: %v", instance.Spec.PvcName, err)
-		log.Errorf(msg)
-		setInstanceError(ctx, r, instance, msg)
+		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
+			instance.Spec.PvcName, err)
+		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
+			instance.Namespace, instance.Spec.PvcName, err))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
-	log.Debugf("PVC spec is: %+v", pvcSpec)
-	pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(ctx,
-		pvcSpec, metav1.CreateOptions{})
-	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			log.Infof("PVC: %s already exists", instance.Spec.PvcName)
-			pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx,
-				instance.Spec.PvcName, metav1.GetOptions{})
+
+	if pvc != nil {
+		log.Infof("PVC: %s already exists", instance.Spec.PvcName)
+
+		// Validate topology compatibility if PVC exists and can be reused
+		if syncer.IsPodVMOnStretchSupervisorFSSEnabled && topologyMgr != nil {
+			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
 			if err != nil {
-				msg := fmt.Sprintf("Failed to get PVC: %s on namespace: %s", instance.Spec.PvcName, instance.Namespace)
-				log.Errorf(msg)
-				setInstanceError(ctx, r, instance, msg)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
-				// This is handle cases where PVC with this name already exists and
-				// is bound. This happens when a new CnsRegisterVolume instance is
-				// created to import a new volume with PVC name which is already
-				// created and is bound.
-				msg := fmt.Sprintf("Another PVC: %s already exists in namespace: %s which is Bound to a different PV",
-					instance.Spec.PvcName, instance.Namespace)
-				log.Errorf(msg)
+				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
+				log.Error(msg)
 				setInstanceError(ctx, r, instance, msg)
 				// Untag the CNS volume which was created previously.
-				_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-				if err != nil {
-					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
-				} else {
-					// Delete PV created above.
-					err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
-					if err != nil {
-						log.Errorf("Failed to delete PV: %s with error: %+v", pvName, err)
-					}
+				_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+				if delErr != nil {
+					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
 				}
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
-		} else {
+		}
+
+		if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
+			// This is handle cases where PVC with this name already exists and
+			// is bound. This happens when a new CnsRegisterVolume instance is
+			// created to import a new volume with PVC name which is already
+			// created and is bound.
+			msg := fmt.Sprintf("Another PVC: %s already exists in namespace: %s which is Bound to a different PV",
+				instance.Spec.PvcName, instance.Namespace)
+			log.Errorf(msg)
+			setInstanceError(ctx, r, instance, msg)
+			// Untag the CNS volume which was created previously.
+			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if err != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+			} else {
+				// Delete PV created above.
+				err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
+				if err != nil {
+					log.Errorf("Failed to delete PV: %s with error: %+v", pvName, err)
+				}
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+
+		if pvc.Spec.DataSourceRef != nil {
+			apiGroup := ""
+			if pvc.Spec.DataSourceRef.APIGroup != nil {
+				apiGroup = *pvc.Spec.DataSourceRef.APIGroup
+			}
+			log.Infof("PVC %s in namespace %s has valid DataSourceRef with apiGroup: %s, kind: %s, name: %s",
+				pvc.Name, pvc.Namespace, apiGroup, pvc.Spec.DataSourceRef.Kind, pvc.Spec.DataSourceRef.Name)
+		}
+	} else {
+		// Create PVC mapping to above created PV.
+		log.Infof("Creating PVC: %s", instance.Spec.PvcName)
+		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, instance.Spec.PvcName, instance.Namespace, capacityInMb,
+			storageClassName, accessMode, pvName, datastoreAccessibleTopology, instance)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to create spec for PVC: %q. Error: %v", instance.Spec.PvcName, err)
+			log.Errorf(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		log.Debugf("PVC spec is: %+v", pvcSpec)
+		pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Create(ctx,
+			pvcSpec, metav1.CreateOptions{})
+		if err != nil {
 			log.Errorf("Failed to create PVC with spec: %+v. Error: %+v", pvcSpec, err)
 			setInstanceError(ctx, r, instance,
 				fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err))
@@ -615,9 +646,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			setInstanceError(ctx, r, instance,
 				fmt.Sprintf("Delete PV %s failed with error: %+v", pvName, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
+		} else {
+			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
 		}
-	} else {
-		log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
 	}
 	// Watch for PVC to be bound.
 	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(1*time.Minute))
@@ -740,6 +771,135 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
+}
+
+// validatePVCTopologyCompatibility checks if the existing PVC's topology annotation is compatible
+// with the volume's actual placement zone.
+func validatePVCTopologyCompatibility(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	volumeDatastoreURL string, topologyMgr commoncotypes.ControllerTopologyService,
+	vc *cnsvsphere.VirtualCenter) error {
+	log := logger.GetLogger(ctx)
+
+	// Check if PVC has topology annotation
+	topologyAnnotation, exists := pvc.Annotations[common.AnnVolumeAccessibleTopology]
+	if !exists || topologyAnnotation == "" {
+		// No topology annotation on PVC, skip validation
+		log.Debugf("PVC %s/%s has no topology annotation, skipping topology validation",
+			pvc.Namespace, pvc.Name)
+		return nil
+	}
+
+	// Parse PVC topology annotation
+	var pvcTopologySegments []map[string]string
+	err := json.Unmarshal([]byte(topologyAnnotation), &pvcTopologySegments)
+	if err != nil {
+		return fmt.Errorf("failed to parse topology annotation on PVC %s/%s: %v",
+			pvc.Namespace, pvc.Name, err)
+	}
+
+	// Get volume topology from datastore URL
+	volumeTopologySegments, err := topologyMgr.GetTopologyInfoFromNodes(ctx,
+		commoncotypes.WCPRetrieveTopologyInfoParams{
+			DatastoreURL:        volumeDatastoreURL,
+			StorageTopologyType: "zonal",
+			TopologyRequirement: nil,
+			Vc:                  vc,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to get topology for volume datastore %s: %v", volumeDatastoreURL, err)
+	}
+
+	// Check if volume topology segments are compatible with PVC topology segments
+	if isTopologyCompatible(pvcTopologySegments, volumeTopologySegments) {
+		log.Infof("PVC %s/%s topology annotation is compatible with volume placement",
+			pvc.Namespace, pvc.Name)
+		return nil
+	}
+
+	// No compatible topology found
+	return fmt.Errorf("PVC %s/%s topology annotation %s is not compatible with volume placement in zones %+v",
+		pvc.Namespace, pvc.Name, topologyAnnotation, volumeTopologySegments)
+}
+
+// isTopologyCompatible checks if volume topology segments are compatible with PVC topology segments.
+// Returns true if all volume topology segments are satisfied by the PVC topology segments.
+func isTopologyCompatible(pvcTopologySegments, volumeTopologySegments []map[string]string) bool {
+	// For each volume topology segment, check if it exists in PVC topology segments
+	for _, volumeSegment := range volumeTopologySegments {
+		found := false
+		for _, pvcSegment := range pvcTopologySegments {
+			// Check if the volume segment satisfies the PVC's topology requirements
+			// This means all key-value pairs in the volume segment must match those in the PVC segment
+			segmentCompatible := true
+			for key, volumeValue := range volumeSegment {
+				if pvcValue, exists := pvcSegment[key]; !exists || pvcValue != volumeValue {
+					segmentCompatible = false
+					break
+				}
+			}
+			if segmentCompatible {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// checkExistingPVCDataSourceRef checks if a PVC already exists and validates its DataSourceRef.
+// Returns the PVC if it exists with no DataSourceRef or it exists with a supported DataSourceRef.
+// If PVC exists but has an unsupported DataSourceRef, return (nil, error).
+// If PVC does not exist, return (nil, nil) so that it will be created later.
+func checkExistingPVCDataSourceRef(ctx context.Context, k8sclient clientset.Interface,
+	pvcName, namespace string) (*v1.PersistentVolumeClaim, error) {
+	log := logger.GetLogger(ctx)
+
+	// Try to get the existing PVC
+	existingPVC, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// PVC doesn't exist, return nil (we'll create a new one)
+			return nil, nil
+		}
+		// Some other error occurred
+		return nil, fmt.Errorf("failed to check existing PVC %s in namespace %s: %+v", pvcName, namespace, err)
+	}
+
+	// PVC exists, check if it has DataSourceRef
+	if existingPVC.Spec.DataSourceRef == nil {
+		log.Infof("Existing PVC %s in namespace %s has no DataSourceRef, can reuse", pvcName, namespace)
+		return existingPVC, nil
+	}
+
+	// Check if DataSourceRef matches supported types
+	apiGroup := ""
+	if existingPVC.Spec.DataSourceRef.APIGroup != nil {
+		apiGroup = *existingPVC.Spec.DataSourceRef.APIGroup
+	}
+
+	for _, supportedType := range supportedDataSourceTypes {
+		if supportedType.apiGroup == apiGroup && supportedType.kind == existingPVC.Spec.DataSourceRef.Kind {
+			log.Infof("Existing PVC %s in namespace %s has valid DataSourceRef (apiGroup: %s, kind: %s), can reuse",
+				pvcName, namespace, apiGroup, existingPVC.Spec.DataSourceRef.Kind)
+			return existingPVC, nil
+		}
+	}
+
+	// Check if DataSourceRef is VolumeSnapshot
+	if existingPVC.Spec.DataSourceRef.Kind == "VolumeSnapshot" &&
+		existingPVC.Spec.DataSourceRef.APIGroup != nil &&
+		*existingPVC.Spec.DataSourceRef.APIGroup == "snapshot.storage.k8s.io" {
+		log.Infof("WARNING: Existing PVC %s in namespace %s has valid VolumeSnapshot DataSourceRef, "+
+			"however, it is not supported for CNSRegisterVolume", pvcName, namespace)
+	}
+
+	// DataSourceRef is not supported
+	return nil, fmt.Errorf("existing PVC %s in namespace %s has unsupported DataSourceRef for CNSRegisterVolume. "+
+		"APIGroup: %s, Kind: %s is not supported. Supported types: %+v",
+		pvcName, namespace, apiGroup, existingPVC.Spec.DataSourceRef.Kind, supportedDataSourceTypes)
 }
 
 // validateCnsRegisterVolumeSpec validates the input params of
