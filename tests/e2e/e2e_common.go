@@ -151,6 +151,7 @@ const (
 	healthStatusInAccessible                  = "inaccessible"
 	healthStatusWaitTime                      = 3 * time.Minute
 	hostdServiceName                          = "hostd"
+	hostReachableMaxRetryCount                = "HOST_REACHABLE_MAX_RETRY_COUNT"
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
 	k8sPodTerminationTimeOutLong              = 10 * time.Minute
