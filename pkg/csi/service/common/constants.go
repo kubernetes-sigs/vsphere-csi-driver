@@ -384,8 +384,6 @@ const (
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
-	// FileVolume is feature flag name for file volume support in WCP.
-	FileVolume = "file-volume"
 	// FakeAttach is the feature flag for fake attach support in WCP.
 	FakeAttach = "fake-attach"
 	// TriggerCSIFullSyync is feature flag to trigger full sync.
