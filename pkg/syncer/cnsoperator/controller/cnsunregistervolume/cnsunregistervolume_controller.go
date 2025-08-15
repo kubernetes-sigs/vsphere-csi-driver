@@ -45,7 +45,6 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -213,10 +212,11 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	// 6. Set the CnsUnregisterVolumeStatus.Unregistered to true.
 
 	var pvName, pvcName, pvcNamespace string
+	var pvcFound bool
 	pvName, pvfound := commonco.ContainerOrchestratorUtility.GetPVNameFromCSIVolumeID(instance.Spec.VolumeID)
 	if pvfound {
 		log.Infof("found PV: %q for the volumd Id: %q", pvName, instance.Spec.VolumeID)
-		pvcName, pvcNamespace, pvcFound := commonco.ContainerOrchestratorUtility.
+		pvcName, pvcNamespace, pvcFound = commonco.ContainerOrchestratorUtility.
 			GetPVCNameFromCSIVolumeID(instance.Spec.VolumeID)
 		if pvcFound {
 			log.Infof("found PVC: %q in the namespace:%q for the volumd Id: %q", pvcName, pvcNamespace,
@@ -304,16 +304,13 @@ func (r *ReconcileCnsUnregisterVolume) Reconcile(ctx context.Context,
 	}
 
 	// Invoke CNS DeleteVolume API with deleteDisk flag set to false.
-	_, err = r.volumeManager.DeleteVolume(ctx, instance.Spec.VolumeID, false)
-	if err != nil {
-		if cnsvsphere.IsNotFoundError(err) {
-			log.Infof("VolumeID %q not found in CNS. It may have already been deleted."+
-				"Marking the operation as success.", instance.Spec.VolumeID)
-		} else {
-			log.Errorf("Failed to delete volume %q in CNS with error %+v.",
-				instance.Spec.VolumeID, err)
-			return reconcile.Result{}, err
-		}
+	// TODO: Handle non-transient errors from CNS DeleteVolume API.
+	e := r.volumeManager.UnregisterVolume(ctx, instance.Spec.VolumeID, false)
+	if e != nil {
+		msg := fmt.Sprintf("Failed to unregister volume %q with error: %+v", instance.Spec.VolumeID, e)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	} else {
 		log.Infof("Deleted CNS volume %q with deleteDisk set to false", instance.Spec.VolumeID)
 	}
