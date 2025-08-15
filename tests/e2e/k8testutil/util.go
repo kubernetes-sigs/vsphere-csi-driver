@@ -7315,3 +7315,47 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 
 	fmt.Println("All required storage policy usages are available.")
 }
+
+// createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
+// and verifies cns metadata of that volume if verifyCNSVolume is set to true
+func CreatePVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig, namespace string,
+	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	ds string, storageclass *storagev1.StorageClass,
+	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, error) {
+
+	// Create PVC
+	pvclaim, err := CreatePVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	if err != nil {
+		return pvclaim, nil, fmt.Errorf("failed to create PVC: %w", err)
+	}
+
+	// Wait for PVC to be bound to a PV
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
+	if err != nil {
+		return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)
+	}
+
+	// Get VolumeHandle from the PV
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	if vs.TestInput.ClusterFlavor.GuestCluster {
+		volHandle = GetVolumeIDFromSupervisorCluster(volHandle)
+	}
+	if volHandle == "" {
+		return pvclaim, persistentvolumes, fmt.Errorf("volume handle is empty")
+	}
+
+	// Verify the volume in CNS if required
+	if verifyCNSVolume {
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := vcutil.QueryCNSVolumeWithResult(vs, volHandle)
+		if err != nil {
+			return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
+		}
+		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
+			return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+		}
+	}
+
+	return pvclaim, persistentvolumes, nil
+}
