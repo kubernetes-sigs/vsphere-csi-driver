@@ -404,12 +404,8 @@ func validateVolumeNotInUse(ctx context.Context, volumeID string, pvcName string
 // instance.
 func setInstanceError(ctx context.Context, r *ReconcileCnsUnregisterVolume,
 	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, errMsg string) {
-	log := logger.GetLogger(ctx)
 	instance.Status.Error = errMsg
-	err := updateCnsUnregisterVolume(ctx, r.client, instance)
-	if err != nil {
-		log.Errorf("updateCnsUnregisterVolume failed. err: %v", err)
-	}
+	_ = k8s.UpdateStatus(ctx, r.client, instance)
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
 }
 
@@ -419,10 +415,11 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsUnregisterVolume,
 	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume, msg string) error {
 	instance.Status.Unregistered = true
 	instance.Status.Error = ""
-	err := updateCnsUnregisterVolume(ctx, r.client, instance)
+	err := k8s.UpdateStatus(ctx, r.client, instance)
 	if err != nil {
 		return err
 	}
+
 	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 	return nil
 }
@@ -452,16 +449,4 @@ func recordEvent(ctx context.Context, r *ReconcileCnsUnregisterVolume,
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsUnregisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}
-}
-
-// updateCnsUnregisterVolume updates the CnsUnregisterVolume instance in K8S.
-func updateCnsUnregisterVolume(ctx context.Context, client client.Client,
-	instance *cnsunregistervolumev1alpha1.CnsUnregisterVolume) error {
-	log := logger.GetLogger(ctx)
-	err := client.Update(ctx, instance)
-	if err != nil {
-		log.Errorf("Failed to update CnsUnregisterVolume instance: %q on namespace: %q. Error: %+v",
-			instance.Name, instance.Namespace, err)
-	}
-	return err
 }
