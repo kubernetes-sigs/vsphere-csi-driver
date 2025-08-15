@@ -349,6 +349,7 @@ const (
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
 	vc901                 = "vc901"
+	multiGc               = "multiGc"
 )
 
 // The following variables are required to know cluster type to run common e2e
