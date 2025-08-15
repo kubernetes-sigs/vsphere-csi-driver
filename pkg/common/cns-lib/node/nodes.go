@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/client-go/tools/cache"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -113,10 +114,21 @@ func (nodes *Nodes) csiNodeUpdate(oldObj interface{}, newObj interface{}) {
 
 func (nodes *Nodes) csiNodeDelete(obj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
-	csiNode, ok := obj.(*storagev1.CSINode)
-	if csiNode == nil || !ok {
-		log.Warnf("csiNodeDelete: unrecognized object %+v", obj)
-		return
+	var csiNode *storagev1.CSINode
+	var ok bool
+	// Try direct type assertion first
+	if csiNode, ok = obj.(*storagev1.CSINode); !ok {
+		// Might be a tombstone if object is not found in the cache
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Warnf("csiNodeDelete: unrecognized object %#v", obj)
+			return
+		}
+		// Try extracting CSINode from tombstone
+		if csiNode, ok = tombstone.Obj.(*storagev1.CSINode); !ok {
+			log.Warnf("csiNodeDelete: tombstone contained object that is not a CSINode: %#v", tombstone.Obj)
+			return
+		}
 	}
 	nodeName := csiNode.Name
 	err := nodes.cnsNodeManager.UnregisterNode(ctx, nodeName)
