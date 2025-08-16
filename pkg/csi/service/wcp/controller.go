@@ -561,7 +561,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 						"supported on deployment with multiple vSphere Clusters per zone")
 			}
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
-			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
 				if storageTopologyType == "" {
