@@ -552,3 +552,18 @@ func UpdateVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	log.Infof("UpdateVirtualMachine: successfully updated the virtualmachine, name: %s", vmV1alpha4.Name)
 	return nil
 }
+
+func UpdateVirtualMachineSnapshot(ctx context.Context, vmOperatorClient client.Client,
+	vmSnapshot *vmoperatorv1alpha4.VirtualMachineSnapshot) error {
+
+	log := logger.GetLogger(ctx)
+	log.Infof("UpdateVirtualMachine: update virtualmachine name: %s", vmSnapshot.Name)
+	// try update virtualmachine with api version v1alpha4
+	err := vmOperatorClient.Update(ctx, vmSnapshot)
+	if err != nil {
+		log.Errorf("UpdateVirtualMachineSnapshot: error while updating virtualmachine name: %s, err %v", vmSnapshot.Name, err)
+		return err
+	}
+	log.Infof("UpdateVirtualMachineSnapshot: successfully updated the virtualmachine, name: %s", vmSnapshot.Name)
+	return nil
+}
