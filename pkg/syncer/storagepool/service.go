@@ -63,10 +63,9 @@ func InitStoragePoolService(ctx context.Context,
 		}
 		clusterIDs = clusterComputeResourceMoIds
 		if len(clusterIDs) > 1 &&
-			(!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) ||
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)) {
-			log.Infof("`%s` and `%s` should be enabled for storage pool service on Stretched Supervisor. Exiting...",
-				common.PodVMOnStretchedSupervisor, common.VdppOnStretchedSupervisor)
+			(!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)) {
+			log.Infof("`%s` should be enabled for storage pool service on Stretched Supervisor. Exiting...",
+				common.PodVMOnStretchedSupervisor)
 			return nil
 		}
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultipleClustersPerVsphereZone) {

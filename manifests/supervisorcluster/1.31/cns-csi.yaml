@@ -566,7 +566,6 @@ data:
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "true"
-  "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "WCP_VMService_BYOK": "true"
