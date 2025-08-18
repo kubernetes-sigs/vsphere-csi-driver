@@ -694,3 +694,19 @@ func PatchFinalizers(ctx context.Context, c client.Client, obj client.Object, fi
 	patch := client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
 	return c.Patch(ctx, obj, patch)
 }
+
+// UpdateStatus updates the status subresource of the given Kubernetes object.
+// If the object is a Custom Resource, make sure that the `subresources` field in the
+// CustomResourceDefinition includes `status` to enable status subresource updates.
+func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error {
+	log := logger.GetLogger(ctx)
+	if err := c.Status().Update(ctx, obj); err != nil {
+		log.Errorf("Failed to update status for %s %s/%s: %v", obj.GetObjectKind().GroupVersionKind().Kind,
+			obj.GetNamespace(), obj.GetName(), err)
+		return err
+	}
+
+	log.Infof("Successfully updated status for %s %s/%s", obj.GetObjectKind().GroupVersionKind().Kind,
+		obj.GetNamespace(), obj.GetName())
+	return nil
+}
