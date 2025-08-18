@@ -56,6 +56,12 @@ type mockVolumeManager struct {
 		ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
 }
 
+func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
+	unregisterDisk bool) *cnsvolume.Error {
+	//TODO implement me
+	return nil
+}
+
 func (m *mockVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
 	volumeID string, checkNVMeController bool) (string, string, error) {
 	//TODO implement me
