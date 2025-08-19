@@ -119,10 +119,9 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
-// ValidateVolumeCapabilitiesCommon is a helper function that contains the common logic
-// for ValidateVolumeCapabilities across all controller flavors (vanilla, wcp, wcpguest).
-// It takes a validation function as a parameter to allow for flavor-specific validation logic.
-func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
+// validateVolumeCapabilitiesCore contains the core logic for ValidateVolumeCapabilities
+// that is shared between the two public functions.
+func validateVolumeCapabilitiesCore(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
 	validationFunc func(context.Context, []*csi.VolumeCapability) error) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 
 	ctx = logger.NewContextWithLogger(ctx)
@@ -135,9 +134,6 @@ func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolu
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
 	}
 
-	// Check if volume exists before validating capabilities
-	// Note: This function doesn't have access to volume manager, so we'll need to modify
-	// the calling functions to pass the volume manager or create a new version of this function
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
 
@@ -150,6 +146,14 @@ func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolu
 	}, nil
 }
 
+// ValidateVolumeCapabilitiesCommon is a helper function that contains the common logic
+// for ValidateVolumeCapabilities across all controller flavors (vanilla, wcp, wcpguest).
+// It takes a validation function as a parameter to allow for flavor-specific validation logic.
+func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
+	validationFunc func(context.Context, []*csi.VolumeCapability) error) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+	return validateVolumeCapabilitiesCore(ctx, req, validationFunc)
+}
+
 // ValidateVolumeCapabilitiesCommonWithVolumeCheck is a helper function that contains the common logic
 // for ValidateVolumeCapabilities across all controller flavors (vanilla, wcp, wcpguest).
 // It takes a validation function and volume manager as parameters to allow for flavor-specific validation logic
@@ -157,17 +161,8 @@ func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolu
 func ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
 	validationFunc func(context.Context, []*csi.VolumeCapability) error, volumeManager cnsvolume.Manager) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
-
-	// Extract volume ID from request
+	// First check if volume exists before validating capabilities
 	volumeID := req.GetVolumeId()
-	if volumeID == "" {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
-	}
-
-	// Check if volume exists before validating capabilities
 	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
 			string(cnstypes.QuerySelectionNameTypeVolumeType),
@@ -175,6 +170,7 @@ func ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx context.Context, req *c
 	}
 	_, err := QueryVolumeByID(ctx, volumeManager, volumeID, &querySelection)
 	if err != nil {
+		log := logger.GetLogger(ctx)
 		if err == ErrNotFound {
 			log.Errorf("Volume %q not found during ValidateVolumeCapabilities", volumeID)
 			return nil, logger.LogNewErrorCode(log, codes.NotFound, fmt.Sprintf("volume %q not found", volumeID))
@@ -183,16 +179,8 @@ func ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx context.Context, req *c
 		return nil, logger.LogNewErrorCode(log, codes.Internal, fmt.Sprintf("failed to query volume %q: %v", volumeID, err))
 	}
 
-	volCaps := req.GetVolumeCapabilities()
-	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-
-	if err := validationFunc(ctx, volCaps); err == nil {
-		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
-	}
-
-	return &csi.ValidateVolumeCapabilitiesResponse{
-		Confirmed: confirmed,
-	}, nil
+	// Use the core validation logic
+	return validateVolumeCapabilitiesCore(ctx, req, validationFunc)
 }
 
 // CheckAPI checks if specified version against the specified minimum support version.
