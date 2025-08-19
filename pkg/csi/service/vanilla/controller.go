@@ -2652,17 +2652,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
-	volCaps := req.GetVolumeCapabilities()
-	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
-		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
-	}
-	return &csi.ValidateVolumeCapabilitiesResponse{
-		Confirmed: confirmed,
-	}, nil
+	return common.ValidateVolumeCapabilitiesCommon(ctx, req, common.IsValidVolumeCapabilities)
 }
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (

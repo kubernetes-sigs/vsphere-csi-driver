@@ -118,6 +118,28 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 	return nil
 }
 
+// ValidateVolumeCapabilitiesCommon is a helper function that contains the common logic
+// for ValidateVolumeCapabilities across all controller flavors (vanilla, wcp, wcpguest).
+// It takes a validation function as a parameter to allow for flavor-specific validation logic.
+func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
+	validationFunc func(context.Context, []*csi.VolumeCapability) error) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+
+	volCaps := req.GetVolumeCapabilities()
+	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
+
+	if err := validationFunc(ctx, volCaps); err == nil {
+		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
+}
+
 // CheckAPI checks if specified version against the specified minimum support version.
 func CheckAPI(ctx context.Context,
 	versionToCheck string,

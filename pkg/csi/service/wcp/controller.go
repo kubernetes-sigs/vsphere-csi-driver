@@ -2213,17 +2213,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
-	volCaps := req.GetVolumeCapabilities()
-	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err == nil {
-		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
-	}
-	return &csi.ValidateVolumeCapabilitiesResponse{
-		Confirmed: confirmed,
-	}, nil
+	return common.ValidateVolumeCapabilitiesCommon(ctx, req, isValidVolumeCapabilitiesInWcp)
 }
 
 // ListVolumes returns the mapping of the volumes and corresponding published nodes.
