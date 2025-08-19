@@ -53,7 +53,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/cnsfilevolumeclient"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
@@ -98,17 +97,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	}
 	volumePermissionLockMap = &sync.Map{}
-	// Initialize the k8s orchestrator interface.
-	coCommonInterface, err := commonco.GetContainerOrchestratorInterface(ctx, common.Kubernetes,
-		cnstypes.CnsClusterFlavorWorkload, &syncer.COInitParams)
-	if err != nil {
-		log.Errorf("failed to create CO agnostic interface. Err: %v", err)
-		return err
-	}
-	if !coCommonInterface.IsFSSEnabled(ctx, common.FileVolume) {
-		log.Infof("Not initializing the CnsFileAccessConfig Controller as File volume feature is disabled on the cluster")
-		return nil
-	}
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
