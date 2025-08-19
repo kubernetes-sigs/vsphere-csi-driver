@@ -25,8 +25,6 @@ import (
 	"net/http"
 	"os"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
-
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/zapr"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -154,7 +152,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			common.FileVolumesWithVmService)
 		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 		if !featureIsLinkedCloneSupportEnabled {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 				common.LinkedCloneSupport, "", "")
 		}
 		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification,
@@ -169,7 +167,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			if configErr != nil {
 				return fmt.Errorf("failed to read config. Error: %+v", err)
 			}
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 				common.LinkedCloneSupport, gcConfig.GC.Port, gcConfig.GC.Endpoint)
 		}
 		startPVCSIWebhookManager(ctx)

@@ -302,10 +302,28 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		IsWorkloadDomainIsolationSupported = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.WorkloadDomainIsolation)
 		if !IsWorkloadDomainIsolationSupported {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.WorkloadDomainIsolation,
+			// Workload_Domain_Isolation_Supported Capability is disabled
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.WorkloadDomainIsolation,
 				"", "")
-		}
-		if IsWorkloadDomainIsolationSupported {
+		} else {
+			// Workload_Domain_Isolation_Supported Capability is enabled, checking if FSS is set as enabled
+			// This is required for backward compatibility of released TKR versions on newer version of supervisor
+			// we are already enabling FSS in HandleLateEnablementOfCapability, this code block is required to cover a case
+			// when capability gets enabled but container is not running or driver is installed with capability
+			// already enabled on supervisor cluster
+			IsWorkloadDomainIsolationFSSEnabled :=
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS)
+			if !IsWorkloadDomainIsolationFSSEnabled {
+				// if workload-domain-isolation FSS is not enabled in config-map, update config-map is set this FSS
+				// as true
+				err = commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.WorkloadDomainIsolationFSS)
+				if err != nil {
+					log.Errorf("failed to enable CNS-CSI FSS %q, err: %+v",
+						common.WorkloadDomainIsolationFSS, err)
+					os.Exit(1)
+				}
+			}
 			volumeTopologyService, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 			if err != nil {
 				log.Errorf("failed to init topology manager. err: %v", err)
@@ -316,12 +334,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.LinkedCloneSupport)
 		if !IsLinkedCloneSupportFSSEnabled {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.LinkedCloneSupport, "", "")
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.LinkedCloneSupport, "", "")
 		}
 		IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.MultipleClustersPerVsphereZone)
 		if !IsMultipleClustersPerVsphereZoneFSSEnabled {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.MultipleClustersPerVsphereZone, "", "")
 		}
 	}
@@ -335,11 +354,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		// false to true, but for other features instead of restarting CSI container, if possible we can implement
 		// some init() function which can initialize required things when capability value changes from false to true.
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.WorkloadDomainIsolation,
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.WorkloadDomainIsolation,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
-			go k8sorchestrator.HandleLateEnablementOfCapability(ctx, clusterFlavor, common.LinkedCloneSupport,
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.LinkedCloneSupport,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
 	}

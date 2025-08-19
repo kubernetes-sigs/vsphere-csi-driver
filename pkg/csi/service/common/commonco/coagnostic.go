@@ -123,6 +123,8 @@ type COCommonInterface interface {
 	GetActiveClustersForNamespaceInRequestedZones(ctx context.Context, ns string, zones []string) ([]string, error)
 	// GetPvcObjectByName return PVC object for the given PVC name
 	GetPvcObjectByName(ctx context.Context, pvcName string, namespace string) (*v1.PersistentVolumeClaim, error)
+	HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
+		gcPort, gcEndpoint string)
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

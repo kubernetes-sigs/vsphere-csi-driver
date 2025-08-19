@@ -215,6 +215,22 @@ func (m *mockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.Cns
 
 type mockCOCommon struct{}
 
+func (m *mockCOCommon) EnableFSS(ctx context.Context, featureName string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockCOCommon) DisableFSS(ctx context.Context, featureName string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockCOCommon) HandleLateEnablementOfCapability(ctx context.Context,
+	clusterFlavor cnstypes.CnsClusterFlavor, capability, gcPort, gcEndpoint string) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockCOCommon) IsFSSEnabled(ctx context.Context, featureName string) bool {
 	return true
 }
@@ -225,16 +241,6 @@ func (m *mockCOCommon) IsCNSCSIFSSEnabled(ctx context.Context, featureName strin
 }
 
 func (m *mockCOCommon) IsPVCSIFSSEnabled(ctx context.Context, featureName string) bool {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m *mockCOCommon) EnableFSS(ctx context.Context, featureName string) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m *mockCOCommon) DisableFSS(ctx context.Context, featureName string) error {
 	//TODO implement me
 	panic("implement me")
 }
