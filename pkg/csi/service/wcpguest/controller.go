@@ -1080,13 +1080,9 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		}
 
 		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, req.VolumeId, metav1.GetOptions{})
+		svPVC, err := c.getSupervisorPVC(ctx, req.VolumeId)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, err
 		}
 		var isFileVolume bool
 		for _, accessMode := range svPVC.Spec.AccessModes {
@@ -1421,13 +1417,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		}
 
 		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, volumeID, metav1.GetOptions{})
+		svPVC, err := c.getSupervisorPVC(ctx, volumeID)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				volumeID, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, err
 		}
 
 		waitForSvPvcCondition := true
@@ -1521,10 +1513,55 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	return resp, err
 }
 
+// getSupervisorPVC retrieves a supervisor PVC and handles common error cases
+func (c *controller) getSupervisorPVC(ctx context.Context, pvcName string) (*corev1.PersistentVolumeClaim, error) {
+	log := logger.GetLogger(ctx)
+
+	pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+		ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Errorf("Supervisor PVC %s/%s not found", c.supervisorNamespace, pvcName)
+			return nil, logger.LogNewErrorCode(log, codes.NotFound, fmt.Sprintf("volume %q not found", pvcName))
+		}
+		log.Errorf("Failed to get supervisor PVC %s/%s: %+v", c.supervisorNamespace, pvcName, err)
+		return nil, logger.LogNewErrorCode(log, codes.Internal, fmt.Sprintf("failed to retrieve volume %q: %v", pvcName, err))
+	}
+
+	return pvc, nil
+}
+
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	return common.ValidateVolumeCapabilitiesCommon(ctx, req, common.IsValidVolumeCapabilities)
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+
+	// Extract volume ID from request
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
+	}
+
+	// For WCPGuest, the volume ID corresponds to a supervisor PVC name
+	// Check if the supervisor PVC exists
+	_, err := c.getSupervisorPVC(ctx, volumeID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate volume capabilities
+	volCaps := req.GetVolumeCapabilities()
+	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
+
+	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
+		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
 }
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
@@ -1607,14 +1644,9 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	createSnapshotInternal := func() (*csi.CreateSnapshotResponse, error) {
 		// Search for supervisor PVC and ensure it exists
 		supervisorPVCName := req.SourceVolumeId
-		log.Infof("Checking if supervisor PVC %s/%s exists..", c.supervisorNamespace, supervisorPVCName)
-		_, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, supervisorPVCName, metav1.GetOptions{})
+		var err error
+		_, err = c.getSupervisorPVC(ctx, supervisorPVCName)
 		if err != nil {
-			if errors.IsNotFound(err) {
-				log.Errorf("the supervisor PVC: %s/%s was not found while attempting to take snapshot",
-					c.supervisorNamespace, supervisorPVCName)
-			}
 			return nil, err
 		}
 		// Get supervisor VolumeSnapshotClass.

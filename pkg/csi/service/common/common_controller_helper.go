@@ -34,6 +34,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -127,6 +128,60 @@ func ValidateVolumeCapabilitiesCommon(ctx context.Context, req *csi.ValidateVolu
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+
+	// Extract volume ID from request
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
+	}
+
+	// Check if volume exists before validating capabilities
+	// Note: This function doesn't have access to volume manager, so we'll need to modify
+	// the calling functions to pass the volume manager or create a new version of this function
+	volCaps := req.GetVolumeCapabilities()
+	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
+
+	if err := validationFunc(ctx, volCaps); err == nil {
+		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
+}
+
+// ValidateVolumeCapabilitiesCommonWithVolumeCheck is a helper function that contains the common logic
+// for ValidateVolumeCapabilities across all controller flavors (vanilla, wcp, wcpguest).
+// It takes a validation function and volume manager as parameters to allow for flavor-specific validation logic
+// and volume existence checking.
+func ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest,
+	validationFunc func(context.Context, []*csi.VolumeCapability) error, volumeManager cnsvolume.Manager) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+
+	// Extract volume ID from request
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
+	}
+
+	// Check if volume exists before validating capabilities
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+		},
+	}
+	_, err := QueryVolumeByID(ctx, volumeManager, volumeID, &querySelection)
+	if err != nil {
+		if err == ErrNotFound {
+			log.Errorf("Volume %q not found during ValidateVolumeCapabilities", volumeID)
+			return nil, logger.LogNewErrorCode(log, codes.NotFound, fmt.Sprintf("volume %q not found", volumeID))
+		}
+		log.Errorf("Failed to query volume %q during ValidateVolumeCapabilities: %+v", volumeID, err)
+		return nil, logger.LogNewErrorCode(log, codes.Internal, fmt.Sprintf("failed to query volume %q: %v", volumeID, err))
+	}
 
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
