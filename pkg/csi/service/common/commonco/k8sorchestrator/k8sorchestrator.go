@@ -29,12 +29,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/grpc/codes"
 	"k8s.io/client-go/util/retry"
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
-	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -1098,7 +1098,8 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 // HandleLateEnablementOfCapability starts a ticker and checks after every 2 minutes if
 // capability is enabled in capabilities CR or not.
 // If this capability was disabled and now got enabled, then container will be restarted.
-func HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
+func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
+	clusterFlavor cnstypes.CnsClusterFlavor, capability,
 	gcPort, gcEndpoint string) {
 	log := logger.GetLogger(ctx)
 	var restClientConfig *restclient.Config
@@ -1162,6 +1163,18 @@ func HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstype
 		if capVal, ok := WcpCapabilitiesMap[capability]; ok && capVal {
 			log.Infof("Capability %s changed state to %t in capabilities CR %s. "+
 				"Restarting the container as capability has changed.", capability, capVal, common.WCPCapabilitiesCRName)
+			if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && capability == common.WorkloadDomainIsolation {
+				// when  Workload_Domain_Isolation_Supported Capability is enabled, enable workload-domain-isolation FSS
+				// in the config secret
+				// This is required for backward compatibility of released TKR versions on newer version of supervisor
+				err = c.EnableFSS(ctx, common.WorkloadDomainIsolationFSS)
+				if err != nil {
+					log.Errorf("failed to enable CNS-CSI FSS %q, err: %+v",
+						common.WorkloadDomainIsolationFSS, err)
+					os.Exit(1)
+				}
+				log.Infof("Successfully updated CNS-CSI FSS: %q to true", common.WorkloadDomainIsolationFSS)
+			}
 			os.Exit(1)
 		}
 	}
@@ -1418,8 +1431,26 @@ func (c *K8sOrchestrator) IsPVCSIFSSEnabled(ctx context.Context, featureName str
 // EnableFSS helps enable feature state switch in the FSS config map
 func (c *K8sOrchestrator) EnableFSS(ctx context.Context, featureName string) error {
 	log := logger.GetLogger(ctx)
-	return logger.LogNewErrorCode(log, codes.Unimplemented,
-		"EnableFSS is not implemented.")
+	csifeaturestatesconfigmap, err := c.k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).Get(ctx,
+		cnsconfig.DefaultSupervisorFSSConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to "+
+			"get configmap: %q from namespace: %q. err: %v",
+			cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, err)
+		return err
+	}
+	csifeaturestatesconfigmap.Data[featureName] = "true"
+	csifeaturestatesconfigmap, err = c.k8sClient.CoreV1().ConfigMaps(cnsconfig.DefaultCSINamespace).Update(ctx,
+		csifeaturestatesconfigmap, metav1.UpdateOptions{})
+	if err != nil {
+		log.Errorf("failed to update configmap: %q in namespace: %q to enable FSS %q. err: %v",
+			cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, featureName, err)
+		return err
+	}
+	log.Infof("Successfully updated configmap: %q in namespace: %q to enable FSS %q. ConfigMapData: %v",
+		cnsconfig.DefaultSupervisorFSSConfigMapName, cnsconfig.DefaultCSINamespace, featureName,
+		csifeaturestatesconfigmap.Data)
+	return nil
 }
 
 // DisableFSS helps disable feature state switch in the FSS config map

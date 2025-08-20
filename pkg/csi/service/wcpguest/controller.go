@@ -61,7 +61,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -158,11 +157,11 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	isLinkedCloneSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.LinkedCloneSupportFSS)
 	if !isWorkloadDomainIsolationSupported {
-		go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.WorkloadDomainIsolation, config.GC.Port, config.GC.Endpoint)
 	}
 	if !isLinkedCloneSupported {
-		go k8sorchestrator.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
 	}
 	if isWorkloadDomainIsolationSupported {
