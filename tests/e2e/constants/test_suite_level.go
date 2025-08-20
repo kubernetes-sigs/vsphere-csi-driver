@@ -79,6 +79,7 @@ const (
 	Distributed           = "distributed"
 	Vmsvc                 = "vmsvc"
 	Vc90                  = "vc90"
+	Vc901                 = "vc901"
 	Vc80                  = "vc80"
 	Vc70                  = "vc70"
 	Wldi                  = "wldi"
@@ -86,4 +87,5 @@ const (
 	VcptocsiTest          = "vcptocsiTest"
 	StretchedSvc          = "stretchedSvc"
 	Devops                = "devops"
+	LinkedClone           = "lc"
 )

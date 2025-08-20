@@ -214,3 +214,8 @@ const (
 	EnvAccessMode                              = "ACCESS_MODE"
 	EnvVpToCsi                                 = "VCPTOCSI"
 )
+
+// For linked clone
+var (
+	EnvStoragePolicy = "STORAGE_POLICY_NAME"
+)

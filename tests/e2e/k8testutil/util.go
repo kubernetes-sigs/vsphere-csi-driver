@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -6771,7 +6772,7 @@ func DerefWithDefault[T any](t *T, defaulT T) T {
 
 // Get storagePolicyQuota consumption based on resourceType (i.e., either volume, snapshot, vmservice)
 func GetStoragePolicyQuotaForSpecificResourceType(ctx context.Context, restClientConfig *rest.Config,
-	scName string, namespace string, extensionType string) (*resource.Quantity, *resource.Quantity) {
+	scName string, namespace string, extensionType string, islatebinding bool) (*resource.Quantity, *resource.Quantity) {
 	var usedQuota, reservedQuota *resource.Quantity
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6784,19 +6785,39 @@ func GetStoragePolicyQuotaForSpecificResourceType(ctx context.Context, restClien
 	scLevelQuotaStatusList := spq.Status.SCLevelQuotaStatuses
 
 	for _, item := range scLevelQuotaStatusList {
-		if item.StorageClassName == scName {
-			resourceTypeLevelQuotaStatusList := spq.Status.ResourceTypeLevelQuotaStatuses
+		expectedSCName := scName
 
-			for _, item := range resourceTypeLevelQuotaStatusList {
-				if item.ResourceExtensionName == extensionType {
-					usedQuota = item.ResourceTypeSCLevelQuotaStatuses[0].SCLevelQuotaUsage.Used
-					reservedQuota = item.ResourceTypeSCLevelQuotaStatuses[0].SCLevelQuotaUsage.Reserved
-					ginkgo.By(fmt.Sprintf("usedQuota %v, reservedQuota %v", usedQuota, reservedQuota))
-					break
-				}
-
-			}
+		if islatebinding {
+			expectedSCName += "-latebinding"
 		}
+
+		if item.StorageClassName != expectedSCName {
+			continue
+		}
+
+		// Find the matching ResourceExtensionName
+		for _, resItem := range spq.Status.ResourceTypeLevelQuotaStatuses {
+			if resItem.ResourceExtensionName != extensionType {
+				continue
+			}
+			// Choose the index based on late binding
+			index := 0
+			if islatebinding {
+				index = 1
+			}
+
+			if len(resItem.ResourceTypeSCLevelQuotaStatuses) <= index {
+				ginkgo.By(fmt.Sprintf("Quota status list index %d not available", index))
+				break
+			}
+
+			usedQuota = resItem.ResourceTypeSCLevelQuotaStatuses[index].SCLevelQuotaUsage.Used
+			reservedQuota = resItem.ResourceTypeSCLevelQuotaStatuses[index].SCLevelQuotaUsage.Reserved
+			ginkgo.By(fmt.Sprintf("usedQuota: %v, reservedQuota: %v", usedQuota, reservedQuota))
+			break
+		}
+
+		break // SC match found and processed; exit outer loop
 	}
 
 	return usedQuota, reservedQuota
@@ -6804,7 +6825,8 @@ func GetStoragePolicyQuotaForSpecificResourceType(ctx context.Context, restClien
 
 // Get total quota consumption by storagePolicy
 func GetTotalQuotaConsumedByStoragePolicy(ctx context.Context, restClientConfig *rest.Config,
-	scName string, namespace string) (*resource.Quantity, *resource.Quantity) {
+	scName string, namespace string, islatebinding bool) (*resource.Quantity, *resource.Quantity) {
+
 	var usedQuota, reservedQuota *resource.Quantity
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6813,12 +6835,21 @@ func GetTotalQuotaConsumedByStoragePolicy(ctx context.Context, restClientConfig 
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	scLevelQuotaStatusList := spq.Status.SCLevelQuotaStatuses
-	for _, item := range scLevelQuotaStatusList {
-		if item.StorageClassName == scName {
+
+	// Determine expected StorageClass name
+	expectedSCName := scName
+	if islatebinding {
+		expectedSCName += "-latebinding"
+	}
+
+	// Search for matching StorageClass entry
+	for _, item := range spq.Status.SCLevelQuotaStatuses {
+		if item.StorageClassName == expectedSCName {
+			framework.Logf("**TotalQuotaConsumed for storage policy: %s **", expectedSCName)
 			usedQuota = item.SCLevelQuotaUsage.Used
 			reservedQuota = item.SCLevelQuotaUsage.Reserved
 			ginkgo.By(fmt.Sprintf("usedQuota %v, reservedQuota %v", usedQuota, reservedQuota))
+			break // exit after match
 		}
 	}
 	return usedQuota, reservedQuota
@@ -7035,84 +7066,101 @@ func StartStorageQuotaWebhookPodInKubeSystem(ctx context.Context, client clients
 	return isServiceStopped, err
 }
 
-// GetStoragePolicyUsedAndReservedQuotaDetails This method returns the used and reserved quota's from
+// getStoragePolicyUsedAndReservedQuotaDetails This method returns the used and reserved quota's from
 // storageQuota CR, storagePolicyQuota CR and storagePolicyUsage CR
-func GetStoragePolicyUsedAndReservedQuotaDetails(ctx context.Context, restConfig *rest.Config, storagePolicyName string,
-	namespace string, resourceUsageName string, resourceExtensionName string) (*resource.Quantity, *resource.Quantity,
+func GetStoragePolicyUsedAndReservedQuotaDetails(ctx context.Context, restConfig *rest.Config,
+	storagePolicyName string, namespace string, resourceUsageName string, resourceExtensionName string,
+	islatebinding bool) (*resource.Quantity, *resource.Quantity,
 	*resource.Quantity, *resource.Quantity, *resource.Quantity, *resource.Quantity) {
+
 	var totalQuotaUsed, totalQuotaReserved, storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved *resource.Quantity
 	var storagePolicyUsageCRUsed, storagePolicyUsageCRReserved *resource.Quantity
 
 	totalQuotaUsed, totalQuotaReserved = GetTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
-		storagePolicyName, namespace)
-	framework.Logf("totalQuotaUsed :%v, totalQuotaReserved:%v", totalQuotaUsed, totalQuotaReserved)
+		storagePolicyName, namespace, islatebinding)
+	framework.Logf("Namespace total-Quota-Used: %s,total-Quota-Reserved: %s ", totalQuotaUsed, totalQuotaReserved)
 
-	storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved = GetStoragePolicyQuotaForSpecificResourceType(ctx,
-		restConfig, storagePolicyName, namespace, resourceExtensionName)
-	framework.Logf("pvcStoragePolicyQuotaUsed :%v, pvcStoragePolicyQuotaReserved : %v", storagePolicyQuotaCRUsed,
-		storagePolicyQuotaCRReserved)
+	if resourceExtensionName != "" {
+		framework.Logf("**resourceUsageName: %s, resourceExtensionName: %s **", resourceUsageName,
+			resourceExtensionName)
+		storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved = GetStoragePolicyQuotaForSpecificResourceType(ctx,
+			restConfig, storagePolicyName, namespace, resourceExtensionName, islatebinding)
+		framework.Logf("Policy-Quota-CR-Used: %s, Policy-Quota-CR-Reserved: %s", storagePolicyQuotaCRUsed,
+			storagePolicyQuotaCRReserved)
+	} else {
+		storagePolicyQuotaCRUsed = nil
+		storagePolicyQuotaCRReserved = nil
+	}
 
-	storagePolicyUsageCRUsed, storagePolicyUsageCRReserved = GetStoragePolicyUsageForSpecificResourceType(ctx,
-		restConfig, storagePolicyName, namespace, resourceUsageName)
-	framework.Logf("storagePolicyUsageCRUsed :%v, storagePolicyUsageCRReserved: %v", storagePolicyUsageCRUsed,
-		storagePolicyUsageCRReserved)
+	if resourceUsageName != "" {
+		if islatebinding {
+			storagePolicyUsageCRUsed, storagePolicyUsageCRReserved = GetStoragePolicyUsageForSpecificResourceType(ctx,
+				restConfig, storagePolicyName+"-latebinding", namespace, resourceUsageName)
+		} else {
+			storagePolicyUsageCRUsed, storagePolicyUsageCRReserved = GetStoragePolicyUsageForSpecificResourceType(ctx,
+				restConfig, storagePolicyName, namespace, resourceUsageName)
+		}
+		framework.Logf("Policy-Usage-CR-Used: %s, Policy-Usage-CR-Reserved: %s", storagePolicyUsageCRUsed,
+			storagePolicyUsageCRReserved)
+	} else {
+		storagePolicyUsageCRUsed = nil
+		storagePolicyUsageCRReserved = nil
+	}
 
 	return totalQuotaUsed, totalQuotaReserved,
 		storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved,
 		storagePolicyUsageCRUsed, storagePolicyUsageCRReserved
 }
 
-// ValidateQuotaUsageAfterResourceCreation Verifies the quota consumption before and after the resource creation
+// validateQuotaUsageAfterResourceCreation Verifies the quota consumption after the resource creation
+// resourceExtensionName :  volExtensionName / snapshotExtensionName / volExtensionName,
+// resourceUsage: pvcUsage / snapshotUsage / vmUsage
 func ValidateQuotaUsageAfterResourceCreation(ctx context.Context, restConfig *rest.Config, storagePolicyName string,
-	namespace string, resourceUsage string, resourceExtensionName string, size int64,
+	namespace string, resourceUsage string, resourceExtensionName string, size []string,
 	totalQuotaUsedBefore *resource.Quantity, storagePolicyQuotaBefore *resource.Quantity,
-	storagePolicyUsageBefore *resource.Quantity) (*resource.Quantity,
-	*resource.Quantity, *resource.Quantity) {
+	storagePolicyUsageBefore *resource.Quantity, islatebinding bool) (bool, bool) {
 
-	totalQuotaUsedAfter, _, storagePolicyQuotaAfter, _, storagePolicyUsageAfter, _ :=
+	_, _, storagePolicyQuotaAfter, _, storagePolicyUsageAfter, _ :=
 		GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-			storagePolicyName, namespace, resourceUsage, resourceExtensionName)
+			storagePolicyName, namespace, resourceUsage, resourceExtensionName, islatebinding)
 
-	quotavalidationStatus := ValidateTotalStoragequota(ctx, size, totalQuotaUsedBefore,
-		totalQuotaUsedAfter)
-	framework.Logf("totalStoragequota validation status :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-	quotavalidationStatus = ValidateTotalStoragequota(ctx, size, storagePolicyQuotaBefore,
+	sp_quota_validation := Validate_totalStoragequota(ctx, size, storagePolicyQuotaBefore,
 		storagePolicyQuotaAfter)
-	framework.Logf("toragePolicyQuota validation status :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-	quotavalidationStatus = ValidateTotalStoragequota(ctx, size, storagePolicyUsageBefore,
-		storagePolicyUsageAfter)
-	framework.Logf("storagePolicyUsage validation status :%v", quotavalidationStatus)
-	framework.Logf("quotavalidationStatus :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
+	framework.Logf("Storage-policy-Quota CR validation status :%v", sp_quota_validation)
 
-	return totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter
+	sp_usage_validation := Validate_totalStoragequota(ctx, size, storagePolicyUsageBefore,
+		storagePolicyUsageAfter)
+	framework.Logf("Storage-policy-usage CR validation status :%v", sp_usage_validation)
+
+	return sp_quota_validation, sp_usage_validation
 }
 
-// ValidateQuotaUsageAfterCleanUp verifies the storagequota details shows up on all CR's after resource cleanup
+// validateQuotaUsageAfterCleanUp verifies the storagequota details shows up on all CR's after resource cleanup
 func ValidateQuotaUsageAfterCleanUp(ctx context.Context, restConfig *rest.Config, storagePolicyName string,
-	namespace string, resourceUsage string, resourceExtensionName string, diskSizeInMb int64,
+	namespace string, resourceUsage string, resourceExtensionName string, diskSizeInMb string,
 	totalQuotaUsedAfter *resource.Quantity, storagePolicyQuotaAfter *resource.Quantity,
-	storagePolicyUsageAfter *resource.Quantity) {
+	storagePolicyUsageAfter *resource.Quantity, islatebinding bool) {
 
 	totalQuotaUsedCleanup, totalQuotaReserved, storagePolicyQuotaAfterCleanup, storagePolicyQuotaReserved,
 		storagePolicyUsageAfterCleanup, storagePolicyUsageReserved := GetStoragePolicyUsedAndReservedQuotaDetails(
-		ctx, restConfig, storagePolicyName, namespace, resourceUsage, resourceExtensionName)
+		ctx, restConfig, storagePolicyName, namespace, resourceUsage, resourceExtensionName, islatebinding)
 
-	quotavalidationStatusAfterCleanup := ValidateTotalStorageQuotaAfterCleanUp(ctx, diskSizeInMb,
+	quotavalidationStatusAfterCleanup := Validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb,
 		totalQuotaUsedAfter, totalQuotaUsedCleanup)
 	gomega.Expect(quotavalidationStatusAfterCleanup).NotTo(gomega.BeFalse())
 
-	quotavalidationStatusAfterCleanup = ValidateTotalStorageQuotaAfterCleanUp(ctx, diskSizeInMb,
+	quotavalidationStatusAfterCleanup = Validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb,
 		storagePolicyQuotaAfter, storagePolicyQuotaAfterCleanup)
 	gomega.Expect(quotavalidationStatusAfterCleanup).NotTo(gomega.BeFalse())
-	quotavalidationStatusAfterCleanup = ValidateTotalStorageQuotaAfterCleanUp(ctx, diskSizeInMb,
+
+	quotavalidationStatusAfterCleanup = Validate_totalStoragequota_afterCleanUp(ctx, diskSizeInMb,
 		storagePolicyUsageAfter, storagePolicyUsageAfterCleanup)
 	gomega.Expect(quotavalidationStatusAfterCleanup).NotTo(gomega.BeFalse())
-	reservedQuota := ValidateReservedQuotaAfterCleanUp(ctx, totalQuotaReserved,
+
+	reservedQuota := Validate_reservedQuota_afterCleanUp(ctx, totalQuotaReserved,
 		storagePolicyQuotaReserved, storagePolicyUsageReserved)
 	gomega.Expect(reservedQuota).NotTo(gomega.BeFalse())
+
 	framework.Logf("quotavalidationStatus :%v reservedQuota:%v", quotavalidationStatusAfterCleanup,
 		reservedQuota)
 }
@@ -7314,4 +7362,202 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	fmt.Println("All required storage policy usages are available.")
+}
+
+func Validate_totalStoragequota_afterCleanUp(ctx context.Context, diskSize string,
+	totalUsedQuotaBeforeCleanup *resource.Quantity, totalUsedQuotaAfterCleanup *resource.Quantity) bool {
+	var validTotalQuota bool
+	validTotalQuota = false
+
+	out := make([]byte, 0, 64)
+	result, diskUnit_quotaBefore := totalUsedQuotaBeforeCleanup.CanonicalizeBytes(out)
+	value := string(result)
+	quotaBeforeCleanUp, err := strconv.ParseInt(string(value), 10, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf(" quotaBefore :  %v%s", quotaBeforeCleanUp, string(diskUnit_quotaBefore)))
+
+	result1, diskUnit_quotaAfter := totalUsedQuotaAfterCleanup.CanonicalizeBytes(out)
+	value1 := string(result1)
+	quotaAfter, err := strconv.ParseInt(string(value1), 10, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf(" quotaAfter :  %v%s", quotaAfter, string(diskUnit_quotaAfter)))
+
+	sizeStr := strings.TrimSpace(diskSize)
+	ginkgo.By(fmt.Sprintf(" diskSize :  %s", diskSize))
+	// Use regex to extract the numeric part
+	rex := regexp.MustCompile(`\d+`)
+	numStr := rex.FindString(sizeStr)
+
+	// Convert to int64
+	storage, err := strconv.ParseInt(numStr, 10, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Determine the unit
+	diskSizeUnit := strings.ToUpper(strings.TrimPrefix(sizeStr, numStr))
+
+	//To calculate the ExpectedQuota, It is required to match the diskUnit's of
+	//storageQuota that was showing before and after the workload creation
+	if string(diskUnit_quotaBefore) != string(diskUnit_quotaAfter) {
+		if string(diskUnit_quotaAfter) == "Mi" && diskSizeUnit == "GI" {
+			if string(diskUnit_quotaBefore) == "Gi" {
+				var bytes int64 = quotaBeforeCleanUp
+				quotaBeforeCleanUp = int64(bytes) * 1024
+			}
+			storage = storage * 1024
+			fmt.Printf("Converted quotaBefore: %dMi and diskSiseUsed to Mi: %dMi\n", quotaBeforeCleanUp, storage)
+		}
+		if string(diskUnit_quotaAfter) == "Gi" && diskSizeUnit == "GI" {
+			if string(diskUnit_quotaBefore) == "Mi" {
+				var mb int64 = quotaBeforeCleanUp
+				quotaBeforeCleanUp = mb / 1024
+			}
+			fmt.Printf("Converted quotaBefore: %dGi and diskSiseUsed to Gi: %dGi\n", quotaBeforeCleanUp, storage)
+		}
+	} else {
+		if string(diskUnit_quotaAfter) == "Gi" && diskSizeUnit == "GI" {
+			fmt.Printf(" quotaBefore: %dGi and diskSiseUsed to Gi: %dGi\n", quotaBeforeCleanUp, storage)
+		}
+
+		if string(diskUnit_quotaAfter) == "Mi" && diskSizeUnit == "GI" {
+			storage = storage * 1024
+			fmt.Printf("Converted quotaBefore: %dMi and diskSiseUsed to Mi: %dMi\n", quotaBeforeCleanUp, storage)
+		}
+	}
+
+	quota := quotaBeforeCleanUp - storage
+	fmt.Printf("cleanup quota : %v, quotaAfter: %v ", quota, quotaAfter)
+	if quota == quotaAfter {
+		validTotalQuota = true
+		ginkgo.By(fmt.Sprintf("quotaBeforeCleanUp - diskSize: %v, quotaAfter : %v", quota, quotaAfter))
+		ginkgo.By(fmt.Sprintf("validTotalQuota on storagePolicy:  %v", validTotalQuota))
+
+	}
+
+	return validTotalQuota
+}
+
+// validate_reservedQuota_afterCleanUp  after the volume goes to bound state or
+// after teast clean up , expected reserved quota should be "0"
+func Validate_reservedQuota_afterCleanUp(ctx context.Context, total_reservedQuota *resource.Quantity,
+	policy_reservedQuota *resource.Quantity, storagepolicyUsage_reserved_Quota *resource.Quantity) bool {
+	ginkgo.By(fmt.Sprintf("reservedQuota on total storageQuota CR: %v"+
+		"storagePolicyQuota CR: %v, storagePolicyUsage CR: %v ",
+		total_reservedQuota.String(), policy_reservedQuota.String(), storagepolicyUsage_reserved_Quota.String()))
+
+	//After the clean up it is expected to have reservedQuota to be '0'
+	return total_reservedQuota.String() == "0" &&
+		policy_reservedQuota.String() == "0" &&
+		storagepolicyUsage_reserved_Quota.String() == "0"
+
+}
+
+func Validate_totalStoragequota(ctx context.Context, diskSizes []string, totalUsedQuotaBefore *resource.Quantity,
+	totalUsedQuotaAfter *resource.Quantity) bool {
+	var validTotalQuota bool
+	validTotalQuota = false
+	var totalDiskStorage int64
+
+	//Convert string in the Form "1Gi" to quotaBefore=1 and suffix=Gi or Mi
+	out := make([]byte, 0, 64)
+	result, diskUnit_quotaBefore := totalUsedQuotaBefore.CanonicalizeBytes(out)
+	value := string(result)
+	quotaBefore, err := strconv.ParseInt(string(value), 10, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf(" quotaBefore :  %v%s", quotaBefore, string(diskUnit_quotaBefore)))
+
+	//Convert string in the Form "1Gi" to quotaAfter=1 and suffix=Gi or Mi
+	result1, diskunit_quotaAfter := totalUsedQuotaAfter.CanonicalizeBytes(out)
+	value1 := string(result1)
+	quotaAfter, err := strconv.ParseInt(string(value1), 10, 64)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf(" quotaAfter :  %v%s", quotaAfter, string(diskunit_quotaAfter)))
+
+	totalDiskStorage = SumupAlltheResourceDiskUsage(diskSizes, diskunit_quotaAfter)
+
+	//To calculate the ExpectedQuota, It is required to match the diskUnit's of
+	//storageQuota that was showing before and after the workload creation
+	if string(diskUnit_quotaBefore) != string(diskunit_quotaAfter) {
+		if string(diskunit_quotaAfter) == "Mi" {
+			if string(diskUnit_quotaBefore) == "Gi" {
+				var bytes int64 = quotaBefore
+				quotaBefore = int64(bytes) * 1024
+			}
+		}
+		if string(diskunit_quotaAfter) == "Gi" {
+			if string(diskUnit_quotaBefore) == "Mi" {
+				var mb int64 = quotaBefore
+				quotaBefore = mb / 1024
+			}
+		}
+	}
+
+	ginkgo.By(fmt.Sprintf("quotaBefore+diskSize:  %v, quotaAfter : %v",
+		quotaBefore+totalDiskStorage, quotaAfter))
+	ginkgo.By(fmt.Sprintf("totalDiskStorage:  %v", totalDiskStorage))
+
+	if quotaBefore+totalDiskStorage == quotaAfter {
+		validTotalQuota = true
+		ginkgo.By(fmt.Sprintf("quotaBefore+diskSize:  %v, quotaAfter : %v",
+			quotaBefore+totalDiskStorage, quotaAfter))
+		ginkgo.By(fmt.Sprintf("validTotalQuota on storagePolicy:  %v", validTotalQuota))
+
+	}
+	return validTotalQuota
+}
+
+// Convert all the disks storage unit to the expected unit value and Sums up and returns the totalDiskStorage
+func SumupAlltheResourceDiskUsage(diskSizes []string, expectedUnit []byte) int64 {
+	var totalDiskStorage int64
+	var diskUnit string
+
+	fmt.Println("Length of slice:", len(diskSizes))
+
+	for _, diskSize := range diskSizes {
+		sizeStr := strings.TrimSpace(diskSize)
+		ginkgo.By(fmt.Sprintf("diskSize :  %s", diskSize))
+		ginkgo.By(fmt.Sprintf("present totalDiskStorage :  %d", totalDiskStorage))
+		// Use regex to extract the numeric part
+		rex := regexp.MustCompile(`\d+`)
+		numStr := rex.FindString(sizeStr)
+
+		// Convert to int64
+		storage, err := strconv.ParseInt(numStr, 10, 64)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("storage : %d", storage)
+
+		// Determine the unit
+		//diskUnit = strings.ToUpper(strings.TrimPrefix(sizeStr, numStr))
+		diskUnit = strings.TrimPrefix(sizeStr, numStr)
+		framework.Logf("diskUnit : %s", diskUnit)
+
+		if string(expectedUnit) == "Gi" {
+			if diskUnit == "Gi" {
+				totalDiskStorage = totalDiskStorage + storage
+			} else {
+				storageGi := storage / 1024
+				totalDiskStorage = totalDiskStorage + storageGi
+			}
+		} else if string(expectedUnit) == "Mi" {
+			if diskUnit == "Mi" {
+				totalDiskStorage = totalDiskStorage + storage
+			} else {
+				storageMi := storage * 1024
+				totalDiskStorage = totalDiskStorage + storageMi
+			}
+		}
+	}
+
+	framework.Logf("sum of all the disk storages = %d ", totalDiskStorage)
+	return totalDiskStorage
+
+}
+
+// Convert mb to String
+func ConvertInt64ToStrMbFormat(diskSize int64) string {
+	result := strconv.FormatInt(diskSize, 10) + "Mi"
+	fmt.Println(result)
+	return result
 }
