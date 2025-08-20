@@ -26,7 +26,6 @@ import (
 
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,7 +34,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
-
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -97,7 +95,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value)
+			dsRef.Value, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Create a WCP namespace for the test")
@@ -106,7 +104,7 @@ var _ bool = ginkgo.Describe("[vsan-stretch-vmsvc] vm service with csi vol tests
 			vmClass = vmClassBestEffortSmall
 		}
 		namespace = createTestWcpNs(
-			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId, &e2eVSphere))
 
 		time.Sleep(5 * time.Minute)
 

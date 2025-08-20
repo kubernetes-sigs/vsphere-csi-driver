@@ -89,7 +89,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 
 		vcRestSessionId = createVcSession4RestApis(ctx)
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value)
+			dsRef.Value, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Create a WCP namespace for the test")
@@ -100,7 +100,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 
 		// Create SVC namespace and assign storage policy and vmContent Library
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			nil, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))

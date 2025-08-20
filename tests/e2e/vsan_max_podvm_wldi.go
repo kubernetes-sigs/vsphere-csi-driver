@@ -22,7 +22,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -171,7 +170,7 @@ var _ bool = ginkgo.Describe("[podvm-domain-isolation-vsan-max] PodVM-WLDI-Vsan-
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))

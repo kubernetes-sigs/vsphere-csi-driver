@@ -95,7 +95,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		storageProfileId = e2eVSphere.GetSpbmPolicyID(storageClassName)
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value)
+			dsRef.Value, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Create a WCP namespace for the test")
@@ -106,7 +106,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 
 		framework.Logf("Create a WCP namespace for the test")
 		namespace = createTestWcpNs(
-			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId, &e2eVSphere))
 
 		ginkgo.By("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()
@@ -301,14 +301,18 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*v1.PersistentVolumeClaim{pvc, staticPvc})).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify PVCs are accessible to the VM")
-		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
-		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+		if !isPrivateNetwork {
+			ginkgo.By("Verify PVCs are accessible to the VM")
+			ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+			vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for i, vol := range vm.Status.Volumes {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
+
 	})
 
 	/*

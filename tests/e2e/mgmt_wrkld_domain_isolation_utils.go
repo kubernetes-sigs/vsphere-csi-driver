@@ -46,7 +46,14 @@ This util will create initial namespace get/post api call request
 */
 func createInitialNsApiCallUrl() string {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	initialUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/"
+
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+
+	initialUrl := "https://" + vcIp + ":" + e2eVSphere.Config.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/"
 
 	return initialUrl
 }
