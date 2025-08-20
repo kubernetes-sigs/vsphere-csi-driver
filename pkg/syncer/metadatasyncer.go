@@ -343,6 +343,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.MultipleClustersPerVsphereZone, "", "")
 		}
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.StoragePolicyReservationSupport) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.StoragePolicyReservationSupport, "", "")
+		}
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -1154,8 +1159,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(vsReserved, totalStoragePolicyReserved)
 		}
 
-		// TODO: For now this FSS is added in CSI ConfigMap. Once this FSS is available in Capabilities CR, remove
-		// it from CSI ConfigMap and fetch FSS value from Capabilities CR.
+		// Check if storage policy reservation related FSS is enabled
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
 			// calculate expected reserved values for StoragePolicyReservation CRs for given namespace
 			sprReserved, err := calculateSPRReservedForNamespace(ctx, cnsOperatorClient, ns)

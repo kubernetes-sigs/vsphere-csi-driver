@@ -449,8 +449,9 @@ const (
 	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
 	// snapshots on different datastores feature is supported in CSI.
 	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
-	// StoragePolicyReservationSupport is FSS that tells whether StoragePolicyReservation is supported in CSI
-	StoragePolicyReservationSupport = "storage-policy-reservation-support"
+	// StoragePolicyReservation feature is assumed to be enabled in CSI when
+	// "supports_mobility_non_disruptive_import" capability is enabled in supervisor.
+	StoragePolicyReservationSupport = "supports_mobility_non_disruptive_import"
 	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
 	LinkedCloneSupport = "supports_FCD_linked_clone"
 	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
@@ -458,13 +459,14 @@ const (
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor: {},
-	CSIDetachOnSupervisor:      {},
-	WorkloadDomainIsolation:    {},
-	VPCCapabilitySupervisor:    {},
-	VolFromSnapshotOnTargetDs:  {},
-	SharedDiskFss:              {},
-	LinkedCloneSupport:         {},
+	PodVMOnStretchedSupervisor:      {},
+	CSIDetachOnSupervisor:           {},
+	WorkloadDomainIsolation:         {},
+	VPCCapabilitySupervisor:         {},
+	VolFromSnapshotOnTargetDs:       {},
+	SharedDiskFss:                   {},
+	LinkedCloneSupport:              {},
+	StoragePolicyReservationSupport: {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later

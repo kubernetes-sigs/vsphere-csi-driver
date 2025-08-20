@@ -575,7 +575,6 @@ data:
   "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service": "false"
   "csi-transaction-support": "false"
-  "storage-policy-reservation-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states

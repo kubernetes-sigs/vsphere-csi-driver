@@ -151,6 +151,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+			cnstypes.CnsClusterFlavorWorkload, common.StoragePolicyReservationSupport, "", "")
+	}
 	isPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.PodVMOnStretchedSupervisor)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
