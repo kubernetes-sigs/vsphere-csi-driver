@@ -350,7 +350,7 @@ func TestValidateVolumeCapabilitiesCommon(t *testing.T) {
 	}
 }
 
-// TestValidateVolumeCapabilitiesCommonWithVolumeCheck tests the ValidateVolumeCapabilitiesCommonWithVolumeCheck function
+// Tests ValidateVolumeCapabilitiesCommonWithVolumeCheck function
 func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -366,9 +366,11 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 		name           string
 		req            *csi.ValidateVolumeCapabilitiesRequest
 		validationFunc func(context.Context, []*csi.VolumeCapability) error
-		mockQueryFunc  func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error)
-		expectedError  bool
-		expectedCode   codes.Code
+		mockQueryFunc  func(ctx context.Context,
+			volManager cnsvolume.Manager, volumeID string,
+			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error)
+		expectedError bool
+		expectedCode  codes.Code
 	}{
 		{
 			name: "Valid request with existing volume and valid capabilities",
@@ -388,7 +390,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 			validationFunc: func(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 				return nil // Valid capabilities
 			},
-			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 				return &cnstypes.CnsVolume{
 					VolumeId: cnstypes.CnsVolumeId{Id: "existing-volume-id"},
 				}, nil
@@ -435,7 +438,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 			validationFunc: func(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 				return nil
 			},
-			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 				return nil, ErrNotFound
 			},
 			expectedError: true,
@@ -459,7 +463,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 			validationFunc: func(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 				return nil
 			},
-			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 				return nil, fmt.Errorf("query error")
 			},
 			expectedError: true,
@@ -483,7 +488,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 			validationFunc: func(ctx context.Context, volCaps []*csi.VolumeCapability) error {
 				return fmt.Errorf("invalid capabilities")
 			},
-			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 				return &cnstypes.CnsVolume{
 					VolumeId: cnstypes.CnsVolumeId{Id: "existing-volume-id"},
 				}, nil
@@ -506,7 +512,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 				},
 			},
 			validationFunc: IsValidVolumeCapabilities,
-			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager, volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			mockQueryFunc: func(ctx context.Context, volManager cnsvolume.Manager,
+				volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
 				return &cnstypes.CnsVolume{
 					VolumeId: cnstypes.CnsVolumeId{Id: "existing-volume-id"},
 				}, nil
@@ -525,7 +532,8 @@ func TestValidateVolumeCapabilitiesCommonWithVolumeCheck(t *testing.T) {
 			// Create a dummy volume manager (not used when mocking QueryVolumeByID)
 			dummyVolumeManager := &MockVolumeManager{}
 
-			resp, err := ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx, tt.req, tt.validationFunc, dummyVolumeManager)
+			resp, err := ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx,
+				tt.req, tt.validationFunc, dummyVolumeManager)
 
 			if tt.expectedError {
 				require.Error(t, err)
@@ -595,7 +603,8 @@ func (m *MockVolumeManager) QueryAllVolume(ctx context.Context, queryFilter cnst
 	return &cnstypes.CnsQueryResult{}, nil
 }
 
-func (m *MockVolumeManager) QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+func (m *MockVolumeManager) QueryVolume(ctx context.Context, queryFilter cnstypes.CnsQueryFilter) (
+	*cnstypes.CnsQueryResult, error) {
 	return &cnstypes.CnsQueryResult{}, nil
 }
 
@@ -604,11 +613,13 @@ func (m *MockVolumeManager) QueryVolumeAsync(ctx context.Context, queryFilter cn
 	return nil, nil
 }
 
-func (m *MockVolumeManager) RelocateVolume(ctx context.Context, relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error) {
+func (m *MockVolumeManager) RelocateVolume(ctx context.Context,
+	relocateSpecList ...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error) {
 	return nil, nil
 }
 
-func (m *MockVolumeManager) ExpandVolume(ctx context.Context, volumeID string, size int64, extraParams interface{}) (string, error) {
+func (m *MockVolumeManager) ExpandVolume(ctx context.Context, volumeID string, size int64,
+	extraParams interface{}) (string, error) {
 	return "", nil
 }
 
@@ -624,7 +635,8 @@ func (m *MockVolumeManager) RegisterDisk(ctx context.Context, path string, name 
 	return "", nil
 }
 
-func (m *MockVolumeManager) RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error) {
+func (m *MockVolumeManager) RetrieveVStorageObject(ctx context.Context,
+	volumeID string) (*vim25types.VStorageObject, error) {
 	return nil, nil
 }
 
@@ -632,7 +644,8 @@ func (m *MockVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, vol
 	return nil
 }
 
-func (m *MockVolumeManager) CreateSnapshot(ctx context.Context, volumeID string, desc string, extraParams interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
+func (m *MockVolumeManager) CreateSnapshot(ctx context.Context, volumeID string,
+	desc string, extraParams interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
 	return nil, nil
 }
 
@@ -641,7 +654,8 @@ func (m *MockVolumeManager) DeleteSnapshot(ctx context.Context, volumeID string,
 	return nil, nil
 }
 
-func (m *MockVolumeManager) QuerySnapshots(ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (
+func (m *MockVolumeManager) QuerySnapshots(ctx context.Context,
+	snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (
 	*cnstypes.CnsSnapshotQueryResult, error) {
 	return nil, nil
 }
@@ -665,6 +679,7 @@ func (m *MockVolumeManager) SetListViewNotReady(ctx context.Context) {
 }
 
 func (m *MockVolumeManager) BatchAttachVolumes(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine, batchAttachRequest []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
+	vm *cnsvsphere.VirtualMachine,
+	batchAttachRequest []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
 	return nil, "", nil
 }

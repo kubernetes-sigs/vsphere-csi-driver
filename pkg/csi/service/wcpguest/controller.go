@@ -1534,34 +1534,18 @@ func (c *controller) getSupervisorPVC(ctx context.Context, pvcName string) (*cor
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
 
-	// Extract volume ID from request
-	volumeID := req.GetVolumeId()
-	if volumeID == "" {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
+	// Run common checks
+	resp, err := common.ValidateVolumeCapabilitiesCommon(ctx, req, common.IsValidVolumeCapabilities)
+	if err != nil {
+		return resp, err
 	}
-
-	// For WCPGuest, the volume ID corresponds to a supervisor PVC name
-	// Check if the supervisor PVC exists
-	_, err := c.getSupervisorPVC(ctx, volumeID)
+	// Sanity check if the supervisor PVC exists
+	_, err = c.getSupervisorPVC(ctx, req.GetVolumeId())
 	if err != nil {
 		return nil, err
 	}
-
-	// Validate volume capabilities
-	volCaps := req.GetVolumeCapabilities()
-	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-
-	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
-		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
-	}
-
-	return &csi.ValidateVolumeCapabilitiesResponse{
-		Confirmed: confirmed,
-	}, nil
+	return resp, err
 }
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (

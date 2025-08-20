@@ -2652,17 +2652,20 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	// For multi-vCenter CSI topology, we need to determine which vCenter the volume belongs to
 	if multivCenterCSITopologyEnabled {
 		// Get the vCenter and volume manager for the given volume ID
-		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.GetVolumeId(), volumeInfoService)
+		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx,
+			c, req.GetVolumeId(), volumeInfoService)
 		if err != nil {
 			return nil, err
 		}
-		return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx, req, common.IsValidVolumeCapabilities, volumeManager)
+		return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx,
+			req, common.IsValidVolumeCapabilities, volumeManager)
+	} else {
+		// For single vCenter deployment
+		return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx,
+			req, common.IsValidVolumeCapabilities, c.manager.VolumeManager)
 	}
-	// For single vCenter deployment
-	return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx, req, common.IsValidVolumeCapabilities, c.manager.VolumeManager)
 }
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
