@@ -6,6 +6,18 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
 ---
 apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: system-priorityclass-resourcequota
+  namespace: {{ .PVCSINamespace }}
+spec:
+  scopeSelector:
+    matchExpressions:
+      - operator : In
+        scopeName: PriorityClass
+        values: ["system-node-critical", "system-cluster-critical"] 
+---
+apiVersion: v1
 kind: LimitRange
 metadata:
   name: vsphere-csi-limit-range
