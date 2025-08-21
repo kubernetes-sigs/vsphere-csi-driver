@@ -313,8 +313,7 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		topoAnnotation[common.AnnVolumeAccessibleTopology] = "[" + strings.Join(segmentsArray, ",") + "]"
 	}
 
-	// TODO: For now this FSS is added in CSI ConfigMap. Once this FSS is available in Capabilities CR, remove
-	// it from CSI ConfigMap and fetch FSS value from Capabilities CR.
+	// Check if storage policy reservation related FSS is enabled
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
 		// Check if both labelVirtualMachineName and labelStoragePolicyReservationName are on CnsRegisterVolume CR.
 		// If both are present, add both to PVC
