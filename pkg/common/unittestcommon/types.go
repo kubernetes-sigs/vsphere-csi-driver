@@ -223,3 +223,8 @@ func (m *MockVolumeManager) BatchAttachVolumes(ctx context.Context,
 	}
 	return []cnsvolume.BatchAttachResult{}, "", nil
 }
+
+func (m *MockVolumeManager) SyncVolume(ctx context.Context,
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
+}

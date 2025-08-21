@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
@@ -304,6 +305,10 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	}
 	if err := wcpcapapis.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
+		return err
+	}
+	if err := vmoperatorv1alpha4.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Errorf("failed to set the scheme for vm operator. Err: %+v", err)
 		return err
 	}
 
