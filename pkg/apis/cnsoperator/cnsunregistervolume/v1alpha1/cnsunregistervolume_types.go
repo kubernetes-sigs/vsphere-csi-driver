@@ -24,7 +24,10 @@ import (
 // +k8s:openapi-gen=true
 type CnsUnregisterVolumeSpec struct {
 	// VolumeID indicates the volume handle of CNS volume to be unregistered
-	VolumeID string `json:"volumeID"`
+	VolumeID string `json:"volumeID,omitempty"`
+
+	// PVCName indicates the name of the PVC to be unregistered.
+	PVCName string `json:"pvcName,omitempty"`
 
 	// RetainFCD indicates if the volume should be retained as an FCD.
 	// If set to false or not specified, the volume will be retained as a VMDK.
