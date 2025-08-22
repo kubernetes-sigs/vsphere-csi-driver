@@ -397,7 +397,7 @@ func (m *mockCOCommon) GetPvcObjectByName(ctx context.Context, pvcName string,
 	return nil, nil
 }
 
-func (m *mockCOCommon) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+func (m *mockCOCommon) GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool) {
 	return "vol-1", true
 }
 
