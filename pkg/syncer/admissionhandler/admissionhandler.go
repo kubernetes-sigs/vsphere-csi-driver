@@ -146,7 +146,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.WCP_VMService_BYOK)
+		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOKEncryption)
 		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)

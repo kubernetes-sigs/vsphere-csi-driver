@@ -435,8 +435,8 @@ const (
 	MultipleClustersPerVsphereZone = "supports_multiple_clusters_per_zone"
 	// VPCCapabilitySupervisor is a supervisor capability indicating if VPC FSS is enabled
 	VPCCapabilitySupervisor = "VPC_Supported"
-	// WCP_VMService_BYOK_FSS enables Bring Your Own Key (BYOK) capabilities.
-	WCP_VMService_BYOK = "WCP_VMService_BYOK"
+	// BYOKEncryption enables Bring Your Own Key (BYOK) encryption capabilities.
+	BYOKEncryption = "supports_BYOK_encryption"
 	// SVPVCSnapshotProtectionFinalizer is FSS that controls add/remove
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
@@ -471,6 +471,7 @@ var WCPFeatureStates = map[string]struct{}{
 	LinkedCloneSupport:              {},
 	StoragePolicyReservationSupport: {},
 	WCPVMServiceVMSnapshots:         {},
+	BYOKEncryption:                  {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -481,6 +482,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	WorkloadDomainIsolation: {},
 	LinkedCloneSupport:      {},
 	WCPVMServiceVMSnapshots: {},
+	BYOKEncryption:          {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
