@@ -101,7 +101,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		// Create SVC namespace and assign storage policy and vmContent Library
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{storageProfileId}, getSvcId(vcRestSessionId),
-			nil, vmClass, contentLibId)
+			nil, vmClass, contentLibId, devopsUser)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 
