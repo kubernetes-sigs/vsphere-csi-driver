@@ -43,6 +43,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 )
 
+// TODO: Update the tests
+
 func TestReconciler_Reconcile(t *testing.T) {
 	newK8sClientOriginal := newK8sClient
 	getPVNameOriginal := getPVName

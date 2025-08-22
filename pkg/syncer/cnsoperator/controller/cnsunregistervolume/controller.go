@@ -18,6 +18,7 @@ package cnsunregistervolume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -208,58 +209,50 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 	log.Infof("Reconciling CnsUnregisterVolume instance %q from namespace %q. timeout %q seconds",
 		instance.Name, request.Namespace, timeout)
-	pvName, err := getPVName(ctx, instance.Spec.VolumeID)
+	params, err := getValidatedParams(ctx, *instance)
 	if err != nil {
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-
-	pvcName, pvcNamespace, err := getPVCName(ctx, instance.Spec.VolumeID)
-	if err != nil {
+		log.Warnf("Failed to get input parameters for CnsUnregisterVolume instance %q. Error: %s",
+			instance.Name, err.Error())
 		setInstanceError(ctx, r, instance, err.Error())
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
-		log.Warn("Failed to init K8S client for volume unregistration")
+		log.Warn("Failed to init K8S client for volume unregistration. Error: %s", err.Error())
 		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume unregistration")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	usageInfo, err := getVolumeUsageInfo(ctx, k8sClient, pvcName, pvcNamespace,
+	usageInfo, err := getVolumeUsageInfo(ctx, k8sClient, params.pvcName, params.namespace,
 		instance.Spec.ForceUnregister)
 	if err != nil {
-		log.Warn(err)
 		setInstanceError(ctx, r, instance, err.Error())
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	if usageInfo.isInUse {
-		msg := fmt.Sprintf("Volume %q cannot be unregistered because %s", instance.Spec.VolumeID, usageInfo)
+		msg := fmt.Sprintf("Volume %q cannot be unregistered because %s", params.volumeID, usageInfo)
 		log.Warn(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	err = retainPV(ctx, k8sClient, pvName)
+	err = retainPV(ctx, k8sClient, params.pvName)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
+		setInstanceError(ctx, r, instance, "failed to retain PV")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	err = deletePVC(ctx, k8sClient, pvcName, pvcNamespace)
+	err = deletePVC(ctx, k8sClient, params.pvcName, params.namespace)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
+		setInstanceError(ctx, r, instance, "failed to delete PVC")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	err = deletePV(ctx, k8sClient, pvName)
+	err = deletePV(ctx, k8sClient, params.pvName)
 	if err != nil {
-		log.Warn(err)
-		setInstanceError(ctx, r, instance, err.Error())
+		setInstanceError(ctx, r, instance, "failed to delete PV")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -267,21 +260,17 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if !instance.Spec.RetainFCD {
 		unregDisk = true
 	}
-	err = r.volumeManager.UnregisterVolume(ctx, instance.Spec.VolumeID, unregDisk)
+	err = r.volumeManager.UnregisterVolume(ctx, params.volumeID, unregDisk)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to unregister volume %q", instance.Spec.VolumeID)
-		log.Warnf(msg+".Error: %s", err.Error())
-		setInstanceError(ctx, r, instance, msg)
+		setInstanceError(ctx, r, instance, "failed to unregister volume")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	log.Infof("Unregistered CNS volume %q", instance.Spec.VolumeID)
-	msg := "Successfully unregistered the volume"
+	log.Infof("Unregistered CNS volume %q", params.volumeID)
+	msg := "successfully unregistered the volume"
 	err = setInstanceSuccess(ctx, r, instance, msg)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to update CnsUnregisterVolume instance with error: %s", err)
-		log.Warn(msg)
-		setInstanceError(ctx, r, instance, msg)
+		setInstanceError(ctx, r, instance, "failed to update CnsUnregisterVolume status")
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -343,4 +332,53 @@ func recordEvent(ctx context.Context, r *Reconciler,
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsUnregisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}
+}
+
+type params struct {
+	retainFCD bool
+	force     bool
+	namespace string
+	volumeID  string
+	pvcName   string
+	pvName    string
+}
+
+func getValidatedParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) (*params, error) {
+	var err error
+	p := params{
+		retainFCD: instance.Spec.RetainFCD,
+		force:     instance.Spec.ForceUnregister,
+		namespace: instance.Namespace,
+	}
+
+	if instance.Spec.VolumeID == "" && instance.Spec.PVCName == "" {
+		return nil, errors.New("either VolumeID or PVCName must be specified")
+	}
+
+	if instance.Spec.VolumeID != "" && instance.Spec.PVCName != "" {
+		return nil, errors.New("both VolumeID and PVCName cannot be specified")
+	}
+
+	if instance.Spec.VolumeID != "" {
+		p.volumeID = instance.Spec.VolumeID
+
+		p.pvcName, _, err = getPVCName(ctx, instance.Spec.VolumeID)
+		if err != nil {
+			return nil, errors.New("failed to get PVC name from VolumeID")
+		}
+	} else if instance.Spec.PVCName != "" {
+		p.pvcName = instance.Spec.PVCName
+
+		p.volumeID, err = getVolumeID(ctx, p.namespace, p.pvcName)
+		if err != nil {
+			return nil, errors.New("failed to get VolumeID from PVC name")
+		}
+	}
+
+	p.pvName, err = getPVName(ctx, p.volumeID)
+	if err != nil {
+		return nil, errors.New("failed to get PV name from VolumeID")
+	}
+
+	return &p, nil
 }
