@@ -400,7 +400,13 @@ func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) 
 
 // GetPVNameFromCSIVolumeID retrieves the pv name from volumeID.
 func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
-	return "", false
+	if strings.Contains(volumeID, "invalid") {
+		// Simulate a case where the volumeID is invalid and does not correspond to any PV.
+		return "", false
+	}
+
+	// Simulate a case where the volumeID corresponds to a PV.
+	return "mock-pv", true
 }
 
 // GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.

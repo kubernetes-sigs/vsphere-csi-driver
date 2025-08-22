@@ -695,6 +695,88 @@ func PatchFinalizers(ctx context.Context, c client.Client, obj client.Object, fi
 	return c.Patch(ctx, obj, patch)
 }
 
+// RetainPersistentVolume updates the PersistentVolume's ReclaimPolicy to Retain.
+// This is useful to preserve the PersistentVolume even if the associated PersistentVolumeClaim is deleted.
+func RetainPersistentVolume(ctx context.Context, k8sClient clientset.Interface, pvName string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvName == "" {
+		log.Debugf("PersistentVolume name is empty. Exiting...")
+		return nil
+	}
+
+	log.Debugf("Retaining PersistentVolume %q", pvName)
+	pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PersistentVolume %q not found. Exiting...", pvName)
+			return nil
+		}
+
+		return logger.LogNewErrorf(log, "Failed to get PersistentVolume %q. Error: %s", pvName, err.Error())
+	}
+
+	pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+	_, err = k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to update PersistentVolume %q to retain policy. Error: %s",
+			pvName, err.Error())
+	}
+
+	log.Debugf("Successfully retained PersistentVolume %q", pvName)
+	return nil
+}
+
+// DeletePersistentVolumeClaim deletes the PersistentVolumeClaim with the given name and namespace.
+func DeletePersistentVolumeClaim(ctx context.Context, k8sClient clientset.Interface,
+	pvcName, pvcNamespace string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvcName == "" {
+		log.Debugf("PVC name is empty. Exiting...")
+		return nil
+	}
+
+	log.Debugf("Deleting PersistentVolumeClaim %q in namespace %q", pvcName, pvcNamespace)
+	err := k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Delete(ctx, pvcName, metav1.DeleteOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PersistentVolumeClaim %q in namespace %q not found. Exiting...", pvcName, pvcNamespace)
+			return nil
+		}
+
+		return logger.LogNewErrorf(log, "Failed to delete PersistentVolumeClaim %q in namespace %q. Error: %s",
+			pvcName, pvcNamespace, err.Error())
+	}
+
+	log.Debugf("Successfully deleted PersistentVolumeClaim %q in namespace %q", pvcName, pvcNamespace)
+	return nil
+}
+
+// DeletePersistentVolume deletes the PersistentVolume with the given name.
+func DeletePersistentVolume(ctx context.Context, k8sClient clientset.Interface, pvName string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvName == "" {
+		log.Debugf("PersistentVolume name is empty. Exiting...")
+		return nil
+	}
+
+	log.Debugf("Deleting PersistentVolume %q", pvName)
+	err := k8sClient.CoreV1().PersistentVolumes().Delete(ctx, pvName, metav1.DeleteOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PersistentVolume %q not found. Exiting...", pvName)
+			return nil
+		}
+
+		return logger.LogNewErrorf(log, "Failed to delete PersistentVolume %q. Error: %s", pvName, err.Error())
+	}
+
+	log.Debugf("Successfully deleted PersistentVolume %q", pvName)
+	return nil
+}
+
 // UpdateStatus updates the status subresource of the given Kubernetes object.
 // If the object is a Custom Resource, make sure that the `subresources` field in the
 // CustomResourceDefinition includes `status` to enable status subresource updates.
