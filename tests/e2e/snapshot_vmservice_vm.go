@@ -110,7 +110,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 
 		// creating/reading content library
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-			dsRef.Value)
+			dsRef.Value, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		vmClass = os.Getenv(envVMClass)
@@ -121,7 +121,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		framework.Logf("Create a WCP namespace for the test")
 		// creating wcp test namespace and setting vmclass, contlib, storage class fields in test ns
 		namespace = createTestWcpNs(
-			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId))
+			vcRestSessionId, storageProfileId, vmClass, contentLibId, getSvcId(vcRestSessionId, &e2eVSphere))
 
 		framework.Logf("Verifying storage policies usage for each storage class")
 		restConfig = getRestConfigClient()

@@ -219,7 +219,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2, zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -412,7 +412,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Create a WCP namespace and tag zone-1 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -590,7 +590,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2, zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))

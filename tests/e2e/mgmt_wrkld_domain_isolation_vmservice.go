@@ -26,10 +26,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
-	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
-
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
@@ -38,8 +36,9 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 )
 
 var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServiceVm", func() {
@@ -131,7 +130,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		// read or create content library if it is empty
 		if contentLibId == "" {
 			contentLibId, err = createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-				dsRef.Value)
+				dsRef.Value, &e2eVSphere)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -210,7 +209,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 
 		// creating namespace with zonal2 storage policy
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileIdZone2}, getSvcId(vcRestSessionId),
+			[]string{storageProfileIdZone2}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone2}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -318,7 +317,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		allowedTopologies[0].Values = []string{zone2, zone4}
 		allowedTopologiesMap := convertToTopologyMap(allowedTopologies)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileIdZone24}, getSvcId(vcRestSessionId),
+			[]string{storageProfileIdZone24}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone2, zone4}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -432,7 +431,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		ginkgo.By("Create a WCP namespace and tag zone-1 and zone-2 to it using shared " +
 			"policy which is accessible to all zones")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -591,7 +590,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared " +
 			"policy compatible with only these 3 zones")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2, zone3}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -776,7 +775,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared " +
 			"policy compatible with only these 3 zones")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2, zone3}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))

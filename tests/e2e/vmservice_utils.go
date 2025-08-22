@@ -74,7 +74,14 @@ func createTestWcpNs(
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
-	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
+
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+
+	nsCreationUrl := "https://" + vcIp + ":" + e2eVSphere.Config.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/v2"
 	reqBody := fmt.Sprintf(`{
         "namespace": "%s",
         "storage_specs": [  {
@@ -102,16 +109,28 @@ func createTestWcpNs(
 // delTestWcpNs triggeres a wcp namespace deletion asynchronously
 func delTestWcpNs(vcRestSessionId string, namespace string) {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	nsDeletionUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+	nsDeletionUrl := "https://" + vcIp + ":" + e2eVSphere.Config.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/" + namespace
 	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, nsDeletionUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
 	framework.Logf("Successfully Deleted namepsace %v in SVC.", namespace)
 }
 
 // getSvcId fetches the ID of the Supervisor cluster
-func getSvcId(vcRestSessionId string) string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	svcIdFetchUrl := "https://" + vcIp + "/api/vcenter/namespace-management/supervisors/summaries"
+func getSvcId(vcRestSessionId string, vs *vSphere) string {
+
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	vCenterIp := vs.Config.Global.VCenterHostname
+	if isPrivateNetwork {
+		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+
+	svcIdFetchUrl := "https://" + vCenterIp + ":" + vs.Config.Global.VCenterPort +
+		"/api/vcenter/namespace-management/supervisors/summaries"
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, svcIdFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
@@ -124,12 +143,13 @@ func getSvcId(vcRestSessionId string) string {
 
 // createAndOrGetContentlibId4Url fetches ID of a content lib that matches the given URL, if none are found it creates a
 // new content lib with the given URL and returns its ID
-func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string) (string, error) {
+func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string,
+	vs *vSphere) (string, error) {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	contentlibName := fmt.Sprintf("csi-vmsvc-%v", r.Intn(10000))
 
 	// Try to get the existing Content Library ID
-	contentLibId, err := getContentLibId4Url(vcRestSessionId, contentLibUrl)
+	contentLibId, err := getContentLibId4Url(vcRestSessionId, contentLibUrl, vs)
 	if err == nil {
 		if contentLibId == "" {
 			return "", fmt.Errorf("existing content library ID is empty")
@@ -139,13 +159,18 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
 
 	// Get SSL Thumbprint
 	sslThumbPrint, err := getSslThumbprintForContentLibraryCreation(vcRestSessionId,
-		contentLibUrl)
+		contentLibUrl, &e2eVSphere)
 	if err != nil {
 		return "", fmt.Errorf("failed to get SSL thumbprint: %w", err)
 	}
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library"
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+	contentlbCreationUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
+		"/api/content/subscribed-library"
 	reqBody := fmt.Sprintf(`{
         "name": "%s",
         "storage_backings": [{
@@ -186,9 +211,16 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
 getSslThumbprintForContentLibraryCreation util will fetch the thumbprint
 required to create a content library
 */
-func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string) (string, error) {
+func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string,
+	vs *vSphere) (string, error) {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library?action=probe"
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+
+	contentlbCreationUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
+		"/api/content/subscribed-library?action=probe"
 
 	reqBody := fmt.Sprintf(`{
         "subscription_info": {
@@ -216,11 +248,11 @@ func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLi
 }
 
 // getContentLibId4Url fetches ID of a content lib that matches the given URL
-func getContentLibId4Url(vcRestSessionId string, url string) (string, error) {
+func getContentLibId4Url(vcRestSessionId string, url string, vs *vSphere) (string, error) {
 	var libId string
-	libIds := getAllContentLibIds(vcRestSessionId)
+	libIds := getAllContentLibIds(vcRestSessionId, vs)
 	for _, libId := range libIds {
-		lib := getContentLib(vcRestSessionId, libId)
+		lib := getContentLib(vcRestSessionId, libId, vs)
 		if lib.url == url {
 			return libId, nil
 		}
@@ -229,9 +261,15 @@ func getContentLibId4Url(vcRestSessionId string, url string) (string, error) {
 }
 
 // getAllContentLibIds fetches IDs of all content libs
-func getAllContentLibIds(vcRestSessionId string) []string {
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	contentLibsFetchUrl := "https://" + vcIp + "/api/content/subscribed-library"
+func getAllContentLibIds(vcRestSessionId string, vs *vSphere) []string {
+	vCenterIp := e2eVSphere.Config.Global.VCenterHostname
+
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+	contentLibsFetchUrl := "https://" + vCenterIp + ":" + vs.Config.Global.VCenterPort +
+		"/api/content/subscribed-library"
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, contentLibsFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
@@ -243,9 +281,16 @@ func getAllContentLibIds(vcRestSessionId string) []string {
 }
 
 // getContentLib fetches the content lib with give ID
-func getContentLib(vcRestSessionId string, libId string) subscribedContentLibBasic {
+func getContentLib(vcRestSessionId string, libId string, vs *vSphere) subscribedContentLibBasic {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	contentLibFetchUrl := "https://" + vcIp + "/api/content/subscribed-library/" + libId
+
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
+	}
+
+	contentLibFetchUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
+		"/api/content/subscribed-library/" + libId
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, contentLibFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))

@@ -26,7 +26,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -166,7 +165,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ1, storageProfileIdZ2},
-			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
@@ -310,7 +309,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ2},
-			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
@@ -408,7 +407,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZ2, storageProfileIdZ1, sharedProfileId},
-			getSvcId(vcRestSessionId), []string{zone2, zone1}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone2, zone1}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
