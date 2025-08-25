@@ -7561,3 +7561,165 @@ func ConvertInt64ToStrMbFormat(diskSize int64) string {
 	fmt.Println(result)
 	return result
 }
+
+// expectEqual expects the specified two are the same, otherwise an exception raises
+func ExpectEqual(actual interface{}, extra interface{}, explain ...interface{}) {
+	gomega.ExpectWithOffset(1, actual).To(gomega.Equal(extra), explain...)
+}
+
+/*
+This function creates a wcp namespace in a vSphere supervisor Cluster, associating it
+with multiple storage policies and zones.
+It constructs an API request and sends it to the vSphere REST API.
+*/
+func CreatetWcpNsWithZonesAndPolicies(e2eTestConfig *config.E2eTestConfig,
+	vcRestSessionId string, storagePolicyId []string,
+	supervisorId string, zoneNames []string,
+	vmClass string, contentLibId string) (string, int, error) {
+
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	namespace := fmt.Sprintf("csi-%v", r.Intn(10000))
+	initailUrl := CreateInitialNsApiCallUrl(e2eTestConfig)
+	nsCreationUrl := initailUrl + "v2"
+
+	var storageSpecs []map[string]string
+	for _, policyId := range storagePolicyId {
+		storageSpecs = append(storageSpecs, map[string]string{"policy": policyId})
+	}
+
+	var zones []map[string]string
+	for _, zone := range zoneNames {
+		zones = append(zones, map[string]string{"name": zone})
+	}
+
+	// Create request body struct
+	requestBody := map[string]interface{}{
+		"namespace":     namespace,
+		"storage_specs": storageSpecs,
+		"supervisor":    supervisorId,
+		"zones":         zones,
+	}
+
+	// Add vm_service_spec only if vmClass and contentLibId are provided
+	if vmClass != "" && contentLibId != "" {
+		requestBody["vm_service_spec"] = map[string]interface{}{
+			"vm_classes":        []string{vmClass},
+			"content_libraries": []string{contentLibId},
+		}
+	}
+
+	reqBodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", 500, fmt.Errorf("error marshalling request body: %w", err)
+	}
+
+	reqBody := string(reqBodyBytes)
+	fmt.Println(reqBody)
+
+	// Make the API request
+	_, statusCode := InvokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
+
+	return namespace, statusCode, nil
+}
+
+/*
+This util will create initial namespace get/post api call request
+*/
+func CreateInitialNsApiCallUrl(e2eTestConfig *config.E2eTestConfig) string {
+	vcIp := e2eTestConfig.TestInput.Global.VCenterHostname
+
+	isPrivateNetwork := env.GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = env.GetStringEnvVarOrDefault("LOCAL_HOST_IP", constants.DefaultlocalhostIP)
+	}
+
+	initialUrl := "https://" + vcIp + ":" + e2eTestConfig.TestInput.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/"
+
+	return initialUrl
+}
+
+// invokeVCRestAPIPostRequest invokes POST on given VC REST URL using the passed session token and request body
+func InvokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: transCfg}
+	framework.Logf("Invoking POST on url: %s", url)
+	req, err := http.NewRequest("POST", url, strings.NewReader(reqBody))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add(constants.VcRestSessionIdHeaderName, vcRestSessionId)
+	req.Header.Add("Content-type", "application/json")
+
+	resp, statusCode := HttpRequest(httpClient, req)
+
+	return resp, statusCode
+}
+
+// getSvcId fetches the ID of the Supervisor cluster
+func GetSvcId(vcRestSessionId string, e2eTestConfig *config.E2eTestConfig) string {
+
+	isPrivateNetwork := env.GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	vCenterIp := e2eTestConfig.TestInput.Global.VCenterHostname
+	if isPrivateNetwork {
+		vCenterIp = env.GetStringEnvVarOrDefault("LOCAL_HOST_IP", constants.DefaultlocalhostIP)
+	}
+
+	svcIdFetchUrl := "https://" + vCenterIp + ":" + e2eTestConfig.TestInput.Global.VCenterPort +
+		"/api/vcenter/namespace-management/supervisors/summaries"
+
+	resp, statusCode := InvokeVCRestAPIGetRequest(vcRestSessionId, svcIdFetchUrl)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
+
+	var v map[string]interface{}
+	gomega.Expect(json.Unmarshal(resp, &v)).NotTo(gomega.HaveOccurred())
+	framework.Logf("Supervisor summary: %v", v)
+	return v["items"].([]interface{})[0].(map[string]interface{})["supervisor"].(string)
+}
+
+// invokeVCRestAPIGetRequest invokes GET on given VC REST URL using the passed session token and verifies that the
+// return status code is 200
+func InvokeVCRestAPIGetRequest(vcRestSessionId string, url string) ([]byte, int) {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: transCfg}
+	framework.Logf("Invoking GET on url: %s", url)
+	req, err := http.NewRequest("GET", url, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add(constants.VcRestSessionIdHeaderName, vcRestSessionId)
+
+	resp, statusCode := HttpRequest(httpClient, req)
+
+	return resp, statusCode
+}
+
+// delTestWcpNs triggeres a wcp namespace deletion asynchronously
+func DelTestWcpNs(e2eTestConfig *config.E2eTestConfig, vcRestSessionId string, namespace string) {
+	vcIp := e2eTestConfig.TestInput.Global.VCenterHostname
+	isPrivateNetwork := env.GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = env.GetStringEnvVarOrDefault("LOCAL_HOST_IP", constants.DefaultlocalhostIP)
+	}
+	nsDeletionUrl := "https://" + vcIp + ":" + e2eTestConfig.TestInput.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/" + namespace
+	_, statusCode := InvokeVCRestAPIDeleteRequest(vcRestSessionId, nsDeletionUrl)
+	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
+	framework.Logf("Successfully Deleted namepsace %v in SVC.", namespace)
+}
+
+// invokeVCRestAPIDeleteRequest invokes DELETE on given VC REST URL using the passed session token
+func InvokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, int) {
+	transCfg := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: transCfg}
+	framework.Logf("Invoking DELETE on url: %s", url)
+	req, err := http.NewRequest("DELETE", url, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Add(constants.VcRestSessionIdHeaderName, vcRestSessionId)
+
+	resp, statusCode := HttpRequest(httpClient, req)
+
+	return resp, statusCode
+}

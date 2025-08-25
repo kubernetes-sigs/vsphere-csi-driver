@@ -223,6 +223,7 @@ func ValidateLcInListVolume(ctx context.Context, e2eTestConfig *config.E2eTestCo
 	var svcMasterPswd string
 	containerName := "vsphere-csi-controller"
 	var volumeHandle []string
+
 	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
 		logMessage = "List volume response: entries:"
 		nimbusGeneratedK8sVmPwd := env.GetAndExpectStringEnvVar(constants.NimbusK8sVmPwd)
