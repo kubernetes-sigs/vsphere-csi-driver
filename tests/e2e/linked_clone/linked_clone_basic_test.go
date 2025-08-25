@@ -44,6 +44,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 	f := framework.NewDefaultFramework("linked-clone")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.SkipNamespaceCreation = true
 	var (
 		client          clientset.Interface
 		namespace       string
