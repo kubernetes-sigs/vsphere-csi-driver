@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,10 +26,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,7 +37,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -90,7 +88,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
 			common.Kubernetes, clusterFlavor, &syncer.COInitParams)
 		if err != nil {
-			log.Errorf("failed to create CO agnostic interface. Er	r: %v", err)
+			log.Errorf("failed to create CO agnostic interface. error: %v", err)
 			return err
 		}
 		var err error
@@ -102,7 +100,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
 		volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
 		if err != nil {
-			return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+			return logger.LogNewErrorf(log, "error initializing volumeInfoService. error: %+v", err)
 		}
 		log.Info("Successfully initialized VolumeInfoService")
 	} else {
@@ -112,18 +110,18 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
-		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		log.Errorf("Creating Kubernetes client failed. error: %v", err)
 		return err
 	}
 	restClientConfig, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to initialize rest clientconfig. Error: %+v", err)
+		msg := fmt.Sprintf("Failed to initialize rest clientconfig. error: %+v", err)
 		log.Error(msg)
 		return err
 	}
 	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
+		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. error: %+v", err)
 		log.Error(msg)
 		return err
 	}
@@ -136,16 +134,15 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	logger := ctrl.Log.WithName("controllers").WithName("VirtualMachineSnapshot")
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: apis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager,
-		recorder, vmOperatorClient, volumeInfoService, logger))
+		recorder, vmOperatorClient, volumeInfoService))
 }
 
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, recorder record.EventRecorder, vmOperatorClient client.Client,
-	volumeInfoService cnsvolumeinfo.VolumeInfoService, logger logr.Logger) reconcile.Reconciler {
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) reconcile.Reconciler {
 	return &ReconcileVirtualMachineSnapshot{
 		client:            mgr.GetClient(),
 		scheme:            mgr.GetScheme(),
@@ -154,7 +151,6 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 		recorder:          recorder,
 		vmOperatorClient:  vmOperatorClient,
 		volumeInfoService: volumeInfoService,
-		Logger:            logger,
 	}
 }
 
@@ -196,7 +192,6 @@ type ReconcileVirtualMachineSnapshot struct {
 	recorder          record.EventRecorder
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	vmOperatorClient  client.Client
-	Logger            logr.Logger
 }
 
 // Reconcile reads that state of the cluster for a VirtualMachineSnapshot object and
@@ -207,24 +202,24 @@ type ReconcileVirtualMachineSnapshot struct {
 // will remove the work from the queue.
 func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
-	traceId := uuid.NewString()
-	logger := r.Logger.WithValues("name", request.NamespacedName, "trace", traceId)
+	_, log := logger.GetNewContextWithLogger()
 	now := time.Now()
-	logger.Info("Reconcile Started")
+	log.Infof("Reconcile Started for VirtualMachineSnapshot %s/%s", request.Namespace, request.Name)
 	defer func() {
-		logger.Info("Reconcile Completed", "Time Taken", time.Since(now))
+		log.Infof("Reconcile Completed for virtualmachinesnapshot %s/%s Time Taken %v",
+			request.Namespace, request.Name, time.Since(now))
 	}()
 	// Fetch the VirtualMachineSnapshot instance.
 	vmSnapshot := &vmoperatorv1alpha4.VirtualMachineSnapshot{}
 	err := r.client.Get(ctx, request.NamespacedName, vmSnapshot)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("resource not found. Ignoring since object must be deleted",
-				"VMSnapshotName", request.Name, "VMSnapshotNamespace", request.Namespace)
+			log.Infof("resource not found. Ignoring since object must be deleted for vmsnapshot %s/%s",
+				request.Namespace, request.Name)
 			return reconcile.Result{}, nil
 		}
-		logger.Error(err, "error while fetch the VirtualMachineSnapshot",
-			"VMSnapshotName", request.Name, "VMSnapshotNamespace", request.Namespace)
+		log.Errorf("error while fetch the virtualmachinesnapshot %s/%s. error: %v",
+			request.Namespace, request.Name, err)
 		// Error reading the object - return with err.
 		return reconcile.Result{}, err
 	}
@@ -238,9 +233,9 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
-	logger.Info("Reconciling virtualmachinesnapshot",
-		"VMSnapshotName", request.Name, "VMSnapshotNamespace", request.Namespace)
-	err = r.reconcileNormal(ctx, logger, vmSnapshot)
+	log.Infof("Reconciling virtualmachinesnapshot %s/%s",
+		request.Namespace, request.Name)
+	err = r.reconcileNormal(ctx, log, vmSnapshot)
 	if err != nil {
 		return reconcile.Result{RequeueAfter: timeout}, err
 	}
@@ -249,19 +244,19 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 	return reconcile.Result{}, nil
 }
-func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, logger logr.Logger,
+func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, log *zap.SugaredLogger,
 	vmsnapshot *vmoperatorv1alpha4.VirtualMachineSnapshot) error {
 	deleteVMSnapshot := false
 	if vmsnapshot.DeletionTimestamp.IsZero() {
 		// If the finalizer is not present, add it.
-		logger.Info("reconcileNormal: Adding finalizer on virtualmachinesnapshot cr", "VMSnapshotName", vmsnapshot.Name,
-			"VMSnapshotNamespace", vmsnapshot.Namespace, "Finalizer", SyncVolumeFinalizer)
+		log.Infof("reconcileNormal: Adding finalizer %s on virtualmachinesnapshot cr %s/%s",
+			SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
 		if controllerutil.AddFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 			err := r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 			if err != nil {
-				logger.Error(err, "reconcileNormal: error while add finalizer to virtualmachinesnapshot CR",
-					"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Name)
+				log.Errorf("reconcileNormal: error while add finalizer to "+
+					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Name, vmsnapshot.Name, err)
 				return err
 			}
 			return nil
@@ -270,13 +265,13 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 	if !vmsnapshot.DeletionTimestamp.IsZero() &&
 		controllerutil.ContainsFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 		if !controllerutil.ContainsFinalizer(vmsnapshot, VMSnapshotFinalizer) {
-			logger.Info("reconcileNormal: virtualmachinesnapshot is set to delete",
-				"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+			log.Infof("reconcileNormal: virtualmachinesnapshot %s/%s is set to delete",
+				vmsnapshot.Namespace, vmsnapshot.Name)
 			deleteVMSnapshot = true
 		} else {
-			logger.Info("reconcileNormal: virtualmachinesnapshot is set to delete, "+
-				"expecting to remove VMSnapshotFinalizer first", "VMSnapshotName", vmsnapshot.Name,
-				"VMSnapshotNamespace", vmsnapshot.Namespace)
+			log.Infof("reconcileNormal: virtualmachinesnapshot %s/%s is set to delete, "+
+				"expecting to remove %s first", vmsnapshot.Namespace, vmsnapshot.Name,
+				VMSnapshotFinalizer)
 			return nil
 		}
 	}
@@ -290,52 +285,52 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 			Namespace: vmsnapshot.Namespace,
 			Name:      vmsnapshot.Spec.VMRef.Name,
 		}
-		logger.Info("reconcileNormal: get virtulal machine", "VirtualMachineName", vmKey.Name,
-			"VirtualMachineNamespace", vmKey.Namespace)
+		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
 			r.vmOperatorClient)
 		if err != nil {
-			logger.Error(err, "could not get VirtualMachine", "VirtualMachineName", vmKey.Name,
-				"VirtualMachineNamespace", vmKey.Namespace)
+			log.Errorf("reconcileNormal: could not get VirtualMachine %s/%s. error: %v",
+				vmKey.Namespace, vmKey.Name, err)
 			return err
 		}
-		logger.Info("reconcileNormal: sync and update storage quota for vmsnapshot",
-			"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
-		err = r.syncVolumesAndUpdateCNSVolumeInfo(ctx, logger, virtualMachine)
+		log.Infof("reconcileNormal: sync and update storage quota for vmsnapshot %s/%s",
+			vmsnapshot.Namespace, vmsnapshot.Name)
+		err = r.syncVolumesAndUpdateCNSVolumeInfo(ctx, log, virtualMachine)
 		if err != nil {
-			logger.Error(err, "Failed to validate VirtualMachineSnapshot", "VMSnapshotName", vmsnapshot.Name,
-				"VMSnapshotNamespace", vmsnapshot.Namespace)
+			log.Errorf("reconcileNormal: failed to validate VirtualMachineSnapshot %s/%s. error: %v",
+				vmsnapshot.Namespace, vmsnapshot.Name, err)
 			return err
 		}
-		logger.Info("reconcileNormal: successfully synced and updated storage quota for vmsnapshot",
-			"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+		log.Infof("reconcileNormal: successfully synced and updated storage quota for vmsnapshot %s/%s",
+			vmsnapshot.Namespace, vmsnapshot.Name)
 		if deleteVMSnapshot {
-			logger.Info("deleting virtualmachinesnapshot", "VMSnapshotName", vmsnapshot.Name,
-				"VMSnapshotNamespace", vmsnapshot.Namespace, "SyncVolumeFinalizer", SyncVolumeFinalizer)
+			log.Infof("reconcileNormal: remove finalizer %s for virtualmachinesnapshot %s/%s",
+				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 			vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
 			if controllerutil.RemoveFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 				err = r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 				if err != nil {
-					logger.Error(err, "failed to remove finalizer for VirtualMachineSnapshot CR",
-						"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+					log.Errorf("reconcileNormal: failed to remove finalizer for "+
+						"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Namespace,
+						vmsnapshot.Name, err)
 					return err
 				}
 				return nil
 			}
 		}
 		// Update VMSnapshot CR annotation to "csi.vsphere.volume.sync: completed"
-		logger.Info("reconcileNormal: update vmsnapshot annotation value to completed",
-			"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+		log.Infof("reconcileNormal: update annotation value  for vmsnapshot %s/%s to 'completed'",
+			vmsnapshot.Namespace, vmsnapshot.Name)
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
 		vmsnapshot.Annotations["csi.vsphere.volume.sync"] = "completed"
 		err = r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 		if err != nil {
-			logger.Error(err, "could not update VirtualMachineSnapshot CR",
-				"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+			log.Errorf("reconcileNormal: could not update virtualmachinesnapshot %s/%s. error: %v",
+				vmsnapshot.Namespace, vmsnapshot.Name, err)
 			return err
 		}
-		logger.Info("reconcileNormal: successfully updated vmsnapshot",
-			"VMSnapshotName", vmsnapshot.Name, "VMSnapshotNamespace", vmsnapshot.Namespace)
+		log.Infof("reconcileNormal: successfully updated vmsnapshot %s/%s",
+			vmsnapshot.Namespace, vmsnapshot.Name)
 	}
 	return nil
 }
@@ -377,7 +372,7 @@ func getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx context.Context) i
 // after volume sync is successful it will fetch the aggregated size of all related volumes
 // will update the relevant CNSVolumeInfo for each volume which will update the storage policy usage.
 func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx context.Context,
-	logger logr.Logger, vm *vmoperatorv1alpha4.VirtualMachine) error {
+	log *zap.SugaredLogger, vm *vmoperatorv1alpha4.VirtualMachine) error {
 	var err error
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
@@ -389,8 +384,8 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 		pvc := &corev1.PersistentVolumeClaim{}
 		err = r.client.Get(ctx, pvcKey, pvc, &client.GetOptions{})
 		if err != nil {
-			logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: error get pvc",
-				"PVCName", vmVolume.Name, "PVCNamespace", vm.Namespace)
+			log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed get pvc %s/%s. error: %v",
+				vm.Namespace, vmVolume.Name, err)
 			return err
 		}
 		if pvc.Spec.VolumeName != "" {
@@ -400,8 +395,8 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			pv := &corev1.PersistentVolume{}
 			err = r.client.Get(ctx, pvKey, pv, &client.GetOptions{})
 			if err != nil {
-				logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: could not get the volume for pvc",
-					"PVCName", pvc.Name, "PVCNamespace", vm.Namespace)
+				log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: could not get the volume "+
+					"for pvc %s/%s error: %v", pvc.Namespace, vm.Name, err)
 				return err
 			}
 			if pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle != "" {
@@ -414,19 +409,19 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 					},
 				}
 				// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
-				logger.Info("syncVolumesAndUpdateCNSVolumeInfo: Trigger CNS VolumeSync API for volume",
-					"VolumeId", cnsVolId)
+				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: Trigger CNS VolumeSync API for volume %s",
+					cnsVolId)
 				syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
 				if err != nil {
-					logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: error while sync volume",
-						"cnsfault", syncVolumeFaultType, "VolumeId", cnsVolId)
+					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume %s "+
+						"cnsfault %s. error: %v", cnsVolId, syncVolumeFaultType, err)
 					return err
 				}
 			}
 		} else {
 			err = fmt.Errorf("could not find the PV associated with PVC %s/%s",
 				vm.Namespace, vmVolume.Name)
-			logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: pv not found")
+			log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: pv not found error: %v", err)
 			return err
 		}
 	}
@@ -436,40 +431,41 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 	}
 	queryResult, err := r.volumeManager.QueryVolume(ctx, queryFilter)
 	if err != nil {
-		logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: error while query volumes from cns")
+		log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while query volumes from cns. error: %v", err)
 		return err
 	}
 	if queryResult != nil && len(queryResult.Volumes) > 0 {
 		for _, cnsvolume := range queryResult.Volumes {
 			val, ok := cnsvolume.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 			if ok {
-				logger.Info("syncVolumesAndUpdateCNSVolumeInfo: fetched aggregated capacity for volume",
-					"AggregatedSnapshotCapacityInMb", val.AggregatedSnapshotCapacityInMb,
-					"VolumeId", cnsvolume.VolumeId.Id)
+				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: fetched aggregated capacity for volume %s "+
+					"AggregatedSnapshotCapacityInMb %s", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
+
 				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
 				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb,
 					cnsvolume.VolumeId.Id) // TODO: UDPATE to value returned
 				if err != nil {
-					logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: failed to get cnsvolumeinfo patch")
+					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to get cnsvolumeinfo patch for "+
+						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
 					return err
 				}
 				patchBytes, err := json.Marshal(patch)
 				if err != nil {
-					logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: error while json marshal")
+					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while json marshal. error: %v", err)
 					return err
 				}
 				err = r.volumeInfoService.PatchVolumeInfo(ctx, cnsvolume.VolumeId.Id,
 					patchBytes, allowedRetriesToPatchCNSVolumeInfo)
 				if err != nil {
-					logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: "+
-						"failed to patch cnsvolumeinfo")
+					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to patch cnsvolumeinfo for volume "+
+						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
 					return err
 				}
 			} else {
 				err = fmt.Errorf("unable to retrieve CnsBlockBackingDetails for volumeID %s",
 					cnsvolume.VolumeId.Id)
-				logger.Error(err, "syncVolumesAndUpdateCNSVolumeInfo: "+
-					"could not retrieve CnsBlockBackingDetails")
+				log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: could not retrieve CnsBlockBackingDetails. "+
+					"error: %v", err)
 				return err
 			}
 		}
