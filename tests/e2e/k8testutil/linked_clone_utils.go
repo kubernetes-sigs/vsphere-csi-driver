@@ -16,6 +16,7 @@ package k8testutil
 import (
 	"context"
 	"fmt"
+	"time"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
@@ -48,7 +49,7 @@ var lcToDelete []*corev1.PersistentVolumeClaim
 /*
 This method will create PVC, attach pod to it and creates snapshot
 */
-func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool) {
+func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool) *snapV1.VolumeSnapshot {
 
 	// Create PVC and verify PVC is bound
 	pvclaim, pv := createAndValidatePvc(ctx, client, namespace, storageclass)
@@ -58,8 +59,12 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 		_ = CreatePodForPvc(ctx, e2eTestConfig, client, namespace, pvclaim)
 	}
 
+	// TODO write data before snapshot creation
+
 	// create volume snapshot
-	CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv)
+	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv)
+
+	return volumeSnapshot
 }
 
 func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim *corev1.PersistentVolumeClaim) *corev1.Pod {
@@ -75,7 +80,7 @@ func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, c
 /*
 Create volume snapshot
 */
-func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume) {
+func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume) *snapV1.VolumeSnapshot {
 	// Create or get volume snapshot class
 	ginkgo.By("Get or create volume snapshot class")
 	snapc := getSnashotClientSet(e2eTestConfig)
@@ -94,6 +99,8 @@ func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConf
 
 	snapContentToDelete = append(snapContentToDelete, snapshotContent)
 	snapToDelete = append(snapToDelete, volumeSnapshot)
+
+	return volumeSnapshot
 }
 
 /*
@@ -133,13 +140,13 @@ func getSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Client
 /*
 Create PVC using linked clone annotation
 */
-func createLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass) (*corev1.PersistentVolumeClaim, error) {
-	pvcspec := PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce)
-	ginkgo.By(fmt.Sprintf("Creating PVC in namespace: %s using Storage Class: %s",
+func createLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, error) {
+	pvcspec := PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce, constants.Snapshotapigroup, volumeSnapshotName)
+	ginkgo.By(fmt.Sprintf("Creating linked-clone PVC in namespace: %s using Storage Class: %s",
 		namespace, storageclass.Name))
 	pvclaim, err := fpv.CreatePVC(ctx, client, namespace, pvcspec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
-	framework.Logf("PVC %v created successfully in namespace: %v", pvclaim.Name, namespace)
+	framework.Logf("linked-clone PVC %v created successfully in namespace: %v", pvclaim.Name, namespace)
 
 	// add to list to run cleanup
 	lcToDelete = append(lcToDelete, pvclaim)
@@ -150,10 +157,10 @@ func createLinkedClonePvc(ctx context.Context, client clientset.Interface, names
 /*
 Create linked clone PVC and verify its Bound
 */
-func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass) *corev1.PersistentVolumeClaim {
+func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) *corev1.PersistentVolumeClaim {
 
 	// create linked clone PVC
-	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass)
+	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
 	// Validate PVC is bound
@@ -161,20 +168,29 @@ func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interfac
 		client, []*corev1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	// Validate label and annotation
+	framework.Logf("Verify linked-clone lable on the LC-PVC")
+	pvcLable := pvclaim.Labels
+	framework.Logf("Found linked-clone label: %s", pvcLable)
+	gomega.Expect(pvcLable).To(gomega.HaveKeyWithValue("linked-clone", "true"))
+	framework.Logf("Verify linked-clone annotation on the LC-PVC")
+	annotationsMap := pvclaim.Annotations
+	gomega.Expect(annotationsMap).To(gomega.HaveKeyWithValue(constants.LinkedCloneAnnotationKey, "true"))
+
 	return pvclaim
 }
 
 /*
 This function generates a PVC specification with linked clone annotation.
 */
-func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.StorageClass, accessMode corev1.PersistentVolumeAccessMode) *corev1.PersistentVolumeClaim {
+func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.StorageClass, accessMode corev1.PersistentVolumeAccessMode, snapshotapigroup string, datasourceName string) *corev1.PersistentVolumeClaim {
 	disksize := constants.DiskSize
 	claim := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "pvc-",
+			GenerateName: "lc-pvc-",
 			Namespace:    namespace,
 			Annotations: map[string]string{
-				"csi.vsphere.volume/linked-clone": "true",
+				"csi.vsphere.volume/fast-provisioning": "true",
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -185,6 +201,11 @@ func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.
 				Requests: corev1.ResourceList{
 					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse(disksize),
 				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
 			},
 			StorageClassName: &(storageclass.Name),
 		},
@@ -227,6 +248,10 @@ func ValidateLcInListVolume(ctx context.Context, e2eTestConfig *config.E2eTestCo
 
 	pv := GetPvFromClaim(client, namespace, pvc.Name)
 	volumeHandle = append(volumeHandle, pv.Spec.CSI.VolumeHandle)
+
+	//List volume responses will show up in the interval of every 1 minute.
+	time.Sleep(constants.PollTimeoutShort)
+
 	_, _, err := GetCSIPodWhereListVolumeResponseIsPresent(ctx, e2eTestConfig, client, sshClientConfig,
 		containerName, logMessage, volumeHandle)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -237,6 +262,13 @@ Run cleanup, delete all the resources created in the test
 */
 func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *config.E2eTestConfig, namespace string) {
 	snapc := getSnashotClientSet(e2eTestConfig)
+
+	// Delete Pod
+	for i := 0; i < len(podToDelete); i++ {
+		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podToDelete[0].Name, namespace))
+		err := fpod.DeletePodWithWait(ctx, client, podToDelete[0])
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	// Delete linked clone PVC
 	for i := 0; i < len(lcToDelete); i++ {
@@ -268,13 +300,6 @@ func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *con
 				metav1.DeleteOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-	}
-
-	// Delete Pod
-	for i := 0; i < len(podToDelete); i++ {
-		ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", podToDelete[0].Name, namespace))
-		err := fpod.DeletePodWithWait(ctx, client, podToDelete[0])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
 	// Delete PVC

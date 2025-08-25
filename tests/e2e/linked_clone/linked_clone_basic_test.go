@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package linked_clone
 
 import (
 	"context"
@@ -24,12 +24,14 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
@@ -41,12 +43,13 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 	f := framework.NewDefaultFramework("linked-clone")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
-	f.SkipNamespaceCreation = true // TODO tests will create their own namespaces
 	var (
-		client       clientset.Interface
-		namespace    string
-		storageclass *v1.StorageClass
-		restConfig   *restclient.Config
+		client         clientset.Interface
+		namespace      string
+		storageclass   *v1.StorageClass
+		restConfig     *restclient.Config
+		err            error
+		volumeSnapshot *snapV1.VolumeSnapshot
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -60,13 +63,13 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		storagePolicy := env.GetAndExpectStringEnvVar(constants.EnvStoragePolicy)
 
 		// Get the storageclass from storagepolicy
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicy, metav1.GetOptions{})
+		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicy, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		// Create PVC, pod and volume snapshot
-		k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true)
+		volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true)
 
 		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
 	})
@@ -116,16 +119,20 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		framework.Logf("Starting test: Create a linked clone (PVC) from a snapshot ")
+
 		// Get the storage quota used before LC creation
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ :=
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass)
+		linkdeClonePvc := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
 
 		// Create and attach pod to linked clone PVC
-		k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, linkdeClonePvc)
+		lcPod := k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, linkdeClonePvc)
+
+		// TODO: write some data on LC-PVC and validate
 
 		// List volume
 		k8testutil.ValidateLcInListVolume(ctx, e2eTestConfig, f.ClientSet, linkdeClonePvc, namespace)
@@ -137,10 +144,13 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 			storagePolicyUsageBefore, false)
 		gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 
+		// Delete Pod attached to linked-clone
+		err = fpod.DeletePodWithWait(ctx, client, lcPod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		// Delete linked clone
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, linkdeClonePvc.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// TODO update the delete list
 
 		// get the quota post LC deletion
 		totalQuotaUsedAfter, _, storagePolicyQuotaAfter, _, storagePolicyUsageAfter, _ :=
@@ -152,6 +162,8 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 			storagePolicyUsageAfter, false)
 
 		// TODO volume usability
+
+		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
 
 	})
 
