@@ -59,7 +59,7 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 		_ = CreatePodForPvc(ctx, e2eTestConfig, client, namespace, pvclaim)
 	}
 
-	// TODO write data before snapshot creation
+	// TODO : Write data to volume
 
 	// create volume snapshot
 	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv)
