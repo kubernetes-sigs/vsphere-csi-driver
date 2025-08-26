@@ -595,35 +595,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Check if PVC already exists and has valid DataSourceRef
-	/*pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
-	if err != nil {
-		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
-			instance.Spec.PvcName, err)
-		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
-			instance.Namespace, instance.Spec.PvcName, err))
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}*/
-
 	if pvc != nil {
-		// log.Infof("PVC: %s already exists", instance.Spec.PvcName)
-
-		// Validate topology compatibility if PVC exists and can be reused
-		/*if syncer.IsPodVMOnStretchSupervisorFSSEnabled && topologyMgr != nil {
-			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
-			if err != nil {
-				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
-				log.Error(msg)
-				setInstanceError(ctx, r, instance, msg)
-				// Untag the CNS volume which was created previously.
-				_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-				if delErr != nil {
-					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
-				}
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-		}*/
-
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
 			// This is handle cases where PVC with this name already exists and
 			// is bound. This happens when a new CnsRegisterVolume instance is
