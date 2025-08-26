@@ -65,6 +65,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		isSPSserviceStopped        bool
 		isQuotaValidationSupported bool
 		defaultDatastore           *object.Datastore
+		volHandle                  string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -97,6 +98,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		contentLibId, err := createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
 			dsRef.Value, &e2eVSphere)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if latebinding {
+			storageClassName = storageClassName + "-latebinding"
+			framework.Logf("Late Binding StorageClassName: %s", storageClassName)
+		}
 
 		framework.Logf("Create a WCP namespace for the test")
 		vmClass = os.Getenv(envVMClass)
@@ -242,15 +248,18 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Create a storageclass")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By("Create a PVC")
 		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := pvs[0]
-		volHandle := pv.Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 		defer func() {
 			ginkgo.By("Delete PVCs")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
@@ -263,6 +272,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
+
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
@@ -300,6 +310,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*v1.PersistentVolumeClaim{pvc, staticPvc})).NotTo(gomega.HaveOccurred())
+
+		if latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
+				"volume is attached to the VM using a late-binding storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
 		if !isPrivateNetwork {
@@ -340,12 +360,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Create a PVC")
 		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := pvs[0]
-		volHandle := pv.Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 		defer func() {
 			ginkgo.By("Delete PVCs")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
@@ -407,6 +429,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Wait and verify PVC is attached to the VM2")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
 			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+
+		if latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
+				"volume is attached to the VM using a late-binding storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 
 		ginkgo.By("Verify PVC is accessible to the VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
@@ -525,6 +557,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vmServiceVm, block, wcp, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var pvs []*v1.PersistentVolume
 
 		ginkgo.By("Create a storageclass")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
@@ -534,11 +567,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		pvc2, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pvcs := []*v1.PersistentVolumeClaim{pvc1, pvc2}
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc1, pvc2}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		defer func() {
 			ginkgo.By("Delete PVCs")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc1.Name, namespace)
@@ -606,6 +639,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			[]*v1.PersistentVolumeClaim{pvc1})).To(gomega.Succeed())
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
 			[]*v1.PersistentVolumeClaim{pvc2})).To(gomega.Succeed())
+
+		if latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
+				"volume is attached to the VM using a late-binding storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc1, pvc2}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
@@ -969,12 +1009,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Create a PVC")
 		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := pvs[0]
-		volHandle := pv.Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 		defer func() {
 			ginkgo.By("Delete PVC")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
@@ -1044,6 +1086,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
+		if latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state after " +
+				"the volume is attached to the VM using a late-binding storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
+
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1101,6 +1153,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		pvcs := []*v1.PersistentVolumeClaim{}
 		vms := []*vmopv1.VirtualMachine{}
 		vmlbsvcs := []*vmopv1.VirtualMachineService{}
+		pvs := []*v1.PersistentVolume{}
 
 		ginkgo.By("Create a storageclass")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
@@ -1112,9 +1165,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			pvcs = append(pvcs, pvc)
 		}
 
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvcs, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		defer func() {
 			ginkgo.By("Delete PVCs")
@@ -1185,6 +1240,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		_ = formatNVerifyPvcIsAccessible(vm3.Status.Volumes[0].DiskUuid, 1, vmIp3)
+
+		if latebinding {
+			ginkgo.By("Validating that pvc3 transitions to Bound state after " +
+				"being attached to vm3 using a late-binding storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvcs[2]}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Stopping %v on the vCenter host", vsanhealthServiceName))
 		isVsanHealthServiceStopped = true
@@ -1262,6 +1324,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
 
+		if latebinding {
+			ginkgo.By("Validating that pvc1 transitions to Bound state after being " +
+				"attached to vm1 using a late-binding storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvcs[0]}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
 		ginkgo.By("Verify pvc2 is attached to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1271,6 +1340,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+
+		if latebinding {
+			ginkgo.By("Validating that pvc2 transitions to Bound state after being " +
+				"attached to vm2 using a late-binding storage policy")
+			pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvcs[1]}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Verify pvc3 is detached from VM3")
 		wait4Pvc2Detach(ctx, vmopC, vm3, pvcs[2])
@@ -1303,12 +1379,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Create a PVC")
 		pvc, err := createPVC(ctx, client, namespace, nil, "", storageclass, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Waiting for all claims to be in bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		pv := pvs[0]
-		volHandle := pv.Spec.CSI.VolumeHandle
-		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		if !latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state when using an Immediate binding mode storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 		defer func() {
 			ginkgo.By("Delete PVC")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
@@ -1379,6 +1457,16 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ginkgo.By("Verify pvc1 is attached to VM1")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*v1.PersistentVolumeClaim{pvc})).To(gomega.Succeed())
+
+		if latebinding {
+			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
+				"volume is attached to the VM using a late-binding storage policy")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc}, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pv := pvs[0]
+			volHandle = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		}
 
 		ginkgo.By("Verify pvc1 is accessible to VM1")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
