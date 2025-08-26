@@ -529,7 +529,8 @@ func recordEvent(ctx context.Context, r *Reconciler,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVmBatchAttachFailed", msg)
 		log.Error(msg)
