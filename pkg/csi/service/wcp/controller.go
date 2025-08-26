@@ -529,7 +529,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
 	isTKGSHAEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
-	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
+	isFCDTransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FCDTransactionSupport)
 
 	topoSegToDatastoresMap := make(map[string][]*cnsvsphere.DatastoreInfo)
 	if isTKGSHAEnabled {
@@ -840,7 +840,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		FilterSuspendedDatastores:      filterSuspendedDatastores,
 		UseSupervisorId:                isTKGSHAEnabled,
 		IsByokEnabled:                  isByokEnabled,
-		IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+		IsCSITransactionSupportEnabled: isFCDTransactionSupportEnabled,
 		VolFromSnapshotOnTargetDs:      volFromSnapshotOnTargetDs,
 	}
 
@@ -2440,8 +2440,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
 		isStorageQuotaM2FSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.StorageQuotaM2)
-		isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.
-			IsFSSEnabled(ctx, common.CSITranSactionSupport)
+		isFCDTransactionSupportEnabled := commonco.ContainerOrchestratorUtility.
+			IsFSSEnabled(ctx, common.FCDTransactionSupport)
 		if isStorageQuotaM2FSSEnabled {
 			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
 			if err != nil {
@@ -2455,7 +2455,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					Namespace:                      cnsVolumeInfo.Spec.Namespace,
 					Capacity:                       cnsVolumeInfo.Spec.Capacity,
 					IsStorageQuotaM2FSSEnabled:     isStorageQuotaM2FSSEnabled,
-					IsCSITransactionSupportEnabled: isCSITransactionSupportEnabled,
+					IsCSITransactionSupportEnabled: isFCDTransactionSupportEnabled,
 				})
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,

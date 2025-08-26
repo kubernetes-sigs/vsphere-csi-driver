@@ -136,7 +136,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.CnsMgrSuspendCreateVolume)
 	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.TopologyAwareFileVolume)
-	isCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITranSactionSupport)
+	isCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITransactionSupport)
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	if !multivCenterCSITopologyEnabled {
