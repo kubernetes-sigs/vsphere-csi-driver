@@ -8164,3 +8164,19 @@ func genrateRandomString(length int) (string, error) {
 	generatedString = fmt.Sprintf("%x", b)[2 : length+2]
 	return generatedString, err
 }
+
+// validate Annotation on PVC
+func validateAnnotationOnPVC(pvc *v1.PersistentVolumeClaim, annotationKey string, expectedValue string) error {
+	val, exists := pvc.Annotations[annotationKey]
+	if !exists {
+		framework.Logf("PVC %s does NOT have annotation %q\n", pvc.Name, annotationKey)
+		return fmt.Errorf("PVC %s does NOT have annotation %q\n", pvc.Name, annotationKey)
+	}
+	if val == expectedValue {
+		framework.Logf("PVC %s has annotation %q with correct value: %s\n", pvc.Name, annotationKey, val)
+	} else {
+		return fmt.Errorf("PVC %s has annotation %q but value is %q (expected %q)\n",
+			pvc.Name, annotationKey, val, expectedValue)
+	}
+	return nil
+}

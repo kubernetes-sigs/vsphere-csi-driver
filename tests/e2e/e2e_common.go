@@ -274,6 +274,9 @@ const (
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
+	selectedNodeIsZone                       = "cns.vmware.com/selected-node-is-zone"
+	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
+	vmZoneLabel                              = "topology.kubernetes.io/zone"
 )
 
 /*
