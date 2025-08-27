@@ -1243,7 +1243,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Check if it is WCP defined feature state.
 		if _, exists := common.WCPFeatureStates[featureName]; exists {
-			log.Infof("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
+			log.Debugf("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
 				featureName, common.WCPCapabilitiesCRName)
 
 			if len(WcpCapabilitiesMap) == 0 {
@@ -1265,7 +1265,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 			}
 			if supervisorFeatureState, exists := WcpCapabilitiesMap[featureName]; exists {
-				log.Infof("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
+				log.Debugf("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
 
 				if !supervisorFeatureState {
 					// if capability can be enabled after upgrading CSI, we need to fetch capabilities CR again and
@@ -1987,7 +1987,16 @@ func (c *K8sOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName stri
 		return false, err
 	}
 	hasLinkedCloneAnn := metav1.HasAnnotation(pvcObj.ObjectMeta, common.AnnKeyLinkedClone)
-	isLinkedCloneSupported := c.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+	var fss string
+	if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		fss = common.LinkedCloneSupport
+	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		fss = common.LinkedCloneSupportFSS
+	} else {
+		// LinkedClone not supported in vanilla
+		return false, nil
+	}
+	isLinkedCloneSupported := c.IsFSSEnabled(ctx, fss)
 
 	if hasLinkedCloneAnn && !isLinkedCloneSupported {
 		log.Errorf("linked clone support is not enabled for the linked clone request pvc %s in namespace %s",
