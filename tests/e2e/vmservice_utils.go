@@ -1510,3 +1510,22 @@ func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedIma
 	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
 
 }
+
+// get zone name on which vm is scheduled
+func getVMzone(ctx context.Context, vm *vmopv1.VirtualMachine) (string, error) {
+	vmlabel := vm.GetLabels()
+	val, labelOk := vmlabel[vmZoneLabel]
+	framework.Logf("val %v, labelOk: %v", val, labelOk)
+	if !labelOk {
+		fmt.Errorf("zone is not present on vm: %s", vm.Name)
+		return val, fmt.Errorf("zone is not present on vm: %s", vm.Name)
+	}
+	// Get labels and print them
+	framework.Logf("vm Labels")
+	vmlabel = vm.GetLabels()
+	for k, v := range vmlabel {
+		fmt.Printf("%s = %s\n", k, v)
+	}
+
+	return val, nil
+}
