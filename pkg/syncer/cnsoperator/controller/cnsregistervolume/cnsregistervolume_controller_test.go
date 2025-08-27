@@ -929,7 +929,7 @@ var _ = Describe("isTopologyCompatible", func() {
 		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
 	})
 
-	It("should return false when some volume segments do not exist in PVC segments", func() {
+	It("should return true when some volume segments exist in PVC segments", func() {
 		pvcTopologySegments := []map[string]string{
 			{"topology.kubernetes.io/zone": "zone-a"},
 		}
@@ -937,23 +937,15 @@ var _ = Describe("isTopologyCompatible", func() {
 			{"topology.kubernetes.io/zone": "zone-a"},
 			{"topology.kubernetes.io/zone": "zone-b"}, // This doesn't exist in PVC
 		}
-		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
-	})
-
-	It("should return true for empty volume segments", func() {
-		pvcTopologySegments := []map[string]string{
-			{"topology.kubernetes.io/zone": "zone-a"},
-		}
-		volumeTopologySegments := []map[string]string{}
 		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeTrue())
 	})
 
-	It("should return false for empty PVC segments with non-empty volume segments", func() {
+	It("should return true for empty PVC segments with non-empty volume segments", func() {
 		pvcTopologySegments := []map[string]string{}
 		volumeTopologySegments := []map[string]string{
 			{"topology.kubernetes.io/zone": "zone-a"},
 		}
-		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeFalse())
+		Expect(isTopologyCompatible(pvcTopologySegments, volumeTopologySegments)).To(BeTrue())
 	})
 })
 

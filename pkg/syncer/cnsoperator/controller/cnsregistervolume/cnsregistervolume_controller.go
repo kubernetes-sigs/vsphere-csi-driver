@@ -535,7 +535,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			instance.Spec.PvcName)
 
 		// Validate topology compatibility if PVC exists and can be reused
-		if syncer.IsPodVMOnStretchSupervisorFSSEnabled && topologyMgr != nil {
+		if topologyMgr != nil {
 			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
 			if err != nil {
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
@@ -808,7 +808,7 @@ func validatePVCTopologyCompatibility(ctx context.Context, pvc *v1.PersistentVol
 	volumeTopologySegments, err := topologyMgr.GetTopologyInfoFromNodes(ctx,
 		commoncotypes.WCPRetrieveTopologyInfoParams{
 			DatastoreURL:        volumeDatastoreURL,
-			StorageTopologyType: "zonal",
+			StorageTopologyType: "",
 			TopologyRequirement: nil,
 			Vc:                  vc,
 		})
@@ -829,31 +829,31 @@ func validatePVCTopologyCompatibility(ctx context.Context, pvc *v1.PersistentVol
 }
 
 // isTopologyCompatible checks if volume topology segments are compatible with PVC topology segments.
-// Returns true if all volume topology segments are satisfied by the PVC topology segments.
+// Returns true if at least one volume topology segment is satisfied by the PVC topology segments.
 func isTopologyCompatible(pvcTopologySegments, volumeTopologySegments []map[string]string) bool {
+	// If PVC does not have any topology segments, any topology associated with the volume
+	// would satisfy the requirements
+	if len(pvcTopologySegments) == 0 {
+		return true
+	}
+
 	// For each volume topology segment, check if it exists in PVC topology segments
 	for _, volumeSegment := range volumeTopologySegments {
-		found := false
 		for _, pvcSegment := range pvcTopologySegments {
 			// Check if the volume segment satisfies the PVC's topology requirements
-			// This means all key-value pairs in the volume segment must match those in the PVC segment
-			segmentCompatible := true
+			segmentCompatible := false
 			for key, volumeValue := range volumeSegment {
-				if pvcValue, exists := pvcSegment[key]; !exists || pvcValue != volumeValue {
-					segmentCompatible = false
+				if pvcValue, exists := pvcSegment[key]; exists && pvcValue == volumeValue {
+					segmentCompatible = true
 					break
 				}
 			}
 			if segmentCompatible {
-				found = true
-				break
+				return true // Found at least one compatible segment
 			}
 		}
-		if !found {
-			return false
-		}
 	}
-	return true
+	return false // No compatible segments found
 }
 
 // checkExistingPVCDataSourceRef checks if a PVC already exists and validates its DataSourceRef.
