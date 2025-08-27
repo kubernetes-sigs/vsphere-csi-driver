@@ -683,3 +683,14 @@ func (m *MockVolumeManager) BatchAttachVolumes(ctx context.Context,
 	batchAttachRequest []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
 	return nil, "", nil
 }
+
+func (m *MockVolumeManager) SyncVolume(ctx context.Context,
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
+}
+
+func (m *MockVolumeManager) UnregisterVolume(ctx context.Context,
+	volumeID string, unregisterDisk bool) error {
+	//TODO implement me
+	return nil
+}
