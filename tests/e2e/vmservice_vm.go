@@ -208,20 +208,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		var pandoraSyncWaitTime int
 		var err error
 		var vmIp string
 		curtime := time.Now().Unix()
 		curtimestring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimestring
 		framework.Logf("pvc name :%s", pvcName)
-
-		if os.Getenv(envPandoraSyncWaitTime) != "" {
-			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(envPandoraSyncWaitTime))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else {
-			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
-		}
 
 		ginkgo.By("Creating FCD Disk")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
