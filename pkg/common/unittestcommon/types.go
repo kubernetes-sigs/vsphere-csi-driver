@@ -45,6 +45,8 @@ type FakeK8SOrchestrator struct {
 	// RWMutex to synchronize access to 'featureStates' field from multiple callers
 	featureStatesLock *sync.RWMutex
 	featureStates     map[string]string
+	// CSINodeTopology instances for topology testing
+	csiNodeTopologyInstances []interface{}
 }
 
 func (c *FakeK8SOrchestrator) HandleLateEnablementOfCapability(
