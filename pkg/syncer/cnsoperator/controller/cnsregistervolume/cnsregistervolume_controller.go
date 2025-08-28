@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	clientConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -1010,7 +1011,8 @@ func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsRegisterVolumeFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:

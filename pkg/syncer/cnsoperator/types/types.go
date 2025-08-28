@@ -16,6 +16,8 @@ limitations under the License.
 
 package types
 
+import "time"
+
 const (
 	// CNSFinalizer is the finalizer on CNSNodeVmAttachment and CnsVolumeMetadata controllers
 	CNSFinalizer = "cns.vmware.com"
@@ -41,4 +43,6 @@ const (
 	LabelVirtualMachineName = "vm.consumer.storage.com/name"
 	// Label that points to a StoragePolicyReservation CR name. This is added to CNSRegisterVolume CR and PVC.
 	LabelStoragePolicyReservationName = "quota.storage.vmware.com/storagepolicyreservation-name"
+	// MaxBackOffDurationForReconciler for supervisor APIs is set to 5 minutes
+	MaxBackOffDurationForReconciler = 5 * time.Minute
 )
