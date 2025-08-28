@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -515,6 +516,41 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		}
 	}
 
+	// Check if PVC already exists and has valid DataSourceRef
+	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
+	// is created even if validation fails
+	pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	if err != nil {
+		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
+			instance.Spec.PvcName, err)
+		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
+			instance.Namespace, instance.Spec.PvcName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
+	// is created even if validation fails
+	if pvc != nil {
+		log.Infof("PVC: %s already exists. Validate if there is topology annotation on PVC",
+			instance.Spec.PvcName)
+
+		// Validate topology compatibility if PVC exists and can be reused
+		if topologyMgr != nil {
+			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
+			if err != nil {
+				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
+				log.Error(msg)
+				setInstanceError(ctx, r, instance, msg)
+				// Untag the CNS volume which was created previously.
+				_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+				if delErr != nil {
+					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+				}
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+	}
+
 	capacityInMb := volume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
 	accessMode := instance.Spec.AccessMode
 	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import.
@@ -559,18 +595,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Check if PVC already exists and has valid DataSourceRef
-	pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
-	if err != nil {
-		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
-			instance.Spec.PvcName, err)
-		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
-			instance.Namespace, instance.Spec.PvcName, err))
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-
 	if pvc != nil {
-		log.Infof("PVC: %s already exists", instance.Spec.PvcName)
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
 			// This is handle cases where PVC with this name already exists and
 			// is bound. This happens when a new CnsRegisterVolume instance is
@@ -753,6 +778,82 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 	log.Info(msg)
 	return reconcile.Result{}, nil
+}
+
+// validatePVCTopologyCompatibility checks if the existing PVC's topology annotation is compatible
+// with the volume's actual placement zone.
+func validatePVCTopologyCompatibility(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	volumeDatastoreURL string, topologyMgr commoncotypes.ControllerTopologyService,
+	vc *cnsvsphere.VirtualCenter) error {
+	log := logger.GetLogger(ctx)
+
+	// Check if PVC has topology annotation
+	topologyAnnotation, exists := pvc.Annotations[common.AnnVolumeAccessibleTopology]
+	if !exists || topologyAnnotation == "" {
+		// No topology annotation on PVC, skip validation
+		log.Debugf("PVC %s/%s has no topology annotation, skipping topology validation",
+			pvc.Namespace, pvc.Name)
+		return nil
+	}
+
+	// Parse PVC topology annotation
+	var pvcTopologySegments []map[string]string
+	err := json.Unmarshal([]byte(topologyAnnotation), &pvcTopologySegments)
+	if err != nil {
+		return fmt.Errorf("failed to parse topology annotation on PVC %s/%s: %v",
+			pvc.Namespace, pvc.Name, err)
+	}
+
+	// Get volume topology from datastore URL
+	volumeTopologySegments, err := topologyMgr.GetTopologyInfoFromNodes(ctx,
+		commoncotypes.WCPRetrieveTopologyInfoParams{
+			DatastoreURL:        volumeDatastoreURL,
+			StorageTopologyType: "",
+			TopologyRequirement: nil,
+			Vc:                  vc,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to get topology for volume datastore %s: %v", volumeDatastoreURL, err)
+	}
+
+	// Check if volume topology segments are compatible with PVC topology segments
+	if isTopologyCompatible(pvcTopologySegments, volumeTopologySegments) {
+		log.Infof("PVC %s/%s topology annotation is compatible with volume placement",
+			pvc.Namespace, pvc.Name)
+		return nil
+	}
+
+	// No compatible topology found
+	return fmt.Errorf("PVC %s/%s topology annotation %s is not compatible with volume placement in zones %+v",
+		pvc.Namespace, pvc.Name, topologyAnnotation, volumeTopologySegments)
+}
+
+// isTopologyCompatible checks if volume topology segments are compatible with PVC topology segments.
+// Returns true if at least one volume topology segment is satisfied by the PVC topology segments.
+func isTopologyCompatible(pvcTopologySegments, volumeTopologySegments []map[string]string) bool {
+	// If PVC does not have any topology segments, any topology associated with the volume
+	// would satisfy the requirements
+	if len(pvcTopologySegments) == 0 {
+		return true
+	}
+
+	// For each volume topology segment, check if it exists in PVC topology segments
+	for _, volumeSegment := range volumeTopologySegments {
+		for _, pvcSegment := range pvcTopologySegments {
+			// Check if the volume segment satisfies the PVC's topology requirements
+			segmentCompatible := false
+			for key, volumeValue := range volumeSegment {
+				if pvcValue, exists := pvcSegment[key]; exists && pvcValue == volumeValue {
+					segmentCompatible = true
+					break
+				}
+			}
+			if segmentCompatible {
+				return true // Found at least one compatible segment
+			}
+		}
+	}
+	return false // No compatible segments found
 }
 
 // checkExistingPVCDataSourceRef checks if a PVC already exists and validates its DataSourceRef.
