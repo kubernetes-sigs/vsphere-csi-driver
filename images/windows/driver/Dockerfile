@@ -37,7 +37,9 @@ WORKDIR /build
 COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=1
+ENV GOFIPS=1
+ENV GOEXPERIMENT="boringcrypto"
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN GOOS=windows GOARCH=amd64 go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o ./bin/vsphere-csi.windows_amd64 cmd/vsphere-csi/main.go
 
