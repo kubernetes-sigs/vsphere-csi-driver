@@ -91,6 +91,10 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+
+	authenticationv1 "k8s.io/api/authentication/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -585,11 +589,13 @@ func getVSphereStorageClassSpec(scName string, scParameters map[string]string,
 
 // getPvFromClaim returns PersistentVolume for requested claim.
 func getPvFromClaim(client clientset.Interface, namespace string, claimName string) *v1.PersistentVolume {
+
+	adminClient, client := initializeClusterClientsByUserRoles(client)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	pvclaim, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, claimName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	pv, err := client.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
+	pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pvclaim.Spec.VolumeName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return pv
 }
@@ -825,11 +831,12 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	allowVolumeExpansion bool, scName string) (*storagev1.StorageClass, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var storageclass *storagev1.StorageClass
+
 	var err error
+	adminClient, _ := initializeClusterClientsByUserRoles(client)
+	var storageclass *storagev1.StorageClass
 	isStorageClassPresent := false
 	p := map[string]string{}
-
 	if scParameters == nil && os.Getenv(envHciMountRemoteDs) == "true" {
 		p[scParamStoragePolicyName] = os.Getenv(envStoragePolicyNameForHCIRemoteDatastores)
 		scParameters = p
@@ -839,7 +846,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 		scName, scParameters, allowedTopologies, scReclaimPolicy, allowVolumeExpansion))
 
 	if supervisorCluster {
-		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
+		storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -850,7 +857,7 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 	}
 
 	if !isStorageClassPresent {
-		storageclass, err = client.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
+		storageclass, err = adminClient.StorageV1().StorageClasses().Create(ctx, getVSphereStorageClassSpec(scName,
 			scParameters, allowedTopologies, scReclaimPolicy, bindingMode, allowVolumeExpansion), metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create storage class with err: %v", err))
 	}
@@ -2536,7 +2543,12 @@ func getVolumeIDFromSupervisorCluster(pvcName string) string {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	svcPvclaim, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).
+		Get(context.TODO(), pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	svcPV, err := svcClient.CoreV1().PersistentVolumes().
+		Get(context.TODO(), svcPvclaim.Spec.VolumeName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volumeHandle := svcPV.Spec.CSI.VolumeHandle
 	ginkgo.By(fmt.Sprintf("Found volume in Supervisor cluster with VolumeID: %s", volumeHandle))
 
@@ -2552,7 +2564,12 @@ func getPvFromSupervisorCluster(pvcName string) *v1.PersistentVolume {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	svNamespace := GetAndExpectStringEnvVar(envSupervisorClusterNamespace)
-	svcPV := getPvFromClaim(svcClient, svNamespace, pvcName)
+	svcPvclaim, err := svcClient.CoreV1().PersistentVolumeClaims(svNamespace).
+		Get(context.TODO(), pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	svcPV, err := svcClient.CoreV1().PersistentVolumes().
+		Get(context.TODO(), svcPvclaim.Spec.VolumeName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return svcPV
 }
 
@@ -5020,8 +5037,9 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 	parallelStatefulSetCreation bool) error {
 	allowedTopologiesMap := createAllowedTopologiesMap(allowedTopologies)
 	var ssPodsBeforeScaleDown *v1.PodList
-	var err error
 
+	var err error
+	adminClient, client := initializeClusterClientsByUserRoles(client)
 	if parallelStatefulSetCreation {
 		ssPodsBeforeScaleDown = GetListOfPodsInSts(client, statefulset)
 	} else {
@@ -5056,7 +5074,7 @@ func verifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx context.Cont
 				}
 
 				// fetch node details
-				nodeList, err := fnodes.GetReadySchedulableNodes(ctx, client)
+				nodeList, err := fnodes.GetReadySchedulableNodes(ctx, adminClient)
 				if err != nil {
 					return err
 				}
@@ -6035,20 +6053,21 @@ This method is used to delete the CSI Controller Pod
 func deleteCsiControllerPodWhereLeaderIsRunning(ctx context.Context,
 	client clientset.Interface, csi_controller_pod string) error {
 	ignoreLabels := make(map[string]string)
-	csiPods, err := fpod.GetPodsInNamespace(ctx, client, csiSystemNamespace, ignoreLabels)
+	adminClient, _ := initializeClusterClientsByUserRoles(client)
+	csiPods, err := fpod.GetPodsInNamespace(ctx, adminClient, csiSystemNamespace, ignoreLabels)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	num_csi_pods := len(csiPods)
 	// Collecting and dumping csi pod logs before deleting them
-	collectPodLogs(ctx, client, csiSystemNamespace)
+	collectPodLogs(ctx, adminClient, csiSystemNamespace)
 	for _, csiPod := range csiPods {
 		if strings.Contains(csiPod.Name, vSphereCSIControllerPodNamePrefix) && csiPod.Name == csi_controller_pod {
 			framework.Logf("Deleting the pod: %s", csiPod.Name)
-			err = fpod.DeletePodWithWait(ctx, client, csiPod)
+			err = fpod.DeletePodWithWait(ctx, adminClient, csiPod)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
 	// wait for csi Pods to be in running ready state
-	err = fpod.WaitForPodsRunningReady(ctx, client, csiSystemNamespace, int(num_csi_pods),
+	err = fpod.WaitForPodsRunningReady(ctx, adminClient, csiSystemNamespace, int(num_csi_pods),
 		time.Duration(pollTimeout))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nil
@@ -6324,7 +6343,7 @@ func startVCServiceWait4VPs(ctx context.Context, vcAddress string, service strin
 // assignPolicyToWcpNamespace assigns a set of storage policies to a wcp namespace
 func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 	namespace string, policyNames []string, resourceQuotaLimit string) {
-	var err error
+	adminClient, _ := initializeClusterClientsByUserRoles(client)
 	sessionId := createVcSession4RestApis(ctx)
 	curlStr := ""
 	policyNamesArrLength := len(policyNames)
@@ -6360,11 +6379,11 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"couldn't execute command: %v due to err %v", curlCmd, err)
 	}
-	gomega.Expect(result.Stdout).To(gomega.Equal("204"))
+	gomega.Expect(result.Stdout).To(gomega.Equal(status_code_success))
 
 	// wait for sc to get created in SVC
 	for _, policyName := range policyNames {
-		err = waitForScToGetCreated(client, ctx, policyName)
+		err = waitForScToGetCreated(adminClient, ctx, policyName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
@@ -7990,6 +8009,7 @@ func convertGiStrToMibInt64(size resource.Quantity) int64 {
 func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
 	c clientset.Interface, storagePolicyName string) (*rest.Config, *storagev1.StorageClass, string) {
 	namespace := getNamespaceToRunTests(f)
+	adminClient, _ := initializeClusterClientsByUserRoles(c)
 	// Get a config to talk to the apiserver
 	k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 	restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
@@ -8001,7 +8021,7 @@ func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
 	scParameters["storagePolicyID"] = profileID
 
 	if !supervisorCluster {
-		err = c.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+		err = adminClient.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -8010,11 +8030,11 @@ func staticProvisioningPreSetUpUtil(ctx context.Context, f *framework.Framework,
 	storageclass, err := createStorageClass(c, scParameters, nil, "", "", true, storagePolicyName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By(fmt.Sprintf("storageclass Name: %s", storageclass.GetName()))
-	storageclass, err = c.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+	storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ginkgo.By("create resource quota")
-	createResourceQuota(c, namespace, rqLimit, storagePolicyName)
+	createResourceQuota(adminClient, namespace, rqLimit, storagePolicyName)
 
 	return restConfig, storageclass, profileID
 }
@@ -8163,4 +8183,191 @@ func genrateRandomString(length int) (string, error) {
 	}
 	generatedString = fmt.Sprintf("%x", b)[2 : length+2]
 	return generatedString, err
+}
+
+// WaitForPVClaimBoundPhase waits until all pvcs phase set to bound
+// client: framework generated client
+// pvclaims: list of PVCs
+// timeout: timeInterval to wait for PVCs to get into bound state
+// ctx: context package variable
+func WaitForPVClaimBoundPhase(ctx context.Context, client clientset.Interface,
+	pvclaims []*v1.PersistentVolumeClaim, timeout time.Duration) ([]*v1.PersistentVolume, error) {
+	persistentvolumes := make([]*v1.PersistentVolume, len(pvclaims))
+
+	adminClient, client := initializeClusterClientsByUserRoles(client)
+	for index, claim := range pvclaims {
+		err := fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
+			claim.Namespace, claim.Name, framework.Poll, timeout)
+		if err != nil {
+			return persistentvolumes, err
+		}
+		// Get new copy of the claim
+		claim, err = client.CoreV1().PersistentVolumeClaims(claim.Namespace).
+			Get(ctx, claim.Name, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PVC Get API error: %w", err)
+		}
+		// Get the bounded PV
+		persistentvolumes[index], err = adminClient.CoreV1().PersistentVolumes().
+			Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PV Get API error: %w", err)
+		}
+	}
+	return persistentvolumes, nil
+}
+
+// createScopedClient generates a kubernetes-client by constructing kubeconfig by
+// creating a user with minimal permissions and enable port forwarding. It takes
+// client: framework generated client
+// namespace: framework generated namespace name
+// saName: service account name
+// ctx: context package variable
+func createScopedClient(ctx context.Context, client clientset.Interface,
+	ns string, saName string) (clientset.Interface, error) {
+
+	roleName := ns + "role"
+	roleBindingName := roleName + "-binding"
+	contextName := "e2e-context"
+
+	_, err := client.CoreV1().ServiceAccounts(ns).Create(ctx, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: saName,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SA: %v", err)
+	}
+
+	// 2. Create Role
+	_, err = client.RbacV1().Roles(ns).Create(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleName,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "persistentvolumeclaims", "services"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"statefulsets", "deployments", "replicasets"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"events"},
+				Verbs:     []string{"get", "list"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Role: %v", err)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	_, err = client.RbacV1().RoleBindings(ns).Create(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleBindingName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      serviceAccountKeyword,
+				Name:      saName,
+				Namespace: ns,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     roleKeyword,
+			Name:     roleName,
+			APIGroup: rbacApiGroup,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RoleBinding: %v", err)
+	}
+
+	var token string
+
+	tr := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences: []string{audienceForSvcAccountName},
+		},
+	}
+
+	tokenRequest, err := client.CoreV1().ServiceAccounts(ns).CreateToken(ctx, saName, tr, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %v", err)
+	}
+	token = tokenRequest.Status.Token
+
+	if token == "" {
+		return nil, fmt.Errorf("no token found for service account")
+	}
+	time.Sleep(60 * time.Second)
+	localPort := GetAndExpectStringEnvVar("RANDOM_PORT")
+	framework.Logf("Random port: %s", localPort)
+	kubeConfig := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"e2e-cluster": {
+				Server:                fmt.Sprintf("https://127.0.0.1:%s", localPort),
+				InsecureSkipTLSVerify: true,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {
+				Cluster:   "e2e-cluster",
+				AuthInfo:  "e2e-user",
+				Namespace: ns,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"e2e-user": {
+				Token: token,
+			},
+		},
+		CurrentContext: contextName,
+	}
+
+	restCfg, err := clientcmd.NewNonInteractiveClientConfig(kubeConfig,
+		contextName, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build rest.Config: %v", err)
+	}
+
+	nsScopedClient, err := clientset.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Clientset: %v", err)
+	}
+	return nsScopedClient, nil
+}
+
+// initializeClusterClientsByUserRoles takes a client generated by test framework
+// and generates and returns an admin client with administrator priviledges
+// and a client with devops user priviledges
+func initializeClusterClientsByUserRoles(client clientset.Interface) (clientset.Interface, clientset.Interface) {
+	var adminClient clientset.Interface
+	var err error
+	runningAsDevopsUser := GetBoolEnvVarOrDefault(envIsDevopsUser, false)
+	if supervisorCluster || guestCluster {
+		if runningAsDevopsUser {
+			if svAdminK8sEnv := GetAndExpectStringEnvVar(envAdminKubeconfig); svAdminK8sEnv != "" {
+				adminClient, err = createKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if supervisorCluster {
+				if devopsK8sEnv := GetAndExpectStringEnvVar(envDevopsKubeconfig); devopsK8sEnv != "" {
+					client, err = createKubernetesClientFromConfig(devopsK8sEnv)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		} else {
+			adminClient = client
+		}
+	} else if vanillaCluster || adminClient == nil {
+		adminClient = client
+	}
+	return adminClient, client
 }

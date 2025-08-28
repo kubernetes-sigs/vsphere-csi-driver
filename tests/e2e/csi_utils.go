@@ -32,7 +32,8 @@ import (
 func getControllerRuntimeDetails(client clientset.Interface, nameSpace string) ([]string, []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	pods, _ := client.CoreV1().Pods(nameSpace).List(
+	adminClient, _ := initializeClusterClientsByUserRoles(client)
+	pods, _ := adminClient.CoreV1().Pods(nameSpace).List(
 		ctx,
 		metav1.ListOptions{
 			FieldSelector: fields.SelectorFromSet(fields.Set{"status.phase": string(v1.PodRunning)}).String(),
@@ -70,7 +71,9 @@ func waitForControllerDeletion(ctx context.Context, client clientset.Interface, 
 func mapK8sMasterNodeWithIPs(client clientset.Interface, nodeNameIPMap map[string]string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
+	adminClient, _ := initializeClusterClientsByUserRoles(client)
+	nodes, err := adminClient.CoreV1().Nodes().List(ctx,
+		metav1.ListOptions{LabelSelector: "node-role.kubernetes.io/master"})
 	if err != nil {
 		return err
 	}

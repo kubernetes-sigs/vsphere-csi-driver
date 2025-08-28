@@ -161,6 +161,8 @@ cleanup of these multiple sts creation, deleteAllStsAndPodsPVCsInNamespace is us
 func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
 	StatefulSetPoll := 10 * time.Second
 	StatefulSetTimeout := 10 * time.Minute
+	var err error
+	adminClient, c := initializeClusterClientsByUserRoles(c)
 	ssList, err := c.AppsV1().StatefulSets(ns).List(context.TODO(),
 		metav1.ListOptions{LabelSelector: labels.Everything().String()})
 	framework.ExpectNoError(err)
@@ -203,7 +205,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 
 	pollErr := wait.PollUntilContextTimeout(ctx, StatefulSetPoll, StatefulSetTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			pvList, err := c.CoreV1().PersistentVolumes().List(context.TODO(),
+			pvList, err := adminClient.CoreV1().PersistentVolumes().List(context.TODO(),
 				metav1.ListOptions{LabelSelector: labels.Everything().String()})
 			if err != nil {
 				framework.Logf("WARNING: Failed to list pvs, retrying %v", err)
