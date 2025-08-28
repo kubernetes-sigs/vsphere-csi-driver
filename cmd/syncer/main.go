@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	_ "crypto/tls/fipsonly"
 	"flag"
 	"fmt"
 	"net/http"
