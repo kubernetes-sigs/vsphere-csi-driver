@@ -68,6 +68,69 @@ type NodeManagerInterface interface {
 	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error)
 }
 
+// TopologyCalculatorInterface handles post-creation topology calculation
+type TopologyCalculatorInterface interface {
+	CalculateAccessibleTopology(ctx context.Context, params TopologyCalculationParams) ([]map[string]string, error)
+}
+
+// TopologyCalculationParams contains all parameters needed for topology calculation
+type TopologyCalculationParams struct {
+	VolumeInfo          *cnsvolume.CnsVolumeInfo
+	VCenter             *cnsvsphere.VirtualCenter
+	VCHost              string
+	TopologySegmentsMap map[string][]map[string]string
+	VolumeManager       cnsvolume.Manager
+	NodeManager         NodeManagerInterface
+}
+
+// defaultTopologyCalculator is the default implementation of TopologyCalculatorInterface
+type defaultTopologyCalculator struct{}
+
+// CalculateAccessibleTopology calculates the accessible topology for a volume
+func (d *defaultTopologyCalculator) CalculateAccessibleTopology(ctx context.Context,
+	params TopologyCalculationParams) ([]map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
+	// API does not return datastoreURL, retrieve this by calling QueryVolume.
+	// Otherwise, retrieve this from PlacementResults in the response of
+	// CreateVolume API.
+	datastoreURL := params.VolumeInfo.DatastoreURL
+	if datastoreURL == "" {
+		volumeIds := []cnstypes.CnsVolumeId{{Id: params.VolumeInfo.VolumeID.Id}}
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: volumeIds,
+		}
+
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
+		}
+		queryResult, err := utils.QueryVolumeUtil(ctx, params.VolumeManager, queryFilter, &querySelection)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"queryVolumeUtil failed for volumeID: %s in vCenter %q. Error: %+v",
+				params.VolumeInfo.VolumeID.Id, params.VCHost, err)
+		}
+		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"queryVolumeUtil could not retrieve volume information for volume ID: %q in vCenter %q",
+				params.VolumeInfo.VolumeID.Id, params.VCHost)
+		}
+		datastoreURL = queryResult.Volumes[0].DatastoreUrl
+	}
+
+	// Retrieve datastore topology information from CSINodeTopology CRs.
+	allNodeVMs, err := params.NodeManager.GetAllNodesByVC(ctx, params.VCHost)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to fetch VirtualMachines for the registered nodes in VC %q. Error: %v", params.VCHost, err)
+	}
+
+	// Find datastore topology from the retrieved datastoreURL.
+	return calculateAccessibleTopologiesForDatastore(ctx, params.VCenter,
+		params.TopologySegmentsMap[params.VCHost], allNodeVMs, datastoreURL, params.NodeManager)
+}
+
 type controller struct {
 	// Deprecated
 	// To be removed after multi vCenter support is added
@@ -80,6 +143,7 @@ type controller struct {
 	authMgrs    map[string]*common.AuthManager
 	topologyMgr commoncotypes.ControllerTopologyService
 	csi.UnimplementedControllerServer
+	topologyCalc TopologyCalculatorInterface
 }
 
 var (
@@ -111,7 +175,9 @@ var (
 
 // New creates a CNS controller.
 func New() csitypes.CnsController {
-	return &controller{}
+	return &controller{
+		topologyCalc: &defaultTopologyCalculator{},
+	}
 }
 
 // Init is initializing controller struct.
@@ -367,7 +433,15 @@ func (c *controller) ReloadConfiguration() error {
 func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*cnsvsphere.DatastoreInfo,
 	vcHost string) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	dsMap := c.authMgrs[vcHost].GetDatastoreMapForBlockVolumes(ctx)
+	var dsMap map[string]*cnsvsphere.DatastoreInfo
+	if c.authMgrs != nil && c.authMgrs[vcHost] != nil {
+		dsMap = c.authMgrs[vcHost].GetDatastoreMapForBlockVolumes(ctx)
+	} else if c.authMgr != nil {
+		// Fallback to single authMgr for backward compatibility and testing
+		dsMap = c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
+	} else {
+		return nil, logger.LogNewError(log, "no auth manager available")
+	}
 	if len(dsMap) == 0 {
 		return nil, logger.LogNewError(log,
 			"auth service: no shared datastore found for block volume provisioning")
@@ -942,60 +1016,27 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 	// For topology aware provisioning, populate the topology segments parameter
 	// in the CreateVolumeResponse struct.
 	if topologyRequirement != nil {
-		var (
-			datastoreAccessibleTopology []map[string]string
-			allNodeVMs                  []*cnsvsphere.VirtualMachine
-		)
-		// Retrieve the datastoreURL of the Provisioned Volume. If CNS CreateVolume
-		// API does not return datastoreURL, retrieve this by calling QueryVolume.
-		// Otherwise, retrieve this from PlacementResults in the response of
-		// CreateVolume API.
-		datastoreURL := volumeInfo.DatastoreURL
-		if datastoreURL == "" {
-			if volumeMgr == nil {
-				volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
-				if err != nil {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
-				}
-			}
-
-			volumeIds := []cnstypes.CnsVolumeId{{Id: volumeInfo.VolumeID.Id}}
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: volumeIds,
-			}
-
-			querySelection := cnstypes.CnsQuerySelection{
-				Names: []string{string(cnstypes.QuerySelectionNameTypeDataStoreUrl)},
-			}
-			queryResult, err := utils.QueryVolumeUtil(ctx, volumeMgr, queryFilter, &querySelection)
+		if volumeMgr == nil {
+			volumeMgr, err = GetVolumeManagerFromVCHost(ctx, c.managers, vcHost)
 			if err != nil {
-				// TODO: QueryVolume need to return faultType.
-				// Need to return faultType which is returned from QueryVolume.
-				// Currently, just return "csi.fault.Internal".
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolumeUtil failed for volumeID: %s in vCenter %q. Error: %+v",
-					volumeInfo.VolumeID.Id, vcHost, err)
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, err.Error())
 			}
-			if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].DatastoreUrl == "" {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolumeUtil could not retrieve volume information for volume ID: %q in vCenter %q",
-					volumeInfo.VolumeID.Id, vcHost)
-			}
-			datastoreURL = queryResult.Volumes[0].DatastoreUrl
 		}
 
-		// Retrieve datastore topology information from CSINodeTopology CRs.
-		allNodeVMs, err = c.nodeMgr.GetAllNodesByVC(ctx, vcHost)
-		if err != nil {
-			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to fetch VirtualMachines for the registered nodes in VC %q. Error: %v", vcHost, err)
+		// Calculate accessible topology using the topology calculator interface
+		params := TopologyCalculationParams{
+			VolumeInfo:          volumeInfo,
+			VCenter:             vcenter,
+			VCHost:              vcHost,
+			TopologySegmentsMap: vcTopologySegmentsMap,
+			VolumeManager:       volumeMgr,
+			NodeManager:         c.nodeMgr,
 		}
-		// Find datastore topology from the retrieved datastoreURL.
-		datastoreAccessibleTopology, err = c.calculateAccessibleTopologiesForDatastore(ctx, vcenter,
-			vcTopologySegmentsMap[vcHost], allNodeVMs, datastoreURL)
+
+		datastoreAccessibleTopology, err := c.topologyCalc.CalculateAccessibleTopology(ctx, params)
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to calculate accessible topologies for the datastore %q", datastoreURL)
+				"failed to calculate accessible topologies. Error: %v", err)
 		}
 
 		// Add topology segments to the CreateVolumeResponse.
@@ -1031,8 +1072,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 // calculateAccessibleTopologiesForDatastore figures out the list of topologies from
 // which the given datastore is accessible when multi-VC FSS is enabled.
-func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-	topologySegments []map[string]string, allNodeVMs []*cnsvsphere.VirtualMachine, datastoreURL string) (
+func calculateAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	topologySegments []map[string]string, allNodeVMs []*cnsvsphere.VirtualMachine,
+	datastoreURL string, nodeMgr NodeManagerInterface) (
 	[]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	var datastoreAccessibleTopology []map[string]string
@@ -1054,7 +1096,7 @@ func (c *controller) calculateAccessibleTopologiesForDatastore(ctx context.Conte
 				err.Error())
 		}
 		// Get NodeVM name from VM UUID.
-		nodeName, err := c.nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
+		nodeName, err := nodeMgr.GetNodeNameByUUID(ctx, vmUUID)
 		if err != nil {
 			return nil, logger.LogNewErrorCode(log, codes.Internal,
 				err.Error())
