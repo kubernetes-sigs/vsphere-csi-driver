@@ -1102,6 +1102,7 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 	clusterFlavor cnstypes.CnsClusterFlavor, capability,
 	gcPort, gcEndpoint string) {
 	log := logger.GetLogger(ctx)
+	log.Infof("Starting a routine to handle late enablement for capability: %q", capability)
 	var restClientConfig *restclient.Config
 	var err error
 
