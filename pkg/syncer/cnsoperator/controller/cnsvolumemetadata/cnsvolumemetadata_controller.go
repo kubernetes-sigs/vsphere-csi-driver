@@ -507,7 +507,8 @@ func recordEvent(ctx context.Context, r *ReconcileCnsVolumeMetadata,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "UpdateFailed", msg)
 		log.Error(msg)
