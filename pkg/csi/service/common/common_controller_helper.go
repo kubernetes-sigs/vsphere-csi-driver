@@ -34,6 +34,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -116,6 +117,67 @@ func ValidateControllerUnpublishVolumeRequest(ctx context.Context, req *csi.Cont
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "node ID is a required parameter")
 	}
 	return nil
+}
+
+// ValidateVolumeCapabilitiesCommon contains the common logic for ValidateVolumeCapabilities
+func ValidateVolumeCapabilitiesCommon(ctx context.Context,
+	req *csi.ValidateVolumeCapabilitiesRequest,
+	validationFunc func(context.Context, []*csi.VolumeCapability) error) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ValidateVolumeCapabilities: called with args %+v", *req)
+
+	// Extract volume ID from request
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "volume ID is required")
+	}
+
+	volCaps := req.GetVolumeCapabilities()
+	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
+
+	if err := validationFunc(ctx, volCaps); err == nil {
+		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+
+	return &csi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
+}
+
+// In addition to running the common checks from ValidateVolumeCapabilitiesCommon,
+// ValidateVolumeCapabilitiesCommonWithVolumeCheck also confirms volume exists.
+func ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx context.Context,
+	req *csi.ValidateVolumeCapabilitiesRequest,
+	validationFunc func(context.Context, []*csi.VolumeCapability) error,
+	volumeManager cnsvolume.Manager) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+
+	// Run common validation first and return on error
+	resp, err := ValidateVolumeCapabilitiesCommon(ctx, req, validationFunc)
+	if err != nil {
+		return resp, err
+	}
+
+	// Sanity check volume presence
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+		},
+	}
+	volumeID := req.GetVolumeId()
+	_, err = QueryVolumeByID(ctx, volumeManager, volumeID, &querySelection)
+	if err != nil {
+		log := logger.GetLogger(ctx)
+		if err == ErrNotFound {
+			log.Errorf("Volume %q not found during ValidateVolumeCapabilities", volumeID)
+			return nil, logger.LogNewErrorCode(log, codes.NotFound, fmt.Sprintf("volume %q not found", volumeID))
+		}
+		log.Errorf("Failed to query volume %q during ValidateVolumeCapabilities: %+v", volumeID, err)
+		return nil, logger.LogNewErrorCode(log, codes.Internal, fmt.Sprintf("failed to query volume %q: %v", volumeID, err))
+	}
+
+	return resp, err
 }
 
 // CheckAPI checks if specified version against the specified minimum support version.

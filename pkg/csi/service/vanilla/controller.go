@@ -2652,17 +2652,20 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 // ValidateVolumeCapabilities returns the capabilities of the volume.
 func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", *req)
-	volCaps := req.GetVolumeCapabilities()
-	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
-	if err := common.IsValidVolumeCapabilities(ctx, volCaps); err == nil {
-		confirmed = &csi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	if multivCenterCSITopologyEnabled {
+		// Get the vCenter and volume manager for the given volume ID
+		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx,
+			c, req.GetVolumeId(), volumeInfoService)
+		if err != nil {
+			return nil, err
+		}
+		return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx,
+			req, common.IsValidVolumeCapabilities, volumeManager)
+	} else {
+		// For single vCenter deployment
+		return common.ValidateVolumeCapabilitiesCommonWithVolumeCheck(ctx,
+			req, common.IsValidVolumeCapabilities, c.manager.VolumeManager)
 	}
-	return &csi.ValidateVolumeCapabilitiesResponse{
-		Confirmed: confirmed,
-	}, nil
 }
 
 func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
