@@ -508,6 +508,17 @@ var (
 	vsanMaxFaultDomainName                         = "VSAN_MAX_FD_NAME"
 )
 
+// for devops persona testing
+var (
+	envAdminKubeconfig        = "ADMIN_KUBECONFIG"
+	envDevopsKubeconfig       = "DEVOPS_KUBE_CONFIG"
+	rbacApiGroup              = "rbac.authorization.k8s.io"
+	roleKeyword               = "Role"
+	audienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
+	envIsDevopsUser           = "IS_DEVOPS_USER"
+	serviceAccountKeyword     = "ServiceAccount"
+)
+
 // storage policy usages for storage quota validation
 var usageSuffixes = []string{
 	"-pvc-usage",
