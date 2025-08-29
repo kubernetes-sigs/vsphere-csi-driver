@@ -50,7 +50,7 @@ COPY cmd ./cmd/
 ARG GOOS
 ARG GOARCH
 ARG GOPROXY
-ENV CGO_ENABLED=0 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
+ENV CGO_ENABLED=1 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64}
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 RUN LDFLAGS=$(cat ldflags.txt) && \
     go build -ldflags "${LDFLAGS}" ./cmd/vsphere-csi

@@ -37,9 +37,13 @@ COPY pkg/    pkg/
 
 COPY cmd/    cmd/
 
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=1
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
+
+ENV GOFIPS=1
+
+ENV GOEXPERIMENT="boringcrypto"
 
 RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 

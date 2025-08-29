@@ -13,6 +13,9 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
+# Compile Go with boringcrypto. This is required to import crypto/tls/fipsonly package.
+export GOEXPERIMENT=boringcrypto
+
 
 ################################################################################
 ##                             VERIFY GO VERSION                              ##
@@ -103,11 +106,11 @@ CSI_BIN_SRCS += $(addsuffix /*.go,$(shell go list -f '{{ join .Deps "\n" }}' ./c
 export CSI_BIN_SRCS
 endif
 $(CSI_BIN): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_LINUX) $<
+	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_LINUX) $<
 	@touch $@
 
 $(CSI_BIN_WINDOWS): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=windows GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
+	CGO_ENABLED=1 GOOS=windows GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
 	@touch $@
 
 
@@ -141,7 +144,7 @@ CONTROLLER_GEN=$(shell which controller-gen)
 endif
 
 $(SYNCER_BIN): $(SYNCER_BIN_SRCS) syncer_manifest
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
+	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_SYNCER)' -o $(abspath $@) $<
 	@touch $@
 
 # The default build target.
