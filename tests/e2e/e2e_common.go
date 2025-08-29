@@ -464,16 +464,9 @@ var (
 
 // multiSvc env variables
 var (
-	vcSessionWaitTime                   = 5 * time.Minute
 	envStoragePolicyNameForSharedDsSvc1 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC1"
 	envStoragePolicyNameForSharedDsSvc2 = "STORAGE_POLICY_FOR_SHARED_DATASTORES_SVC2"
-	envSupervisorClusterNamespace1      = "SVC_NAMESPACE1"
-	envNfsDatastoreName                 = "NFS_DATASTORE_NAME"
-	envNfsDatastoreIP                   = "NFS_DATASTORE_IP"
 	pwdRotationTimeout                  = 10 * time.Minute
-	roleCnsDatastore                    = "CNS-SUPERVISOR-DATASTORE"
-	roleCnsSearchAndSpbm                = "CNS-SUPERVISOR-SEARCH-AND-SPBM"
-	roleCnsHostConfigStorageAndCnsVm    = "CNS-SUPERVISOR-HOST-CONFIG-STORAGE-AND-CNS-VM"
 )
 
 // For rwx
@@ -506,6 +499,17 @@ var (
 	envSharedZone1Zone2Zone3StoragePolicyName      = "SHARED_ZONE1_ZONE2_ZONE3_STORAGE_POLICY_IMM"
 	nimbusWorkerIp                                 = "NIMBUS_WORKER_IP"
 	vsanMaxFaultDomainName                         = "VSAN_MAX_FD_NAME"
+)
+
+// for devops persona testing
+var (
+	envAdminKubeconfig        = "ADMIN_KUBECONFIG"
+	envDevopsKubeconfig       = "DEVOPS_KUBE_CONFIG"
+	rbacApiGroup              = "rbac.authorization.k8s.io"
+	roleKeyword               = "Role"
+	audienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
+	envIsDevopsUser           = "IS_DEVOPS_USER"
+	serviceAccountKeyword     = "ServiceAccount"
 )
 
 // storage policy usages for storage quota validation

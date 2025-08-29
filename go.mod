@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/akutz/gofsutil v0.1.2
-	github.com/container-storage-interface/spec v1.9.0
+	github.com/container-storage-interface/spec v1.11.0
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/evanphx/json-patch/v5 v5.9.0
 	github.com/fsnotify/fsnotify v1.7.0

@@ -1102,6 +1102,7 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 	clusterFlavor cnstypes.CnsClusterFlavor, capability,
 	gcPort, gcEndpoint string) {
 	log := logger.GetLogger(ctx)
+	log.Infof("Starting a routine to handle late enablement for capability: %q", capability)
 	var restClientConfig *restclient.Config
 	var err error
 
@@ -1126,7 +1127,7 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
 				"capabilities.iaas.vmware.com", metav1.GetOptions{})
 			if err != nil {
-				if apierrors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
 					// If capabilities CR is not registered on supervisor, then sleep for some time and check
 					// again if CR has been registered on supervisor. If TKR is new, but supervisor is old, then
 					// it could happen that capabilities CR is not registered on the supervisor cluster.
@@ -1243,7 +1244,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Check if it is WCP defined feature state.
 		if _, exists := common.WCPFeatureStates[featureName]; exists {
-			log.Infof("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
+			log.Debugf("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
 				featureName, common.WCPCapabilitiesCRName)
 
 			if len(WcpCapabilitiesMap) == 0 {
@@ -1265,7 +1266,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 			}
 			if supervisorFeatureState, exists := WcpCapabilitiesMap[featureName]; exists {
-				log.Infof("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
+				log.Debugf("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
 
 				if !supervisorFeatureState {
 					// if capability can be enabled after upgrading CSI, we need to fetch capabilities CR again and
@@ -1342,6 +1343,32 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					}
 					// Get rest client config for supervisor.
 					restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+					// Check if CRD for capabilities exists
+					// If CRD does not exist on supervisor then skip further capability check
+					// this is case when tkr is newer and supervisor is older where capabilities CRD does not exist.
+					apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(restClientConfig)
+					if err != nil {
+						log.Errorf("failed to create apiextension clientset using config. Err: %+v", err)
+						return false
+					}
+					_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
+						"capabilities.iaas.vmware.com", metav1.GetOptions{})
+					if err != nil {
+						if featureName == common.WorkloadDomainIsolationFSS {
+							// prefer CSI internal feature-state configmap for workload-domain-isolation feature
+							// in case capabilities CRD is not registred on supervisor
+							log.Info("CSI workload-domain-isolation is set to true in pvcsi fss configmap. " +
+								"check if it is enabled in cns-csi fss")
+							return c.IsCNSCSIFSSEnabled(ctx, featureName)
+						}
+						if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+							log.Info("CR instance capabilities.iaas.vmware.com is not registered on supervisor, " +
+								"considering feature to be false")
+							return false
+						}
+						log.Errorf("failed to check if Capabilities CR is registered. Err: %v", err)
+						return false
+					}
 					wcpCapabilityApiClient, err := k8s.NewClientForGroup(ctx, restClientConfig, wcpcapapis.GroupName)
 					if err != nil {
 						log.Errorf("failed to create wcpCapabilityApi client. Err: %+v", err)
@@ -1987,7 +2014,16 @@ func (c *K8sOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName stri
 		return false, err
 	}
 	hasLinkedCloneAnn := metav1.HasAnnotation(pvcObj.ObjectMeta, common.AnnKeyLinkedClone)
-	isLinkedCloneSupported := c.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+	var fss string
+	if c.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		fss = common.LinkedCloneSupport
+	} else if c.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		fss = common.LinkedCloneSupportFSS
+	} else {
+		// LinkedClone not supported in vanilla
+		return false, nil
+	}
+	isLinkedCloneSupported := c.IsFSSEnabled(ctx, fss)
 
 	if hasLinkedCloneAnn && !isLinkedCloneSupported {
 		log.Errorf("linked clone support is not enabled for the linked clone request pvc %s in namespace %s",

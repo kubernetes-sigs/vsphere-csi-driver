@@ -854,7 +854,8 @@ func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		r.recorder.Event(instance, v1.EventTypeWarning, "CnsFileAccessConfigFailed", msg)
 		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:

@@ -185,12 +185,12 @@ func IsVolumeReadOnly(capability *csi.VolumeCapability) bool {
 // validateVolumeCapabilities validates the access mode in given volume
 // capabilities in validAccessModes.
 func validateVolumeCapabilities(volCaps []*csi.VolumeCapability,
-	validAccessModes []csi.VolumeCapability_AccessMode, volumeType string) error {
+	validAccessModes []csi.VolumeCapability_AccessMode_Mode, volumeType string) error {
 	// Validate if all capabilities of the volume are supported.
 	for _, volCap := range volCaps {
 		found := false
 		for _, validAccessMode := range validAccessModes {
-			if volCap.AccessMode.GetMode() == validAccessMode.GetMode() {
+			if volCap.AccessMode.GetMode() == validAccessMode {
 				found = true
 				break
 			}
