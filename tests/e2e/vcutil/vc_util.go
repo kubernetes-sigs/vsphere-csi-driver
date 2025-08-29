@@ -57,6 +57,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsclient "sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/cns"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vc"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vsan"
@@ -2499,4 +2501,78 @@ func CheckVcenterServicesRunning(
 	err = CheckVcServicesHealthPostReboot(ctx, vs, host, timeout...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"Got timed-out while waiting for all required VC services to be up and running")
+}
+
+func GetCnsOperatorClient(ctx context.Context, restConfig *rest.Config) (client.Client, error) {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return nil, err
+	}
+	return cnsOperatorClient, nil
+}
+
+func GetClusterRefFromClusterName(ctx context.Context, vs *config.E2eTestConfig, clusterName string) vim25types.ManagedObjectReference {
+
+	clusterComputeResource, _, err := GetClusterName(ctx, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, cluster := range clusterComputeResource {
+		if cluster.Name() == clusterName {
+			return cluster.Reference()
+		}
+
+	}
+	return vim25types.ManagedObjectReference{}
+}
+
+func QueryVsanFileShares(ctx context.Context, vs *config.E2eTestConfig, fileShareIDs []string,
+	clusterRef vim25types.ManagedObjectReference) []vsantypes.VsanFileShare {
+
+	// Creates the vsan object identities instance. This is to be queried from vsan health.
+	var (
+		VsanQueryObjectIdentitiesInstance = vim25types.ManagedObjectReference{
+			Type:  "VsanObjectSystem",
+			Value: "vsan-cluster-object-system",
+		}
+	)
+	querySpec := &vsantypes.VsanFileShareQuerySpec{
+		DomainName: "cibgst.com",
+		Uuids:      fileShareIDs,
+	}
+	spec := &vsantypes.VsanClusterQueryFileShares{
+		This:      VsanQueryObjectIdentitiesInstance,
+		QuerySpec: *querySpec,
+		Cluster:   &clusterRef,
+	}
+	vsanFileShares, err := vsanmethods.VsanClusterQueryFileShares(ctx, vs.VcClient.Client, spec)
+	vsanFileShareList := vsanFileShares.Returnval.FileShares
+	framework.Logf("File shares: %v", vsanFileShares.Returnval.FileShares)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return vsanFileShareList
+}
+
+func VerifyACLPermissionsOnFileShare(vsanFileShareList []vsantypes.VsanFileShare) {
+	for _, fs := range vsanFileShareList {
+		framework.Logf("ACL permissions on fileshare:%v", fs.Config.Permission)
+	}
+}
+
+// getDsMoRefFromURL get datastore MoRef from its URL
+func GetDsMoRefFromURL(ctx context.Context, vs *config.E2eTestConfig, dsURL string) vim25types.ManagedObjectReference {
+	dcList, err := GetAllDatacenters(ctx, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var ds *object.Datastore
+	for _, dc := range dcList {
+		ds, err = GetDatastoreByURL(ctx, vs, dsURL, dc)
+		if err != nil {
+			if !strings.Contains(err.Error(), "couldn't find Datastore given URL") {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		} else {
+			break
+		}
+	}
+	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
+	return ds.Reference()
 }

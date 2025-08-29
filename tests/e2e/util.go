@@ -2915,7 +2915,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 				break
 			}
 		}
-		if crdName == "cnsfileaccessconfigs" {
+		if crdName == crdCNSFileAccessConfig {
 			instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2956,7 +2956,7 @@ func verifyCNSFileAccessConfigCRDInSupervisor(ctx context.Context,
 
 	var instanceFound bool
 	for _, crd := range list.Items {
-		if crdName == "cnsfileaccessconfigs" {
+		if crdName == crdCNSFileAccessConfig {
 			instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3005,7 +3005,7 @@ func waitTillCNSFileAccesscrdDeleted(ctx context.Context, f *framework.Framework
 			found := false
 
 			for _, crd := range list.Items {
-				if crdName == "cnsfileaccessconfigs" {
+				if crdName == crdCNSFileAccessConfig {
 					instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 					err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())

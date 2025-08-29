@@ -160,6 +160,7 @@ const (
 	EnsureAccessibilityMModeType               = "ensureObjectAccessibility"
 	EnvClusterFlavor                           = "CLUSTER_FLAVOR"
 	EnvDiskSizeLarge                           = "LARGE_DISK_SIZE"
+	EnvClusterName                             = "CLUSTER_NAME"
 	EnvCSINamespace                            = "CSI_NAMESPACE"
 	EnvContentLibraryUrl                       = "CONTENT_LIB_URL"
 	EnvContentLibraryUrlSslThumbprint          = "CONTENT_LIB_THUMBPRINT"

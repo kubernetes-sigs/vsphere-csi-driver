@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package vmservice_vm
 
 import (
 	"bytes"
@@ -54,6 +54,9 @@ import (
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
 type subscribedContentLibBasic struct {
@@ -66,22 +69,15 @@ type subscribedContentLibBasic struct {
 const vmServiceVmLabelKey = "topology.kubernetes.io/zone"
 
 // createTestWcpNs create a wcp namespace with given storage policy, vm class and content lib via REST API
-func createTestWcpNs(
+func CreateTestWcpNs(
 	vcRestSessionId string, storagePolicyId string, vmClass string, contentLibId string,
 	supervisorId string) string {
 
-	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	vcIp := vcutil.Config.Global.VCenterHostname
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 
 	namespace := fmt.Sprintf("csi-vmsvcns-%v", r.Intn(10000))
-
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-
-	nsCreationUrl := "https://" + vcIp + ":" + e2eVSphere.Config.Global.VCenterPort +
-		"/api/vcenter/namespaces/instances/v2"
+	nsCreationUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/v2"
 	reqBody := fmt.Sprintf(`{
         "namespace": "%s",
         "storage_specs": [  {
@@ -107,30 +103,18 @@ func createTestWcpNs(
 }
 
 // delTestWcpNs triggeres a wcp namespace deletion asynchronously
-func delTestWcpNs(vcRestSessionId string, namespace string) {
+func DelTestWcpNs(vcRestSessionId string, namespace string) {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-	nsDeletionUrl := "https://" + vcIp + ":" + e2eVSphere.Config.Global.VCenterPort +
-		"/api/vcenter/namespaces/instances/" + namespace
+	nsDeletionUrl := "https://" + vcIp + "/api/vcenter/namespaces/instances/" + namespace
 	_, statusCode := invokeVCRestAPIDeleteRequest(vcRestSessionId, nsDeletionUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 204))
 	framework.Logf("Successfully Deleted namepsace %v in SVC.", namespace)
 }
 
 // getSvcId fetches the ID of the Supervisor cluster
-func getSvcId(vcRestSessionId string, vs *vSphere) string {
-
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	vCenterIp := vs.Config.Global.VCenterHostname
-	if isPrivateNetwork {
-		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-
-	svcIdFetchUrl := "https://" + vCenterIp + ":" + vs.Config.Global.VCenterPort +
-		"/api/vcenter/namespace-management/supervisors/summaries"
+func GetSvcId(vcRestSessionId string) string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	svcIdFetchUrl := "https://" + vcIp + "/api/vcenter/namespace-management/supervisors/summaries"
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, svcIdFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
@@ -143,13 +127,12 @@ func getSvcId(vcRestSessionId string, vs *vSphere) string {
 
 // createAndOrGetContentlibId4Url fetches ID of a content lib that matches the given URL, if none are found it creates a
 // new content lib with the given URL and returns its ID
-func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string,
-	vs *vSphere) (string, error) {
+func CreateAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string, dsMoId string) (string, error) {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	contentlibName := fmt.Sprintf("csi-vmsvc-%v", r.Intn(10000))
 
 	// Try to get the existing Content Library ID
-	contentLibId, err := getContentLibId4Url(vcRestSessionId, contentLibUrl, vs)
+	contentLibId, err := GetContentLibId4Url(vcRestSessionId, contentLibUrl)
 	if err == nil {
 		if contentLibId == "" {
 			return "", fmt.Errorf("existing content library ID is empty")
@@ -158,19 +141,14 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
 	}
 
 	// Get SSL Thumbprint
-	sslThumbPrint, err := getSslThumbprintForContentLibraryCreation(vcRestSessionId,
-		contentLibUrl, &e2eVSphere)
+	sslThumbPrint, err := GetSslThumbprintForContentLibraryCreation(vcRestSessionId,
+		contentLibUrl)
 	if err != nil {
 		return "", fmt.Errorf("failed to get SSL thumbprint: %w", err)
 	}
 
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-	contentlbCreationUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
-		"/api/content/subscribed-library"
+	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library"
 	reqBody := fmt.Sprintf(`{
         "name": "%s",
         "storage_backings": [{
@@ -211,16 +189,9 @@ func createAndOrGetContentlibId4Url(vcRestSessionId string, contentLibUrl string
 getSslThumbprintForContentLibraryCreation util will fetch the thumbprint
 required to create a content library
 */
-func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string,
-	vs *vSphere) (string, error) {
+func GetSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLibUrl string) (string, error) {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-
-	contentlbCreationUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
-		"/api/content/subscribed-library?action=probe"
+	contentlbCreationUrl := "https://" + vcIp + "/api/content/subscribed-library?action=probe"
 
 	reqBody := fmt.Sprintf(`{
         "subscription_info": {
@@ -248,11 +219,11 @@ func getSslThumbprintForContentLibraryCreation(vcRestSessionId string, contentLi
 }
 
 // getContentLibId4Url fetches ID of a content lib that matches the given URL
-func getContentLibId4Url(vcRestSessionId string, url string, vs *vSphere) (string, error) {
+func GetContentLibId4Url(vcRestSessionId string, url string) (string, error) {
 	var libId string
-	libIds := getAllContentLibIds(vcRestSessionId, vs)
+	libIds := getAllContentLibIds(vcRestSessionId)
 	for _, libId := range libIds {
-		lib := getContentLib(vcRestSessionId, libId, vs)
+		lib := GetContentLib(vcRestSessionId, libId)
 		if lib.url == url {
 			return libId, nil
 		}
@@ -261,15 +232,9 @@ func getContentLibId4Url(vcRestSessionId string, url string, vs *vSphere) (strin
 }
 
 // getAllContentLibIds fetches IDs of all content libs
-func getAllContentLibIds(vcRestSessionId string, vs *vSphere) []string {
-	vCenterIp := e2eVSphere.Config.Global.VCenterHostname
-
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vCenterIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-	contentLibsFetchUrl := "https://" + vCenterIp + ":" + vs.Config.Global.VCenterPort +
-		"/api/content/subscribed-library"
+func getAllContentLibIds(vcRestSessionId string) []string {
+	vcIp := e2eVSphere.Config.Global.VCenterHostname
+	contentLibsFetchUrl := "https://" + vcIp + "/api/content/subscribed-library"
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, contentLibsFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
@@ -281,16 +246,9 @@ func getAllContentLibIds(vcRestSessionId string, vs *vSphere) []string {
 }
 
 // getContentLib fetches the content lib with give ID
-func getContentLib(vcRestSessionId string, libId string, vs *vSphere) subscribedContentLibBasic {
+func GetContentLib(vcRestSessionId string, libId string) subscribedContentLibBasic {
 	vcIp := e2eVSphere.Config.Global.VCenterHostname
-
-	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = GetStringEnvVarOrDefault("LOCAL_HOST_IP", defaultlocalhostIP)
-	}
-
-	contentLibFetchUrl := "https://" + vcIp + ":" + vs.Config.Global.VCenterPort +
-		"/api/content/subscribed-library/" + libId
+	contentLibFetchUrl := "https://" + vcIp + "/api/content/subscribed-library/" + libId
 
 	resp, statusCode := invokeVCRestAPIGetRequest(vcRestSessionId, contentLibFetchUrl)
 	gomega.Expect(statusCode).Should(gomega.BeNumerically("==", 200))
@@ -310,7 +268,7 @@ func getContentLib(vcRestSessionId string, libId string, vs *vSphere) subscribed
 
 // invokeVCRestAPIGetRequest invokes GET on given VC REST URL using the passed session token and verifies that the
 // return status code is 200
-func invokeVCRestAPIGetRequest(vcRestSessionId string, url string) ([]byte, int) {
+func InvokeVCRestAPIGetRequest(vcRestSessionId string, url string) ([]byte, int) {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
@@ -326,7 +284,7 @@ func invokeVCRestAPIGetRequest(vcRestSessionId string, url string) ([]byte, int)
 }
 
 // invokeVCRestAPIPostRequest invokes POST on given VC REST URL using the passed session token and request body
-func invokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
+func InvokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
@@ -343,7 +301,7 @@ func invokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody stri
 }
 
 // invokeVCRestAPIDeleteRequest invokes DELETE on given VC REST URL using the passed session token
-func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, int) {
+func InvokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, int) {
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
@@ -359,9 +317,9 @@ func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 }
 
 // waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
-func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName string) string {
+func WaitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName string) string {
 	vmi := ""
-	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+	err := wait.PollUntilContextTimeout(ctx, constants.Poll*5, constants.PollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			vmImagesList := &vmopv1.VirtualMachineImageList{}
 			err := c.List(ctx, vmImagesList)
@@ -391,7 +349,7 @@ type CreateVmOptionsV3 struct {
 }
 
 // createVmServiceVmV3 creates VM v3 via VM service with given options
-func createVmServiceVmV3(ctx context.Context, c ctlrclient.Client, opts CreateVmOptionsV3) *vmopv3.VirtualMachine {
+func CreateVmServiceVmV3(ctx context.Context, c ctlrclient.Client, opts CreateVmOptionsV3) *vmopv3.VirtualMachine {
 	gomega.Expect(opts.VMI).NotTo(gomega.BeEmpty())
 	gomega.Expect(opts.StorageClassName).NotTo(gomega.BeEmpty())
 
@@ -469,7 +427,7 @@ func createVmServiceVmV3(ctx context.Context, c ctlrclient.Client, opts CreateVm
 }
 
 // createVmServiceVmWithPvcs creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for cloud init
-func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+func CreateVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string) *vmopv1.VirtualMachine {
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -493,17 +451,17 @@ func createVmServiceVmWithPvcs(ctx context.Context, c ctlrclient.Client, namespa
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: env.cloudInitLabel, SecretName: secretName},
 		},
 	}
 	err := c.Create(ctx, &vm)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	return waitNgetVmsvcVM(ctx, c, namespace, vmName)
+	return WaitNgetVmsvcVM(ctx, c, namespace, vmName)
 }
 
 // deleteVmServiceVm deletes VM via VM service
-func deleteVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace, name string) {
+func DeleteVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace, name string) {
 	err := c.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
 		Name:      name,
 		Namespace: namespace,
@@ -512,7 +470,7 @@ func deleteVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace, name
 }
 
 // getVmsvcVM fetches the vm from the specified ns
-func getVmsvcVM(
+func GetVmsvcVM(
 	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) (*vmopv1.VirtualMachine, error) {
 	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}
 	vm := &vmopv1.VirtualMachine{}
@@ -521,12 +479,12 @@ func getVmsvcVM(
 }
 
 // waitNgetVmsvcVM wait and fetch the vm CR from the specified ns
-func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) *vmopv1.VirtualMachine {
+func WaitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) *vmopv1.VirtualMachine {
 	vm := &vmopv1.VirtualMachine{}
 	var err error
 	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			vm, err = getVmsvcVM(ctx, c, namespace, vmName)
+			vm, err = GetVmsvcVM(ctx, c, namespace, vmName)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					return false, err
@@ -541,7 +499,7 @@ func waitNgetVmsvcVM(ctx context.Context, c ctlrclient.Client, namespace string,
 }
 
 // waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
-func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
+func WaitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
 	ip := ""
 	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
 		func(ctx context.Context) (bool, error) {
@@ -563,7 +521,7 @@ func waitNgetVmsvcVmIp(ctx context.Context, c ctlrclient.Client, namespace strin
 }
 
 // createBootstrapSecretForVmsvcVms create bootstrap data for cloud init in the ns
-func createBootstrapSecretForVmsvcVms(ctx context.Context, client clientset.Interface, namespace string) string {
+func CreateBootstrapSecretForVmsvcVms(ctx context.Context, client clientset.Interface, namespace string) string {
 	secretSpec := v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "vm-bootstrap-data", Namespace: namespace},
 		StringData: map[string]string{"user-data": `#cloud-config
@@ -582,7 +540,7 @@ users:
 }
 
 // createService4Vm creates a virtualmachineservice(loadbalancer) for given vm in the specified ns
-func createService4Vm(
+func CreateService4Vm(
 	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) *vmopv1.VirtualMachineService {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	svcName := fmt.Sprintf("%s-svc-%d", vmName, r.Intn(10000))
@@ -601,7 +559,7 @@ func createService4Vm(
 }
 
 // getVmsvcVmLbSvc fetches the virtualmachineservice(loadbalancer) for given vm in the specified ns
-func getVmsvcVmLbSvc(ctx context.Context, c ctlrclient.Client, namespace string, name string) (
+func GetVmsvcVmLbSvc(ctx context.Context, c ctlrclient.Client, namespace string, name string) (
 	*vmopv1.VirtualMachineService, error) {
 	instanceKey := ctlrclient.ObjectKey{Name: name, Namespace: namespace}
 	svc := &vmopv1.VirtualMachineService{}
@@ -610,7 +568,7 @@ func getVmsvcVmLbSvc(ctx context.Context, c ctlrclient.Client, namespace string,
 }
 
 // waitNgetVmLbSvc wait and fetches the virtualmachineservice(loadbalancer) for given vm in the specified ns
-func waitNgetVmLbSvc(
+func WaitNgetVmLbSvc(
 	ctx context.Context, c ctlrclient.Client, namespace string, name string) *vmopv1.VirtualMachineService {
 	vmLbSvc := &vmopv1.VirtualMachineService{}
 	var err error
@@ -630,7 +588,7 @@ func waitNgetVmLbSvc(
 }
 
 // verifyPvcsAreAttachedToVmsvcVm verify given pvc(s) is(are) attached to given VM via vm and cnsnodevmattachment CRs
-func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
+func VerifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	vm *vmopv1.VirtualMachine, pvcs []*v1.PersistentVolumeClaim) bool {
 
 	attachmentmap := map[string]int{}
@@ -684,7 +642,7 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 }
 
 // getCnsNodeVmAttachmentCR fetches the requested cnsnodevmattachment CRs
-func getCnsNodeVmAttachmentCR(
+func GetCnsNodeVmAttachmentCR(
 	ctx context.Context, cnsc ctlrclient.Client, namespace string, vmName string, pvcName string) (
 	*cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, error) {
 
@@ -695,7 +653,7 @@ func getCnsNodeVmAttachmentCR(
 }
 
 // waitNverifyPvcsAreAttachedToVmsvcVm wait for pvc(s) th be attached to VM via vm and cnsnodevmattachment CRs
-func waitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.Client, cnsopC ctlrclient.Client,
+func WaitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.Client, cnsopC ctlrclient.Client,
 	vm *vmopv1.VirtualMachine, pvcs []*v1.PersistentVolumeClaim) error {
 
 	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
@@ -715,7 +673,7 @@ func waitNverifyPvcsAreAttachedToVmsvcVm(ctx context.Context, vmopC ctlrclient.C
 
 // formatNVerifyPvcIsAccessible format the pvc inside vm and create a file system on it and returns a folder with 777
 // permissions under the mount point
-func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) string {
+func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) string {
 	// Construct the disk path from the UUID
 	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
 	fmt.Println("Checking disk path:", p)
@@ -805,7 +763,7 @@ func formatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 }
 
 // verifyDataIntegrityOnVmDisk verifies data integrity with 100m random data on given FS path inside a vm
-func verifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
+func VerifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
 	results := execSshOnVmThroughGatewayVm(vmIp, []string{"dd count=100 bs=1M if=/dev/urandom of=/tmp/file1",
 		"dd count=100 bs=1M if=/tmp/file1 of=" + volFolder + "/vmfile",
 		"dd count=100 bs=1M if=" + volFolder + "/vmfile of=/tmp/file2", "md5sum /tmp/file1 /tmp/file2",
@@ -848,7 +806,7 @@ func execSshOnVmThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
 }
 
 // copyFileToVm copies a local file to a VM via gateway host
-func copyFileToVm(vmIp string, localFilePath string, vmFilePath string) {
+func CopyFileToVm(vmIp string, localFilePath string, vmFilePath string) {
 	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
 	defer sshClient.Close()
 	defer gatewayClient.Close()
@@ -874,7 +832,7 @@ func copyFileToVm(vmIp string, localFilePath string, vmFilePath string) {
 }
 
 // copyFileToVm copies a file from VM via gateway host
-func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
+func CopyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
 	gatewayClient, sshClient := getSshClientForVmThroughGatewayVm(vmIp)
 	defer sshClient.Close()
 	defer gatewayClient.Close()
@@ -900,12 +858,12 @@ func copyFileFromVm(vmIp string, vmFilePath string, localFilePath string) {
 }
 
 // getSshClientForVmThroughGatewayVm return a ssh client via gateway host for the given VM
-func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
-	framework.Logf("gateway pwd: %s", GetAndExpectStringEnvVar(envGatewayVmPasswd))
+func GetSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
+	framework.Logf("gateway pwd: %s", env.GetAndExpectStringEnvVar(constants.EnvGatewayVmPasswd))
 	gatewayConfig := &ssh.ClientConfig{
-		User: GetAndExpectStringEnvVar(envGatewayVmUser),
+		User: env.GetAndExpectStringEnvVar(constants.EnvGatewayVmUser),
 		Auth: []ssh.AuthMethod{
-			ssh.Password(GetAndExpectStringEnvVar(envGatewayVmPasswd)),
+			ssh.Password(env.GetAndExpectStringEnvVar(constants.EnvGatewayVmPasswd)),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
@@ -917,7 +875,7 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	gatewayClient, err := ssh.Dial("tcp", GetAndExpectStringEnvVar(envGatewayVmIp)+":22", gatewayConfig)
+	gatewayClient, err := ssh.Dial("tcp", env.GetAndExpectStringEnvVar(env.envGatewayVmIp)+":22", gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("VM IP: %s", vmIp)
@@ -931,7 +889,7 @@ func getSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 }
 
 // wait4PvcAttachmentFailure waits for PVC attachment to given VM to fail
-func wait4PvcAttachmentFailure(
+func Wait4PvcAttachmentFailure(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) error {
 	var returnErr error
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
@@ -954,7 +912,7 @@ func wait4PvcAttachmentFailure(
 }
 
 // mountFormattedVol2Vm mounts a preformatted volume inside the VM
-func mountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
+func MountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
 	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
 	results := execSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
 	dev := "/dev/" + strings.TrimSpace(strings.Split(results[1].Stdout, "/")[6])
@@ -977,7 +935,7 @@ func mountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
 }
 
 // setVmPowerState sets expected power state for the VM
-func setVmPowerState(
+func SetVmPowerState(
 	ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine,
 	powerState vmopv1.VirtualMachinePowerState) *vmopv1.VirtualMachine {
 
@@ -992,7 +950,7 @@ func setVmPowerState(
 }
 
 // wait4Vm2ReachPowerStateInSpec wait for VM to reach expected power state
-func wait4Vm2ReachPowerStateInSpec(
+func Wait4Vm2ReachPowerStateInSpec(
 	ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) (*vmopv1.VirtualMachine, error) {
 
 	var err error
@@ -1013,7 +971,7 @@ func wait4Vm2ReachPowerStateInSpec(
 
 // createVmServiceVmWithPvcsWithZone creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for
 // cloud init on given zone
-func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+func CreateVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string,
 	zone string) *vmopv1.VirtualMachine {
 
@@ -1038,20 +996,20 @@ func createVmServiceVmWithPvcsWithZone(ctx context.Context, c ctlrclient.Client,
 			ClassName:    vmClass,
 			StorageClass: storageClassName,
 			Volumes:      vols,
-			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+			VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: env.cloudInitLabel, SecretName: secretName},
 		},
 	}
 	err := c.Create(ctx, &vm)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	return waitNgetVmsvcVM(ctx, c, namespace, vmName)
+	return WaitNgetVmsvcVM(ctx, c, namespace, vmName)
 }
 
 // wait4VmSvcVm2BeDeleted waits for the given vmservice vm to get deleted
-func wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) {
+func Wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1.VirtualMachine) {
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := getVmsvcVM(ctx, c, vm.Namespace, vm.Name)
+			_, err := GetVmsvcVM(ctx, c, vm.Namespace, vm.Name)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					return false, err
@@ -1064,11 +1022,11 @@ func wait4VmSvcVm2BeDeleted(ctx context.Context, c ctlrclient.Client, vm *vmopv1
 }
 
 // wait4Pvc2Detach waits for PVC to detach from given VM
-func wait4Pvc2Detach(
+func Wait4Pvc2Detach(
 	ctx context.Context, vmopC ctlrclient.Client, vm *vmopv1.VirtualMachine, pvc *v1.PersistentVolumeClaim) {
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
-			vm, err := getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
+			vm, err := GetVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, vol := range vm.Status.Volumes {
 				if vol.Name == pvc.Name {
@@ -1082,7 +1040,7 @@ func wait4Pvc2Detach(
 
 // createVMServiceVmWithMultiplePvcs creates a VMService VM
 // and attaches this VM to a pvc and returns a list of created VMServiceVMs
-func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+func CreateVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string) []*vmopv1.VirtualMachine {
 	var vms []*vmopv1.VirtualMachine
 	for _, pvc := range pvcs {
@@ -1105,7 +1063,7 @@ func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client,
 				ClassName:    vmClass,
 				StorageClass: storageClassName,
 				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: env.cloudInitLabel, SecretName: secretName},
 			},
 		}
 		err := c.Create(ctx, &vm)
@@ -1118,7 +1076,7 @@ func createVMServiceVmWithMultiplePvcs(ctx context.Context, c ctlrclient.Client,
 
 // createVMServiceVmInParallel creates VMService VM concurrently
 // for a given namespace with 1:1 mapping between PVC and the VMServiceVM
-func createVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+func CreateVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	pvcs []*v1.PersistentVolumeClaim, vmi string, storageClassName string, secretName string,
 	vmCount int, ch chan *vmopv1.VirtualMachine, wg *sync.WaitGroup, lock *sync.Mutex) {
 	defer wg.Done()
@@ -1142,7 +1100,7 @@ func createVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, names
 				ClassName:    vmClass,
 				StorageClass: storageClassName,
 				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: env.cloudInitLabel, SecretName: secretName},
 			},
 		}
 		err := c.Create(ctx, &vm)
@@ -1156,7 +1114,7 @@ func createVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client, names
 }
 
 // deleteVMServiceVmInParallel deletes the VMService VMs concurrently from a given namespace
-func deleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
+func DeleteVMServiceVmInParallel(ctx context.Context, c ctlrclient.Client,
 	vms []*vmopv1.VirtualMachine, namespace string,
 	wg *sync.WaitGroup) {
 
@@ -1227,7 +1185,7 @@ func performVolumeLifecycleActionForVmServiceVM(ctx context.Context, client clie
 updateVmWithNewPvc util updates vm volume attachment list by adding new
 volumes to the vm
 */
-func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName string,
+func UpdateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName string,
 	namespace string, newPvc *v1.PersistentVolumeClaim) error {
 
 	// Fetch the existing VM
@@ -1259,7 +1217,7 @@ func updateVmWithNewPvc(ctx context.Context, vmopC ctlrclient.Client, vmName str
 
 // createVMServiceandWaitForVMtoGetIP creates a loadbalancing service for ssh with each VM
 // and waits for VM IP to come up to come up and verify PVCs are accessible in the VM
-func createVMServiceandWaitForVMtoGetIP(ctx context.Context, vmopC ctlrclient.Client,
+func CreateVMServiceandWaitForVMtoGetIP(ctx context.Context, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string, vms []*vmopv1.VirtualMachine,
 	pvclaimsList []*v1.PersistentVolumeClaim, doCreateVmSvc bool, waitForVmIp bool) {
 
@@ -1305,7 +1263,7 @@ This utility creates a VirtualMachine with specified PVCs, waits for the VM to b
 verifies PVC attachment, and ensures data integrity by verifying the accessibility of the disks
 and verifying the attached volumes.
 */
-func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
+func CreateVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	cnsopC ctlrclient.Client, namespace string,
 	pvclaims []*v1.PersistentVolumeClaim, vmClass string,
 	storageClassName string, createBootstrapSecret bool) (string, *vmopv1.VirtualMachine,
@@ -1314,47 +1272,47 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 	var secretName string
 	/*Fetch the VM image name from the environment variable. This image is used for
 	creating the VirtualMachineInstance */
-	vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
+	vmImageName := env.GetAndExpectStringEnvVar(constants.EnvVmsvcVmImageName)
 	framework.Logf("Waiting for virtual machine image list to be "+
 		"available in namespace '%s' for image '%s'", namespace, vmImageName)
-	vmi := waitNGetVmiForImageName(ctx, vmopC, vmImageName)
+	vmi := WaitNGetVmiForImageName(ctx, vmopC, vmImageName)
 
 	/* Create a bootstrap secret for the VirtualMachineService VM. This secret contains
 	credentials or configuration data needed by the VM. */
 	if createBootstrapSecret {
-		secretName = createBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName = CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 	}
 
 	var vm *vmopv1.VirtualMachine
 	//Create the Virtual Machine with PVC
 	if len(pvclaims) == 1 {
-		vm = createVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
+		vm = CreateVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
 			[]*v1.PersistentVolumeClaim{pvclaims[0]}, vmi, storageClassName, secretName)
 	} else {
-		vm = createVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
+		vm = CreateVmServiceVmWithPvcs(ctx, vmopC, namespace, vmClass,
 			pvclaims, vmi, storageClassName, secretName)
 	}
 
 	// Create a service (load balancer) for the VM.
-	vmlbsvc := createService4Vm(ctx, vmopC, namespace, vm.Name)
+	vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vm.Name)
 
 	// Wait for the VM to get an IP address.
-	_, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+	_, err = WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("failed to get VM IP: %w", err)
 	}
 
 	// Verify that the PVCs are attached to the VirtualMachine.
 	if len(pvclaims) == 1 {
-		err = waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, []*v1.PersistentVolumeClaim{pvclaims[0]})
+		err = WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, []*v1.PersistentVolumeClaim{pvclaims[0]})
 	} else {
-		err = waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, pvclaims)
+		err = WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm, pvclaims)
 	}
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("PVCs not attached to VM: %w", err)
 	}
 
-	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info before returning
+	vm, err = GetVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info before returning
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return secretName, vm, vmlbsvc, nil
@@ -1364,7 +1322,7 @@ func createVmServiceVm(ctx context.Context, client clientset.Interface, vmopC ct
 This utility deletes a VirtualMachine, its associated load balancing service, and
 the VM's bootstrap secret, ensuring a clean removal of all related resources.
 */
-func deleteVmServiceVmWithItsConfig(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
+func DeleteVmServiceVmWithItsConfig(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
 	vmlbsvc *vmopv1.VirtualMachineService, namespace string, vm *vmopv1.VirtualMachine, secretName string) error {
 
 	// Delete the load balancing service associated with the VM.
@@ -1398,7 +1356,7 @@ func deleteVmServiceVmWithItsConfig(ctx context.Context, client clientset.Interf
 verifyAllowedTopologyLabelsForVmServiceVM checks if the VM has a
 topology.kubernetes.io/zone label, verifies if its value is in the allowed zones
 */
-func verifyAllowedTopologyLabelsForVmServiceVM(vm *vmopv1.VirtualMachine, allowedTopologies map[string][]string) error {
+func VerifyAllowedTopologyLabelsForVmServiceVM(vm *vmopv1.VirtualMachine, allowedTopologies map[string][]string) error {
 	label := vm.Labels
 
 	// Check if the topologyKey label exists on the VM
@@ -1414,7 +1372,7 @@ func verifyAllowedTopologyLabelsForVmServiceVM(vm *vmopv1.VirtualMachine, allowe
 	}
 
 	// Verify if the VM's zone is in the list of allowed zones
-	if !containsItem(allowedZones, zone) {
+	if !ContainsItem(allowedZones, zone) {
 		return fmt.Errorf("zone %q not found in allowed accessible "+
 			"topologies: %v for svc pvc: %s", zone, allowedZones, vm.Name)
 	}
@@ -1426,7 +1384,7 @@ func verifyAllowedTopologyLabelsForVmServiceVM(vm *vmopv1.VirtualMachine, allowe
 Verifies if the virtual machine is running on a node that matches the
 allowed topologies
 */
-func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeList,
+func VerifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeList,
 	allowedTopologiesMap map[string][]string) (bool, error) {
 	ip := strings.Replace(vm.Status.Host, ".", "-", -1)
 	for _, node := range nodeList.Items {
@@ -1446,8 +1404,8 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 }
 
 // getVmsvcVmDetailedOutput  gets the detailed status output of the vm
-func getVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
-	vm, _ := getVmsvcVM(ctx, c, namespace, name)
+func GetVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
+	vm, _ := GetVmsvcVM(ctx, c, namespace, name)
 	// Command to write data and sync it
 	cmd := []string{"get", "vm", vm.Name, "-o", "yaml"}
 	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
@@ -1457,8 +1415,8 @@ func getVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespac
 }
 
 // getVMStorageData returs the vmDiskUsage of the vm
-func getVMStorageData(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) string {
-	yamlOutput := getVmsvcVmDetailedOutput(ctx, c, namespace, vmName)
+func GetVMStorageData(ctx context.Context, c ctlrclient.Client, namespace string, vmName string) string {
+	yamlOutput := GetVmsvcVmDetailedOutput(ctx, c, namespace, vmName)
 
 	// Regex to match the line with "total: <value>"
 	re := regexp.MustCompile(`(?i)total:\s*([^\s]+)`)
@@ -1475,7 +1433,7 @@ func getVMStorageData(ctx context.Context, c ctlrclient.Client, namespace string
 }
 
 // getVmImages: get's all the images assigned to the given namespace
-func getVmImages(ctx context.Context, namespace string) string {
+func GetVmImages(ctx context.Context, namespace string) string {
 	// Command to write data and sync it
 	cmd := []string{"get", "vmi"}
 	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
@@ -1485,11 +1443,11 @@ func getVmImages(ctx context.Context, namespace string) string {
 }
 
 // Waits for vm images to get listed in namespace
-func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, Poll,
+func PollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, Poll,
 	timeout time.Duration) error {
 
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
-		listOfVmImages := getVmImages(ctx, namespace)
+		listOfVmImages := GetVmImages(ctx, namespace)
 		// Split output into lines and search for the expected image
 		lines := strings.Split(listOfVmImages, "\n")
 		found := false
@@ -1512,7 +1470,7 @@ func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedIma
 }
 
 // createVmServiceVmWithPvcs creates VM via VM service with given ns, sc, vmi, pvc(s) and bootstrap data for cloud init
-func createStandaloneVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
+func CreateStandaloneVmServiceVm(ctx context.Context, c ctlrclient.Client, namespace string, vmClass string,
 	vmi string, storageClassName string,
 	secretName string, vmState vmopv1.VirtualMachinePowerState, vmCount int) []*vmopv1.VirtualMachine {
 
@@ -1529,13 +1487,13 @@ func createStandaloneVmServiceVm(ctx context.Context, c ctlrclient.Client, names
 				ImageName:    vmi,
 				ClassName:    vmClass,
 				StorageClass: storageClassName,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
+				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: constants.CloudInitLabel, SecretName: secretName},
 			},
 		}
 		err := c.Create(ctx, &vm)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		vm = *waitNgetVmsvcVM(ctx, c, namespace, vmName)
+		vm = *WaitNgetVmsvcVM(ctx, c, namespace, vmName)
 		vms = append(vms, &vm)
 	}
 	return vms

@@ -74,6 +74,7 @@ const (
 	envDiskSizeLarge                           = "LARGE_DISK_SIZE"
 	envCSINamespace                            = "CSI_NAMESPACE"
 	envContentLibraryUrl                       = "CONTENT_LIB_URL"
+	envClusterName                             = "CLUSTER_NAME"
 	envContentLibraryUrlSslThumbprint          = "CONTENT_LIB_THUMBPRINT"
 	envEsxHostIP                               = "ESX_TEST_HOST_IP"
 	envFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
@@ -161,6 +162,7 @@ const (
 	kubeSystemNamespace                       = "kube-system"
 	kubeletConfigYaml                         = "/var/lib/kubelet/config.yaml"
 	nfs4FSType                                = "nfs4"
+	nfs4Keyword                               = "NFSv4.1"
 	mmStateChangeTimeout                      = 300 // int
 	objOrItemNotFoundErr                      = "The object or item referred to could not be found"
 	passorwdFilePath                          = "/etc/vmware/wcp/.storageUser"
