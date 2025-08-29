@@ -2500,3 +2500,34 @@ func CheckVcenterServicesRunning(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"Got timed-out while waiting for all required VC services to be up and running")
 }
+
+// EnterHostIntoMM puts a host into maintenance mode with a particular timeout and
+// maintenance mode type
+func EnterHostIntoMM(ctx context.Context, host *object.HostSystem, mmModeType string,
+	timeout int32, evacuateVms bool) {
+	mmSpec := vim25types.VsanHostDecommissionMode{
+		ObjectAction: mmModeType,
+	}
+	hostMMSpec := vim25types.HostMaintenanceSpec{
+		VsanMode: &mmSpec,
+		Purpose:  "",
+	}
+	task, err := host.EnterMaintenanceMode(ctx, timeout, false, &hostMMSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResultEx(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v in in maintenance mode", host)
+}
+
+// ExitHostMM exits a host from maintenance mode with a particular timeout
+func ExitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
+	task, err := host.ExitMaintenanceMode(ctx, timeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResultEx(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v exited from maintenance mode", host)
+}
