@@ -3675,6 +3675,63 @@ func GetHostDStatusOnHost(vs *config.E2eTestConfig, addr string) string {
 	return output
 }
 
+// StopVpxaOnHost executes vpxa stop service commands on the given ESX host
+func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+	framework.Logf("Stopping vpxa service on the host  %s ...", addr)
+	stopVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceName, constants.StopOperation)
+	_, err := RunCommandOnESX(vs, constants.RootUser, addr, stopVpxaCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "notResponding")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// StartVpxaOnHost executes vpxa start service commands on the given ESX host
+func StartVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+	framework.Logf("Starting vpxa service on the host  %s ...", addr)
+	startVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceName, constants.StartOperation)
+	_, err := RunCommandOnESX(vs, constants.RootUser, addr, startVpxaCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "connected")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	output := GetVpxaStatusOnHost(vs, addr)
+	gomega.Expect(strings.Contains(output, "vpxa is running.")).NotTo(gomega.BeFalse())
+}
+
+// GetVpxaStatusOnHost executes vpxa status service commands on the given ESX host
+func GetVpxaStatusOnHost(vs *config.E2eTestConfig, addr string) string {
+	framework.Logf("Running status check on vpxa service for the host  %s ...", addr)
+	statusHostDCmd := fmt.Sprintf("%s %s", constants.VpxaServiceName, constants.StatusOperation)
+	output, err := RunCommandOnESX(vs, constants.RootUser, addr, statusHostDCmd)
+	framework.Logf("vpxa status command output is %q:", output)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return output
+}
+
+// RestartVpxaOnHost executes vpxa stop and start service commands on the given ESX host, including a delay between the stop and start operations.
+func RestartVpxaOnHostWithWait(ctx context.Context, vs *config.E2eTestConfig, addr string, delayInSeconds int) {
+	framework.Logf("Restarting vpxa service on the host  %s ...", addr)
+	StopVpxaOnHost(ctx, vs, addr)
+	WaitInSeconds(delayInSeconds, "Wait between start/stop of vpxa service")
+	StartVpxaOnHost(ctx, vs, addr)
+}
+
+// RestartHostDOnHost executes hostd stop and start service commands on the given ESX host, including a delay between the stop and start operations.
+func ReStartHostDOnHostWithWait(ctx context.Context, vs *config.E2eTestConfig, addr string, delayInSeconds int) {
+	framework.Logf("Restarting vpxa service on the host  %s ...", addr)
+	StopVpxaOnHost(ctx, vs, addr)
+	WaitInSeconds(delayInSeconds, "Wait between start/stop of hostd service")
+	StartVpxaOnHost(ctx, vs, addr)
+}
+
+// WaitInSeconds function waits for the given time duration
+func WaitInSeconds(timeDurationInSeconds int, message string) {
+	framework.Logf("%s", message)
+	time.Sleep(time.Duration(timeDurationInSeconds) * time.Second)
+}
+
 // GetPersistentVolumeSpecWithStorageclass is to create PV volume spec with
 // given FCD ID, Reclaim Policy and labels.
 func GetPersistentVolumeSpecWithStorageclass(volumeHandle string,
@@ -7314,4 +7371,39 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	fmt.Println("All required storage policy usages are available.")
+}
+
+// GetDatastoresFreeSpace returns the datastores name and it's freeSpace map
+func GetDatastoresFreeSpace(ctx context.Context,
+	datastoreURL string, dc *object.Datacenter) (map[string]int, error) {
+	finder := find.NewFinder(dc.Client(), false)
+	finder.SetDatacenter(dc)
+	datastores, err := finder.DatastoreList(ctx, "*")
+	if err != nil {
+		framework.Logf("failed to get all the datastores. err: %+v", err)
+		return nil, err
+	}
+	var dsList []vim25types.ManagedObjectReference
+	for _, ds := range datastores {
+		dsList = append(dsList, ds.Reference())
+	}
+
+	var dsMoList []mo.Datastore
+	pc := property.DefaultCollector(dc.Client())
+	properties := []string{"info"}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	if err != nil {
+		framework.Logf("failed to get Datastore managed objects from datastore objects."+
+			" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
+		return nil, err
+	}
+	dsFreeSpaceMap := make(map[string]int) // Initialize an empty map
+
+	for _, dsMo := range dsMoList {
+
+		dsName := dsMo.Info.GetDatastoreInfo().Name
+		freeSpace := dsMo.Info.GetDatastoreInfo().FreeSpace
+		dsFreeSpaceMap[dsName] = int(freeSpace)
+	}
+	return dsFreeSpaceMap, nil
 }

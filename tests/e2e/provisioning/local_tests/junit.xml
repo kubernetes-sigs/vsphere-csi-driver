@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <testsuites tests="1" disabled="1" errors="0" failures="0" time="0.000115834">
+      <testsuite name="Basic-Tests" package="/Users/nhemanth/WS/CSI_WS/vsphere-csi-driver/tests/e2e/provisioning/local_tests" tests="1" disabled="0" skipped="1" errors="0" failures="0" time="0.000115834" timestamp="2025-08-19T13:37:07">
+          <properties>
+              <property name="SuiteSucceeded" value="true"></property>
+              <property name="SuiteHasProgrammaticFocus" value="false"></property>
+              <property name="SpecialSuiteFailureReason" value=""></property>
+              <property name="SuiteLabels" value="[]"></property>
+              <property name="RandomSeed" value="1755590786"></property>
+              <property name="RandomizeAllSpecs" value="false"></property>
+              <property name="LabelFilter" value=""></property>
+              <property name="FocusStrings" value="Transaction_Support"></property>
+              <property name="SkipStrings" value=""></property>
+              <property name="FocusFiles" value=""></property>
+              <property name="SkipFiles" value=""></property>
+              <property name="FailOnPending" value="false"></property>
+              <property name="FailOnEmpty" value="false"></property>
+              <property name="FailFast" value="false"></property>
+              <property name="FlakeAttempts" value="0"></property>
+              <property name="DryRun" value="false"></property>
+              <property name="ParallelTotal" value="1"></property>
+              <property name="OutputInterceptorMode" value=""></property>
+          </properties>
+          <testcase name="[It] TableBasicTest TableTests 3 should return the expected status code" classname="Basic-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+      </testsuite>
+  </testsuites>

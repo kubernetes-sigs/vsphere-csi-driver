@@ -100,6 +100,7 @@ const (
 	VsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	VSphereCSIConf                            = "csi-vsphere.conf"
 	VsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
+	VpxaServiceName                           = "/etc/init.d/vpxa"
 	WcpServiceName                            = "wcp"
 	VmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	DevopsTKG                                 = "test-cluster-e2e-script"

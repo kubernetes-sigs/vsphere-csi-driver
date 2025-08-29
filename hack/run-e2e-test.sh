@@ -21,7 +21,7 @@ set -o pipefail
 # Fetching ginkgo for running the test
 export GO111MODULE=on
 export ACK_GINKGO_DEPRECATIONS=2.11.0
-if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.11.0)
+if ! (go mod vendor && go install github.com/onsi/ginkgo/v2/ginkgo@v2.22.0)
 then
     echo "go mod vendor or go install ginkgo error"
     exit 1
@@ -73,7 +73,7 @@ then
     OPTS+=(-p)
     ginkgo -mod=mod "${OPTS[@]}" --focus="csi-block-vanilla-parallelized" tests/e2e
 else
-    ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" tests/e2e
+    ginkgo -mod=mod "${OPTS[@]}" --focus="$FOCUS" -r tests/e2e
 fi
 
 # Checking for test status
