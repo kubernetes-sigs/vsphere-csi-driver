@@ -39,6 +39,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -46,6 +48,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
@@ -534,7 +537,15 @@ type TanzuCluster struct {
 	} `yaml:"spec"`
 }
 
-// scaleDownNDeleteStsDeploymentsInNamespace scales down and deletes all statefulsets and deployments in given namespace
+// This Struct is used for fcd footprint verification
+type DatastoreFcdFootprint struct {
+	dsPath    string //Datastore URL
+	freeSpace int64  //Freespace in the Datastore
+	numFcds   int    //From ListVStorageObject
+	numVmdks  int    //In FCD folder
+}
+
+// ScaleDownNDeleteStsDeploymentsInNamespace scales down and deletes all statefulsets and deployments in given namespace
 func ScaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
 	ssList, err := c.AppsV1().StatefulSets(ns).List(
 		ctx, metav1.ListOptions{LabelSelector: labels.Everything().String()})
@@ -969,7 +980,7 @@ func UpdateSCtoDefault(ctx context.Context, client clientset.Interface, scName, 
 	return nil
 }
 
-// createPVC helps creates pvc with given namespace and labels using given
+// CreatePVC helps creates pvc with given namespace and labels using given
 // storage class.
 func CreatePVC(ctx context.Context, client clientset.Interface, pvcnamespace string, pvclaimlabels map[string]string,
 	ds string, storageclass *storagev1.StorageClass,
@@ -983,7 +994,15 @@ func CreatePVC(ctx context.Context, client clientset.Interface, pvcnamespace str
 	return pvclaim, err
 }
 
-// createPVC helps creates pvc with given namespace and labels using given
+// CreatePVCWithPvcSpec helps creates pvc with given namespace and using given pvc spec
+func CreatePvcWithSpec(ctx context.Context, client clientset.Interface, pvcnamespace string, pvcspec *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+	pvclaim, err := fpv.CreatePVC(ctx, client, pvcnamespace, pvcspec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
+	return pvclaim, err
+}
+
+// ScaleCreatePVC helps creates pvc concurrently with given namespace and labels using given
 // storage class.
 func ScaleCreatePVC(ctx context.Context, client clientset.Interface, pvcnamespace string,
 	pvclaimlabels map[string]string, ds string, storageclass *storagev1.StorageClass,
@@ -1000,7 +1019,7 @@ func ScaleCreatePVC(ctx context.Context, client clientset.Interface, pvcnamespac
 
 }
 
-// scaleCreateDeletePVC helps create and delete pvc with given namespace and
+// ScaleCreateDeletePVC helps create and delete pvc with given namespace and
 // labels, using given storage class (envWorkerPerRoutine * envNumberOfGoRoutines)
 // times. Create and Delete PVC happens synchronously. PVC is picked randomly
 // for deletion.
@@ -1039,6 +1058,49 @@ func ScaleCreateDeletePVC(client clientset.Interface, pvcnamespace string, pvcla
 		}
 	}
 	framework.Logf("Total number of deleted PVCs %v", totalPVCDeleted)
+}
+
+// GetPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+// spec with specified storage class.
+func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := constants.DiskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
 }
 
 // randomPickPVC returns randomly picked PVC from list of PVCs.
@@ -3640,8 +3702,15 @@ func RunCommandOnESX(vs *config.E2eTestConfig, username string, addr string, cmd
 	return result.Stdout, err
 }
 
-// StopHostDOnHost executes hostd stop service commands on the given ESX host
-func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+// StopHostd is a function for waitGroup to run stop hostd parallelly
+func StopHostd(ctx context.Context, vs *config.E2eTestConfig, addr string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	StopHostdOnHost(ctx, vs, addr)
+}
+
+// StopHostdOnHost executes hostd stop service commands on the given ESX host
+func StopHostdOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
 	framework.Logf("Stopping hostd service on the host  %s ...", addr)
 	stopHostCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StopOperation)
 	_, err := RunCommandOnESX(vs, "root", addr, stopHostCmd)
@@ -3651,28 +3720,99 @@ func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-// StartHostDOnHost executes hostd start service commands on the given ESX host
-func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+// StartHostd is a function for waitGroup to run stop hostd parallelly
+func StartHostd(ctx context.Context, vs *config.E2eTestConfig, addr string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	StartHostdOnHost(ctx, vs, addr)
+}
+
+// StartHostdOnHost executes hostd start service commands on the given ESX host
+func StartHostdOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
 	framework.Logf("Starting hostd service on the host  %s ...", addr)
-	startHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StartOperation)
-	_, err := RunCommandOnESX(vs, "root", addr, startHostDCmd)
+	startHostdCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StartOperation)
+	_, err := RunCommandOnESX(vs, "root", addr, startHostdCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "connected")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	output := GetHostDStatusOnHost(vs, addr)
+	output := GetHostdStatusOnHost(vs, addr)
 	gomega.Expect(strings.Contains(output, "hostd is running.")).NotTo(gomega.BeFalse())
 }
 
-// GetHostDStatusOnHost executes hostd status service commands on the given ESX host
-func GetHostDStatusOnHost(vs *config.E2eTestConfig, addr string) string {
+// GetHostdStatusOnHost executes hostd status service commands on the given ESX host
+func GetHostdStatusOnHost(vs *config.E2eTestConfig, addr string) string {
 	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
-	statusHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StatusOperation)
-	output, err := RunCommandOnESX(vs, "root", addr, statusHostDCmd)
+	statusHostdCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StatusOperation)
+	output, err := RunCommandOnESX(vs, "root", addr, statusHostdCmd)
 	framework.Logf("hostd status command output is %q:", output)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
+}
+
+// StopVpxa is a function for waitGroup to run stop vpxa parallelly
+func StopVpxa(ctx context.Context, vs *config.E2eTestConfig, addr string, wg *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wg.Done()
+	StopVpxaOnHost(ctx, vs, addr)
+}
+
+// StopVpxaOnHost executes vpxa stop service commands on the given ESX host
+func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+	framework.Logf("Stopping vpxa service on the host  %s ...", addr)
+	stopVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StopOperation)
+	_, err := RunCommandOnESX(vs, constants.RootUser, addr, stopVpxaCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "notResponding")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// StartVpxaOnHost executes vpxa start service commands on the given ESX host
+func StartVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
+	framework.Logf("Starting vpxa service on the host  %s ...", addr)
+	startVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StartOperation)
+	_, err := RunCommandOnESX(vs, constants.RootUser, addr, startVpxaCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "connected")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	output := GetVpxaStatusOnHost(vs, addr)
+	gomega.Expect(strings.Contains(output, "vpxa is running.")).NotTo(gomega.BeFalse())
+}
+
+// GetVpxaStatusOnHost executes vpxa status service commands on the given ESX host
+func GetVpxaStatusOnHost(vs *config.E2eTestConfig, addr string) string {
+	framework.Logf("Running status check on vpxa service for the host  %s ...", addr)
+	statusHostdCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StatusOperation)
+	output, err := RunCommandOnESX(vs, constants.RootUser, addr, statusHostdCmd)
+	framework.Logf("vpxa status command output is %q:", output)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return output
+}
+
+// RestartVpxaOnHost executes vpxa stop and start service commands on the given ESX host, including a delay between the stop and start operations.
+func RestartVpxaOnHostWithWait(ctx context.Context, vs *config.E2eTestConfig, addr string, delayInSeconds int) {
+	framework.Logf("Restarting vpxa service on the host  %s ...", addr)
+	StopVpxaOnHost(ctx, vs, addr)
+	WaitInSeconds(delayInSeconds, "Wait between start/stop of vpxa service")
+	StartVpxaOnHost(ctx, vs, addr)
+}
+
+// RestartHostdOnHost executes hostd stop and start service commands on the given ESX host, including a delay between the stop and start operations.
+func ReStartHostdOnHostWithWait(ctx context.Context, vs *config.E2eTestConfig, addr string, delayInSeconds int) {
+	framework.Logf("Restarting vpxa service on the host  %s ...", addr)
+	StopVpxaOnHost(ctx, vs, addr)
+	WaitInSeconds(delayInSeconds, "Wait between start/stop of hostd service")
+	StartVpxaOnHost(ctx, vs, addr)
+}
+
+// WaitInSeconds function waits for the given time duration
+func WaitInSeconds(timeDurationInSeconds int, message string) {
+	framework.Logf("%s", message)
+	time.Sleep(time.Duration(timeDurationInSeconds) * time.Second)
 }
 
 // GetPersistentVolumeSpecWithStorageclass is to create PV volume spec with
@@ -4092,7 +4232,7 @@ func SshExec(sshClientConfig *ssh.ClientConfig,
 	return result, err
 }
 
-// createPod with given claims based on node selector.
+// CreatePod with given claims based on node selector.
 func CreatePod(ctx context.Context, e2eTestConfig *config.E2eTestConfig,
 	client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
@@ -6707,6 +6847,7 @@ func GetWorkerVmMoRefs(ctx context.Context, vs *config.E2eTestConfig,
 // set storagePolicyQuota
 func SetStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	scName string, namespace string, quota string) {
+	framework.Logf("NHK scName : %s,namespace : %s, quota : %s", scName, namespace, quota)
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -7066,28 +7207,25 @@ func GetStoragePolicyUsedAndReservedQuotaDetails(ctx context.Context, restConfig
 func ValidateQuotaUsageAfterResourceCreation(ctx context.Context, restConfig *rest.Config, storagePolicyName string,
 	namespace string, resourceUsage string, resourceExtensionName string, size int64,
 	totalQuotaUsedBefore *resource.Quantity, storagePolicyQuotaBefore *resource.Quantity,
-	storagePolicyUsageBefore *resource.Quantity) (*resource.Quantity,
-	*resource.Quantity, *resource.Quantity) {
+	storagePolicyUsageBefore *resource.Quantity) (bool, bool, bool) {
 
 	totalQuotaUsedAfter, _, storagePolicyQuotaAfter, _, storagePolicyUsageAfter, _ :=
 		GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 			storagePolicyName, namespace, resourceUsage, resourceExtensionName)
 
-	quotavalidationStatus := ValidateTotalStoragequota(ctx, size, totalQuotaUsedBefore,
+	totalQuotaUsedStatus := ValidateTotalStoragequota(ctx, size, totalQuotaUsedBefore,
 		totalQuotaUsedAfter)
-	framework.Logf("totalStoragequota validation status :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-	quotavalidationStatus = ValidateTotalStoragequota(ctx, size, storagePolicyQuotaBefore,
+	framework.Logf("totalStoragequota validation status :%v", totalQuotaUsedStatus)
+	gomega.Expect(totalQuotaUsedStatus).NotTo(gomega.BeFalse())
+	storagePolicyQuotaStatus := ValidateTotalStoragequota(ctx, size, storagePolicyQuotaBefore,
 		storagePolicyQuotaAfter)
-	framework.Logf("toragePolicyQuota validation status :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-	quotavalidationStatus = ValidateTotalStoragequota(ctx, size, storagePolicyUsageBefore,
+	framework.Logf("toragePolicyQuota validation status :%v", storagePolicyQuotaStatus)
+	gomega.Expect(storagePolicyQuotaStatus).NotTo(gomega.BeFalse())
+	storagePolicyUsageStatus := ValidateTotalStoragequota(ctx, size, storagePolicyUsageBefore,
 		storagePolicyUsageAfter)
-	framework.Logf("storagePolicyUsage validation status :%v", quotavalidationStatus)
-	framework.Logf("quotavalidationStatus :%v", quotavalidationStatus)
-	gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
-
-	return totalQuotaUsedAfter, storagePolicyQuotaAfter, storagePolicyUsageAfter
+	framework.Logf("storagePolicyUsage validation status :%v", storagePolicyUsageStatus)
+	gomega.Expect(storagePolicyUsageStatus).NotTo(gomega.BeFalse())
+	return totalQuotaUsedStatus, storagePolicyQuotaStatus, storagePolicyUsageStatus
 }
 
 // ValidateQuotaUsageAfterCleanUp verifies the storagequota details shows up on all CR's after resource cleanup
@@ -7314,4 +7452,333 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	fmt.Println("All required storage policy usages are available.")
+}
+
+// GetVolumeSnapshotClassSpec returns a spec for the volume snapshot class
+func GetVolumeSnapshotClassSpec(deletionPolicy snapV1.DeletionPolicy,
+	parameters map[string]string) *snapV1.VolumeSnapshotClass {
+	var volumesnapshotclass = &snapV1.VolumeSnapshotClass{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotClass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "volumesnapshot-",
+		},
+		Driver:         constants.E2evSphereCSIDriverName,
+		DeletionPolicy: deletionPolicy,
+	}
+
+	volumesnapshotclass.Parameters = parameters
+	return volumesnapshotclass
+}
+
+// GetVolumeSnapshotClass retrieves the existing VolumeSnapshotClass (VSC)
+func GetVolumeSnapshotClass(ctx context.Context, snapc *snapclient.Clientset,
+	name string) (*snapV1.VolumeSnapshotClass, error) {
+
+	var volumeSnapshotClass *snapV1.VolumeSnapshotClass
+	waitErr := wait.PollUntilContextTimeout(ctx, constants.Poll, constants.PollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			var err error
+			volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
+				name, metav1.GetOptions{})
+			framework.Logf("volumesnapshotclass %v, err:%v", volumeSnapshotClass, err)
+			if !apierrors.IsNotFound(err) && err != nil {
+				return false, fmt.Errorf("couldn't find "+
+					"snapshotclass: %s due to error: %v", name, err)
+			}
+			if volumeSnapshotClass.Name != "" {
+				framework.Logf("Found volumesnapshotclass %s", name)
+				return true, nil
+			}
+			framework.Logf("waiting to get volumesnapshotclass %s", name)
+			return false, nil
+		})
+	if wait.Interrupted(waitErr) {
+		return nil, fmt.Errorf("couldn't find volumesnapshotclass: %s", name)
+	}
+	return volumeSnapshotClass, nil
+}
+
+// GetVolumeSnapshotSpec returns a spec for the volume snapshot
+func GetVolumeSnapshotSpec(namespace string, snapshotclassname string, pvcName string) *snapV1.VolumeSnapshot {
+	var volumesnapshotSpec = &snapV1.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshot-",
+			Namespace:    namespace,
+		},
+		Spec: snapV1.VolumeSnapshotSpec{
+			VolumeSnapshotClassName: &snapshotclassname,
+			Source: snapV1.VolumeSnapshotSource{
+				PersistentVolumeClaimName: &pvcName,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+// CreateVolumeSnapshotClass creates VSC for a Vanilla cluster and
+// fetches VSC for a Guest or Supervisor Cluster
+func CreateVolumeSnapshotClass(ctx context.Context, e2eTestConfig *config.E2eTestConfig, snapc *snapclient.Clientset,
+	deletionPolicy string) (*snapV1.VolumeSnapshotClass, error) {
+	var volumeSnapshotClass *snapV1.VolumeSnapshotClass
+	var err error
+	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+		volumeSnapshotClass, err = snapc.SnapshotV1().VolumeSnapshotClasses().Create(ctx,
+			GetVolumeSnapshotClassSpec(snapV1.DeletionPolicy(deletionPolicy), nil), metav1.CreateOptions{})
+		if err != nil {
+			return nil, err
+		}
+	} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster || e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		var volumeSnapshotClassName string
+		volumeSnapshotClass, err = GetVolumeSnapshotClass(ctx, snapc, volumeSnapshotClassName)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return volumeSnapshotClass, nil
+}
+
+// WaitForVolumeSnapshotReadyToUse waits for the volume's snapshot to be in ReadyToUse
+func WaitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Context, namespace string,
+	name string) (*snapV1.VolumeSnapshot, error) {
+	var volumeSnapshot *snapV1.VolumeSnapshot
+	var err error
+	waitErr := wait.PollUntilContextTimeout(ctx, constants.Poll, constants.PollTimeout*2, true,
+		func(ctx context.Context) (bool, error) {
+			volumeSnapshot, err = client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
+			}
+			if volumeSnapshot.Status != nil && *volumeSnapshot.Status.ReadyToUse {
+				return true, nil
+			}
+			return false, nil
+		})
+	return volumeSnapshot, waitErr
+}
+
+// DeleteVolumeSnapshotWithPandoraWait  deletes Volume Snapshot with Pandora wait for CNS to sync
+func DeleteVolumeSnapshotWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
+	namespace string, snapshotName string, pandoraSyncWaitTime int) {
+	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, snapshotName,
+		metav1.DeleteOptions{})
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
+	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+}
+
+// GetDatacenters returns the datacenter names in the setup
+func GetDatacenters(ctx context.Context, vs *config.E2eTestConfig) []string {
+	// finder := find.NewFinder(vs.VcClient.Client, false)
+	var datacenters []string
+	cfg, err := config.GetConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+	return datacenters
+}
+
+// GetDatastoresList returns the datastores list in the given datacenter
+func GetDatastoresList(ctx context.Context, vs *config.E2eTestConfig, datacenter string) ([]mo.Datastore, error) {
+	finder := find.NewFinder(vs.VcClient.Client, false)
+	framework.Logf("DC Name : %v", datacenter)
+	defaultDatacenter, err := finder.Datacenter(ctx, datacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	finder.SetDatacenter(defaultDatacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	datastores, err := finder.DatastoreList(ctx, "*")
+	if err != nil {
+		framework.Logf("failed to get all the datastores. err: %+v", err)
+		return nil, err
+	}
+	var dsList []vim25types.ManagedObjectReference
+	for _, ds := range datastores {
+		dsList = append(dsList, ds.Reference())
+	}
+
+	var dsMoList []mo.Datastore
+	pc := property.DefaultCollector(defaultDatacenter.Client())
+	properties := []string{"info"}
+	err = pc.Retrieve(ctx, dsList, properties, &dsMoList)
+	if err != nil {
+		framework.Logf("failed to get Datastore managed objects from datastore objects."+
+			" dsObjList: %+v, properties: %+v, err: %v", dsList, properties, err)
+		return nil, err
+	}
+	return dsMoList, nil
+}
+
+// GetDatastoresPaths returns the datastores name and it's path map
+func GetDatastoresPaths(ctx context.Context, vs *config.E2eTestConfig) (map[string]string, error) {
+	dsPathMap := make(map[string]string) // Initialize an empty map
+	datacenters := GetDatacenters(ctx, vs)
+
+	for _, dc := range datacenters {
+		dsMoList, _ := GetDatastoresList(ctx, vs, dc)
+		for _, dsMo := range dsMoList {
+			dsName := dsMo.Info.GetDatastoreInfo().Name
+			dsPath := dsMo.Info.GetDatastoreInfo().Url
+			framework.Logf("DC Name: %v, DS Name : %v, DS Path : %v", dc, dsName, dsPath)
+			dsPathMap[dsName] = dsPath
+		}
+	}
+	return dsPathMap, nil
+}
+func GetDsPathFromUrl(url string) {
+
+}
+
+// GetDatastoresFreeSpace returns the datastores name and it's freeSpace map
+func GetDatastoresFreeSpace(ctx context.Context, vs *config.E2eTestConfig) (map[string]int64, error) {
+	dsFreeSpaceMap := make(map[string]int64) // Initialize an empty map
+	datacenters := GetDatacenters(ctx, vs)
+
+	for _, dc := range datacenters {
+		dsMoList, _ := GetDatastoresList(ctx, vs, dc)
+		for _, dsMo := range dsMoList {
+			dsName := dsMo.Info.GetDatastoreInfo().Name
+			freeSpace := dsMo.Info.GetDatastoreInfo().FreeSpace
+			framework.Logf("DC Name: %v, DS Name : %v, FreeSpace : %v", dc, dsName, freeSpace)
+			dsFreeSpaceMap[dsName] = int64(freeSpace)
+		}
+	}
+	return dsFreeSpaceMap, nil
+}
+
+// ValidateSpaceUsageAfterResourceCreationUsingDatastoresFreeSpace Verifies the freeSpace before and after the resource creation
+func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning map[string]DatastoreFcdFootprint, dsFcdFootprintMapAfterProvisioning map[string]DatastoreFcdFootprint, expectedUsedSpace int64, numVolumes int) (bool, int64) {
+	var actualUsedSpace int64 = 0
+	var totalNumberOfVmdksBefore, totalNumberOfFcdsBefore, totalNumberOfVmdksAfter, totalNumberOfFcdsAfter int = 0, 0, 0, 0
+	for dsName, dsFcdFootprintBeforeProvisioning := range dsFcdFootprintMapBeforeProvisioning {
+		framework.Logf("Before Provisioning Ds Name : %s, Ds Path : %s, DS FreeSpace : %d, Number of Fcds : %d, Number of Vmdks : %d", dsName, dsFcdFootprintBeforeProvisioning.dsPath, dsFcdFootprintBeforeProvisioning.freeSpace, dsFcdFootprintBeforeProvisioning.numFcds, dsFcdFootprintBeforeProvisioning.numVmdks)
+		dsFcdFootprintAfterProvisioning, isExists := dsFcdFootprintMapAfterProvisioning[dsName]
+		if isExists {
+			framework.Logf("After Provisioning Ds Name : %s, Ds Path : %s, DS FreeSpace : %d, Number of Fcds : %d, Number of Vmdks : %d", dsName, dsFcdFootprintAfterProvisioning.dsPath, dsFcdFootprintAfterProvisioning.freeSpace, dsFcdFootprintAfterProvisioning.numFcds, dsFcdFootprintAfterProvisioning.numVmdks)
+			usedSpace := dsFcdFootprintBeforeProvisioning.freeSpace - dsFcdFootprintAfterProvisioning.freeSpace
+			if usedSpace > 0 {
+				actualUsedSpace = actualUsedSpace + usedSpace
+				framework.Logf("After Provisioning usedSpace : %d ", usedSpace)
+			}
+
+			totalNumberOfVmdksBefore = totalNumberOfVmdksBefore + dsFcdFootprintBeforeProvisioning.numVmdks
+			totalNumberOfFcdsBefore = totalNumberOfFcdsBefore + dsFcdFootprintBeforeProvisioning.numFcds
+
+			totalNumberOfVmdksAfter = totalNumberOfVmdksAfter + dsFcdFootprintAfterProvisioning.numVmdks
+			totalNumberOfFcdsAfter = totalNumberOfFcdsAfter + dsFcdFootprintAfterProvisioning.numFcds
+		}
+	}
+	usedSpaceRetVal := actualUsedSpace == expectedUsedSpace
+	framework.Logf("Is Actual Used Space  %d, Expected Used Space : %d Matched : %t ? ", actualUsedSpace, expectedUsedSpace, usedSpaceRetVal)
+
+	deltaUsedSpaceInMb := (actualUsedSpace - expectedUsedSpace) / (int64(1024) * int64(1024))
+	framework.Logf("With delta (In Mb) : %d ", deltaUsedSpaceInMb)
+	if deltaUsedSpaceInMb <= 256 {
+		usedSpaceRetVal = true
+		framework.Logf("Used Space : %d Matched : %t with delta (In Mb) : %d ", actualUsedSpace, usedSpaceRetVal, deltaUsedSpaceInMb)
+	}
+
+	numberOfVmdksRetVal := totalNumberOfVmdksAfter-totalNumberOfVmdksBefore == numVolumes
+	framework.Logf("Is number of Vmdk values Before : %d and After : %d Creating the : %d volumes Matched : %t ? ", totalNumberOfVmdksBefore, totalNumberOfVmdksAfter, numVolumes, numberOfVmdksRetVal)
+
+	numberOfFcdsRetVal := totalNumberOfFcdsAfter-totalNumberOfFcdsBefore == numVolumes
+	framework.Logf("Is number of Fcd values Before : %d and After : %d Creating the : %d volumes Matched : %t ? ", totalNumberOfFcdsBefore, totalNumberOfFcdsAfter, numVolumes, numberOfFcdsRetVal)
+
+	return (usedSpaceRetVal && numberOfVmdksRetVal && numberOfFcdsRetVal), deltaUsedSpaceInMb
+}
+
+// Convert mb to String
+func ConvertInt64ToStrMbFormat(diskSize int64) string {
+	result := strconv.FormatInt(diskSize, 10) + "Mi"
+	fmt.Println(result)
+	return result
+}
+
+// Convert gb to String
+func ConvertInt64ToStrGbFormat(diskSize int64) string {
+	result := strconv.FormatInt(diskSize, 10) + "Gi"
+	fmt.Println(result)
+	return result
+}
+
+func GetVmdkCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName string) int {
+	var vmdkCount int
+	framework.Logf("Getting the vmdk(s) count from datastore  %s ...", dsName)
+	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
+	fcdFolderPath = "'" + fcdFolderPath + "'"
+	findCmdWithDsName := fmt.Sprintf("find %s", fcdFolderPath)
+	vmdkCountCommand := fmt.Sprintf("%s -name *.vmdk | wc -l", findCmdWithDsName)
+	framework.Logf("Get vmdk Count Command : %s", vmdkCountCommand)
+
+	commandOutput, err := RunCommandOnESX(vs, constants.RootUser, addr, vmdkCountCommand)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return vmdkCount
+}
+
+func GetDatastoreFcdFootprint(ctx context.Context, e2eTestConfig *config.E2eTestConfig) map[string]DatastoreFcdFootprint {
+	var dsFreeSpaceMap map[string]int64
+	var dsPathMap map[string]string
+	var err error
+	var fcdIdList []types.ID
+
+	clusterName := os.Getenv(constants.EnvComputeClusterName)
+	framework.Logf("Cluster Name : %s", clusterName)
+	hostIPs := vcutil.GetAllHostsIPsInCluster(ctx, e2eTestConfig, clusterName)
+	hostIP := hostIPs[0]
+
+	dsFreeSpaceMap, err = GetDatastoresFreeSpace(ctx, e2eTestConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	dsPathMap, err = GetDatastoresPaths(ctx, e2eTestConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	dsDetailsMap := make(map[string]DatastoreFcdFootprint)
+	for dsName, freeSpace := range dsFreeSpaceMap {
+		dsPath := dsPathMap[dsName]
+
+		numVmdks := GetVmdkCountFromDatastore(e2eTestConfig, hostIP, dsName)
+
+		dsRef := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, dsPath)
+		fcdIdList, err = vcutil.ListFCD(ctx, e2eTestConfig, dsRef)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		numFcds := len(fcdIdList)
+		dsDetailsMap[dsName] = DatastoreFcdFootprint{dsPath: dsPath, freeSpace: freeSpace, numFcds: numFcds, numVmdks: numVmdks}
+	}
+	return dsDetailsMap
+}
+
+func TestCleanUpUtil(ctx context.Context, e2eTestConfig *config.E2eTestConfig, restClientConfig *rest.Config, c clientset.Interface,
+	cnsRegistervolume *cnsregistervolumev1alpha1.CnsRegisterVolume, namespace string, pvcName string, pvName string) {
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		c, _ = GetSvcClientAndNamespace()
+	}
+	ginkgo.By("Deleting the PV Claim")
+	framework.ExpectNoError(fpv.DeletePersistentVolumeClaim(ctx, c, pvcName, namespace), "Failed to delete PVC", pvcName)
+
+	ginkgo.By("Verify PV should be deleted automatically")
+	framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, c, pvName, constants.Poll, constants.SupervisorClusterOperationsTimeout))
+
+	if cnsRegistervolume != nil {
+		ginkgo.By("Verify CRD should be deleted automatically")
+		framework.ExpectNoError(WaitForCNSRegisterVolumeToGetDeleted(ctx, restClientConfig, namespace,
+			cnsRegistervolume, constants.Poll, constants.SupervisorClusterOperationsTimeout))
+	}
+
+	ginkgo.By("Delete Resource quota")
+	DeleteResourceQuota(c, namespace)
 }

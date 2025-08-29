@@ -403,7 +403,7 @@ func VerifySnapshotIsCreatedInCNS(vs *config.E2eTestConfig, volumeId string, sna
 	return nil
 }
 
-// getAllDatacenters returns all the DataCenter Objects
+// GetAllDatacenters returns all the DataCenter Objects
 func GetAllDatacenters(ctx context.Context, vs *config.E2eTestConfig) ([]*object.Datacenter, error) {
 	connections.ConnectToVC(ctx, vs)
 	finder := find.NewFinder(vs.VcClient.Client, false)
@@ -791,6 +791,22 @@ func CreateFCDwithValidProfileID(ctx context.Context, vs *config.E2eTestConfig, 
 	}
 	fcdID := taskInfo.Result.(vim25types.VStorageObject).Config.Id.Id
 	return fcdID, nil
+}
+
+// This function lists the FCDs
+func ListFCD(ctx context.Context, vs *config.E2eTestConfig, dsRef vim25types.ManagedObjectReference) ([]vim25types.ID, error) {
+
+	req := vim25types.ListVStorageObject{
+		This:      *vs.VcClient.Client.ServiceContent.VStorageObjectManager,
+		Datastore: dsRef,
+	}
+	res, err := methods.ListVStorageObject(ctx, vs.VcClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	fcdIDs := res.Returnval
+	return fcdIDs, nil
 }
 
 // This function deletes an FCD disk
@@ -1265,6 +1281,41 @@ func GetVCversion(ctx context.Context, vs *config.E2eTestConfig, vcAddress strin
 	return vs.TestInput.TestBedInfo.VcVersion
 }
 
+// GetClusterResourceByName returns the cluster's details of given given cluster name
+func GetClusterResourceByName(ctx context.Context,
+	vs *config.E2eTestConfig, clusterName string) *object.ClusterComputeResource {
+
+	finder := find.NewFinder(vs.VcClient.Client, false)
+	cfg, err := config.GetConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	datacenters := []string{}
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	for _, dc := range datacenters {
+		defaultDatacenter, err := finder.Datacenter(ctx, dc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		finder.SetDatacenter(defaultDatacenter)
+
+		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for _, cluster := range clusterComputeResource {
+			if cluster.Name() == clusterName {
+				return cluster
+			}
+		}
+	}
+
+	framework.Logf("Not found any cluster with name : %s ", clusterName)
+	return nil
+}
+
 // getVsanClusterResource returns the vsan cluster's details
 func GetVsanClusterResource(ctx context.Context,
 	vs *config.E2eTestConfig, forceRefresh ...bool) *object.ClusterComputeResource {
@@ -1335,6 +1386,21 @@ func GetAllHostsIP(ctx context.Context, vs *config.E2eTestConfig, forceRefresh .
 
 	for _, moHost := range hosts {
 		result = append(result, moHost.Name())
+	}
+	return result
+}
+
+// GetAllHostsIPsInCluster reads cluster, gets hosts in it and returns IP array
+func GetAllHostsIPsInCluster(ctx context.Context, vs *config.E2eTestConfig, clusterName string) []string {
+	var result []string
+	cluster := GetClusterResourceByName(ctx, vs, clusterName)
+	if cluster != nil {
+		hosts, err := cluster.Hosts(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for _, moHost := range hosts {
+			result = append(result, moHost.Name())
+		}
 	}
 	return result
 }
@@ -2499,4 +2565,23 @@ func CheckVcenterServicesRunning(
 	err = CheckVcServicesHealthPostReboot(ctx, vs, host, timeout...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"Got timed-out while waiting for all required VC services to be up and running")
+}
+
+// GetDsMoRefFromURL get datastore MoRef from its URL
+func GetDsMoRefFromURL(ctx context.Context, vs *config.E2eTestConfig, dsURL string) vim25types.ManagedObjectReference {
+	dcList, err := GetAllDatacenters(ctx, vs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var ds *object.Datastore
+	for _, dc := range dcList {
+		ds, err = GetDatastoreByURL(ctx, vs, dsURL, dc)
+		if err != nil {
+			if !strings.Contains(err.Error(), "couldn't find Datastore given URL") {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		} else {
+			break
+		}
+	}
+	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
+	return ds.Reference()
 }
