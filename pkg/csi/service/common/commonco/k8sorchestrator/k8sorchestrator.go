@@ -395,7 +395,6 @@ func getReleasedVanillaFSS() map[string]struct{} {
 		common.CSIWindowsSupport:             {},
 		common.ListVolumes:                   {},
 		common.CnsMgrSuspendCreateVolume:     {},
-		common.MultiVCenterCSITopology:       {},
 		common.CSIInternalGeneratedClusterID: {},
 		common.TopologyAwareFileVolume:       {},
 	}

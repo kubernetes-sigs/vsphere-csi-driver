@@ -111,7 +111,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	}
 
-	isMultiVCFSSEnabled := coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -129,12 +128,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		enableTKGsHAinGuest, isMultiVCFSSEnabled, vmOperatorClient, supervisorNamespace))
+		enableTKGsHAinGuest, vmOperatorClient, supervisorNamespace))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
+	enableTKGsHAinGuest bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
 		client:              mgr.GetClient(),
@@ -142,7 +141,6 @@ func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo,
 		configInfo:          configInfo,
 		recorder:            recorder,
 		enableTKGsHAinGuest: enableTKGsHAinGuest,
-		isMultiVCFSSEnabled: isMultiVCFSSEnabled,
 		vmOperatorClient:    vmOperatorClient,
 		supervisorNamespace: supervisorNamespace}
 }

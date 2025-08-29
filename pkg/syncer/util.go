@@ -343,24 +343,20 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 	var err error
 	var volManager volumes.Manager
 
-	if !isMultiVCenterFssEnabled {
-		volManager = metadataSyncer.volumeManager
-	} else {
-		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-			// Migration feature switch is enabled and multi vCenter feature is enabled, and
-			// Kubernetes Cluster is spread on multiple vCenter Servers.
-			return logger.LogNewErrorf(log,
-				"volume-migration feature is not supported on Multi-vCenter deployment")
-		}
-
-		// It is a single VC setup with Multi VC FSS enabled, we need to pick up the one and only volume manager in inventory.
-		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
-		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
-		if !volMgrFound {
-			return logger.LogNewErrorf(log, "could not get volume manager for the vCenter: %q", vCenter)
-		}
-		volManager = cnsVolumeMgr
+	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		// Migration feature switch is enabled and multi vCenter feature is enabled, and
+		// Kubernetes Cluster is spread on multiple vCenter Servers.
+		return logger.LogNewErrorf(log,
+			"volume-migration feature is not supported on Multi-vCenter deployment")
 	}
+
+	// It is a single VC setup with Multi VC FSS enabled, we need to pick up the one and only volume manager in inventory.
+	vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
+	if !volMgrFound {
+		return logger.LogNewErrorf(log, "could not get volume manager for the vCenter: %q", vCenter)
+	}
+	volManager = cnsVolumeMgr
 
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
 		&volManager, metadataSyncer.configInfo.Cfg, true)
@@ -432,11 +428,6 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	volumeID string) (string, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Getting VC from in-memory map for volume %s", volumeID)
-
-	// isMultiVCenterFssEnabled feature gate is always going to be disabled for flavors other than vanilla.
-	if !isMultiVCenterFssEnabled {
-		return metadataSyncer.host, metadataSyncer.volumeManager, nil
-	}
 
 	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
 		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
@@ -539,10 +530,6 @@ func getVolManagerForVcHost(ctx context.Context, vc string,
 	metadataSyncer *metadataSyncInformer) (volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
-	if !isMultiVCenterFssEnabled {
-		return metadataSyncer.volumeManager, nil
-	}
-
 	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vc]
 	if !volMgrFound {
 		return nil, logger.LogNewErrorf(log,
@@ -593,7 +580,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 	}
 
 	// For a single VC setup, send back all volumes.
-	if !isMultiVCenterFssEnabled || len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
 		return allPvs, nil
 	}
 
@@ -762,7 +749,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	} else {
 		log.Infof("vSphere CSI Driver has successfully marked volume: %q as the container volume.",
 			pv.Spec.CSI.VolumeHandle)
-		if isMultiVCenterFssEnabled && len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 			// Create CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost)
 			if err != nil {
