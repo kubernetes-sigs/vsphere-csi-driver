@@ -1127,7 +1127,7 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
 				"capabilities.iaas.vmware.com", metav1.GetOptions{})
 			if err != nil {
-				if apierrors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
 					// If capabilities CR is not registered on supervisor, then sleep for some time and check
 					// again if CR has been registered on supervisor. If TKR is new, but supervisor is old, then
 					// it could happen that capabilities CR is not registered on the supervisor cluster.
@@ -1343,6 +1343,32 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					}
 					// Get rest client config for supervisor.
 					restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
+					// Check if CRD for capabilities exists
+					// If CRD does not exist on supervisor then skip further capability check
+					// this is case when tkr is newer and supervisor is older where capabilities CRD does not exist.
+					apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(restClientConfig)
+					if err != nil {
+						log.Errorf("failed to create apiextension clientset using config. Err: %+v", err)
+						return false
+					}
+					_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
+						"capabilities.iaas.vmware.com", metav1.GetOptions{})
+					if err != nil {
+						if featureName == common.WorkloadDomainIsolationFSS {
+							// prefer CSI internal feature-state configmap for workload-domain-isolation feature
+							// in case capabilities CRD is not registred on supervisor
+							log.Info("CSI workload-domain-isolation is set to true in pvcsi fss configmap. " +
+								"check if it is enabled in cns-csi fss")
+							return c.IsCNSCSIFSSEnabled(ctx, featureName)
+						}
+						if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+							log.Info("CR instance capabilities.iaas.vmware.com is not registered on supervisor, " +
+								"considering feature to be false")
+							return false
+						}
+						log.Errorf("failed to check if Capabilities CR is registered. Err: %v", err)
+						return false
+					}
 					wcpCapabilityApiClient, err := k8s.NewClientForGroup(ctx, restClientConfig, wcpcapapis.GroupName)
 					if err != nil {
 						log.Errorf("failed to create wcpCapabilityApi client. Err: %+v", err)
