@@ -1874,6 +1874,10 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 		}
 		activeClusters = append(activeClusters, clusters...)
 	}
+	if len(activeClusters) == 0 {
+		return nil, logger.LogNewErrorf(log, "could not find active cluster for the namespace  %q "+
+			"in requested zones: %v", targetNS, requestedZones)
+	}
 	log.Infof("active clusters: %v for namespace: %q in requested zones: %v", activeClusters, targetNS, requestedZones)
 	return activeClusters, nil
 }
