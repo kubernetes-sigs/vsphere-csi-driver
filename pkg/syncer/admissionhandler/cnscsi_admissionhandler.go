@@ -3,6 +3,7 @@ package admissionhandler
 import (
 	"context"
 	"crypto/tls"
+	_ "crypto/tls/fipsonly"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -85,7 +86,9 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 		func(t *tls.Config) {
 			// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
 			t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_AES_128_GCM_SHA256,
+				tls.TLS_AES_256_GCM_SHA384}
 			t.MinVersion = tls.VersionTLS12
 		},
 	}

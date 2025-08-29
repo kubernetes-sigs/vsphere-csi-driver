@@ -31,4 +31,4 @@ GOOS=linux "$(go env GOPATH)"/bin/staticcheck --version
 
 # shellcheck disable=SC2046
 # shellcheck disable=SC1083
-GOOS=linux "$(go env GOPATH)"/bin/staticcheck $(go list ./... | grep -v /vendor/)
+GOOS=linux "$(go env GOPATH)"/bin/staticcheck $(go list ./...)
