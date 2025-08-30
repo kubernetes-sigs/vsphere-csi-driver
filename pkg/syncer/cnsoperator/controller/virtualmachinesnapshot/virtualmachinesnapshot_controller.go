@@ -30,7 +30,6 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -57,6 +56,7 @@ import (
 )
 
 const (
+	MaxBackOffDurationForReconciler                  = 5 * time.Minute
 	defaultMaxWorkerThreadsForVirtualMachineSnapshot = 10
 	allowedRetriesToPatchCNSVolumeInfo               = 5
 	SyncVolumeFinalizer                              = "cns.vmware.com/syncvolume"
@@ -237,22 +237,31 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 		request.Namespace, request.Name)
 	err = r.reconcileNormal(ctx, log, vmSnapshot)
 	if err != nil {
-		return reconcile.Result{RequeueAfter: timeout}, err
+		recordEvent(ctx, r, vmSnapshot, corev1.EventTypeWarning, err.Error())
+		log.Errorf("error while processing virtualmachinesnapshot %s/%s set backOffDuration: %v. error: %v",
+			request.Namespace, request.Name, backOffDuration[request.NamespacedName], err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	msg := fmt.Sprintf("Successfully successfully processed vmsnapshot %s/%s",
+		vmSnapshot.Namespace, vmSnapshot.Name)
+	recordEvent(ctx, r, vmSnapshot, corev1.EventTypeNormal, msg)
+
 	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, request.NamespacedName)
 	backOffDurationMapMutex.Unlock()
+	log.Info(msg)
 	return reconcile.Result{}, nil
 }
 func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, log *zap.SugaredLogger,
 	vmsnapshot *vmoperatorv1alpha4.VirtualMachineSnapshot) error {
 	deleteVMSnapshot := false
 	if vmsnapshot.DeletionTimestamp.IsZero() {
-		// If the finalizer is not present, add it.
-		log.Infof("reconcileNormal: Adding finalizer %s on virtualmachinesnapshot cr %s/%s",
-			SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
+		// If the finalizer is not present, add it.
 		if controllerutil.AddFinalizer(vmsnapshot, SyncVolumeFinalizer) {
+			log.Infof("reconcileNormal: Adding finalizer %s on virtualmachinesnapshot cr %s/%s",
+				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 			err := r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 			if err != nil {
 				log.Errorf("reconcileNormal: error while add finalizer to "+
@@ -333,6 +342,34 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 			vmsnapshot.Namespace, vmsnapshot.Name)
 	}
 	return nil
+}
+
+// recordEvent records the event, sets the backOffDuration for the instance
+// appropriately and logs the message.
+// backOffDuration is reset to 1 second on success and doubled on failure.
+func recordEvent(ctx context.Context, r *ReconcileVirtualMachineSnapshot,
+	instance *vmoperatorv1alpha4.VirtualMachineSnapshot, eventtype string, msg string) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Event type is %s", eventtype)
+	namespacedName := apitypes.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
+	switch eventtype {
+	case corev1.EventTypeWarning:
+		// Double backOff duration.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			MaxBackOffDurationForReconciler)
+		r.recorder.Event(instance, corev1.EventTypeWarning, "VirtualMachineSnapshotFailed", msg)
+		backOffDurationMapMutex.Unlock()
+	case corev1.EventTypeNormal:
+		// Reset backOff duration to one second.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[namespacedName] = time.Second
+		r.recorder.Event(instance, corev1.EventTypeNormal, "VirtualMachineSnapshotSucceeded", msg)
+		backOffDurationMapMutex.Unlock()
+	}
 }
 
 // getMaxWorkerThreadsToReconcileVirtualMachineSnapshot returns the maximum number
