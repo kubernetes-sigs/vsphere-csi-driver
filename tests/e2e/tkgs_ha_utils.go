@@ -268,7 +268,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 			"exec",
 			pod.Name,
 			"--namespace=" + namespace,
-			"powershell.exe",
+			"-- powershell.exe -Command",
 			"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
 				"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
 		}
@@ -286,7 +286,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 			"exec",
 			pod.Name,
 			"--namespace=" + namespace,
-			"powershell.exe",
+			"-- powershell.exe -Command",
 			"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
 				"-Destination '/mnt/volume1/testdata2_pod.txt'",
 		}
@@ -306,7 +306,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 			"exec",
 			pod.Name,
 			"--namespace=" + namespace,
-			"powershell.exe",
+			"-- powershell.exe -Command",
 			"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
 				"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
 		}

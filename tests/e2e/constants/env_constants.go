@@ -213,4 +213,5 @@ const (
 	EnvVmknic4Vsan                             = "VMKNIC_FOR_VSAN"
 	EnvAccessMode                              = "ACCESS_MODE"
 	EnvVpToCsi                                 = "VCPTOCSI"
+	EnvVsphereTKGSystemNamespace               = "VSPHERE_TKG_SYSTEM_NAMESPACE"
 )
