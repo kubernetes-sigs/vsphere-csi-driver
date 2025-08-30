@@ -4,6 +4,12 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: vsphere-csi-webhook
+  namespace: vmware-system-csi
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -732,7 +738,7 @@ metadata:
   name: vsphere-csi-webhook-cluster-role-binding
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-webhook
     namespace: vmware-system-csi
 roleRef:
   kind: ClusterRole
@@ -756,7 +762,7 @@ metadata:
   namespace: vmware-system-csi
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-webhook
     namespace: vmware-system-csi
 roleRef:
   kind: Role
@@ -796,6 +802,7 @@ spec:
                       - vsphere-csi-webhook
               topologyKey: kubernetes.io/hostname
       hostNetwork: true
+      serviceAccount: vsphere-csi-webhook
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
       terminationGracePeriodSeconds: 10
