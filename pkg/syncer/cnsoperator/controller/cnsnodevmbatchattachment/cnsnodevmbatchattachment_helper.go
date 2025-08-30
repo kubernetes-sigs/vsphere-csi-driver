@@ -25,7 +25,9 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
+
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -67,6 +69,7 @@ func getNamespacedPvcName(namespace string, pvcName string) string {
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	client client.Client,
 	attachedFCDs map[string]bool,
 	volumeIdsInSpec map[string]string) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
@@ -78,17 +81,62 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 	// which are present in attachedFCDs list but not in
 	// instance spec.
 	for attachedFcdId := range attachedFCDs {
-		if _, ok := volumeIdsInSpec[attachedFcdId]; !ok {
-			pvc, _, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
-			if !exists {
+		if pvcName, ok := volumeIdsInSpec[attachedFcdId]; !ok {
+			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, instance.Namespace)
+			if err != nil {
 				msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
 				return pvcsToDetach, errors.New(msg)
 			}
-			pvcsToDetach[pvc] = attachedFcdId
+
+			for _, accessMode := range pvcObj.Spec.AccessModes {
+				if accessMode != v1.ReadWriteOnce {
+					break
+				}
+
+				// If volumeMode is RWO, ensure that the volume is not attached via the old CnsNodeVmAttachment CR.
+				// This can happen in case of upgrades, where the RWO volume before upgrade was attached with the old
+				// CnsVolumeAttachment CR.
+				isAttachedViaCnsNodeVmAttachment, err := isVolumeAttachedWithCnsNodeVmAttachment(ctx, client,
+					pvcName, instance.Namespace)
+				if err != nil {
+					log.Errorf("failed to find if PVC %s is attached to VM via CnsNodeVmAttachment CR. Err: %s",
+						pvcName, err)
+					return pvcsToDetach, err
+				}
+				if !isAttachedViaCnsNodeVmAttachment {
+					pvcsToDetach[pvcName] = attachedFcdId
+				}
+
+			}
 		}
 	}
 	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 	return pvcsToDetach, nil
+}
+
+// isVolumeAttachedWithCnsNodeVmAttachment returns true if the given PVC is
+// being referenced in a CnsNodeVmAttachment CR.
+func isVolumeAttachedWithCnsNodeVmAttachment(ctx context.Context, cnsOperatorClient client.Client,
+	pvcName string, namespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	cnsNodeVmAttachmentList := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{}
+	err := cnsOperatorClient.List(ctx, cnsNodeVmAttachmentList, &client.ListOptions{Namespace: namespace})
+	if err != nil {
+		log.Errorf("failed to list CnsNodeVmAttachments in namespace %s. Err: %s", namespace, err)
+		return true, err
+	}
+
+	for _, cnsNodeVmAtatchment := range cnsNodeVmAttachmentList.Items {
+		if cnsNodeVmAtatchment.Spec.VolumeName == pvcName {
+			log.Infof("PVC %s is being used in CnsNodeVmAttachment %s", pvcName,
+				cnsNodeVmAtatchment.Name)
+			return true, nil
+		}
+	}
+
+	log.Infof("Verified that PVC %s is not being used in any CnsNodeVmAttachment CRs", pvcName)
+	return false, nil
 }
 
 // removeStaleEntriesFromInstanceStatus removes the entries in instance status for which there is
@@ -158,7 +206,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 
 	// Find out the volumes to detach by taking a diff between
 	// the instance spec and the FCDs currently attached to the VM on vCenter.
-	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, client, attachedFCDs, volumeIdsInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
