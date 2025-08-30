@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2021-2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,8 +18,10 @@ package cnsfileaccessconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,6 +62,11 @@ import (
 
 const (
 	defaultMaxWorkerThreadsForFileAccessConfig = 10
+	vmNameLabelKey                             = "cns.vmware.com/vm-name"
+	pvcNameLabelKey                            = "cns.vmware.com/pvc-name"
+	capvVmLabelKey                             = "capv.vmware.com"
+	capvPvcLabelKey                            = "TKGService"
+	devopsUserLabelKey                         = "cns.vmware.com/user-created"
 )
 
 // backOffDuration is a map of cnsfileaccessconfig name's to the time after
@@ -310,12 +317,25 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	}
 	log.Debugf("Found virtualMachine instance for VM: %q/%q: %+v", instance.Namespace, instance.Spec.VMName, vm)
 
+	ifFileVolumesWithVmserviceVmsSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.FileVolumesWithVmService)
+
+	if ifFileVolumesWithVmserviceVmsSupported {
+		err = validateVmAndPvc(ctx, instance.Labels, instance.Name, instance.Spec.PvcName,
+			instance.Namespace, r.client, vm)
+		if err != nil {
+			log.Errorf("failed to validate VM %s and PVC %s", vm.Name, instance.Spec.PvcName)
+			setInstanceError(ctx, r, instance, err.Error())
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
+
 	if instance.DeletionTimestamp != nil {
 		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
 		volumeExists := true
 		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) &&
+			if ifFileVolumesWithVmserviceVmsSupported &&
 				apierrors.IsNotFound(err) {
 				log.Infof("Volume ID for PVC %s in namespace %s not found. No need to configure ACL",
 					instance.Spec.PvcName, instance.Namespace)
@@ -799,6 +819,66 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	}
 	log.Infof("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
 	return tkgVMIP, nil
+}
+
+// validateVmAndPvc validates if the VM and PVC combination given in the instance is correct or not.
+// CnsFileAccessConfig CRs created by devpos users will have "cns.vmware.com/user-created", "cns.vmware.com/vm-name"
+// and "cns.vmware.com/pvc-name" labels.
+// When these labels are present, the PVC and VM must not belong to TKG cluster.
+// This is verified by ensuring that:
+// The VM does not have a label applied by CAPV - example capv.vmware.com/cluster.name.
+// The PVC does not have a label applied by CAPV - example <TKG cluster namespace>/TKGService
+func validateVmAndPvc(ctx context.Context, instanceLabels map[string]string, instanceName string, pvcName string,
+	namespace string, client client.Client, vm *vmoperatorv1alpha4.VirtualMachine) error {
+	log := logger.GetLogger(ctx)
+
+	if instanceLabels == nil {
+		log.Infof("No labels found on the instance %s. Nothing to validate.", instanceName)
+		return nil
+	}
+
+	isUserCreatedCnsFileAccessConfig := false
+	for key := range instanceLabels {
+		if key == devopsUserLabelKey {
+			isUserCreatedCnsFileAccessConfig = true
+			break
+		}
+	}
+
+	if !isUserCreatedCnsFileAccessConfig {
+		log.Infof("Instance %s is not created by devops user. Nothing to validate", instanceName)
+		return nil
+	}
+
+	for key := range vm.Labels {
+		if strings.Contains(key, capvVmLabelKey) {
+			msg := fmt.Sprintf("CnsFileAccessConfig is created by devops user and has TKG VM %s. "+
+				"Invalid combination.", vm.Name)
+			log.Errorf(msg)
+			err := errors.New(msg)
+			return err
+		}
+	}
+
+	pvc := &v1.PersistentVolumeClaim{}
+	err := client.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	if err != nil {
+		log.Errorf("failed to get PVC with name %s in namespace %s", pvcName, namespace)
+		return err
+	}
+
+	for key := range pvc.Labels {
+		if strings.Contains(key, capvPvcLabelKey) {
+			msg := fmt.Sprintf("CnsFileAccessConfig is created by devops user and has "+
+				"TKG PVC %s. Invalid combination.", pvcName)
+			log.Errorf(msg)
+			err := errors.New(msg)
+			return err
+		}
+	}
+
+	log.Infof("Successfully verified instance %s for VM/PVC combination", instanceName)
+	return nil
 }
 
 // setInstanceSuccess sets instance to success and records an event on the

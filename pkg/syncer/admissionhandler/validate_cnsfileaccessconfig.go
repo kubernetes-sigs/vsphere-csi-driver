@@ -7,7 +7,9 @@ import (
 	"regexp"
 
 	admissionv1 "k8s.io/api/admission/v1"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 
@@ -39,6 +41,25 @@ func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 			Result: &metav1.Status{
 				Message: fmt.Sprintf("Failed to serialize CnsFileAccessConfig: %v", err),
 			},
+		}
+	}
+
+	// This validation is not required for PVCSI service account.
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
+	if err != nil {
+		// return AdmissionResponse result
+		return &admissionv1.AdmissionResponse{
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: fmt.Sprintf("failed to validate user information: %s", err),
+			},
+		}
+	}
+
+	// If user is PVCSI service account, allow this request.
+	if isPvCSIServiceAccount {
+		return &admissionv1.AdmissionResponse{
+			Allowed: true,
 		}
 	}
 
@@ -87,22 +108,31 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		return "", err
 	}
 
+	// List only that CnsFileAccessConfig CRs which has the same VM name and PVC name labels.
+	labelSelector := labels.SelectorFromSet(labels.Set{vmNameLabelKey: vm, pvcNameLabelKey: pvc})
 	// Get the list of all CnsFileAccessConfig CRs in the given namespace.
 	cnsFileAccessConfigList := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{}
-	err = cnsOperatorClient.List(ctx, cnsFileAccessConfigList, &client.ListOptions{Namespace: namespace})
+	err = cnsOperatorClient.List(ctx, cnsFileAccessConfigList, &client.ListOptions{
+		Namespace:     namespace,
+		LabelSelector: labelSelector,
+	})
 	if err != nil {
 		log.Errorf("failed to list CnsFileAccessConfigList CRs from %s namesapace. Error: %+v",
 			namespace, err)
 		return "", err
 	}
 
-	for _, cnsFileAccessConfig := range cnsFileAccessConfigList.Items {
-		if cnsFileAccessConfig.Spec.VMName == vm {
-			if cnsFileAccessConfig.Spec.PvcName == pvc {
-				return cnsFileAccessConfig.Name, nil
-			}
-		}
+	if len(cnsFileAccessConfigList.Items) == 1 {
+		// There should be only 1 CFC CR with the same VM and PVC
+		return cnsFileAccessConfigList.Items[0].Name, nil
 	}
+
+	if len(cnsFileAccessConfigList.Items) > 1 {
+		// We should never reach here but it's good to have this check.
+		return "", fmt.Errorf("invalid case, %d CnsFileAccessConfig instances detected "+
+			"with the VM %s and PVC %s", len(cnsFileAccessConfigList.Items), vm, pvc)
+	}
+
 	return "", nil
 }
 
