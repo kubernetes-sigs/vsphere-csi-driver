@@ -68,7 +68,8 @@ type NodeManagerInterface interface {
 	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error)
 }
 
-// TopologyCalculatorInterface handles post-creation topology calculation
+// TopologyCalculatorInterface handles post-creation topology calculation for vanilla controller.
+// Used to mock topology calculation in unit tests.
 type TopologyCalculatorInterface interface {
 	CalculateAccessibleTopology(ctx context.Context, params TopologyCalculationParams) ([]map[string]string, error)
 }
@@ -434,13 +435,8 @@ func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*c
 	vcHost string) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	var dsMap map[string]*cnsvsphere.DatastoreInfo
-	if c.authMgrs != nil && c.authMgrs[vcHost] != nil {
+	if c.authMgrs[vcHost] != nil {
 		dsMap = c.authMgrs[vcHost].GetDatastoreMapForBlockVolumes(ctx)
-	} else if c.authMgr != nil {
-		// Fallback to single authMgr for backward compatibility and testing
-		dsMap = c.authMgr.GetDatastoreMapForBlockVolumes(ctx)
-	} else {
-		return nil, logger.LogNewError(log, "no auth manager available")
 	}
 	if len(dsMap) == 0 {
 		return nil, logger.LogNewError(log,
@@ -1162,10 +1158,6 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		}
 		break
 	}
-	if operationStore == nil {
-		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-			"Operation store cannot be nil")
-	}
 
 	// Check if vCenter task for this volume is already registered as part of
 	// improved idempotency CR
@@ -1668,7 +1660,9 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					"failed to delete volumeInfo CR for volume: %q. Error: %+v", req.VolumeId, err)
 			}
 		}
-		// If this is multi-VC configuration, delete CnsVolumeInfo CR
+		// If this is multi-VC configuration, delete CnsVolumeInfo CR.  CnsVolumeInfo CR
+		// contains vcenter <-> volume mapping for multi-vcenter setup so that we know
+		// what vcenter to talk to for a given volume.
 		if len(c.managers.VcenterConfigs) > 1 {
 			err = volumeInfoService.DeleteVolumeInfo(ctx, req.VolumeId)
 			if err != nil {
