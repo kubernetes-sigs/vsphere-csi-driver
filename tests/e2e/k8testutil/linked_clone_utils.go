@@ -16,6 +16,8 @@ package k8testutil
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -23,6 +25,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"golang.org/x/crypto/ssh"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	v1 "k8s.io/api/storage/v1"
@@ -49,14 +52,14 @@ var lcToDelete []*corev1.PersistentVolumeClaim
 /*
 This method will create PVC, attach pod to it and creates snapshot
 */
-func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool) *snapV1.VolumeSnapshot {
+func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool) *snapV1.VolumeSnapshot {
 
 	// Create PVC and verify PVC is bound
 	pvclaim, pv := createAndValidatePvc(ctx, client, namespace, storageclass)
 
 	// Create Pod and attach to PVC
-	if doCreatePod {
-		_ = CreatePodForPvc(ctx, e2eTestConfig, client, namespace, pvclaim)
+	if doCreatePod || doCreateDep {
+		CreatePodForPvc(ctx, e2eTestConfig, client, namespace, pvclaim, doCreatePod, doCreateDep)
 	}
 
 	// TODO : Write data to volume
@@ -67,14 +70,24 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 	return volumeSnapshot
 }
 
-func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim *corev1.PersistentVolumeClaim) *corev1.Pod {
+func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim *corev1.PersistentVolumeClaim, deCreatePod bool, doCreateDep bool) (*corev1.Pod, *appsv1.Deployment) {
 	ginkgo.By("Create Pod to attach to Pvc")
-	pod, err := CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvclaim}, false,
-		constants.ExecRWXCommandPod1)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	podToDelete = append(podToDelete, pod)
-	return pod
+	var pod *corev1.Pod
+	var dep *appsv1.Deployment
+	var err error
+	if deCreatePod {
+		pod, err = CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvclaim}, false,
+			constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podToDelete = append(podToDelete, pod)
+	} else if doCreateDep {
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+		dep, err = CreateDeployment(ctx, e2eTestConfig, client, 1, labelsMap, nil, namespace,
+			[]*corev1.PersistentVolumeClaim{pvclaim}, constants.ExecRWXCommandPod1, false, constants.NginxImage)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	return pod, dep
 }
 
 /*
@@ -157,14 +170,14 @@ func createLinkedClonePvc(ctx context.Context, client clientset.Interface, names
 /*
 Create linked clone PVC and verify its Bound
 */
-func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) *corev1.PersistentVolumeClaim {
+func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
 
 	// create linked clone PVC
 	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
 	// Validate PVC is bound
-	_, err = fpv.WaitForPVClaimBoundPhase(ctx,
+	pv, err := fpv.WaitForPVClaimBoundPhase(ctx,
 		client, []*corev1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -177,7 +190,7 @@ func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interfac
 	annotationsMap := pvclaim.Annotations
 	gomega.Expect(annotationsMap).To(gomega.HaveKeyWithValue(constants.LinkedCloneAnnotationKey, "true"))
 
-	return pvclaim
+	return pvclaim, pv
 }
 
 /*
@@ -308,4 +321,10 @@ func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *con
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvcToDelete[0].Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func ParseMi(value string) (int, error) {
+	// Remove the "Mi" suffix and convert to int
+	numeric := strings.TrimSuffix(value, "Mi")
+	return strconv.Atoi(numeric)
 }

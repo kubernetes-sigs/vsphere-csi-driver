@@ -7076,6 +7076,7 @@ func GetStoragePolicyUsedAndReservedQuotaDetails(ctx context.Context, restConfig
 	var totalQuotaUsed, totalQuotaReserved, storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved *resource.Quantity
 	var storagePolicyUsageCRUsed, storagePolicyUsageCRReserved *resource.Quantity
 
+	// TODO error logs are printing
 	totalQuotaUsed, totalQuotaReserved = GetTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 		storagePolicyName, namespace, islatebinding)
 	framework.Logf("Namespace total-Quota-Used: %s,total-Quota-Reserved: %s ", totalQuotaUsed, totalQuotaReserved)
