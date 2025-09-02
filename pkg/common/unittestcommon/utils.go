@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
@@ -70,7 +71,6 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 			"use-csinode-id":                    "true",
 			"pv-to-backingdiskobjectid-mapping": "false",
 			"cnsmgr-suspend-create-volume":      "true",
-			"multi-vcenter-csi-topology":        "true",
 			"listview-tasks":                    "true",
 			"storage-quota-m2":                  "false",
 			"workload-domain-isolation":         "true",
@@ -389,12 +389,22 @@ func (c *FakeK8SOrchestrator) CreateConfigMap(ctx context.Context, name string, 
 
 // GetCSINodeTopologyInstancesList lists CSINodeTopology instances for a given cluster.
 func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstancesList() []interface{} {
-	return nil
+	return c.csiNodeTopologyInstances
 }
 
 // GetCSINodeTopologyInstanceByName fetches the CSINodeTopology instance for a given node name in the cluster.
 func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) (
 	item interface{}, exists bool, err error) {
+	// Search through stored CSINodeTopology instances
+	for _, instance := range c.csiNodeTopologyInstances {
+		if unstructuredObj, ok := instance.(*unstructured.Unstructured); ok {
+			// Get the name from the metadata
+			name := unstructuredObj.GetName()
+			if name == nodeName {
+				return instance, true, nil
+			}
+		}
+	}
 	return nil, false, nil
 }
 
@@ -483,6 +493,11 @@ func (c *FakeK8SOrchestrator) UpdatePersistentVolumeLabel(ctx context.Context, p
 func (c *FakeK8SOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
 	targetNS string, requestedZones []string) ([]string, error) {
 	return nil, nil
+}
+
+// SetCSINodeTopologyInstances sets the CSINodeTopology instances for testing
+func (c *FakeK8SOrchestrator) SetCSINodeTopologyInstances(instances []interface{}) {
+	c.csiNodeTopologyInstances = instances
 }
 
 // configFromVCSim starts a vcsim instance and returns config for use against the
