@@ -37,7 +37,7 @@ COPY pkg/    pkg/
 
 COPY cmd/    cmd/
 
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=0
 
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
 
