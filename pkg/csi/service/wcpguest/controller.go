@@ -155,7 +155,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	// some init() function which can initialize required things when capability value changes from false to true.
 	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.WorkloadDomainIsolationFSS)
-	isLinkedCloneSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+	isLinkedCloneSupported := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
 		common.LinkedCloneSupportFSS)
 	if !isWorkloadDomainIsolationSupported {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,

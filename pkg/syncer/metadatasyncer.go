@@ -359,7 +359,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				common.WorkloadDomainIsolation,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
+		IsLinkedCloneSupportFSSEnabled = commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
+			common.LinkedCloneSupportFSS)
+		if !IsLinkedCloneSupportFSSEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.LinkedCloneSupport,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
