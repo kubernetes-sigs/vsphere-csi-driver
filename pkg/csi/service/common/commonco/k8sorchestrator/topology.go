@@ -32,8 +32,6 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
@@ -123,8 +121,6 @@ var (
 	// CAUTION: This technique requires that tag values should not be repeated across
 	// categories i.e using `us-east` as a region and as a zone is not allowed.
 	domainNodeMap = make(map[string]map[string]struct{})
-	// domainNodeMapInstanceLock guards the domainNodeMap instance from concurrent writes.
-	domainNodeMapInstanceLock = &sync.RWMutex{}
 	// azClusterMap maintains a cache of AZ instance name to the clusterMoref in that zone.
 	azClusterMap = make(map[string]string)
 	// azClustersMap maintains a cache of AZ instance name to the clusterMorefs in that zone.
@@ -137,10 +133,6 @@ var (
 	preferredDatastoresMap = make(map[string][]string)
 	// preferredDatastoresMapInstanceLock guards the preferredDatastoresMap from read-write overlaps.
 	preferredDatastoresMapInstanceLock = &sync.RWMutex{}
-	// isMultiVCSupportEnabled is set to true only when the MultiVCenterCSITopology FSS
-	// is enabled. isMultivCenterCluster is set to true only when the MultiVCenterCSITopology FSS
-	// is enabled and the K8s cluster involves multiple VCs.
-	isMultiVCSupportEnabled bool
 	// isPodVMOnStretchedSupervisorEnabled is set to true only when the podvm-on-stretched-supervisor FSS
 	// is enabled
 	isPodVMOnStretchedSupervisorEnabled bool
@@ -232,9 +224,6 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					return nil, err
 				}
 
-				// Set isMultivCenterCluster if the K8s cluster is a multi-VC cluster.
-				isMultiVCSupportEnabled = c.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
-
 				// Create a cache of topology tags -> VC -> associated MoRefs in that VC to ease volume provisioning.
 				err = common.DiscoverTagEntities(ctx)
 				if err != nil {
@@ -262,11 +251,7 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 					for ; true; <-ticker.C {
 						ctx, log := logger.GetNewContextWithLogger()
 						log.Infof("Refreshing preferred datastores information...")
-						if isMultiVCSupportEnabled {
-							err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
-						} else {
-							err = refreshPreferentialDatastores(ctx)
-						}
+						err = common.RefreshPreferentialDatastoresForMultiVCenter(ctx)
 						if err != nil {
 							log.Errorf("failed to refresh preferential datastores in cluster. Error: %v", err)
 							os.Exit(1)
@@ -319,78 +304,6 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 	}
 	return nil, logger.LogNewErrorf(log, "InitTopologyServiceInController not implemented for "+
 		"cluster flavor: %q", c.clusterFlavor)
-}
-
-// refreshPreferentialDatastores refreshes the preferredDatastoresMap variable
-// with latest information on the preferential datastores for each topology domain.
-func refreshPreferentialDatastores(ctx context.Context) error {
-	log := logger.GetLogger(ctx)
-	// Get VC instance.
-	cnsCfg, err := cnsconfig.GetConfig(ctx)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
-	}
-	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cnsCfg)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig from CNS config. Error: %+v", err)
-	}
-	vc, err := cnsvsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vcenterconfig.Host)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to get vCenter instance. Error: %+v", err)
-	}
-	// Get tag manager instance.
-	tagMgr, err := vc.GetTagManager(ctx)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create tag manager. Error: %+v", err)
-	}
-
-	// Get tags for category reserved for preferred datastore tagging.
-	tagIds, err := tagMgr.ListTagsForCategory(ctx, common.PreferredDatastoresCategory)
-	if err != nil {
-		log.Infof("failed to retrieve tags for category %q. Reason: %+v", common.PreferredDatastoresCategory,
-			err)
-		return nil
-	}
-	if len(tagIds) == 0 {
-		log.Info("No preferred datastores found in environment.")
-		return nil
-	}
-	// Fetch vSphere entities on which the tags have been applied.
-	attachedObjs, err := tagMgr.GetAttachedObjectsOnTags(ctx, tagIds)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to retrieve objects with tags %v. Error: %+v", tagIds, err)
-	}
-	prefDatastoresMap := make(map[string][]string)
-	for _, attachedObj := range attachedObjs {
-		for _, obj := range attachedObj.ObjectIDs {
-			// Preferred datastore tag should only be applied to datastores.
-			if obj.Reference().Type != "Datastore" {
-				log.Warnf("Preferred datastore tag applied on a non-datastore entity: %+v",
-					obj.Reference())
-				continue
-			}
-			// Fetch Datastore URL.
-			var dsMo mo.Datastore
-			dsObj := object.NewDatastore(vc.Client.Client, obj.Reference())
-			err = dsObj.Properties(ctx, obj.Reference(), []string{"summary"}, &dsMo)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to retrieve summary from datastore: %+v. Error: %v",
-					obj.Reference(), err)
-			}
-
-			log.Infof("Datastore %q with URL %q is preferred in %q", dsMo.Summary.Name, dsMo.Summary.Url,
-				attachedObj.Tag.Name)
-			// For each topology domain, store the datastore URLs preferred in that domain.
-			prefDatastoresMap[attachedObj.Tag.Name] = append(prefDatastoresMap[attachedObj.Tag.Name], dsMo.Summary.Url)
-		}
-	}
-	// Finally, write to cache.
-	if len(prefDatastoresMap) != 0 {
-		preferredDatastoresMapInstanceLock.Lock()
-		defer preferredDatastoresMapInstanceLock.Unlock()
-		preferredDatastoresMap = prefDatastoresMap
-	}
-	return nil
 }
 
 // GetCSINodeTopologyInstancesList lists out all the CSINodeTopology
@@ -606,11 +519,7 @@ func topoCRAdded(obj interface{}) {
 			nodeTopoObj.Name, nodeTopoObj.Status.Status)
 		return
 	}
-	if isMultiVCSupportEnabled {
-		common.AddNodeToDomainNodeMapNew(ctx, nodeTopoObj)
-	} else {
-		addNodeToDomainNodeMap(ctx, nodeTopoObj)
-	}
+	common.AddNodeToDomainNodeMapNew(ctx, nodeTopoObj)
 }
 
 // topoCRUpdated checks if the CSINodeTopology instance Status is set to Success
@@ -657,19 +566,11 @@ func topoCRUpdated(oldObj interface{}, newObj interface{}) {
 		log.Warnf("topoCRUpdated: %q instance with name %q has been updated after the Status was set to "+
 			"Success. Old object - %+v. New object - %+v", csinodetopology.CRDSingular, oldNodeTopoObj.Name,
 			oldNodeTopoObj, newNodeTopoObj)
-		if isMultiVCSupportEnabled {
-			common.RemoveNodeFromDomainNodeMapNew(ctx, oldNodeTopoObj)
-		} else {
-			removeNodeFromDomainNodeMap(ctx, oldNodeTopoObj)
-		}
+		common.RemoveNodeFromDomainNodeMapNew(ctx, oldNodeTopoObj)
 	}
 	// Add the node name to the domainNodeMap if the Status is set to Success.
 	if newNodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
-		if isMultiVCSupportEnabled {
-			common.AddNodeToDomainNodeMapNew(ctx, newNodeTopoObj)
-		} else {
-			addNodeToDomainNodeMap(ctx, newNodeTopoObj)
-		}
+		common.AddNodeToDomainNodeMapNew(ctx, newNodeTopoObj)
 	}
 }
 
@@ -698,41 +599,11 @@ func topoCRDeleted(obj interface{}) {
 	}
 	// Delete node name from domainNodeMap if the status of the CR was set to Success.
 	if nodeTopoObj.Status.Status == csinodetopologyv1alpha1.CSINodeTopologySuccess {
-		if isMultiVCSupportEnabled {
-			common.RemoveNodeFromDomainNodeMapNew(ctx, nodeTopoObj)
-		} else {
-			removeNodeFromDomainNodeMap(ctx, nodeTopoObj)
-		}
+		common.RemoveNodeFromDomainNodeMapNew(ctx, nodeTopoObj)
 	} else {
 		log.Infof("topoCRDeleted: %q instance with name %q and status %q deleted.", csinodetopology.CRDSingular,
 			nodeTopoObj.Name, nodeTopoObj.Status.Status)
 	}
-}
-
-// Adds the CR instance name in the domainNodeMap wherever appropriate.
-func addNodeToDomainNodeMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
-	log := logger.GetLogger(ctx)
-	domainNodeMapInstanceLock.Lock()
-	defer domainNodeMapInstanceLock.Unlock()
-	for _, label := range nodeTopoObj.Status.TopologyLabels {
-		if _, exists := domainNodeMap[label.Value]; !exists {
-			domainNodeMap[label.Value] = map[string]struct{}{nodeTopoObj.Name: {}}
-		} else {
-			domainNodeMap[label.Value][nodeTopoObj.Name] = struct{}{}
-		}
-	}
-	log.Infof("Added %q value to domainNodeMap", nodeTopoObj.Name)
-}
-
-// Removes the CR instance name from the domainNodeMap.
-func removeNodeFromDomainNodeMap(ctx context.Context, nodeTopoObj csinodetopologyv1alpha1.CSINodeTopology) {
-	log := logger.GetLogger(ctx)
-	domainNodeMapInstanceLock.Lock()
-	defer domainNodeMapInstanceLock.Unlock()
-	for _, label := range nodeTopoObj.Status.TopologyLabels {
-		delete(domainNodeMap[label.Value], nodeTopoObj.Name)
-	}
-	log.Infof("Removed %q value from domainNodeMap", nodeTopoObj.Name)
 }
 
 // InitTopologyServiceInNode returns a singleton implementation of the commoncotypes.NodeTopologyService interface.
