@@ -37,7 +37,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
-ENV CGO_ENABLED=1
+ENV CGO_ENABLED=0
 ENV GOFIPS=1
 ENV GOEXPERIMENT="boringcrypto"
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
