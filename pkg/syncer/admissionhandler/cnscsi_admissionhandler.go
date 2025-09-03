@@ -39,6 +39,8 @@ const (
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
 	devopsUserLabelKey               = "cns.vmware.com/user-created"
+	vmNameLabelKey                   = "cns.vmware.com/vm-name"
+	pvcNameLabelKey                  = "cns.vmware.com/pvc-name"
 )
 
 var (
@@ -271,11 +273,14 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	if newCnsFileAccessConfig.Labels == nil {
 		newCnsFileAccessConfig.Labels = make(map[string]string)
 	}
-	if _, ok := newCnsFileAccessConfig.Labels[devopsUserLabelKey]; ok {
-		log.Debugf("Devops label already present on instance %s", newCnsFileAccessConfig.Name)
-		return admission.Allowed("")
-	}
+
+	// Add VM name and PVC name label.
+	// If someone created this CR with these labels already present, CSI will overrite on them
+	// with the correct values.
 	newCnsFileAccessConfig.Labels[devopsUserLabelKey] = "true"
+	newCnsFileAccessConfig.Labels[vmNameLabelKey] = newCnsFileAccessConfig.Spec.VMName
+	newCnsFileAccessConfig.Labels[pvcNameLabelKey] = newCnsFileAccessConfig.Spec.PvcName
+
 	newRawCnsFileAccessConfig, err := json.Marshal(newCnsFileAccessConfig)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)

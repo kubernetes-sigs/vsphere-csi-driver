@@ -84,6 +84,26 @@ type FakeAuthManager struct {
 	vcenter *cnsvsphere.VirtualCenter
 }
 
+// MockTopologyCalculator is a mock implementation for testing
+type MockTopologyCalculator struct {
+	shouldSkip bool
+}
+
+// CalculateAccessibleTopology mocks the topology calculation
+func (m *MockTopologyCalculator) CalculateAccessibleTopology(ctx context.Context,
+	params TopologyCalculationParams) ([]map[string]string, error) {
+	if m.shouldSkip {
+		// Return empty topology (skipping calculation like the old isTestEnvironment logic)
+		return []map[string]string{}, nil
+	}
+	// For non-test scenarios, could return mock topology segments
+	return []map[string]string{
+		{
+			"topology.csi.vmware.com/k8s-zone": "zone-1",
+		},
+	}, nil
+}
+
 func (f *FakeNodeManager) Initialize(ctx context.Context) error {
 	f.cnsNodeManager = node.GetManager(ctx)
 	f.cnsNodeManager.SetKubernetesClient(f.k8sClient)
@@ -234,6 +254,14 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VolumeManager:  volumeManager,
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
+		managers := &common.Managers{
+			VcenterConfigs: make(map[string]*cnsvsphere.VirtualCenterConfig),
+			CnsConfig:      config,
+			VolumeManagers: make(map[string]cnsvolume.Manager),
+			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
+		}
+		managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
+		managers.VolumeManagers[vcenterconfig.Host] = volumeManager
 
 		var k8sClient clientset.Interface
 		if k8senv := os.Getenv("KUBECONFIG"); k8senv != "" {
@@ -254,13 +282,21 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatalf("Failed to initialize node manager, err = %v", err)
 		}
 
-		c := &controller{
-			manager: manager,
-			nodeMgr: nodeManager,
-			authMgr: &FakeAuthManager{
-				vcenter: vcenter,
-			},
+		fakeAuthMgr := FakeAuthManager{
+			vcenter: vcenter,
 		}
+
+		c := &controller{
+			manager:      manager,
+			managers:     managers,
+			nodeMgr:      nodeManager,
+			authMgr:      &fakeAuthMgr,
+			authMgrs:     make(map[string]*common.AuthManager),
+			topologyCalc: &MockTopologyCalculator{shouldSkip: true}, // Skip topology calculation in tests
+		}
+		c.authMgrs[vcenterconfig.Host], _ =
+			common.GetAuthorizationServiceForTesting(ctx,
+				vcenter, fakeAuthMgr.GetDatastoreMapForBlockVolumes(ctx), nil)
 
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
