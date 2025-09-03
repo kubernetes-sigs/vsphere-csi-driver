@@ -82,9 +82,7 @@ var (
 	k8sOrchestratorInitMutex = &sync.RWMutex{}
 	// WcpCapabilitiesMap is the cached map which stores supervisor capabilities name to value map after fetching
 	// the data from supervisor-capabilities CR.
-	WcpCapabilitiesMap map[string]bool
-	// wcpCapabilitiesMapMutex is the mutual exclusion lock used for accessing global map WcpCapabilitiesMap.
-	wcpCapabilitiesMapMutex = &sync.RWMutex{}
+	WcpCapabilitiesMap *sync.Map
 )
 
 // FSSConfigMapInfo contains details about the FSS configmap(s) present in
@@ -1094,6 +1092,35 @@ func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
 	return volumeIDs
 }
 
+// isSyncMapEmpty checks if given sync map is empty or not and returns bool value accordingly
+func isSyncMapEmpty(m *sync.Map) bool {
+	isEmpty := true
+	if m != nil {
+		m.Range(func(key, value interface{}) bool {
+			// If we find any element, the map is not empty
+			isEmpty = false
+			// Stop iteration immediately
+			return false
+		})
+	}
+	return isEmpty
+}
+
+// printCapabilitiesMap converts Capabilities sync map to regular map and prints it
+func printCapabilitiesMap(ctx context.Context, m *sync.Map) {
+	log := logger.GetLogger(ctx)
+	if m != nil {
+		printableMap := make(map[string]bool)
+		m.Range(func(key, value interface{}) bool {
+			printableMap[key.(string)] = value.(bool)
+			// Return true to continue iteration
+			return true
+		})
+
+		log.Infof("WCP cluster capabilities map - %+v", printableMap)
+	}
+}
+
 // HandleLateEnablementOfCapability starts a ticker and checks after every 2 minutes if
 // capability is enabled in capabilities CR or not.
 // If this capability was disabled and now got enabled, then container will be restarted.
@@ -1159,10 +1186,10 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			log.Errorf("failed to set WCP capabilities map, Err: %+v", err)
 			os.Exit(1)
 		}
-		log.Debugf("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
-		if capVal, ok := WcpCapabilitiesMap[capability]; ok && capVal {
+		if capVal, ok := WcpCapabilitiesMap.Load(capability); ok && capVal.(bool) {
 			log.Infof("Capability %s changed state to %t in capabilities CR %s. "+
-				"Restarting the container as capability has changed.", capability, capVal, common.WCPCapabilitiesCRName)
+				"Restarting the container as capability has changed.", capability, capVal.(bool),
+				common.WCPCapabilitiesCRName)
 			if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && capability == common.WorkloadDomainIsolation {
 				// when  Workload_Domain_Isolation_Supported Capability is enabled, enable workload-domain-isolation FSS
 				// in the config secret
@@ -1195,13 +1222,12 @@ func SetWcpCapabilitiesMap(ctx context.Context, wcpCapabilityApiClient client.Cl
 		return err
 	}
 
-	wcpCapabilitiesMapMutex.Lock()
-	defer wcpCapabilitiesMapMutex.Unlock()
 	if WcpCapabilitiesMap == nil {
-		WcpCapabilitiesMap = make(map[string]bool)
+		log.Debug("Initializing WcpCapabilitiesMap")
+		WcpCapabilitiesMap = &sync.Map{}
 	}
 	for capName, capStatus := range wcpCapabilities.Status.Supervisor {
-		WcpCapabilitiesMap[string(capName)] = capStatus.Activated
+		WcpCapabilitiesMap.Store(string(capName), capStatus.Activated)
 	}
 	return nil
 }
@@ -1246,7 +1272,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			log.Debugf("Feature %q is a WCP defined feature state. Reading the capabilities CR %q.",
 				featureName, common.WCPCapabilitiesCRName)
 
-			if len(WcpCapabilitiesMap) == 0 {
+			if isSyncMapEmpty(WcpCapabilitiesMap) {
 				restConfig, err := clientconfig.GetConfig()
 				if err != nil {
 					log.Errorf("failed to get Kubernetes config. Err: %+v", err)
@@ -1262,12 +1288,12 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					log.Errorf("failed to set WCP capabilities map, Err: %+v", err)
 					return false
 				}
-				log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
+				printCapabilitiesMap(ctx, WcpCapabilitiesMap)
 			}
-			if supervisorFeatureState, exists := WcpCapabilitiesMap[featureName]; exists {
-				log.Debugf("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
+			if supervisorFeatureState, exists := WcpCapabilitiesMap.Load(featureName); exists {
+				log.Debugf("Supervisor capability %q is set to %t", featureName, supervisorFeatureState.(bool))
 
-				if !supervisorFeatureState {
+				if !supervisorFeatureState.(bool) {
 					// if capability can be enabled after upgrading CSI, we need to fetch capabilities CR again and
 					// confirm FSS is still disabled, or it got enabled.
 					// WCPFeatureStatesSupportsLateEnablement contains capabilities which can be enabled later after
@@ -1288,19 +1314,18 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 							log.Errorf("failed to set WCP capabilities map, Err: %+v", err)
 							return false
 						}
-						log.Debugf("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 
-						if supervisorFeatureState, exists = WcpCapabilitiesMap[featureName]; exists {
+						if supervisorFeatureState, exists = WcpCapabilitiesMap.Load(featureName); exists {
 							log.Debugf("Supervisor capability %q was disabled, "+
-								"now it is set to %t", featureName, supervisorFeatureState)
-							if supervisorFeatureState {
+								"now it is set to %t", featureName, supervisorFeatureState.(bool))
+							if supervisorFeatureState.(bool) {
 								log.Infof("Supervisor capabilty %q was disabled, but now it has been enabled.",
 									featureName)
 							}
 						}
 					}
 				}
-				return supervisorFeatureState
+				return supervisorFeatureState.(bool)
 			}
 			return false
 		}
@@ -1333,7 +1358,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 			// If PVCSI FSS has associated WCP capability in supervisor cluster, then check if that WCP
 			// capability is enabled or disabled by fetching its value from capabilities CR on supervisor.
 			if wcpFeatureState, exists := common.WCPFeatureStateAssociatedWithPVCSI[featureName]; exists {
-				if len(WcpCapabilitiesMap) == 0 {
+				if isSyncMapEmpty(WcpCapabilitiesMap) {
 					// Read capabilities CR from supervisor cluster
 					cfg, err := cnsconfig.GetConfig(ctx)
 					if err != nil {
@@ -1378,13 +1403,13 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 						log.Errorf("failed to set WCP capabilities map, Err: %+v", err)
 						return false
 					}
-					log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
+					printCapabilitiesMap(ctx, WcpCapabilitiesMap)
 				}
 
-				if supervisorFeatureState, exists := WcpCapabilitiesMap[wcpFeatureState]; exists {
+				if supervisorFeatureState, exists := WcpCapabilitiesMap.Load(wcpFeatureState); exists {
 					log.Debugf("Supervisor capability %q is set to %t", wcpFeatureState,
-						supervisorFeatureState)
-					return supervisorFeatureState
+						supervisorFeatureState.(bool))
+					return supervisorFeatureState.(bool)
 				}
 				return false
 			}
