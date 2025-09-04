@@ -645,6 +645,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 
+		// WaitForPVCDeletedWithWatch
 		// Wait for PVC to be deleted from supervisor cluster
 		err = common.WaitForPVCDeleted(ctx, c.supervisorClient,
 			req.VolumeId, c.supervisorNamespace,
