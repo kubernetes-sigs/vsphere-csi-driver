@@ -543,6 +543,7 @@ func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 // GetActiveUser returns the current logged in user. It is fetched from govmomi.Session
 // to reflect the real current user being used
 func (vc *VirtualCenter) GetActiveUser(ctx context.Context) (string, error) {
+	log := logger.GetLogger(ctx)
 	if vc.Client == nil || vc.Client.SessionManager == nil {
 		return "", fmt.Errorf("client or sessionmanager are null")
 	}
@@ -551,6 +552,7 @@ func (vc *VirtualCenter) GetActiveUser(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error getting current user: %w", err)
 	}
+	log.Infof("UserName from the session object : %s", userSession.UserName)
 	return userSession.UserName, nil
 }
 
