@@ -689,7 +689,7 @@ data:
   "cnsmgr-suspend-create-volume": "true"
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
-  "sv-pvc-snapshot-protection-finalizer": "false"
+  "sv-pvc-snapshot-protection-finalizer": "true"
   "linked-clone-support": "false"
 kind: ConfigMap
 metadata:
