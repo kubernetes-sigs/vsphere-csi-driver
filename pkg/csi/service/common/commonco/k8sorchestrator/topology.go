@@ -32,6 +32,8 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
@@ -304,6 +306,83 @@ func (c *K8sOrchestrator) InitTopologyServiceInController(ctx context.Context) (
 	}
 	return nil, logger.LogNewErrorf(log, "InitTopologyServiceInController not implemented for "+
 		"cluster flavor: %q", c.clusterFlavor)
+}
+
+// refreshPreferentialDatastores refreshes the preferredDatastoresMap variable
+// with latest information on the preferential datastores for each topology domain.
+func refreshPreferentialDatastores(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	// Get VC instance.
+	cnsCfg, err := cnsconfig.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CNS config. Error: %+v", err)
+	}
+	vcenterconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, cnsCfg)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig from CNS config. Error: %+v", err)
+	}
+	vc, err := cnsvsphere.GetVirtualCenterManager(ctx).GetVirtualCenter(ctx, vcenterconfig.Host)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get vCenter instance. Error: %+v", err)
+	}
+	// Get tag manager instance.
+	tagMgr, err := cnsvsphere.GetTagManager(ctx, vc)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create tag manager. Error: %+v", err)
+	}
+	defer func() {
+		err := tagMgr.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. Error: %v", err)
+		}
+	}()
+	// Get tags for category reserved for preferred datastore tagging.
+	tagIds, err := tagMgr.ListTagsForCategory(ctx, common.PreferredDatastoresCategory)
+	if err != nil {
+		log.Infof("failed to retrieve tags for category %q. Reason: %+v", common.PreferredDatastoresCategory,
+			err)
+		return nil
+	}
+	if len(tagIds) == 0 {
+		log.Info("No preferred datastores found in environment.")
+		return nil
+	}
+	// Fetch vSphere entities on which the tags have been applied.
+	attachedObjs, err := tagMgr.GetAttachedObjectsOnTags(ctx, tagIds)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to retrieve objects with tags %v. Error: %+v", tagIds, err)
+	}
+	prefDatastoresMap := make(map[string][]string)
+	for _, attachedObj := range attachedObjs {
+		for _, obj := range attachedObj.ObjectIDs {
+			// Preferred datastore tag should only be applied to datastores.
+			if obj.Reference().Type != "Datastore" {
+				log.Warnf("Preferred datastore tag applied on a non-datastore entity: %+v",
+					obj.Reference())
+				continue
+			}
+			// Fetch Datastore URL.
+			var dsMo mo.Datastore
+			dsObj := object.NewDatastore(vc.Client.Client, obj.Reference())
+			err = dsObj.Properties(ctx, obj.Reference(), []string{"summary"}, &dsMo)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to retrieve summary from datastore: %+v. Error: %v",
+					obj.Reference(), err)
+			}
+
+			log.Infof("Datastore %q with URL %q is preferred in %q", dsMo.Summary.Name, dsMo.Summary.Url,
+				attachedObj.Tag.Name)
+			// For each topology domain, store the datastore URLs preferred in that domain.
+			prefDatastoresMap[attachedObj.Tag.Name] = append(prefDatastoresMap[attachedObj.Tag.Name], dsMo.Summary.Url)
+		}
+	}
+	// Finally, write to cache.
+	if len(prefDatastoresMap) != 0 {
+		preferredDatastoresMapInstanceLock.Lock()
+		defer preferredDatastoresMapInstanceLock.Unlock()
+		preferredDatastoresMap = prefDatastoresMap
+	}
+	return nil
 }
 
 // GetCSINodeTopologyInstancesList lists out all the CSINodeTopology
