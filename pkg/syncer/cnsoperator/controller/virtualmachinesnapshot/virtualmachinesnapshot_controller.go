@@ -297,7 +297,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
 			r.vmOperatorClient)
-		if err != nil {
+		if err != nil && !deleteVMSnapshot {
 			log.Errorf("reconcileNormal: could not get VirtualMachine %s/%s. error: %v",
 				vmKey.Namespace, vmKey.Name, err)
 			return err
@@ -305,7 +305,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		log.Infof("reconcileNormal: sync and update storage quota for vmsnapshot %s/%s",
 			vmsnapshot.Namespace, vmsnapshot.Name)
 		err = r.syncVolumesAndUpdateCNSVolumeInfo(ctx, log, virtualMachine)
-		if err != nil {
+		if err != nil && !deleteVMSnapshot {
 			log.Errorf("reconcileNormal: failed to validate VirtualMachineSnapshot %s/%s. error: %v",
 				vmsnapshot.Namespace, vmsnapshot.Name, err)
 			return err
@@ -414,9 +414,12 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
 	for _, vmVolume := range vm.Spec.Volumes {
+		if vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim == nil {
+			continue
+		}
 		pvcKey := apitypes.NamespacedName{
 			Namespace: vm.Namespace,
-			Name:      vmVolume.Name,
+			Name:      vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim.ClaimName,
 		}
 		pvc := &corev1.PersistentVolumeClaim{}
 		err = r.client.Get(ctx, pvcKey, pvc, &client.GetOptions{})
