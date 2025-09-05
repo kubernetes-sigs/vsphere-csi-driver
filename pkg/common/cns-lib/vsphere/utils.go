@@ -194,12 +194,6 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
 		FileVolumeActivated:         cfg.VirtualCenter[host].FileVolumeActivated,
-		VCSessionManagerURL:         cfg.VirtualCenter[host].VCSessionManagerURL,
-		VCSessionManagerToken:       cfg.VirtualCenter[host].VCSessionManagerToken,
-	}
-
-	if vcConfig.VCSessionManagerURL != "" {
-		log.Infof("Using Shared Session Manager: %s", vcConfig.VCSessionManagerURL)
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
@@ -246,8 +240,6 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
 			FileVolumeActivated:         cfg.VirtualCenter[vCenterIP].FileVolumeActivated,
-			VCSessionManagerURL:         cfg.VirtualCenter[vCenterIP].VCSessionManagerURL,
-			VCSessionManagerToken:       cfg.VirtualCenter[vCenterIP].VCSessionManagerToken,
 		}
 		if vcConfig.CAFile == "" {
 			vcConfig.CAFile = cfg.Global.CAFile

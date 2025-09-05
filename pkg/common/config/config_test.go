@@ -201,25 +201,6 @@ func TestValidateConfigWithValidUsername1(t *testing.T) {
 	}
 }
 
-func TestValidateConfigWithSessionManager(t *testing.T) {
-	vcConfigValidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
-			VCenterPort:         "443",
-			Datacenters:         "dc1",
-			InsecureFlag:        true,
-			VCSessionManagerURL: "http://xxx.yyy.com/tld",
-		},
-	}
-	cfg := &Config{
-		VirtualCenter: vcConfigValidUsername,
-	}
-
-	err := validateConfig(ctx, cfg)
-	if err != nil {
-		t.Errorf("Unexpected error, as valid session manager was used. Config given - %+v", *cfg)
-	}
-}
-
 func TestValidateConfigWithValidUsername2(t *testing.T) {
 	vcConfigValidUsername := map[string]*VirtualCenterConfig{
 		"1.1.1.1": {
