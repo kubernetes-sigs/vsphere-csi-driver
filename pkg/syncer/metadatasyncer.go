@@ -52,6 +52,7 @@ import (
 	"github.com/go-logr/zapr"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
@@ -77,6 +78,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
@@ -285,6 +287,16 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			log.Errorf("Failed to add finalizer on CnsFileVolumeClient CRs. Error: %v", err)
 			return err
+		}
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+			cnsoperatorutil.MapLock = &sync.Mutex{}
+			// Initialize the VolumesAtatchedBeforeUpgrade map.
+			err = initializeVolumesAttachedBeforeUpgradeMap(ctx)
+			if err != nil {
+				log.Errorf("Failed to initialize volumesAttachedBeforeUpgradeMap. Error: %v", err)
+				return err
+			}
 		}
 
 		// Currently we are checking if capability workload-domain-isolation is enabled or not.
@@ -886,6 +898,47 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	<-stopCh
+	return nil
+}
+
+// initializeVolumesAttachedBeforeUpgradeMap goes through all the cnsNodeVmAttachment CRs
+// and adds the volumes present in them to VolumesAtatchedBeforeUpgrade map.
+// This map is required for easy reference in brownfield environments.
+func initializeVolumesAttachedBeforeUpgradeMap(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+
+	cnsoperatorutil.MapLock.Lock()
+	defer cnsoperatorutil.MapLock.Unlock()
+
+	cfg, err := config.GetConfig()
+	if err != nil {
+		msg := fmt.Sprintf("Failed to get config. Err: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("failed to create CnsOperator client. Err: %+v", err)
+		return err
+	}
+
+	cnsNodeVmAttachmentList := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{}
+	err = cnsOperatorClient.List(ctx, cnsNodeVmAttachmentList, &client.ListOptions{})
+	if err != nil {
+		log.Errorf("failed to list CnsNodeVmAttachments. Err: %s", err)
+		return err
+	}
+
+	if len(cnsNodeVmAttachmentList.Items) == 0 {
+		return nil
+	}
+
+	for _, cnsNodeVmAtatchment := range cnsNodeVmAttachmentList.Items {
+		fcdID := cnsNodeVmAtatchment.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID]
+		cnsoperatorutil.VolumesAtatchedBeforeUpgrade[fcdID] = true
+	}
+
 	return nil
 }
 

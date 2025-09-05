@@ -25,7 +25,6 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -69,7 +68,6 @@ func getNamespacedPvcName(namespace string, pvcName string) string {
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
-	client client.Client,
 	attachedFCDs map[string]bool,
 	volumeIdsInSpec map[string]string) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
@@ -107,14 +105,7 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 			// If volumeMode is RWO, ensure that the volume is not attached via the old CnsNodeVmAttachment CR.
 			// This can happen in case of upgrades, where the RWO volume before upgrade was attached with the old
 			// CnsVolumeAttachment CR.
-			isAttachedViaCnsNodeVmAttachment, err := isVolumeAttachedWithCnsNodeVmAttachment(ctx, client,
-				attachedFcdId, instance.Namespace)
-			if err != nil {
-				log.Errorf("failed to find if volume %s is attached to VM via CnsNodeVmAttachment CR. Err: %s",
-					attachedFcdId, err)
-				return pvcsToDetach, err
-			}
-			if !isAttachedViaCnsNodeVmAttachment {
+			if !isVolumeAttachedWithCnsNodeVmAttachment(ctx, attachedFcdId) {
 				pvcsToDetach[pvcName] = attachedFcdId
 			}
 		}
@@ -125,28 +116,19 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 
 // isVolumeAttachedWithCnsNodeVmAttachment returns true if the given FCD ID is
 // being referenced in a CnsNodeVmAttachment CR.
-func isVolumeAttachedWithCnsNodeVmAttachment(ctx context.Context, cnsOperatorClient client.Client,
-	fcdId string, namespace string) (bool, error) {
+func isVolumeAttachedWithCnsNodeVmAttachment(ctx context.Context, fcdId string) bool {
 	log := logger.GetLogger(ctx)
 
-	cnsNodeVmAttachmentList := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachmentList{}
-	err := cnsOperatorClient.List(ctx, cnsNodeVmAttachmentList, &client.ListOptions{Namespace: namespace})
-	if err != nil {
-		log.Errorf("failed to list CnsNodeVmAttachments in namespace %s. Err: %s", namespace, err)
-		return true, err
-	}
+	cnsoperatorutil.MapLock.Lock()
+	defer cnsoperatorutil.MapLock.Unlock()
 
-	for _, cnsNodeVmAtatchment := range cnsNodeVmAttachmentList.Items {
-		if cnsNodeVmAtatchment.Status.AttachmentMetadata[cnsnodevmattachmentv1alpha1.AttributeCnsVolumeID] ==
-			fcdId {
-			log.Infof("Volume %s is being used in CnsNodeVmAttachment %s", fcdId,
-				cnsNodeVmAtatchment.Name)
-			return true, nil
-		}
+	if _, ok := cnsoperatorutil.VolumesAtatchedBeforeUpgrade[fcdId]; ok {
+		log.Infof("Volume %s is being used in a CnsNodeVmAttachment %s", fcdId)
+		return true
 	}
 
 	log.Infof("Verified that volume %s is not being used in any CnsNodeVmAttachment CRs", fcdId)
-	return false, nil
+	return false
 }
 
 // removeStaleEntriesFromInstanceStatus removes the entries in instance status for which there is
@@ -216,7 +198,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 
 	// Find out the volumes to detach by taking a diff between
 	// the instance spec and the FCDs currently attached to the VM on vCenter.
-	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, client, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err = getVolumesToDetachFromInstance(ctx, instance, attachedFCDs, volumeIdsInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err

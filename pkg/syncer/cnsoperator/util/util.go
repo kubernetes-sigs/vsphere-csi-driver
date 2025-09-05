@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
@@ -59,6 +60,16 @@ var namespaceNetworkInfoGVR = schema.GroupVersionResource{
 	Version:  "v1alpha1",
 	Resource: "namespacenetworkinfos",
 }
+
+var (
+	// VolumesAtatchedBeforeUpgrade contains the volumeIDs which have been attached to a VM
+	// via the CnsNodeVmAttachment CR.
+	// From 9.1 onwards, new attachements will happen only via CnsNodeVmBatchAttachment CR.
+	VolumesAtatchedBeforeUpgrade map[string]bool
+	// This is the lock to which is acquired before doing any read/write operation
+	// on VolumesAtatchedBeforeUpgrade map.
+	MapLock *sync.Mutex
+)
 
 const (
 	snatIPAnnotation = "ncp/snat_ip"

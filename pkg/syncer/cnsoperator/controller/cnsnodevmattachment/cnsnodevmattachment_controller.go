@@ -54,9 +54,12 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
@@ -71,6 +74,7 @@ const (
 var (
 	backOffDuration         map[k8stypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+	isSharedDiskEabled      bool
 )
 
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager,
@@ -113,6 +117,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Error(msg)
 		return err
 	}
+
+	isSharedDiskEabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
@@ -674,11 +680,41 @@ func addFinalizerToPVC(ctx context.Context, client client.Client,
 	return faulttype, err
 }
 
+// removePvcFromAttachedVolumesBeforeUpgradeList removes the given volumeID from VolumesAtatchedBeforeUpgrade map.
+// This is to indicate that the volume is no longer attached via CnsNodeVmAttachment CR.
+func removePvcFromAttachedVolumesBeforeUpgradeList(ctx context.Context, pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+
+	namespacedPvcName := pvc.Namespace + "/" + pvc.Name
+	volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(namespacedPvcName)
+	if !ok {
+		msg := fmt.Sprintf("failed to find volumeID for PVC %s", pvc.Name)
+		log.Errorf(msg)
+		err := errors.New(msg)
+		return err
+	}
+
+	cnsoperatorutil.MapLock.Lock()
+	defer cnsoperatorutil.MapLock.Unlock()
+	delete(cnsoperatorutil.VolumesAtatchedBeforeUpgrade, volumeId)
+
+	return nil
+}
+
 // removeFinalizerFromPVC will remove the CNS Finalizer, cns.vmware.com/pvc-protection,
 // from a given PersistentVolumeClaim.
 func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim) (string, error) {
 	log := logger.GetLogger(ctx)
+
+	if isSharedDiskEabled {
+		// Remove the volume from volumesAttachedBeforeUpgrade map.
+		err := removePvcFromAttachedVolumesBeforeUpgradeList(ctx, pvc)
+		if err != nil {
+			return "", err
+		}
+	}
+
 	finalizerFound := false
 	for i, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoperatortypes.CNSPvcFinalizer {
@@ -703,6 +739,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
 			pvc.Name, pvc.Namespace, err)
 	}
+
 	return faulttype, err
 
 }
