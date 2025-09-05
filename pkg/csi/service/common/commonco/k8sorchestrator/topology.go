@@ -1721,7 +1721,7 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 		// Only consider zones in targetNS.
 		zoneObjUnstructured := zoneObj.(*unstructured.Unstructured)
 		// Only get active clusters from zones without a deletion timestamp.
-		if zoneObjUnstructured.GetDeletionTimestamp() == nil {
+		if zoneObjUnstructured.GetDeletionTimestamp() != nil {
 			log.Debugf("skipping zone:%q as it is being deleted", zoneObjUnstructured.GetName())
 			continue
 		}

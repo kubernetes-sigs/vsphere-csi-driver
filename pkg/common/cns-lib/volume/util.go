@@ -341,6 +341,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 			if len(placementResult.PlacementFaults) == 0 {
 				if len(placementResult.Clusters) != 0 {
 					placementClusters = placementResult.Clusters
+					log.Debugf("placementClusters:%v for volume:%q", placementClusters, volumeID)
 				} else {
 					datastoreMoRef = &placementResult.Datastore
 					var dsMo mo.Datastore
@@ -352,6 +353,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 						return nil, faultType, logger.LogNewErrorf(log, "failed to retrieve datastore summary property: %v", err)
 					}
 					datastoreURL = dsMo.Summary.Url
+					log.Debugf("datastoreURL: %q for volume:%q", datastoreURL, volumeID)
 				}
 				break
 			}
@@ -359,8 +361,6 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	}
 	log.Infof("Volume created successfully. VolumeName: %q, volumeID: %q",
 		volumeName, volumeID.Id)
-	log.Debugf("CreateVolume volumeId %q is placed on datastore %q",
-		volumeID, datastoreURL)
 	return &CnsVolumeInfo{
 		DatastoreURL: datastoreURL,
 		VolumeID:     volumeID,
