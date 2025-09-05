@@ -521,7 +521,7 @@ func TestListVirtualMachines(t *testing.T) {
 		})
 	})
 
-	t.Run("WhenLatestCRDVersionIsV1Alpha4", func(tt *testing.T) {
+	t.Run("WhenLatestCRDVersionIsV1Alpha4OrAbove", func(tt *testing.T) {
 		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
 			return "v1alpha4", nil
 		}
@@ -603,20 +603,6 @@ func TestListVirtualMachines(t *testing.T) {
 			assert.NotNil(tt, actual)
 			assert.True(tt, compareVirtualMachineLists(exp, *actual))
 		})
-	})
-
-	t.Run("WhenLatestCRDVersionIsInvalid", func(tt *testing.T) {
-		// Setup
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "invalid", nil
-		}
-
-		// Execute
-		_, err := ListVirtualMachines(context.Background(), fake.NewFakeClient(), "")
-
-		// Assert
-		assert.NotNil(tt, err)
-		assert.Contains(tt, err.Error(), "Unsupported version")
 	})
 }
 
