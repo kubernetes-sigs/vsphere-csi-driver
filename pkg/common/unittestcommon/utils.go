@@ -38,6 +38,7 @@ import (
 
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
+	_ "github.com/vmware/govmomi/vapi/simulator"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -545,6 +546,7 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 		log.Fatal(err)
 	}
 
+	model.Service.RegisterEndpoints = true
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
 

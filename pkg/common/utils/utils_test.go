@@ -18,6 +18,7 @@ import (
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
+	_ "github.com/vmware/govmomi/vapi/simulator"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -67,6 +68,7 @@ func configFromCustomizedSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool)
 		log.Fatal(err)
 	}
 
+	model.Service.RegisterEndpoints = true
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
 
