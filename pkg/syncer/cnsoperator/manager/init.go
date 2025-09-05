@@ -257,7 +257,8 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				internalapiscnsoperatorconfig.EmbedCnsVolumeAttachmentFile,
 				internalapiscnsoperatorconfig.EmbedCnsVolumeAttachmentFileName)
 			if err != nil {
-				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
+				log.Errorf("Failed to create %q CRD. Err: %+v",
+					internalapis.CnsVolumeAttachmentPlural, err)
 				return err
 			}
 		}

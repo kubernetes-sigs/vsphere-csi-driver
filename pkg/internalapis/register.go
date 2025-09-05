@@ -48,6 +48,9 @@ var (
 
 	// TriggerCsiFullSyncPlural is plural of TriggerCsiFullSyncPlural
 	TriggerCsiFullSyncPlural = "triggercsifullsyncs"
+
+	// CnsVolumeAttachmentPlural is plural of CnsVolumeAttachment
+	CnsVolumeAttachmentPlural = "cnsvolumeattachmentplural"
 )
 
 var (

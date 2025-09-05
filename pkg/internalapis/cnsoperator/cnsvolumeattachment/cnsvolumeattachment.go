@@ -18,7 +18,6 @@ package cnsvolumeattachment
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -38,6 +37,11 @@ import (
 var (
 	cnsVolumeAttachmentInstanceLock sync.Mutex
 	cnsVolumeAttachmentInstance     *cnsVolumeAttachment
+	// Per volume lock for concurrent access to CnsVolumeAttachment instances.
+	// Keys are strings representing PVC names.
+	// Values are individual sync.Mutex locks that need to be held
+	// to make updates to the CnsVolumeAttachment instance on the API server.
+	VolumeLock *sync.Map
 )
 
 // CnsVolumeAttachment exposes an interface to support adding
@@ -57,11 +61,6 @@ type CnsVolumeAttachment interface {
 // concurrent operations.
 type cnsVolumeAttachment struct {
 	client client.Client
-	// Per volume lock for concurrent access to CnsVolumeAttachment instances.
-	// Keys are strings representing PVC names.
-	// Values are individual sync.Mutex locks that need to be held
-	// to make updates to the CnsVolumeAttachment instance on the API server.
-	volumeLock *sync.Map
 }
 
 // GetCnsVolumeAttachmentInstance returns a singleton of type CnsVolumeAttachment.
@@ -88,9 +87,9 @@ func GetCnsVolumeAttachmentInstance(ctx context.Context) (CnsVolumeAttachment, e
 			return nil, err
 		}
 		cnsVolumeAttachmentInstance = &cnsVolumeAttachment{
-			client:     k8sclient,
-			volumeLock: &sync.Map{},
+			client: k8sclient,
 		}
+		VolumeLock = &sync.Map{}
 	}
 
 	return cnsVolumeAttachmentInstance, nil
@@ -109,17 +108,6 @@ func (f *cnsVolumeAttachment) AddVmToAttachedList(ctx context.Context,
 
 	log.Infof("Adding VM %s to cnsVolumeAttachment %s",
 		VmInstanceUUID, volumeName)
-	actual, _ := f.volumeLock.LoadOrStore(volumeName, &sync.Mutex{})
-	instanceLock, ok := actual.(*sync.Mutex)
-	if !ok {
-		return fmt.Errorf("failed to cast lock for cnsVolumeAttachment instance: %s", volumeName)
-	}
-	instanceLock.Lock()
-	log.Infof("Acquired lock for cnsVolumeAttachment instance %s", volumeName)
-	defer func() {
-		instanceLock.Unlock()
-		log.Infof("Released lock for instance %s", volumeName)
-	}()
 
 	instance := &v1alpha1.CnsVolumeAttachment{}
 	instanceNamespace, instanceName, err := cache.SplitMetaNamespaceKey(volumeName)
@@ -193,18 +181,6 @@ func (f *cnsVolumeAttachment) RemoveVmFromAttachedList(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	log.Infof("Removing VmInstanceUUID %s from cnsVolumeAttachment %s",
 		VmInstanceUUID, volumeName)
-	actual, _ := f.volumeLock.LoadOrStore(volumeName, &sync.Mutex{})
-	instanceLock, ok := actual.(*sync.Mutex)
-	if !ok {
-		return fmt.Errorf("failed to cast lock for cnsVolumeAttachment instance: %s", volumeName),
-			false
-	}
-	instanceLock.Lock()
-	log.Infof("Acquired lock for cnsVolumeAttachment instance %s", volumeName)
-	defer func() {
-		instanceLock.Unlock()
-		log.Infof("Released lock for instance %s", volumeName)
-	}()
 
 	instance := &v1alpha1.CnsVolumeAttachment{}
 	instanceNamespace, instanceName, err := cache.SplitMetaNamespaceKey(volumeName)
@@ -253,14 +229,12 @@ func (f *cnsVolumeAttachment) RemoveVmFromAttachedList(ctx context.Context,
 				// if instance is already deleted.
 				if errors.IsNotFound(err) {
 					log.Infof("cnsVolumeAttachment instance %s seems to be already deleted.", volumeName)
-					f.volumeLock.Delete(volumeName)
 					return nil, true
 				}
 				log.Errorf("failed to delete cnsVolumeAttachment instance %s with error: %+v", volumeName, err)
 				return err, false
 			}
 			log.Infof("Successfully deleted cnsVolumeAttachment instance %s", volumeName)
-			f.volumeLock.Delete(volumeName)
 			return nil, true
 		}
 		log.Debugf("Updating cnsVolumeAttachment instance %s with spec: %+v", volumeName, instance)
