@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
@@ -521,8 +522,22 @@ func addPvcFinalizer(ctx context.Context, client client.Client,
 		return err
 	}
 
+	// Acquire lock on PVC
+	namespacedVolumeName := namespace + "/" + pvcName
+	actual, _ := cnsvolumeattachment.VolumeLock.LoadOrStore(namespacedVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return fmt.Errorf("failed to cast lock for cnsVolumeAttachment instance: %s", namespacedVolumeName)
+	}
+	instanceLock.Lock()
+	log.Infof("Acquired lock for cnsVolumeAttachment instance %s", namespacedVolumeName)
+	defer func() {
+		instanceLock.Unlock()
+		log.Infof("Released lock for instance %s", namespacedVolumeName)
+	}()
+
 	// Add VM to the list of attached VMs for the given PVC.
-	err = cnsVolumeAttachmentInstance.AddVmToAttachedList(ctx, namespace+"/"+pvcName, vmInstanceUUID)
+	err = cnsVolumeAttachmentInstance.AddVmToAttachedList(ctx, namespacedVolumeName, vmInstanceUUID)
 	if err != nil {
 		log.Errorf("failed to add VM %s to list of attached VMs for PVC %s in namespace %s", vmInstanceUUID,
 			pvcName, namespace)
@@ -553,12 +568,25 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 		return err
 	}
 
-	volumeName := namespace + "/" + pvcName
+	namespacedVolumeName := namespace + "/" + pvcName
+
+	// Acquire lock on PVC
+	actual, _ := cnsvolumeattachment.VolumeLock.LoadOrStore(namespacedVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return fmt.Errorf("failed to cast lock for cnsVolumeAttachment instance: %s", namespacedVolumeName)
+	}
+	instanceLock.Lock()
+	log.Infof("Acquired lock for cnsVolumeAttachment instance %s", namespacedVolumeName)
+	defer func() {
+		instanceLock.Unlock()
+		log.Infof("Released lock for instance %s", namespacedVolumeName)
+	}()
 
 	// Remove the VM from list of attached VMs for this PVC.
 	// If it was the last attached VM, isLastAttachedVm will be true.
 	err, isLastAttachedVm := cnsVolumeAttachmentInstance.RemoveVmFromAttachedList(ctx,
-		volumeName, vmInstanceUUID)
+		namespacedVolumeName, vmInstanceUUID)
 	if err != nil {
 		log.Errorf("failed to remove VM %s from attached list for PVC %s", vmInstanceUUID, pvcName)
 		return err
@@ -587,5 +615,13 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 		}
 	}
 
-	return k8s.PatchFinalizers(ctx, client, pvc, finalizersOnPvc)
+	err = k8s.PatchFinalizers(ctx, client, pvc, finalizersOnPvc)
+	if err != nil {
+		log.Errorf("failed to patch PVC %s with finalizers", pvc.Name)
+		return err
+	}
+
+	// Remove this entry from the finalizer and the PVC has been detached.
+	cnsvolumeattachment.VolumeLock.Delete(namespacedVolumeName)
+	return nil
 }

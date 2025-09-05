@@ -2,7 +2,6 @@ package cnsvolumeattachment
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,8 +65,7 @@ func TestAddVmToAttachedList(t *testing.T) {
 
 	t.Run("TestAddVmToAttachedList", func(t *testing.T) {
 		cnsAttachmentInstance := &cnsVolumeAttachment{
-			client:     fakeClient,
-			volumeLock: &sync.Map{},
+			client: fakeClient,
 		}
 
 		volumeName := testNamespace + "/" + testCnsvolumeAttachmentName
@@ -98,8 +96,7 @@ func TestRemoveVmFromAttachedList(t *testing.T) {
 
 	t.Run("TestRemoveVmFromAttachedList", func(t *testing.T) {
 		cnsAttachmentInstance := &cnsVolumeAttachment{
-			client:     fakeClient,
-			volumeLock: &sync.Map{},
+			client: fakeClient,
 		}
 
 		// Remove VM-2
