@@ -359,7 +359,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				common.WorkloadDomainIsolation,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
+		linkedClonePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.LinkedCloneSupportFSS)
+		linkedCloneCapability := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS)
+		IsLinkedCloneSupportFSSEnabled = linkedClonePVCSIFSS && linkedCloneCapability
+		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
+		// capability is disabled.
+		if linkedClonePVCSIFSS && !linkedCloneCapability {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.LinkedCloneSupport,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)

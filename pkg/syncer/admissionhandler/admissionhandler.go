@@ -24,13 +24,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+
+	admissionv1 "k8s.io/api/admission/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-logr/zapr"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	admissionv1 "k8s.io/api/admission/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -160,15 +162,66 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorGuest {
-		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+		linkedCloneCapability := false
+		linkedClonePVCSIFSS := containerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.LinkedCloneSupportFSS)
+		if linkedClonePVCSIFSS {
+			// Check the linked clone capability only if the internal fss is enabled.
+			linkedCloneCapability = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS)
+		}
+		featureIsLinkedCloneSupportEnabled = linkedClonePVCSIFSS && linkedCloneCapability
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		if !featureIsLinkedCloneSupportEnabled {
+		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
+		// capability is disabled.
+		if linkedClonePVCSIFSS && !linkedCloneCapability {
 			gcConfig, configErr := cnsconfig.GetConfig(ctx)
 			if configErr != nil {
 				return fmt.Errorf("failed to read config. Error: %+v", err)
 			}
 			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 				common.LinkedCloneSupport, gcConfig.GC.Port, gcConfig.GC.Endpoint)
+		}
+		if featureIsLinkedCloneSupportEnabled {
+			pvcsiConfigPath := cnsconfig.GetConfigPath(ctx)
+			watcher, err := fsnotify.NewWatcher()
+			if err != nil {
+				log.Errorf("failed to create fsnotify watcher. err=%v", err)
+				return err
+			}
+			go func() {
+				for {
+					log.Debugf("Waiting for event on fsnotify watcher")
+					select {
+					case event, ok := <-watcher.Events:
+						if !ok {
+							return
+						}
+						log.Debugf("fsnotify event: %q", event.String())
+						if event.Op&fsnotify.Remove == fsnotify.Remove {
+							// restart the webhook
+							os.Exit(1)
+						}
+					case err, ok := <-watcher.Errors:
+						if !ok {
+							return
+						}
+						log.Errorf("fsnotify error: %+v", err)
+					}
+					log.Debugf("fsnotify event processed")
+				}
+			}()
+			cfgDirPath := filepath.Dir(pvcsiConfigPath)
+			log.Infof("Adding watch on path: %q", cfgDirPath)
+			err = watcher.Add(cfgDirPath)
+			if err != nil {
+				log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
+				return err
+			}
+			log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
+			err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+			if err != nil {
+				log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+				return err
+			}
 		}
 		startPVCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
