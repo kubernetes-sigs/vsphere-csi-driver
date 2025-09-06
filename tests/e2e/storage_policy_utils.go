@@ -86,8 +86,18 @@ func createVmfsStoragePolicy(ctx context.Context, pbmClient *pbm.Client, allocat
 
 // deleteStoragePolicy deletes the given storage policy
 func deleteStoragePolicy(ctx context.Context, pbmClient *pbm.Client, profileID *pbmtypes.PbmProfileId) {
+	bootstrap()
 	_, err := pbmClient.DeleteProfile(ctx, []pbmtypes.PbmProfileId{*profileID})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("err: %v", err.Error())
+	if strings.Contains(err.Error(), "not authenticated") {
+		govmomiClient := newClient(ctx, &e2eVSphere)
+		pbmClient = newPbmClient(ctx, govmomiClient)
+		framework.Logf("Retrying to delete storage policy with new pbm client")
+		_, err := pbmClient.DeleteProfile(ctx, []pbmtypes.PbmProfileId{*profileID})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	} else {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }
 
 // createCategoryNTag create one category and one tag associated with it
