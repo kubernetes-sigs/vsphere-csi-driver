@@ -211,7 +211,7 @@ func (vm *VirtualMachine) GetTagManager(ctx context.Context) (*tags.Manager, err
 		log.Errorf("failed to get virtualCenter. Error: %v", err)
 		return nil, err
 	}
-	return virtualCenter.GetTagManager(ctx)
+	return GetTagManager(ctx, virtualCenter)
 }
 
 // GetAncestors returns ancestors of VM.

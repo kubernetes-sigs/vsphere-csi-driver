@@ -6,11 +6,8 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/vmware/govmomi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -316,27 +313,12 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Mock getVCenterInternal to return a mock VirtualCenter
 			originalGetVCenter := getVCenterInternal
-
-			// Create a new vcsim instance for use against govmomi client
-			model := simulator.VPX()
-			defer model.Remove()
-			err := model.Create()
-			require.NoError(t, err, "failed to create virtual VC for govmomi client")
-
-			// Create a vcsim server
-			s := model.Service.NewServer()
-
-			// Create a new client
-			client, err := govmomi.NewClient(context.Background(), s.URL, true)
-			require.NoError(t, err, "ailed to create new govmomi client")
-
 			getVCenterInternal = func(_ context.Context, _ *Manager) (*vsphere.VirtualCenter, error) {
 				return &vsphere.VirtualCenter{
 					Config: &vsphere.VirtualCenterConfig{
 						Host:            "test-vc",
 						DatacenterPaths: []string{},
 					},
-					Client: client,
 				}, nil
 			}
 			defer func() { getVCenterInternal = originalGetVCenter }()
@@ -399,7 +381,7 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 			// Call the actual CreateBlockVolumeUtil function
 			// Note that the cluster flavor does not have a significance for this test
 			// because it depends on the VolFromSnapshotOnTargetDs flag.
-			_, _, err = CreateBlockVolumeUtil(context.Background(), cnstypes.CnsClusterFlavorWorkload,
+			_, _, err := CreateBlockVolumeUtil(context.Background(), cnstypes.CnsClusterFlavorWorkload,
 				manager, spec, sharedDatastores, []string{}, opts, nil)
 
 			// Verify no error occurred
