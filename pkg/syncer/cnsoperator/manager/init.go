@@ -249,6 +249,18 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				}
 			}
 		}
+
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+			// Create CnsVolumeAttachment CRD from manifest if shared disk feature
+			// is enabled.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				internalapiscnsoperatorconfig.EmbedCnsVolumeAttachmentFile,
+				internalapiscnsoperatorconfig.EmbedCnsVolumeAttachmentFileName)
+			if err != nil {
+				log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
+				return err
+			}
+		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
 		// Create CSINodeTopology CRD.
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, csinodetopologyconfig.EmbedCSINodeTopologyFile,

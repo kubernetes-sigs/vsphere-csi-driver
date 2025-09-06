@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/cnsvolumeattachment"
 )
 
 var (
@@ -203,6 +205,9 @@ func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.
 
 		GetVMFromVcenter = MockGetVMFromVcenter
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+		GetCnsVolumeAttachmentInstanceFunc = MockGetCnsVolumeAttachmentInstance
+		removePvcFinalizerFunc = mockRemovePvcFinalizer
+		addPvcFinalizerFunc = mockAddPvcFinalizer
 
 		res, err := r.Reconcile(context.TODO(), req)
 		if err != nil {
@@ -274,6 +279,9 @@ func TestReconcileWithDeletionTimestamp(t *testing.T) {
 		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
+		GetCnsVolumeAttachmentInstanceFunc = MockGetCnsVolumeAttachmentInstance
+		removePvcFinalizerFunc = mockRemovePvcFinalizer
+		addPvcFinalizerFunc = mockAddPvcFinalizer
 
 		volumesToDetach := map[string]string{
 			"pvc-1": "123-456",
@@ -292,6 +300,9 @@ func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
+		GetCnsVolumeAttachmentInstanceFunc = MockGetCnsVolumeAttachmentInstance
+		removePvcFinalizerFunc = mockRemovePvcFinalizer
+		addPvcFinalizerFunc = mockAddPvcFinalizer
 
 		volumesToDetach := map[string]string{
 			"pvc-1": "fail-detach",
@@ -322,6 +333,9 @@ func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+		GetCnsVolumeAttachmentInstanceFunc = MockGetCnsVolumeAttachmentInstance
+		removePvcFinalizerFunc = mockRemovePvcFinalizer
+		addPvcFinalizerFunc = mockAddPvcFinalizer
 
 		volumesToDetach := map[string]string{
 			"pvc-1": "123-456",
@@ -342,6 +356,9 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+		GetCnsVolumeAttachmentInstanceFunc = MockGetCnsVolumeAttachmentInstance
+		removePvcFinalizerFunc = mockRemovePvcFinalizer
+		addPvcFinalizerFunc = mockAddPvcFinalizer
 
 		volumesToDetach := map[string]string{
 			"pvc-1": "123-456",
@@ -433,4 +450,20 @@ func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 		return vm, cnsvsphere.ErrVMNotFound
 	}
 	return &cnsvsphere.VirtualMachine{}, nil
+}
+
+func MockGetCnsVolumeAttachmentInstance(ctx context.Context) (cnsvolumeattachment.CnsVolumeAttachment, error) {
+	return &cnsvolumeattachment.MockCnsVolumeAttachment{}, nil
+}
+
+func mockRemovePvcFinalizer(ctx context.Context, client client.Client,
+	pvcName string, namespace string, vmInstanceUUID string,
+	cnsVolumeAttachmentInstance cnsvolumeattachment.CnsVolumeAttachment) error {
+	return nil
+}
+
+func mockAddPvcFinalizer(ctx context.Context, client client.Client,
+	pvcName string, namespace string, vmUUID string,
+	cnsVolumeAttachmentInstance cnsvolumeattachment.CnsVolumeAttachment) error {
+	return nil
 }
