@@ -40,15 +40,26 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		storagePolicyName string
 		svcClient         clientset.Interface
 		svcNamespace      string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		storagePolicyName =
 			GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -92,9 +103,9 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 			setResourceQuota(svcClient, svcNamespace, rqLimit)
 		}()
 
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
 		if err == nil && storageclass != nil {
-			gomega.Expect(client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))).
+			gomega.Expect(adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))).
 				NotTo(gomega.HaveOccurred())
 		}
 
@@ -119,12 +130,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		}()
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[0].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[0]},
+		_, err = WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[0]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		framework.Logf("Waiting for claims %s to be in bound state", pvclaims[1].Name)
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[1]},
+		_, err = WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvclaims[1]},
 			healthStatusWaitTime)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 	})

@@ -52,11 +52,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		datastoreURL      string
 		pvclaims          []*v1.PersistentVolumeClaim
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		bootstrap()
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
+		adminClient, client = initializeClusterClientsByUserRoles(client)
 		scParameters = make(map[string]string)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -75,7 +77,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
-			deleteResourceQuota(client, namespace)
+			deleteResourceQuota(adminClient, namespace)
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
 		if guestCluster {
@@ -106,7 +108,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			createResourceQuota(adminClient, namespace, rqLimit, storagePolicyName)
 			storageclass, pvclaim, err = createPVCAndStorageClass(ctx, client,
 				namespace, nil, scParameters, diskSize, nil, "", true, "", storagePolicyName)
 		} else {
@@ -119,7 +121,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 		defer func() {
 			if !supervisorCluster {
-				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				err := adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -131,7 +133,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 
 		pvclaims = append(pvclaims, pvclaim)
 
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, pvclaims, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
 		if guestCluster {

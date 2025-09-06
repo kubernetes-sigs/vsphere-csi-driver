@@ -50,18 +50,29 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		labelKey          string
 		labelValue        string
 		fullSyncWaitTime  int
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		namespace = getNamespaceToRunTests(f)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var err error
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bootstrap()
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		labelKey = "app"
@@ -114,12 +125,12 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			err := adminClient.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -208,12 +219,12 @@ var _ = ginkgo.Describe("[csi-guest] Guest cluster fullsync tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			err := adminClient.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())

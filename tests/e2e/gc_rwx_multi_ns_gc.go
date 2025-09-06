@@ -47,12 +47,15 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 		storagePolicyName string
 		volHealthCheck    bool
 		labels_ns         map[string]string
+		adminClient       clientset.Interface
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
 		volHealthCheck = false
 		namespace = getNamespaceToRunTests(f)
+		var err error
+
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -60,6 +63,15 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 		bootstrap()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -148,7 +160,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -194,14 +206,14 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 		// Changing the reclaim policy of the pv to retain.
 		ginkgo.By("Changing the volume reclaim policy")
 		persistentvolumes[0].Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, persistentvolumes[0],
+		pv, err = adminClient.CoreV1().PersistentVolumes().Update(ctx, persistentvolumes[0],
 			metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if pv != nil {
 				ginkgo.By("Deleting the PV1")
-				err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+				err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -226,13 +238,13 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 		ginkgo.By("Creating the PV in guest cluster")
 		pv2 := getPersistentVolumeSpecForRWX(pvcNameInSV, v1.PersistentVolumeReclaimDelete,
 			staticPVLabels, diskSize, "", v1.ReadWriteMany)
-		pv2, err = client.CoreV1().PersistentVolumes().Create(ctx, pv2, metav1.CreateOptions{})
+		pv2, err = adminClient.CoreV1().PersistentVolumes().Create(ctx, pv2, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if pv2 != nil {
 				ginkgo.By("Deleting the PV2")
-				err = client.CoreV1().PersistentVolumes().Delete(ctx, pv2.Name, *metav1.NewDeleteOptions(0))
+				err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv2.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
@@ -268,7 +280,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] Volume Provision Across Namespace", ginkg
 			verifyCRDInSupervisorWithWait(ctx, f, pvcNameInSV, crdCNSVolumeMetadatas, crdVersion, crdGroup, false)
 
 			ginkgo.By("Deleting the PV1")
-			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pv = nil
 		}()
