@@ -1159,8 +1159,10 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			log.Errorf("failed to set WCP capabilities map, Err: %+v", err)
 			os.Exit(1)
 		}
+		wcpCapabilitiesMapMutex.RLock()
 		log.Debugf("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 		if capVal, ok := WcpCapabilitiesMap[capability]; ok && capVal {
+			wcpCapabilitiesMapMutex.RUnlock()
 			log.Infof("Capability %s changed state to %t in capabilities CR %s. "+
 				"Restarting the container as capability has changed.", capability, capVal, common.WCPCapabilitiesCRName)
 			if clusterFlavor == cnstypes.CnsClusterFlavorWorkload && capability == common.WorkloadDomainIsolation {
@@ -1177,6 +1179,7 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			}
 			os.Exit(1)
 		}
+		wcpCapabilitiesMapMutex.RUnlock()
 	}
 }
 
@@ -1264,7 +1267,9 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				}
 				log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 			}
+			wcpCapabilitiesMapMutex.RLock()
 			if supervisorFeatureState, exists := WcpCapabilitiesMap[featureName]; exists {
+				wcpCapabilitiesMapMutex.RUnlock()
 				log.Debugf("Supervisor capability %q is set to %t", featureName, supervisorFeatureState)
 
 				if !supervisorFeatureState {
@@ -1290,6 +1295,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 						}
 						log.Debugf("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 
+						wcpCapabilitiesMapMutex.RLock()
 						if supervisorFeatureState, exists = WcpCapabilitiesMap[featureName]; exists {
 							log.Debugf("Supervisor capability %q was disabled, "+
 								"now it is set to %t", featureName, supervisorFeatureState)
@@ -1298,10 +1304,12 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 									featureName)
 							}
 						}
+						wcpCapabilitiesMapMutex.RUnlock()
 					}
 				}
 				return supervisorFeatureState
 			}
+			wcpCapabilitiesMapMutex.RUnlock()
 			return false
 		}
 
@@ -1381,11 +1389,14 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 					log.Infof("WCP cluster capabilities map - %+v", WcpCapabilitiesMap)
 				}
 
+				wcpCapabilitiesMapMutex.RLock()
 				if supervisorFeatureState, exists := WcpCapabilitiesMap[wcpFeatureState]; exists {
+					wcpCapabilitiesMapMutex.RUnlock()
 					log.Debugf("Supervisor capability %q is set to %t", wcpFeatureState,
 						supervisorFeatureState)
 					return supervisorFeatureState
 				}
+				wcpCapabilitiesMapMutex.RUnlock()
 				return false
 			}
 
