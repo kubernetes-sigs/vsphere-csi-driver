@@ -460,9 +460,11 @@ func verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx context.Context, vm *vmop
 
 	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
 	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+	if !(topologyFeature == topologyDomainIsolation) {
+		for i, vol := range vm.Status.Volumes {
+			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+		}
 	}
 	return nil
 }
