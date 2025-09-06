@@ -2328,12 +2328,9 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			newVCConfig.ReloadVCConfigForNewClient = true
-			vcConfig := metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host]
 			if metadataSyncer.host != newVCConfig.Host ||
-				vcConfig.User != newVCConfig.Username ||
-				vcConfig.Password != newVCConfig.Password ||
-				vcConfig.VCSessionManagerURL != newVCConfig.VCSessionManagerURL ||
-				vcConfig.VCSessionManagerToken != newVCConfig.VCSessionManagerToken ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
+				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
 				reconnectToVCFromNewConfig {
 				// Verify if new configuration has valid credentials by connecting
 				// to vCenter. Proceed only if the connection succeeds, else return

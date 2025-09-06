@@ -337,11 +337,7 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 	authMgr := object.NewAuthorizationManager(vc.Client.Client)
 	privIds := []string{DsPriv, SysReadPriv}
 
-	userName, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+	userName := vc.Config.Username
 	// Invoke authMgr function HasUserPrivilegeOnEntities.
 	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds) // entities empty -> error
 	if err != nil {
@@ -444,14 +440,10 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 		clusterComputeResources = append(clusterComputeResources, clusterComputeResource...)
 	}
 
-	userName, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get Clusters with HostConfigStoragePriv.
 	authMgr := object.NewAuthorizationManager(vc.Client.Client)
 	privIds := []string{HostConfigStoragePriv}
+	userName := vc.Config.Username
 	var entities []vim25types.ManagedObjectReference
 	clusterComputeResourcesMap := make(map[string]*object.ClusterComputeResource)
 	for _, cluster := range clusterComputeResources {
