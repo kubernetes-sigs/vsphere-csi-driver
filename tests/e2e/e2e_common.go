@@ -274,7 +274,6 @@ const (
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
-	lateBinding                              = "-latebinding"
 )
 
 /*
@@ -366,7 +365,6 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
-	latebinding          bool
 )
 
 // For busybox pod image
@@ -641,12 +639,6 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	testbedType := os.Getenv("STRETCHED_SVC")
 	if strings.TrimSpace(string(testbedType)) == "1" {
 		stretchedSVC = true
-	}
-
-	//Check if policy given is latebinding
-	bindingModeType := os.Getenv("BINDING_MODE_TYPE")
-	if strings.TrimSpace(string(bindingModeType)) == "WFFC" {
-		latebinding = true
 	}
 }
 
