@@ -160,11 +160,13 @@ const (
 	EnsureAccessibilityMModeType               = "ensureObjectAccessibility"
 	EnvClusterFlavor                           = "CLUSTER_FLAVOR"
 	EnvDiskSizeLarge                           = "LARGE_DISK_SIZE"
+	EnvClusterName                             = "CLUSTER_NAME"
 	EnvCSINamespace                            = "CSI_NAMESPACE"
 	EnvContentLibraryUrl                       = "CONTENT_LIB_URL"
 	EnvContentLibraryUrlSslThumbprint          = "CONTENT_LIB_THUMBPRINT"
 	EnvEsxHostIP                               = "ESX_TEST_HOST_IP"
 	EnvFileServiceDisabledSharedDatastoreURL   = "FILE_SERVICE_DISABLED_SHARED_VSPHERE_DATASTORE_URL"
+	EnvFileShareDomainID                       = "FILE_SHARE_DOMAIN_ID"
 	EnvFullSyncWaitTime                        = "FULL_SYNC_WAIT_TIME"
 	EnvGatewayVmIp                             = "GATEWAY_VM_IP"
 	EnvGatewayVmUser                           = "GATEWAY_VM_USER"
@@ -214,4 +216,12 @@ const (
 	EnvAccessMode                              = "ACCESS_MODE"
 	EnvVpToCsi                                 = "VCPTOCSI"
 	EnvVsphereTKGSystemNamespace               = "VSPHERE_TKG_SYSTEM_NAMESPACE"
+)
+
+// for devops persona testing
+const (
+	EnvAdminKubeconfig  = "ADMIN_KUBECONFIG"
+	EnvDevopsKubeconfig = "DEVOPS_KUBE_CONFIG"
+	EnvIsDevopsUser     = "IS_DEVOPS_USER"
+	EnvDevopsUserName   = "DEVOPS_USERNAME"
 )

@@ -69,6 +69,7 @@ const (
 	DefaultrqLimit                            = "20Gi"
 	RqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
 	ResizerContainerName                      = "csi-resizer"
+	ReadWritePermission                       = "READ_WRITE"
 	ScParamDatastoreURL                       = "DatastoreURL"
 	ScParamFsType                             = "csi.storage.k8s.io/fstype"
 	ScParamStoragePolicyID                    = "storagePolicyID"
@@ -194,3 +195,11 @@ var UsageSuffixes = []string{
 	"-vm-usage",
 	"-latebinding-vm-usage",
 }
+
+// for devops persona testing
+const (
+	RbacApiGroup              = "rbac.authorization.k8s.io"
+	RoleKeyword               = "Role"
+	AudienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
+	ServiceAccountKeyword     = "ServiceAccount"
+)
