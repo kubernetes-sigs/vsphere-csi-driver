@@ -115,6 +115,20 @@ func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCent
 	return authManagerInstances, nil
 }
 
+// GetAuthorizationServices returns the AuthManager instances
+func GetAuthorizationServiceForTesting(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter,
+	blockVolumeMap map[string]*cnsvsphere.DatastoreInfo,
+	fsEnabledClusterToDsMap map[string][]*cnsvsphere.DatastoreInfo) (*AuthManager, error) {
+	authManagerInstance = &AuthManager{
+		datastoreMapForBlockVolumes: blockVolumeMap,
+		fsEnabledClusterToDsMap:     fsEnabledClusterToDsMap,
+		rwMutex:                     sync.RWMutex{},
+		vcenter:                     vc,
+	}
+	return authManagerInstance, nil
+}
+
 // GetDatastoreMapForBlockVolumes returns a DatastoreMapForBlockVolumes. This
 // map maps datastore url to datastore info which need to be used when creating
 // block volume.
@@ -323,11 +337,7 @@ func getDatastoresWithBlockVolumePrivs(ctx context.Context, vc *cnsvsphere.Virtu
 	authMgr := object.NewAuthorizationManager(vc.Client.Client)
 	privIds := []string{DsPriv, SysReadPriv}
 
-	userName, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+	userName := vc.Config.Username
 	// Invoke authMgr function HasUserPrivilegeOnEntities.
 	result, err := authMgr.HasUserPrivilegeOnEntities(ctx, entities, userName, privIds) // entities empty -> error
 	if err != nil {
@@ -430,14 +440,10 @@ func getFSEnabledClustersWithPriv(ctx context.Context, vc *cnsvsphere.VirtualCen
 		clusterComputeResources = append(clusterComputeResources, clusterComputeResource...)
 	}
 
-	userName, err := vc.GetActiveUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get Clusters with HostConfigStoragePriv.
 	authMgr := object.NewAuthorizationManager(vc.Client.Client)
 	privIds := []string{HostConfigStoragePriv}
+	userName := vc.Config.Username
 	var entities []vim25types.ManagedObjectReference
 	clusterComputeResourcesMap := make(map[string]*object.ClusterComputeResource)
 	for _, cluster := range clusterComputeResources {

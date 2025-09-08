@@ -3,6 +3,7 @@ package admissionhandler
 import (
 	"context"
 	"crypto/tls"
+	_ "crypto/tls/fipsonly"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,8 @@ const (
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
 	devopsUserLabelKey               = "cns.vmware.com/user-created"
+	vmNameLabelKey                   = "cns.vmware.com/vm-name"
+	pvcNameLabelKey                  = "cns.vmware.com/pvc-name"
 )
 
 var (
@@ -85,7 +88,9 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 		func(t *tls.Config) {
 			// CipherSuites allows us to specify TLS 1.2 cipher suites that have been recommended by the Security team
 			t.CipherSuites = []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_AES_128_GCM_SHA256,
+				tls.TLS_AES_256_GCM_SHA384}
 			t.MinVersion = tls.VersionTLS12
 		},
 	}
@@ -268,11 +273,14 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	if newCnsFileAccessConfig.Labels == nil {
 		newCnsFileAccessConfig.Labels = make(map[string]string)
 	}
-	if _, ok := newCnsFileAccessConfig.Labels[devopsUserLabelKey]; ok {
-		log.Debugf("Devops label already present on instance %s", newCnsFileAccessConfig.Name)
-		return admission.Allowed("")
-	}
+
+	// Add VM name and PVC name label.
+	// If someone created this CR with these labels already present, CSI will overrite on them
+	// with the correct values.
 	newCnsFileAccessConfig.Labels[devopsUserLabelKey] = "true"
+	newCnsFileAccessConfig.Labels[vmNameLabelKey] = newCnsFileAccessConfig.Spec.VMName
+	newCnsFileAccessConfig.Labels[pvcNameLabelKey] = newCnsFileAccessConfig.Spec.PvcName
+
 	newRawCnsFileAccessConfig, err := json.Marshal(newCnsFileAccessConfig)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)

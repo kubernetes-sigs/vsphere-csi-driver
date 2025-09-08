@@ -1146,8 +1146,8 @@ func BringDownCsiController(Client clientset.Interface, namespace ...string) {
 
 // bringDownTKGController helps to bring the TKG control manager pod down.
 // Its taks svc client as input.
-func BringDownTKGController(Client clientset.Interface) {
-	UpdateDeploymentReplica(Client, 0, constants.VsphereControllerManager, constants.VsphereTKGSystemNamespace)
+func BringDownTKGController(Client clientset.Interface, vsphereTKGSystemNamespace string) {
+	UpdateDeploymentReplica(Client, 0, constants.VsphereControllerManager, vsphereTKGSystemNamespace)
 	ginkgo.By("TKGControllManager replica is set to 0")
 }
 
@@ -1168,9 +1168,9 @@ func BringUpCsiController(Client clientset.Interface, csiReplicaCount int32, nam
 
 // bringUpTKGController helps to bring the TKG control manager pod up.
 // Its taks svc client as input.
-func BringUpTKGController(Client clientset.Interface, tkgReplica int32) {
+func BringUpTKGController(Client clientset.Interface, tkgReplica int32, vsphereTKGSystemNamespace string) {
 	err := UpdateDeploymentReplicawithWait(Client,
-		tkgReplica, constants.VsphereControllerManager, constants.VsphereTKGSystemNamespace)
+		tkgReplica, constants.VsphereControllerManager, vsphereTKGSystemNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("TKGControllManager is up")
 }
@@ -7150,7 +7150,7 @@ func ExecCommandOnGcWorker(sshClientConfig *ssh.ClientConfig,
 	}
 
 	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
-		"'%s' | grep -v 'Warning'", constants.GcNodeUser, gcWorkerIp, cmd)
+		"'%s' 2> /dev/null", constants.GcNodeUser, gcWorkerIp, cmd)
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
 	cmdResult, err = SshExec(sshClientConfig, vs, svcMasterIP,

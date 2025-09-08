@@ -126,7 +126,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 
 		// Replace second element with pod.Name.
 		if windowsEnv {
-			cmd = []string{"exec", "", "--namespace=" + namespace, "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
+			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "powershell.exe", "-Command", "cat",
+				"/mnt/volume1/fstype.txt"}
 		} else {
 			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
 		}
@@ -206,7 +207,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 	// 18. Delete PVC created in step 6.
 	// 19. Delete PV leftover in GC.
 	// 20. Delete SC created in step 1.
-	ginkgo.It("PV with reclaim policy can be reused and resized with pod", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("PV with reclaim policy can be reused and resized with pod", ginkgo.Label(p0, block, tkg,
+		windows, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -586,7 +588,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation po
 				"exec",
 				pod.Name,
 				"--namespace=" + namespaceNewGC,
-				"powershell.exe",
+				"powershell.exe -Command",
 				"cat",
 				"/mnt/volume1/fstype.txt",
 			}

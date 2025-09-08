@@ -117,7 +117,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 		// Replace second element with pod.Name.
 		if windowsEnv {
-			cmd = []string{"exec", "", "--namespace=" + namespace, "powershell.exe", "cat", "/mnt/volume1/fstype.txt"}
+			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "powershell.exe", "-Command",
+				"cat", "/mnt/volume1/fstype.txt"}
 		} else {
 			cmd = []string{"exec", "", "--namespace=" + namespace, "--", "/bin/sh", "-c", "df -Tkm | grep /mnt/volume1"}
 		}
@@ -236,9 +237,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
-				"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
-					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
+				"-Command",
+				"'$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
+					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)'",
 			}
 			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
 		} else {
@@ -360,7 +363,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
+				"-Command",
 				"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
 					"-Destination '/mnt/volume1/testdata2_pod.txt'",
 			}
@@ -380,7 +385,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
+				"-Command",
 				"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
 					"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
 			}
@@ -1527,6 +1534,11 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		ginkgo.By("Creating pod to attach PV to the node")
 		pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			// Delete POD.
+			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+			deletePodAndWaitForVolsToDetach(ctx, client, pod)
+		}()
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 			pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
@@ -1564,10 +1576,13 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
+				"-Command",
 				"$out = New-Object byte[] 536870912; (New-Object Random).NextBytes($out); " +
 					"[System.IO.File]::WriteAllBytes('/mnt/volume1/testdata2.txt', $out)",
 			}
+
 			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
 		} else {
 			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
@@ -1582,7 +1597,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
+				"-Command",
 				"Copy-Item -Path '/mnt/volume1/testdata2.txt' " +
 					"-Destination '/mnt/volume1/testdata2_pod.txt'",
 			}
@@ -1603,7 +1620,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 				"exec",
 				pod.Name,
 				"--namespace=" + namespace,
+				"--",
 				"powershell.exe",
+				"-Command",
 				"((Get-FileHash '/mnt/volume1/testdata2.txt' -Algorithm SHA256).Hash -eq " +
 					"(Get-FileHash '/mnt/volume1/testdata2_pod.txt' -Algorithm SHA256).Hash)",
 			}

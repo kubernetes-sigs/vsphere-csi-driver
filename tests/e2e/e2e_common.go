@@ -229,7 +229,7 @@ const (
 	vsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	vsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	vSphereCSIConf                            = "csi-vsphere.conf"
-	vsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
+	envVsphereTKGSystemNamespace              = "VSPHERE_TKG_SYSTEM_NAMESPACE"
 	waitTimeForCNSNodeVMAttachmentReconciler  = 30 * time.Second
 	wcpServiceName                            = "wcp"
 	vmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
@@ -274,6 +274,7 @@ const (
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
+	lateBinding                              = "-latebinding"
 )
 
 /*
@@ -349,6 +350,7 @@ const (
 	stretchedSvc          = "stretchedSvc"
 	devops                = "devops"
 	vc901                 = "vc901"
+	multiGc               = "multiGc"
 )
 
 // The following variables are required to know cluster type to run common e2e
@@ -364,6 +366,7 @@ var (
 	multipleSvc          bool
 	multivc              bool
 	stretchedSVC         bool
+	latebinding          bool
 )
 
 // For busybox pod image
@@ -638,6 +641,12 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	testbedType := os.Getenv("STRETCHED_SVC")
 	if strings.TrimSpace(string(testbedType)) == "1" {
 		stretchedSVC = true
+	}
+
+	//Check if policy given is latebinding
+	bindingModeType := os.Getenv("BINDING_MODE_TYPE")
+	if strings.TrimSpace(string(bindingModeType)) == "WFFC" {
+		latebinding = true
 	}
 }
 
