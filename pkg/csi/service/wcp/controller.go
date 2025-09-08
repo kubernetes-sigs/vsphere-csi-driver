@@ -559,11 +559,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// keys as topology requirement during volume provisioning.
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
-			if IsMultipleClustersPerVsphereZoneFSSEnabled && c.topologyMgr.ZonesWithMultipleClustersExist(ctx) {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal,
-					"Creating volume with both zone and hostname in topology requirement is not "+
-						"supported on deployment with multiple vSphere Clusters per zone")
-			}
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
