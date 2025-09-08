@@ -2856,8 +2856,8 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		}
 	}()
 	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
-		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+		metav1.Now(),
+		"", "", "", taskInvocationStatusInProgress, "")
 	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 		// Don't return if CreateSnapshot details can't be stored.
 		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -2875,7 +2875,7 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 	var faultType string
 	createSnapshotsTaskInfo, err = m.waitOnTask(ctx, createSnapshotsTask.Reference())
 	if err != nil {
-		if IsNotSupportedFault(ctx, createSnapshotsTaskInfo.Error) {
+		if createSnapshotsTaskInfo != nil && IsNotSupportedFault(ctx, createSnapshotsTaskInfo.Error) {
 			faultType = "vim25:NotSupported"
 			err = fmt.Errorf("failed to create snapshot with fault: %q", faultType)
 		} else {
