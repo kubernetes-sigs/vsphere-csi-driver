@@ -155,15 +155,13 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	// some init() function which can initialize required things when capability value changes from false to true.
 	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.WorkloadDomainIsolationFSS)
-	linkedClonePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.LinkedCloneSupportFSS)
-	linkedCloneCapability := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS)
+	isLinkedCloneSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.LinkedCloneSupportFSS)
 	if !isWorkloadDomainIsolationSupported {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.WorkloadDomainIsolation, config.GC.Port, config.GC.Endpoint)
 	}
-	// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
-	// capability is disabled.
-	if linkedClonePVCSIFSS && !linkedCloneCapability {
+	if !isLinkedCloneSupported {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
 	}
