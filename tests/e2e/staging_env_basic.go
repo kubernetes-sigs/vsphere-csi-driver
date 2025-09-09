@@ -44,6 +44,7 @@ import (
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
@@ -965,7 +966,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		fsGroupInt64 := &fsGroup
 		runAsUserInt64 := &runAsUser
 		pod, err := createPodForFSGroup(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execCommand, fsGroupInt64, runAsUserInt64)
+			api.LevelBaseline, execCommand, fsGroupInt64, runAsUserInt64)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := persistentvolumes[0]

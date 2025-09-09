@@ -79,6 +79,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -4198,7 +4199,7 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 // createPod with given claims based on node selector.
 func createPod(ctx context.Context, client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
-	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, api.LevelBaseline, command)
 	if windowsEnv {
 		var commands []string
 		if (len(command) == 0) || (command == execCommand) {
@@ -4316,7 +4317,7 @@ func createDeployment(ctx context.Context, client clientset.Interface, replicas 
 // createPodForFSGroup helps create pod with fsGroup.
 func createPodForFSGroup(ctx context.Context, client clientset.Interface, namespace string,
 	nodeSelector map[string]string, pvclaims []*v1.PersistentVolumeClaim,
-	isPrivileged bool, command string, fsGroup *int64, runAsUser *int64) (*v1.Pod, error) {
+	isPrivileged api.Level, command string, fsGroup *int64, runAsUser *int64) (*v1.Pod, error) {
 	if len(command) == 0 {
 		command = "trap exit TERM; while true; do sleep 1; done"
 	}
@@ -4331,7 +4332,7 @@ func createPodForFSGroup(ctx context.Context, client clientset.Interface, namesp
 		}(2000)
 	}
 
-	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, api.LevelBaseline, command)
 	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	pod.Spec.SecurityContext = &v1.PodSecurityContext{
 		RunAsUser: runAsUser,

@@ -704,7 +704,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", func
 
 		// Create a Pod to use this PVC
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execRWXCommandPod1)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			admissionapi.LevelBaseline, execRWXCommandPod1)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Pod creation failed")

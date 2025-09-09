@@ -38,6 +38,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 /*
@@ -186,7 +187,7 @@ Additionally, it verifies whether pods with varying permissions can read from or
 Upon completion, the utility returns a list of the created pods or an error message if any failures occur.
 */
 func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Context, namespace string,
-	nodeSelector map[string]string, pvclaim *v1.PersistentVolumeClaim, isPrivileged bool,
+	nodeSelector map[string]string, pvclaim *v1.PersistentVolumeClaim, securityLevel admissionapi.Level,
 	command string, no_pods_to_deploy int) ([]*v1.Pod, error) {
 	var podList []*v1.Pod
 
@@ -223,7 +224,7 @@ func createStandalonePodsForRWXVolume(client clientset.Interface, ctx context.Co
 
 		// here we are creating Pod3 with read-only permissions
 		if i == 2 {
-			pod = fpod.MakePod(namespace, nodeSelector, pvclaims, isPrivileged, command)
+			pod = fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
 			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 			createdPod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
 			if err != nil {

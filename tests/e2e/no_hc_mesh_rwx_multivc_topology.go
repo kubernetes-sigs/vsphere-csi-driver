@@ -40,6 +40,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -336,7 +337,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		pv2 = pvs2[0]
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
-		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim2, false,
+		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim2, api.LevelBaseline,
 			execRWXCommandPod, noPodsToDeploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
@@ -615,8 +616,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 		pvclaim = pvclaims[0]
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
-		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim, false, execRWXCommandPod,
-			noPodsToDeploy)
+		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim,
+			api.LevelBaseline, execRWXCommandPod, noPodsToDeploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(podList); i++ {
@@ -875,8 +876,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			// Create 3 standalone pods and attach it to 3rd rwx pvc
 			if i == 2 {
 				ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
-				podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
-					noPodsToDeploy)
+				podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i],
+					api.LevelBaseline, execRWXCommandPod, noPodsToDeploy)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -1473,7 +1474,7 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-multivc] No-Hci-Mesh-Topology-Mul
 			} else {
 				ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
 				podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nodeSelectorTermsForPods,
-					pvclaims[i], false, execRWXCommandPod, noPodsToDeploy)
+					pvclaims[i], api.LevelBaseline, execRWXCommandPod, noPodsToDeploy)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

@@ -35,6 +35,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -325,8 +326,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		pvclaim = pvclaims[0]
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
-		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim, false, execRWXCommandPod,
-			noPodsToDeploy)
+		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaim,
+			api.LevelBaseline, execRWXCommandPod, noPodsToDeploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
@@ -937,8 +938,8 @@ var _ = ginkgo.Describe("[no-hci-mesh-topology-singlevc] No-Hci-Mesh-Topology-Si
 		pvclaim = pvclaims[0]
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC")
-		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nodeSelectorTerms, pvclaim, false,
-			execRWXCommandPod, no_pods_to_deploy)
+		podList, err := createStandalonePodsForRWXVolume(client, ctx, namespace, nodeSelectorTerms, pvclaim,
+			api.LevelBaseline, execRWXCommandPod, no_pods_to_deploy)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			for i := 0; i < len(podList); i++ {

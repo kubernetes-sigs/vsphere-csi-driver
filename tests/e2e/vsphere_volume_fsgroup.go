@@ -33,6 +33,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	"k8s.io/pod-security-admission/api"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -154,7 +155,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 		fsGroupInt64 := &fsGroup
 		runAsUserInt64 := &runAsUser
 		pod, err := createPodForFSGroup(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
-			false, execCommand, fsGroupInt64, runAsUserInt64)
+			api.LevelBaseline, execCommand, fsGroupInt64, runAsUserInt64)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pv := persistentvolumes[0]

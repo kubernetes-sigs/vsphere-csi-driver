@@ -216,7 +216,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for i := 2; i <= volumeOpsScale; i++ {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+				admissionapi.LevelBaseline, executeCommand)
 
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -424,7 +425,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", func()
 		for podCount < volumeOpsScale {
 			ginkgo.By("Create Pods concurrently, without waiting them to be running here..")
 			executeCommand := "echo 'Hi' && while true ; do sleep 2 ; done"
-			newPod := fpod.MakePod(namespace, nil, pvclaims, false, executeCommand)
+			newPod := fpod.MakePod(namespace, nil, pvclaims,
+				admissionapi.LevelBaseline, executeCommand)
 			newPod, err = client.CoreV1().Pods(namespace).Create(ctx, newPod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			podArray[podCount] = newPod

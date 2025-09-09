@@ -48,6 +48,7 @@ import (
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
@@ -428,10 +429,11 @@ func createPodsInParallel(client clientset.Interface, namespace string, pvclaims
 
 	for i := 0; i < volumeOpsScale; i++ {
 		if rwxAccessMode {
-			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, "")
+			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, api.LevelBaseline, "")
 
 		} else {
-			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]}, false, execCommand)
+			pod = fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaims[i]},
+				api.LevelBaseline, execCommand)
 
 		}
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr

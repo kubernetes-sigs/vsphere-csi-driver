@@ -32,6 +32,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	"k8s.io/pod-security-admission/api"
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
@@ -298,8 +299,8 @@ var _ = ginkgo.Describe("[hci-mesh-rwx-topology] Hci-Mesh-Topology-SingleVc", fu
 
 		ginkgo.By("Create 3 standalone Pods using the same PVC with different read/write permissions")
 		for i := 0; i < len(pvclaims); i++ {
-			podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i], false, execRWXCommandPod,
-				noPodsToDeploy)
+			podList, err = createStandalonePodsForRWXVolume(client, ctx, namespace, nil, pvclaims[i],
+				api.LevelBaseline, execRWXCommandPod, noPodsToDeploy)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		defer func() {

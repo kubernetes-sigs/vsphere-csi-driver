@@ -134,8 +134,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
-			"echo 'Hello message from Pod1' && while true ; do sleep 2 ; done")
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim},
+			admissionapi.LevelBaseline, "echo 'Hello message from Pod1' && while true ; do sleep 2 ; done")
 		pod.Spec.Volumes[0] = v1.Volume{Name: "volume1", VolumeSource: v1.VolumeSource{
 			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: true}}}
 
@@ -282,7 +282,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 
 		// Create a Pod to use the PVC created above
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim, pvclaim2}, false, execRWXCommandPod1)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim, pvclaim2},
+			admissionapi.LevelBaseline, execRWXCommandPod1)
 
 		pod.Spec.Containers[0].VolumeMounts[0] = v1.VolumeMount{Name: "volume1", MountPath: "/mnt/" + "volume1"}
 		pod.Spec.Volumes[0] = v1.Volume{Name: "volume1", VolumeSource: v1.VolumeSource{
@@ -469,7 +470,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false,
+		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, admissionapi.LevelBaseline,
 			"echo 'Hello message from Pod1' && while true ; do sleep 2 ; done")
 		pod2.Spec.Volumes[0] = v1.Volume{Name: "volume1", VolumeSource: v1.VolumeSource{
 			PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvclaim.Name, ReadOnly: true}}}
@@ -714,7 +715,8 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for ReadOnlyMany", func(
 		ginkgo.By("Creating pod to attach PV to the node")
 		execRWXCmd := "echo 'Hello message from Pod2' > /mnt/volume2/Pod2.html " +
 			" && chmod o+rX /mnt /mnt/volume2/Pod2.html && while true ; do sleep 2 ; done"
-		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc2, pvclaim3}, false, execRWXCmd)
+		pod2 := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc2, pvclaim3},
+			admissionapi.LevelBaseline, execRWXCmd)
 		pod2.Spec.Volumes[0] = v1.Volume{Name: "volume1",
 			VolumeSource: v1.VolumeSource{
 				PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc2.Name,

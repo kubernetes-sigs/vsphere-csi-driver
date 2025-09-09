@@ -49,6 +49,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/pod-security-admission/api"
 	admissionapi "k8s.io/pod-security-admission/api"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
@@ -2117,7 +2118,7 @@ func getPvcPvFromPod(ctx context.Context, c clientset.Interface,
 // createPodWithInlineVols create a pod with the given volumes (vmdks) inline
 func createPodWithInlineVols(ctx context.Context, client clientset.Interface,
 	namespace string, nodeSelector map[string]string, vmdks []string) (*v1.Pod, error) {
-	pod := fpod.MakePod(namespace, nodeSelector, nil, false, "")
+	pod := fpod.MakePod(namespace, nodeSelector, nil, api.LevelBaseline, "")
 	pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 	var volumeMounts = make([]v1.VolumeMount, len(vmdks))
 	var volumes = make([]v1.Volume, len(vmdks))

@@ -37,14 +37,15 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eoutput "k8s.io/kubernetes/test/e2e/framework/pod/output"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	admissionapi "k8s.io/pod-security-admission/api"
+
+	"k8s.io/pod-security-admission/api"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 )
 
 var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests", func() {
 	f := framework.NewDefaultFramework("vcp-2-csi-attach-detach")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityEnforceLevel = api.LevelPrivileged
 	var (
 		client                     clientset.Interface
 		namespace                  string
@@ -716,7 +717,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, api.LevelBaseline, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -809,7 +810,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		kubeletMigEnabled = true
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, api.LevelBaseline, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -915,7 +916,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, api.LevelBaseline, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1009,7 +1010,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration attach, detach tests
 		kubeletMigEnabled = true
 
 		ginkgo.By("Creating pod")
-		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, false, execCommand)
+		pod := fpod.MakePod(namespace, nil, []*v1.PersistentVolumeClaim{pvc1}, api.LevelBaseline, execCommand)
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 		pod, err = client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1060,7 +1061,7 @@ func createMultiplePods(ctx context.Context, client clientset.Interface,
 	var err error
 	for _, pvcs := range pvclaims2d {
 		if len(pvcs) != 0 {
-			pod := fpod.MakePod(pvcs[0].Namespace, nil, pvcs, false, execCommand)
+			pod := fpod.MakePod(pvcs[0].Namespace, nil, pvcs, api.LevelBaseline, execCommand)
 			pod.Spec.Containers[0].Image = busyBoxImageOnGcr
 			pod, err := client.CoreV1().Pods(pvcs[0].Namespace).Create(ctx, pod, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
