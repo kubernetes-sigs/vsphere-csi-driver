@@ -71,11 +71,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		datastoreURL = GetAndExpectStringEnvVar(envSharedDatastoreURL)
-		vsphereTKGSystemNamespace = GetAndExpectStringEnvVar(envVsphereTKGSystemNamespace)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
+			vsphereTKGSystemNamespace = GetAndExpectStringEnvVar(envVsphereTKGSystemNamespace)
 		}
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
