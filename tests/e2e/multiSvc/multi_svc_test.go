@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		// exit host from MM
 		if isHostInMM {
 			ginkgo.By("Exit host from MM")
-			k8testutil.ExitHostMM(ctx, hostsInCluster[0], timeout)
+			vcutil.ExitHostMM(ctx, hostsInCluster[0], timeout)
 		}
 		// unmount ds from cluster1
 		if isDsMountedOnSvc1 {
