@@ -200,12 +200,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if guestCluster {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+		if guestCluster && svcClient != nil && svcNamespace != "" {
 			framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
 			eventList, err := svcClient.CoreV1().Events(svcNamespace).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				framework.Logf("Failed to list events in namespace %q: %v", svcNamespace, err)
+				return
+			}
+
 			for _, item := range eventList.Items {
 				framework.Logf("%q", item.Message)
 			}
