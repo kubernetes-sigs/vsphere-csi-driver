@@ -500,14 +500,14 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
-		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
-		time.Sleep(2 * time.Minute)
-
 		ginkgo.By("Fetch shared storage policy tagged to wcp namespace")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
