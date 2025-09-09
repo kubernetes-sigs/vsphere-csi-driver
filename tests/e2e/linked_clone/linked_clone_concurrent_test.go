@@ -15,7 +15,6 @@ package linked_clone
 
 import (
 	"context"
-	"maps"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -136,8 +135,11 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 
 		//Create& delete 3 linked clones of 3 snapshots concurrently.
 		valSnap := <-volumeSnap
-		pvcs := maps.Keys(volumeMap)
-		k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, pvcs, 3)
+		var pvcList []string
+		for key := range valSnap {
+			pvcList = append(pvcList, key)
+		}
+		k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, pvcList, 3)
 	})
 
 })
