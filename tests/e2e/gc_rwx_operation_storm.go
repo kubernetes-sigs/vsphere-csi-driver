@@ -50,14 +50,27 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		podArray          []*v1.Pod
 		scParameters      map[string]string
 		storagePolicyName string
+		adminClient       clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
 		// TODO: Read value from command line
 		volHealthCheck = false
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		volumeOpsScale = 5
 		namespace = getNamespaceToRunTests(f)
+		var err error
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		svcClient, svNamespace := getSvcClientAndNamespace()
@@ -65,8 +78,6 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 		podArray = make([]*v1.Pod, volumeOpsScale)
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -122,12 +133,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -293,7 +304,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 
 		ginkgo.By("Delete all the pods concurrently")
 		for _, podToDelete := range pods {
-			err = client.CoreV1().Pods(namespace).Delete(ctx, podToDelete.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().Pods(namespace).Delete(ctx, podToDelete.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -354,7 +365,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+			err := adminClient.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -380,7 +391,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Operation storm Test", ginkgo
 
 		for index, claim := range pvclaims {
 			framework.Logf("Waiting for all claims %s to be in bound state - PVC number %d", claim.Name, index)
-			pv, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{claim},
+			pv, err := WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{claim},
 				framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			persistentvolumes[index] = pv[0]

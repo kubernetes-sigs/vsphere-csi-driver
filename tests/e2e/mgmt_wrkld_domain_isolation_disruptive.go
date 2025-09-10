@@ -68,6 +68,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		isVcRebooted               bool
 		isSPSServiceStopped        bool
 		isHostInMaintenanceMode    bool
+		adminClient                clientset.Interface
+		userName                   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -78,6 +80,16 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		client = f.ClientSet
 		bootstrap()
 
+		var err error
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		// reading vc session id
 		if vcRestSessionId == "" {
 			vcRestSessionId = createVcSession4RestApis(ctx)
@@ -220,16 +232,16 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			[]string{zone1, zone2, zone3}, "", "")
+			[]string{zone1, zone2, zone3}, "", "", userName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -240,7 +252,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
 		for i := 0; i < len(pvclaimsList); i++ {
 			var pvclaims []*v1.PersistentVolumeClaim
-			pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			pvc, err := WaitForPVClaimBoundPhase(ctx, client,
 				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -413,16 +425,16 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Create a WCP namespace and tag zone-1 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			[]string{zone1, zone3}, "", "")
+			[]string{zone1, zone3}, "", "", userName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -433,7 +445,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
 		for i := 0; i < len(pvclaimsList); i++ {
 			var pvclaims []*v1.PersistentVolumeClaim
-			pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			pvc, err := WaitForPVClaimBoundPhase(ctx, client,
 				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
@@ -591,16 +603,16 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
 			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			[]string{zone1, zone2, zone3}, "", "")
+			[]string{zone1, zone2, zone3}, "", "", userName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
 			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			gomega.Expect(waitForNamespaceToGetDeleted(ctx, adminClient, namespace, poll, pollTimeout)).To(gomega.Succeed())
 		}()
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -633,7 +645,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
 		for i := 0; i < len(pvclaimsList); i++ {
 			var pvclaims []*v1.PersistentVolumeClaim
-			pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			pvc, err := WaitForPVClaimBoundPhase(ctx, client,
 				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(pvc).NotTo(gomega.BeEmpty())

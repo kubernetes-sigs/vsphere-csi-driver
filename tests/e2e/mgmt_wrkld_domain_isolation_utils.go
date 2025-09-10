@@ -73,7 +73,6 @@ func verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx context.Context, client
 
 	var podList *v1.PodList
 	var err error
-
 	// Determine the pod list based on input (StatefulSet, StandalonePod, or Deployment)
 	if statefulset != nil {
 		// If statefulset is provided, get the pod list associated with it

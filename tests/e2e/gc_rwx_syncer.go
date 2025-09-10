@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		storagePolicyName          string
 		volHealthCheck             bool
 		isVsanHealthServiceStopped bool
+		adminClient                clientset.Interface
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -54,13 +55,23 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		volHealthCheck = false
 		isVsanHealthServiceStopped = false
 		namespace = getNamespaceToRunTests(f)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var err error
+		runningAsDevopsUser := GetorIgnoreStringEnvVar("IS_DEVOPS_USER")
+		adminClient, client = initializeClusterClientsByUserRoles(client)
+		if guestCluster && runningAsDevopsUser == "yes" {
+
+			saName := namespace + "sa"
+			client, err = createScopedClient(ctx, client, namespace, saName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		setResourceQuota(svcClient, svNamespace, rqLimit)
 		bootstrap()
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
@@ -119,12 +130,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -299,12 +310,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -364,7 +375,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 
 		defer func() {
 			ginkgo.By("Deleting the PV2")
-			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv2.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.CoreV1().PersistentVolumes().Delete(ctx, pv2.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
@@ -636,12 +647,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		framework.Logf("PVC UUID in GC %q", pvcUID)
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
@@ -802,12 +813,12 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
-			err = client.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
+			err = adminClient.StorageV1().StorageClasses().Delete(ctx, storageclasspvc.Name, *metav1.NewDeleteOptions(0))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
 		ginkgo.By("Expect claim to provision volume successfully")
-		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to provision volume")
 
