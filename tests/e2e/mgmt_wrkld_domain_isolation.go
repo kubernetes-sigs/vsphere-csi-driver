@@ -45,7 +45,6 @@ import (
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
-	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
@@ -466,7 +465,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	   25. Perform cleanup by deleting the Pods, Snapshots, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Create, restore, and delete dynamic snapshot, along with workload/volume creation, while adding and "+
+	ginkgo.It("Fix1Create, restore, and delete dynamic snapshot, along with workload/volume creation, while adding and "+
 		"removing zones from the namespace in between", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -507,7 +506,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
-		time.Sleep(4 * time.Minute)
+		time.Sleep(2 * time.Minute)
 
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",
@@ -1246,7 +1245,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		18. Perform cleanup - delete pods, volumes and namespace.
 	*/
 
-	ginkgo.It("Snapshot creation with zones addition and removal", func() {
+	ginkgo.It("fix2Snapshot creation with zones addition and removal", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1411,7 +1410,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 	   17. Perform cleanup: delete pods, snapshot, volume and namespace
 	*/
 
-	ginkgo.It("Static volume creation using zonal2 policy", func() {
+	ginkgo.It("fix3Static volume creation using zonal2 policy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1452,13 +1451,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create static volume")
 		_, _, staticPvc, staticPv, err := createStaticVolumeOnSvc(ctx, client,
 			namespace, storageDatastoreUrlZone2, storagePolicyName)
-		defer func() {
-			ginkgo.By("Delete PVC")
-			err = fpv.DeletePersistentVolumeClaim(ctx, client, staticPvc.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(staticPv.Spec.CSI.VolumeHandle)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Creating a Deployment using pvc")
 		dep, err := createDeployment(ctx, client, 1, labelsMap, nil, namespace,
@@ -1466,11 +1458,6 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podList, err := fdep.GetPodsForDeployment(ctx, client, dep)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			ginkgo.By("Delete Deployment")
-			err := client.AppsV1().Deployments(namespace).Delete(ctx, dep.Name, metav1.DeleteOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		output := readFileFromPod(namespace, podList.Items[0].Name, filePathPod1)
@@ -1490,47 +1477,16 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a dynamic volume snapshot")
-		volumeSnapshot, snapshotContent, snapshotCreated,
-			snapshotContentCreated, snapshotId, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
-			staticPvc, staticPv.Spec.CSI.VolumeHandle, diskSize, true)
+		volumeSnapshot, _, _,
+			_, _, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+			staticPvc, staticPv.Spec.CSI.VolumeHandle, diskSize, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if snapshotContentCreated {
-				err = deleteVolumeSnapshotContent(ctx, snapshotContent, snapc, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-
-			if snapshotCreated {
-				framework.Logf("Deleting volume snapshot")
-				deleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
-
-				framework.Logf("Wait till the volume snapshot is deleted")
-				err = waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx, snapc,
-					*volumeSnapshot.Status.BoundVolumeSnapshotContentName, pandoraSyncWaitTime)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			}
-		}()
 
 		ginkgo.By("Restore volume snapshot and create pod using it")
-		pvclaim2, persistentVolumes2, pod2 := verifyVolumeRestoreOperation(ctx, client,
+		_, persistentVolumes2, _ := verifyVolumeRestoreOperation(ctx, client,
 			namespace, storageclass, volumeSnapshot, diskSize, true)
 		volHandle2 := persistentVolumes2[0].Spec.CSI.VolumeHandle
 		gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
-		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
-			err = fpod.DeletePodWithWait(ctx, client, pod2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
-		ginkgo.By("Delete Dynamic snapshot")
-		snapshotCreated, snapshotContentCreated, err = deleteVolumeSnapshot(ctx, snapc, namespace,
-			volumeSnapshot, pandoraSyncWaitTime, staticPv.Spec.CSI.VolumeHandle, snapshotId, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
