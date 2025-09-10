@@ -507,7 +507,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		}
 
 		ginkgo.By("Wait for namespace to get listed under supervisor cluster")
-		time.Sleep(2 * time.Minute)
+		time.Sleep(4 * time.Minute)
 
 		ginkgo.By("Create PVC")
 		pvclaim, persistentVolumes, err := createPVCAndQueryVolumeInCNS(ctx, client, namespace, labelsMap, "",

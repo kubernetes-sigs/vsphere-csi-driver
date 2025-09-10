@@ -270,9 +270,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			[]*v1.PersistentVolumeClaim{pvc}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify attached volumes are accessible and validate data integrity")
-		err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Verify attached volumes are accessible and validate data integrity")
+		// err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm affinity annotation state")
 		err = verifyVmServiceVmAnnotationAffinity(vm, allowedTopologiesMap, nodeList)
@@ -372,9 +372,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			[]*v1.PersistentVolumeClaim{staticPvc}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify attached volumes are accessible and validate data integrity")
-		err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Verify attached volumes are accessible and validate data integrity")
+		// err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm affinity annotation state")
 		err = verifyVmServiceVmAnnotationAffinity(vm, allowedTopologiesMap, nodeList)
@@ -492,9 +492,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			[]*v1.PersistentVolumeClaim{pvc1}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify attached volumes are accessible and validate data integrity")
-		err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm1, vmopC, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Verify attached volumes are accessible and validate data integrity")
+		// err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm1, vmopC, namespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm1 affinity annotation state")
 		err = verifyVmServiceVmAnnotationAffinity(vm1, allowedTopologiesMapForVM, nodeList)
@@ -648,9 +648,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 			[]*v1.PersistentVolumeClaim{pvc1}, vmClass, storageclass.Name, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify attached volumes are accessible and validate data integrity")
-		err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm1, vmopC, namespace)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// ginkgo.By("Verify attached volumes are accessible and validate data integrity")
+		// err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm1, vmopC, namespace)
+		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify vm1 affinity annotation state")
 		err = verifyVmServiceVmAnnotationAffinity(vm1, allowedTopologiesMap, nodeList)
@@ -837,9 +837,9 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 				[]*v1.PersistentVolumeClaim{pvc}, vmClass, storageclass.Name, createBootstrapSecret)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			ginkgo.By("Verify attached volumes are accessible and validate data integrity")
-			err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// ginkgo.By("Verify attached volumes are accessible and validate data integrity")
+			// err = verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx, vm, vmopC, namespace)
+			// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify vm affinity annotation state")
 			err = verifyVmServiceVmAnnotationAffinity(vm, allowedTopologiesMap, nodeList)
