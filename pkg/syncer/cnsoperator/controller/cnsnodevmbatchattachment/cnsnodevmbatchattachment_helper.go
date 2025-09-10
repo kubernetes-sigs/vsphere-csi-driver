@@ -405,15 +405,19 @@ func validateBatchAttachRequest(ctx context.Context,
 				return fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
 					" UnitNumber cannot be empty", pvcName, namespace, accessMode)
 			}
+			if batchAttachRequest.SharingMode != "" {
+				return fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
+					" SharingMode cannot be empty", pvcName, namespace, accessMode)
+			}
 		}
 
-		// RWO accessMode -> DiskMode must NOT be IndependentPersistent, SharingMode must not be SharingMultiWriter.
+		// RWO accessMode -> DiskMode, SharingMode and ControllerNumber and Unit Number must be empty.
 		if accessMode == v1.ReadWriteOnce {
-			if batchAttachRequest.DiskMode != string(v1alpha1.Persistent) && batchAttachRequest.DiskMode != "" {
+			if batchAttachRequest.DiskMode != "" {
 				return fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
 					"DiskMode cannot be %s", pvcName, namespace, accessMode, batchAttachRequest.DiskMode)
 			}
-			if batchAttachRequest.SharingMode != string(v1alpha1.SharingNone) && batchAttachRequest.SharingMode != "" {
+			if batchAttachRequest.SharingMode != "" {
 				return fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
 					"SharingMode cannot be %s", pvcName, namespace, accessMode, batchAttachRequest.SharingMode)
 			}
