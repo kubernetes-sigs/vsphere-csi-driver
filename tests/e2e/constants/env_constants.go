@@ -217,5 +217,6 @@ const (
 
 // For linked clone
 var (
-	EnvStoragePolicy = "STORAGE_POLICY_NAME"
+	EnvStoragePolicy          = "STORAGE_POLICY_NAME"
+	EnvTargetDSUrlForRelocate = "TARGET_DS_URL"
 )

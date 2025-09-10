@@ -16,6 +16,7 @@ package linked_clone
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -27,6 +28,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -151,7 +153,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		framework.Logf("Starting test: Create a linked clone (PVC) from a snapshot ")
 
 		// Create PVC, pod and volume snapshot
-		volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
+		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// Get the storage quota used before LC creation
 		quota := make(map[string]*resource.Quantity)
@@ -164,7 +166,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
 
 		// Create and attach pod to linked clone PVC
-		lcPod, _ := k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, linkdeClonePvc, true, false)
+		lcPod, _ := k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
 
 		// TODO: write some data on LC-PVC and validate
 
@@ -205,6 +207,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 	})
 
+	// TC-2
 	ginkgo.It("Create a snapshot from a linked clone with pod attached to LC-PVC", ginkgo.Label(
 		constants.P0, constants.LinkedClone, constants.Vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -213,13 +216,13 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		framework.Logf("Starting test: Create a snapshot from a linked clone with pod attached to LC-PVC ")
 
 		// Create PVC, deployment pod and volume snapshot
-		volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, true)
+		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, true)
 
 		// create linked clone PVC and verify its bound
 		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
 
 		// Create and attach pod to linked clone PVC
-		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, linkdeClonePvc, true, false)
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
 
 		// Get the snapshot usage before creating it
 		quota := make(map[string]*resource.Quantity)
@@ -256,6 +259,207 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// TODO volume usability
 
 		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+
+	})
+
+	// TC-3
+	ginkgo.It("Create a snapshot from a linked clone with no pod attached to LC-PVC", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Create a snapshot from a linked clone with no pod attached to LC-PVC ")
+
+		// Create PVC and volume snapshot
+		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+
+		// create linked clone PVC and verify its bound
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		// Create and attach pod to linked clone PVC
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
+
+		// Get the snapshot usage before creating it
+		quota := make(map[string]*resource.Quantity)
+		quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
+			quota["snap_storagePolicyUsageBefore"], _ =
+			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+
+		// Create snapshot from LC_PVC
+		framework.Logf("Create snapshot from LC_PVC ")
+		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv)
+
+		// Check the quota usage for snapshot
+		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
+			quota["snap_storagePolicyUsageAfter"], _ =
+			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+
+		// Get the numeric part
+		snap_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaAfter"]))
+		gomega.Expect(err1).To(gomega.BeNil())
+		snap_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageAfter"]))
+		gomega.Expect(err2).To(gomega.BeNil())
+
+		snap_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaBefore"]))
+		gomega.Expect(err3).To(gomega.BeNil())
+		snap_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageBefore"]))
+		gomega.Expect(err4).To(gomega.BeNil())
+
+		// Validate storageQuota increased
+		gomega.Expect(snap_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", snap_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
+		gomega.Expect(snap_storagePolicyUsageAfter).To(gomega.BeNumerically(">", snap_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+
+		// TODO volume usability
+
+		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+
+	})
+
+	// TC-4
+	ginkgo.It("Relocate the base PVC from which the linked clone is created", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Relocate the base PVC from which the linked clone is created ")
+
+		// Create PVC and volume snapshot
+		_, pv, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+
+		// create linked clone PVC and verify its bound
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		// Create and attach pod to linked clone PVC
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
+
+		// Relocate the source PVC
+		ginkgo.By("Relocate source volume from one datastore to another datastore using" +
+			"CnsRelocateVolume API")
+		destDsUrl := os.Getenv(constants.EnvTargetDSUrlForRelocate)
+		dsRefDest := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, destDsUrl)
+		volumeID := pv[0].Spec.CSI.VolumeHandle
+		_, err = vcutil.CnsRelocateVolume(ctx, e2eTestConfig, volumeID, dsRefDest)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcutil.VerifyDatastoreMatch(e2eTestConfig, volumeID, []string{destDsUrl})
+
+		// TODO Check snapshot got relocated
+
+		// Validate the LC volume is not relocated
+		volumeIDLc := lcPv[0].Spec.CSI.VolumeHandle
+		actualDatastoreUrl := vcutil.FetchDsUrl4CnsVol(e2eTestConfig, volumeIDLc)
+		gomega.Expect(actualDatastoreUrl).ShouldNot(gomega.BeElementOf(destDsUrl),
+			"Volume is not provisioned on any of the given datastores: %s, but on: %s", destDsUrl,
+			actualDatastoreUrl)
+
+		// TODO volume usability
+
+		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+
+	})
+
+	// TC-5
+	ginkgo.It("Relocate the linked clone volume ", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Relocate the linked clone volume ")
+
+		// Create PVC and volume snapshot
+		_, pv, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+
+		// create linked clone PVC and verify its bound
+		_, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		// Relocate the source PVC
+		ginkgo.By("Relocate source volume from one datastore to another datastore using" +
+			"CnsRelocateVolume API")
+		destDsUrl := os.Getenv(constants.EnvTargetDSUrlForRelocate)
+		dsRefDest := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, destDsUrl)
+		volumeID := lcPv[0].Spec.CSI.VolumeHandle
+		_, err = vcutil.CnsRelocateVolume(ctx, e2eTestConfig, volumeID, dsRefDest)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		vcutil.VerifyDatastoreMatch(e2eTestConfig, volumeID, []string{destDsUrl})
+
+		// Validate the LC volume is not relocated
+		volumeIDLc := pv[0].Spec.CSI.VolumeHandle
+		actualDatastoreUrl := vcutil.FetchDsUrl4CnsVol(e2eTestConfig, volumeIDLc)
+		gomega.Expect(actualDatastoreUrl).ShouldNot(gomega.BeElementOf(destDsUrl),
+			"Volume is not provisioned on any of the given datastores: %s, but on: %s", destDsUrl,
+			actualDatastoreUrl)
+
+		// TODO volume usability
+
+		framework.Logf("Ending test: Relocate the linked clone volume")
+
+	})
+
+	// TC-6
+	ginkgo.It("Attach LC PVC to parent pod ", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Attach LC PVC to parent pod ")
+
+		// Create PVC and volume snapshot
+		srcPvc, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+
+		// create linked clone PVC and verify its bound
+		lcPvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		//create pod attaching to src-pvc and lc
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{srcPvc, lcPvc}, true, false)
+
+		framework.Logf("Ending test: Attach LC PVC to parent pod")
+
+	})
+
+	// TC-7
+	ginkgo.It("Create multiple linked clones from a snapshot", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Create multiple linked clones from a snapshot ")
+
+		// Create PVC and volume snapshot
+		_, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
+
+		// create linked clone PVC and verify its bound
+		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		//create another linked clone PVC and verify its bound
+		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
+
+		framework.Logf("Ending test: Create multiple linked clones from a snapshot")
+
+	})
+
+	// TC-8
+	ginkgo.It("Verify creating the LC with statefulsets", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Verify creating the LC with statefulsets")
+
+		// Create PVC and volume snapshot
+		_, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+
+		// create linked clone PVC and verify its bound
+		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		//create another linked clone PVC and verify its bound
+		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
+
+		framework.Logf("Ending test: Verify creating the LC with statefulsets")
 
 	})
 

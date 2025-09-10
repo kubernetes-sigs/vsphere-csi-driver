@@ -52,14 +52,14 @@ var lcToDelete []*corev1.PersistentVolumeClaim
 /*
 This method will create PVC, attach pod to it and creates snapshot
 */
-func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool) *snapV1.VolumeSnapshot {
+func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume, *snapV1.VolumeSnapshot) {
 
 	// Create PVC and verify PVC is bound
 	pvclaim, pv := createAndValidatePvc(ctx, client, namespace, storageclass)
 
 	// Create Pod and attach to PVC
 	if doCreatePod || doCreateDep {
-		CreatePodForPvc(ctx, e2eTestConfig, client, namespace, pvclaim, doCreatePod, doCreateDep)
+		CreatePodForPvc(ctx, e2eTestConfig, client, namespace, []*corev1.PersistentVolumeClaim{pvclaim}, doCreatePod, doCreateDep)
 	}
 
 	// TODO : Write data to volume
@@ -67,16 +67,16 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 	// create volume snapshot
 	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv)
 
-	return volumeSnapshot
+	return pvclaim, pv, volumeSnapshot
 }
 
-func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim *corev1.PersistentVolumeClaim, deCreatePod bool, doCreateDep bool) (*corev1.Pod, *appsv1.Deployment) {
+func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim []*corev1.PersistentVolumeClaim, deCreatePod bool, doCreateDep bool) (*corev1.Pod, *appsv1.Deployment) {
 	ginkgo.By("Create Pod to attach to Pvc")
 	var pod *corev1.Pod
 	var dep *appsv1.Deployment
 	var err error
 	if deCreatePod {
-		pod, err = CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvclaim}, false,
+		pod, err = CreatePod(ctx, e2eTestConfig, client, namespace, nil, pvclaim, false,
 			constants.ExecRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		podToDelete = append(podToDelete, pod)
@@ -84,7 +84,7 @@ func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, c
 		labelsMap := make(map[string]string)
 		labelsMap["app"] = "test"
 		dep, err = CreateDeployment(ctx, e2eTestConfig, client, 1, labelsMap, nil, namespace,
-			[]*corev1.PersistentVolumeClaim{pvclaim}, constants.ExecRWXCommandPod1, false, constants.NginxImage)
+			pvclaim, constants.ExecRWXCommandPod1, false, constants.NginxImage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	return pod, dep

@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -7723,4 +7724,256 @@ func InvokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 	resp, statusCode := HttpRequest(httpClient, req)
 
 	return resp, statusCode
+}
+
+// PvcUsability Verifies Create snapshot of PVC, Creat PVC from Snapshot, Attach to POD
+func PvcUsability(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, pvclaims []*v1.PersistentVolumeClaim, diskSize string) {
+	restConfig := GetRestConfigClient(e2eTestConfig)
+	snapc, err := snapclient.NewForConfig(restConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Create volume snapshot class")
+	volumeSnapshotClass, err := CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, pvclaim := range pvclaims {
+		ginkgo.By("Create a volume snapshot")
+		framework.Logf("Volume snapshot class name is : %s", volumeSnapshotClass.Name)
+		volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+			GetVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+		snapshotCreated := true
+
+		defer func() {
+			if snapshotCreated {
+				framework.Logf("Deleting volume snapshot")
+				var pandoraSyncWaitTime int
+				if os.Getenv(constants.EnvPandoraSyncWaitTime) != "" {
+					pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(constants.EnvPandoraSyncWaitTime))
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				} else {
+					pandoraSyncWaitTime = constants.DefaultPandoraSyncWaitTime
+				}
+				DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+			}
+		}()
+
+		ginkgo.By("Verify volume snapshot is created")
+		volumeSnapshot, err = WaitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, volumeSnapshot.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create PVC from snapshot")
+		pvcSpec := GetPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
+			v1.ReadWriteOnce, volumeSnapshot.Name, constants.Snapshotapigroup)
+		pvcFromSnapshot, err := CreatePvcWithSpec(ctx, client, namespace, pvcSpec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvcFromSnapshot}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+		framework.Logf("Deleting restored PVC")
+		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvcFromSnapshot.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volHandle)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		framework.Logf("Deleting volume snapshot")
+		var pandoraSyncWaitTime int
+		if os.Getenv(constants.EnvPandoraSyncWaitTime) != "" {
+			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(constants.EnvPandoraSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else {
+			pandoraSyncWaitTime = constants.DefaultPandoraSyncWaitTime
+		}
+		DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+		//Create Pod and Attach PVC
+		pod, err := CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+			pvclaim.Name, pod.Spec.NodeName))
+		annotations := pod.Annotations
+		vmUUID, exists := annotations[constants.VmUUIDLabel]
+		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", constants.VmUUIDLabel))
+		_, err = vcutil.GetVMByUUID(ctx, e2eTestConfig, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := GetPvFromClaim(client, namespace, pvclaim.Name)
+		pvcUuid := pv.Spec.CSI.VolumeHandle
+		framework.Logf("UUID of the PVC : %s", pvcUuid)
+
+		isDiskAttached, err := vcutil.IsVolumeAttachedToVM(client, e2eTestConfig, pvcUuid, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify the volume is accessible and Read/write is possible")
+		output := ReadFileFromPod(namespace, e2eTestConfig, pod.Name, constants.FilePathPod1)
+		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+
+		WriteDataOnFileFromPod(namespace, e2eTestConfig, pod.Name, constants.FilePathPod1, "Hello message from test into Pod1")
+		output = ReadFileFromPod(namespace, e2eTestConfig, pod.Name, constants.FilePathPod1)
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+
+		//Delete Pod
+		ginkgo.By("Deleting the pod")
+		err = fpod.DeletePodWithWait(ctx, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is detached from PodVM with vmUUID: %s",
+			pvclaim.Name, vmUUID))
+		_, err = vcutil.GetVMByUUIDWithWait(ctx, e2eTestConfig, vmUUID, constants.SupervisorClusterOperationsTimeout)
+		gomega.Expect(err).To(gomega.HaveOccurred(),
+			fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
+				vmUUID, pvclaim.Name))
+	}
+}
+
+// GetPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+// spec with specified storage class.
+func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := constants.DiskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
+}
+
+// CreatePVCWithPvcSpec helps creates pvc with given namespace and using given pvc spec
+func CreatePvcWithSpec(ctx context.Context, client clientset.Interface, pvcnamespace string, pvcspec *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+	pvclaim, err := fpv.CreatePVC(ctx, client, pvcnamespace, pvcspec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
+	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
+	return pvclaim, err
+}
+
+/*
+createCustomisedStatefulSets util methods creates statefulset as per the user's
+specific requirement and returns the customised statefulset
+*/
+func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.TestInputData, e2eTestConfig *config.E2eTestConfig,
+	namespace string, isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
+	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
+	framework.Logf("Preparing StatefulSet Spec")
+	statefulset := GetStatefulSetFromManifest(e2eTestConfig, namespace)
+
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		defaultAccessMode := v1.ReadWriteOnce
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.AccessModes[0] = defaultAccessMode
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
+	}
+
+	if modifyStsSpec {
+		if vs.TestBedInfo.MultipleSvc {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &storagePolicy
+		} else {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &sc.Name
+		}
+
+		if stsName != "" {
+			statefulset.Name = stsName
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+		}
+
+	}
+	if nodeAffinityToSet {
+		nodeSelectorTerms := GetNodeSelectorTerms(allowedTopologies)
+		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
+	}
+	if podAntiAffinityToSet {
+		statefulset.Spec.Template.Spec.Affinity = &v1.Affinity{
+			PodAntiAffinity: &v1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"key": "app",
+							},
+						},
+						TopologyKey: "topology.kubernetes.io/zone",
+					},
+				},
+			},
+		}
+
+	}
+	if isParallelPodMgmtPolicy {
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+	}
+	statefulset.Spec.Replicas = &replicas
+
+	framework.Logf("Creating statefulset")
+	CreateStatefulSet(namespace, statefulset, client)
+
+	framework.Logf("Wait for StatefulSet pods to be in up and running state")
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(ctx, client, statefulset, constants.MountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	return statefulset
+}
+
+// CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
+func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
+	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
+	framework.ExpectNoError(err)
+	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }

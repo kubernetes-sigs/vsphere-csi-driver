@@ -24,12 +24,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 
-	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 	admissionapi "k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
@@ -44,9 +43,7 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 		client          clientset.Interface
 		namespace       string
 		storageclass    *v1.StorageClass
-		restConfig      *restclient.Config
 		err             error
-		volumeSnapshot  *snapV1.VolumeSnapshot
 		vcRestSessionId string
 		statuscode      int
 		doCleanup       bool
@@ -86,8 +83,6 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 
 		//After NS creation need sometime to load usage CRs
 		time.Sleep(constants.PollTimeoutShort)
-
-		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -127,19 +122,42 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		NO_OF_LC_TO_CREATE := 3
+
 		// Create and attach a pod to PVC
-		volumeMap := k8testutil.CreateMultiplePvcPod(ctx, e2eTestConfig, client, namespace, storageclass, true, false, 3)
+		volumeMap := k8testutil.CreateMultiplePvcPod(ctx, e2eTestConfig, client, namespace, storageclass, true, false, NO_OF_LC_TO_CREATE)
 
 		// Create 3 snapshots of the PVC concurrently.
 		volumeSnap := k8testutil.CreateSnapshotInParallel(ctx, e2eTestConfig, namespace, volumeMap)
 
-		//Create& delete 3 linked clones of 3 snapshots concurrently.
+		// Create linked clone
+		var lcToDelete []*corev1.PersistentVolumeClaim
 		valSnap := <-volumeSnap
-		var pvcList []string
-		for key := range valSnap {
-			pvcList = append(pvcList, key)
+		for range NO_OF_LC_TO_CREATE {
+			linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, valSnap.Name)
+			lcToDelete = append(lcToDelete, linkdeClonePvc)
 		}
-		k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, pvcList, 3)
+
+		//Create & delete 3 linked clones of 3 snapshots concurrently.
+		lcPvcCreated, lcPvCreated := k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, lcToDelete, NO_OF_LC_TO_CREATE)
+
+		// convert chan to list
+		var lcPvcList []*corev1.PersistentVolumeClaim
+		for val := range lcPvcCreated {
+			lcPvcList = append(lcPvcList, val)
+		}
+		var lcPvList [][]*corev1.PersistentVolume
+		for val := range lcPvCreated {
+			lcPvList = append(lcPvList, val)
+		}
+
+		// Create and attach pod to linked clone PVCs
+		for i, lc := range lcPvcList {
+			_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, client, namespace, []*corev1.PersistentVolumeClaim{lc}, true, false)
+
+			framework.Logf("Create snapshot from LC_PVC ")
+			_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, lc, lcPvList[i])
+		}
 	})
 
 })

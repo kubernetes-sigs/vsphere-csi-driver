@@ -2500,3 +2500,22 @@ func CheckVcenterServicesRunning(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"Got timed-out while waiting for all required VC services to be up and running")
 }
+
+// getDsMoRefFromURL get datastore MoRef from its URL
+func GetDsMoRefFromURL(ctx context.Context, e2eTestConfig *config.E2eTestConfig, dsURL string) vim25types.ManagedObjectReference {
+	dcList, err := GetAllDatacenters(ctx, e2eTestConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var ds *object.Datastore
+	for _, dc := range dcList {
+		ds, err = GetDatastoreByURL(ctx, e2eTestConfig, dsURL, dc)
+		if err != nil {
+			if !strings.Contains(err.Error(), "couldn't find Datastore given URL") {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		} else {
+			break
+		}
+	}
+	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
+	return ds.Reference()
+}
