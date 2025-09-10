@@ -346,7 +346,7 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 		hasTopologyRequirement := v1.HasAnnotation(newPVC.ObjectMeta, common.AnnGuestClusterRequestedTopology)
 		if hasTopologyRequirement {
 			// determined the source accessibility requirement
-			newPVCAccessibility := sourcePVC.Annotations[common.AnnGuestClusterRequestedTopology]
+			newPVCAccessibility := newPVC.Annotations[common.AnnGuestClusterRequestedTopology]
 			if strings.Compare(newPVCAccessibility, sourcePVCAccessibility) != 0 {
 				// accessibility requirement mismatch, deny the request and suggest the correct annotation
 				errMsg := fmt.Sprintf("expected accessibility requirement: %s but got %s, "+
