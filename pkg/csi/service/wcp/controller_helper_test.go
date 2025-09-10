@@ -143,6 +143,7 @@ func TestVerifyStoragePolicyForVmfsWithEageredZeroThick(t *testing.T) {
 					{
 						Rules: []cnsvsphere.SpbmPolicyRule{
 							{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
+							{Ns: vmfsNamespace, Value: vmfsClusteredVmdk},
 						},
 					},
 				},
