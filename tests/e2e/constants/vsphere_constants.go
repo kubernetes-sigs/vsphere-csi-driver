@@ -19,12 +19,17 @@ package constants
 const (
 	Datacenter              = "DATACENTER"
 	DestinationDatastoreURL = "DESTINATION_VSPHERE_DATASTORE_URL"
+	DATASTORE               = "Datastore"
+	DatastoreInfo           = "info"
+	DatastoreSummary        = "summary"
 	DisklibUnlinkErr        = "DiskLib_Unlink"
 	DiskSize1GB             = "1Gi"
 	DiskSize                = "2Gi"
+	DiskSize10GB            = "10Gi"
 	DiskSizeLarge           = "100Gi"
 	DiskSizeInMb            = int64(2048)
 	DiskSizeInMinMb         = int64(200)
+	DiskSize10GBInMb        = int64(10240)
 	E2eTestPassword         = "E2E-test-password!23"
 	E2evSphereCSIDriverName = "csi.vsphere.vmware.com"
 	Ext3FSType              = "ext3"
@@ -45,4 +50,5 @@ const (
 	Nfs4Keyword             = "NFSv4.1"
 	ObjOrItemNotFoundErr    = "The object or item referred to could not be found"
 	ProviderPrefix          = "vsphere://"
+	Local                   = "local"
 )

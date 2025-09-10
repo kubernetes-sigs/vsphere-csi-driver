@@ -50,6 +50,7 @@ const (
 	GcSshKey                                  = "TEST-CLUSTER-SSH-KEY"
 	GcManifestPath                            = "testing-manifests/tkg/"
 	HostdServiceName                          = "hostd"
+	HostdServiceCommand                       = "/etc/init.d/hostd"
 	InvalidFSType                             = "ext10"
 	KcmManifest                               = "/etc/kubernetes/manifests/kube-controller-manager.yaml"
 	KubeAPIPath                               = "/etc/kubernetes/manifests/"
@@ -81,6 +82,7 @@ const (
 	MountPath                                 = "/usr/share/nginx/html"
 	ServiceName                               = "nginx"
 	SpsServiceName                            = "sps"
+	VcDbServiceName                           = "vmware-vpostgres"
 	SnapshotterContainerName                  = "csi-snapshotter"
 	SshdPort                                  = "22"
 	SshSecretName                             = "SSH_SECRET_NAME"
@@ -101,6 +103,11 @@ const (
 	VsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	VsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	VSphereCSIConf                            = "csi-vsphere.conf"
+	VsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
+	VpxaServiceCommand                        = "/etc/init.d/vpxa"
+	VpxaServiceName                           = "vpxa"
+	CsiServiceName                            = "CSI"
+	StorageQuotaWebhookServiceName            = "storage-quota-webhook"
 	WcpServiceName                            = "wcp"
 	VmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	DevopsTKG                                 = "test-cluster-e2e-script"
@@ -138,6 +145,7 @@ const (
 	StorageQuotaWebhookPrefix  = "storage-quota-webhook"
 	DevopsKubeConf             = "DEV_OPS_USER_KUBECONFIG"
 	QuotaSupportedVCVersion    = "9.0.0"
+	LinkedCloneAnnotationKey   = "csi.vsphere.volume/fast-provisioning"
 )
 
 // For busybox pod image

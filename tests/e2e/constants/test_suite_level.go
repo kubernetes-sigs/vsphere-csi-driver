@@ -78,6 +78,7 @@ const (
 	ControlPlaneOnPrimary = "controlPlaneOnPrimary"
 	Distributed           = "distributed"
 	Vmsvc                 = "vmsvc"
+	Vc91                  = "vc91"
 	Vc90                  = "vc90"
 	Vc80                  = "vc80"
 	Vc70                  = "vc70"
