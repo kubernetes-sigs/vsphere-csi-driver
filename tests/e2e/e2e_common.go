@@ -275,6 +275,8 @@ const (
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
 	lateBinding                              = "-latebinding"
+	//vc client connection intervals
+	vcConnectionRetries = 3
 )
 
 /*
