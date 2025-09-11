@@ -331,7 +331,7 @@ func ParseMi(value string) (int, error) {
 }
 
 func CreateAndValidateLcWithSts(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, sc *v1.StorageClass, snapName string, snapshotapigroup string) {
-	statefulset := GetStatefulSetFromManifest(e2eTestConfig, namespace)
+	statefulset := GetStatefulSetFromManifest(e2eTestConfig.TestInput, namespace)
 	ginkgo.By("Creating statefulset")
 	annotations := map[string]string{
 		"csi.vsphere.volume/fast-provisioning": "true",

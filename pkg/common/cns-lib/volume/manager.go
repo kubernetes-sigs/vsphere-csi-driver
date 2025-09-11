@@ -156,6 +156,11 @@ type Manager interface {
 	// BatchAttachVolumes attaches multiple volumes to a virtual machine.
 	BatchAttachVolumes(ctx context.Context,
 		vm *cnsvsphere.VirtualMachine, batchAttachRequest []BatchAttachRequest) ([]BatchAttachResult, string, error)
+	// UnregisterVolume unregisters a volume from CNS.
+	// If unregisterDisk is true, it will also unregister the disk from FCD.
+	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error
+	// SyncVolume returns the aggregated capacity for volumes
+	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -2851,8 +2856,8 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		}
 	}()
 	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
-		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+		metav1.Now(),
+		"", "", "", taskInvocationStatusInProgress, "")
 	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 		// Don't return if CreateSnapshot details can't be stored.
 		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -2870,7 +2875,7 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 	var faultType string
 	createSnapshotsTaskInfo, err = m.waitOnTask(ctx, createSnapshotsTask.Reference())
 	if err != nil {
-		if IsNotSupportedFault(ctx, createSnapshotsTaskInfo.Error) {
+		if createSnapshotsTaskInfo != nil && IsNotSupportedFault(ctx, createSnapshotsTaskInfo.Error) {
 			faultType = "vim25:NotSupported"
 			err = fmt.Errorf("failed to create snapshot with fault: %q", faultType)
 		} else {
@@ -3603,6 +3608,69 @@ func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
 	return batchAttachResult, faultType, err
 }
 
+// SyncVolume creates a new volume given its spec.
+func (m *defaultManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalSyncVolumeInfo := func() (string, error) {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		var faultType string
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("failed to validate manager with error: %v", err)
+			return faultType, err
+		}
+		// Set up the VC connection.
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return faultType, err
+		}
+		// Call the CNS QueryVolumeInfo.
+		syncVolumeInfoTask, err := m.virtualCenter.CnsClient.SyncVolume(ctx, syncVolumeSpecs)
+		if err != nil {
+			faultType = ExtractFaultTypeFromErr(ctx, err)
+			log.Errorf("CNS SyncVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			return faultType, err
+		}
+
+		// Get the taskInfo.
+		var taskInfo *vim25types.TaskInfo
+		taskInfo, err = m.waitOnTask(ctx, syncVolumeInfoTask.Reference())
+		if err != nil || taskInfo == nil {
+			log.Errorf("failed to get SyncVolume taskInfo from vCenter %q with err: %v",
+				m.virtualCenter.Config.Host, err)
+			if err != nil {
+				faultType = ExtractFaultTypeFromErr(ctx, err)
+			} else {
+				faultType = csifault.CSITaskInfoEmptyFault
+			}
+			return faultType, err
+		}
+		log.Infof("SyncVolume: CnsSyncVolumeSpecs: %v, opId: %q", syncVolumeSpecs, taskInfo.ActivationId)
+		if taskInfo.State != vim25types.TaskInfoStateSuccess {
+			log.Errorf("Failed to sync volume. Error: %+v \n", taskInfo.Error)
+			err = errors.New(taskInfo.Error.LocalizedMessage)
+			return csifault.CSIInternalFault, err
+		}
+		return "", nil
+	}
+	start := time.Now()
+	faultType, err := internalSyncVolumeInfo()
+	log := logger.GetLogger(ctx)
+	log.Debugf("internalSyncVolumeInfo: returns fault %q for CnsSyncVolumeSpecs %v", faultType, syncVolumeSpecs)
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeInfoOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsQueryVolumeInfoOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return faultType, err
+}
+
 func (m *defaultManager) IsListViewReady() bool {
 	if m.listViewIf == nil {
 		return false
@@ -3614,4 +3682,94 @@ func (m *defaultManager) SetListViewNotReady(ctx context.Context) {
 	if m.listViewIf != nil {
 		m.listViewIf.SetListViewNotReady(ctx)
 	}
+}
+
+// UnregisterVolume unregisters a volume from CNS.
+// If unregisterDisk is true, it will also unregister the disk from FCD.
+func (m *defaultManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	start := time.Now()
+	err := m.unregisterVolume(ctx, volumeID, unregisterDisk)
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusUnregisterVolumeOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+		return err
+	}
+
+	prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusUnregisterVolumeOpType,
+		prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	return nil
+}
+
+func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+	log := logger.GetLogger(ctx)
+
+	if m.virtualCenter == nil {
+		return errors.New("invalid manager instance")
+	}
+
+	err := m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		return errors.New("connecting to CNS failed")
+	}
+
+	targetVolumeType := "FCD"
+	if unregisterDisk {
+		targetVolumeType = "LEGACY_DISK"
+	}
+	spec := []cnstypes.CnsUnregisterVolumeSpec{
+		{
+			VolumeId:         cnstypes.CnsVolumeId{Id: volumeID},
+			TargetVolumeType: targetVolumeType,
+		},
+	}
+	task, err := m.virtualCenter.CnsClient.UnregisterVolume(ctx, spec)
+	if err != nil {
+		msg := "failed to invoke UnregisterVolume API"
+		log.Errorf("%s from vCenter %q with err: %v", msg, m.virtualCenter.Config.Host, err)
+		return errors.New(msg)
+	}
+
+	taskInfo, err := m.waitOnTask(ctx, task.Reference())
+	if err != nil {
+		msg := "failed to get UnregisterVolume taskInfo"
+		log.Errorf("%s from vCenter %q with err: %v",
+			msg, m.virtualCenter.Config.Host, err)
+		return errors.New(msg)
+	}
+
+	if taskInfo == nil {
+		msg := "taskInfo is empty for UnregisterVolume task"
+		log.Errorf("%s from vCenter %q. task: %q",
+			msg, m.virtualCenter.Config.Host, task.Reference().Value)
+		return errors.New(msg)
+	}
+
+	log.Infof("processing UnregisterVolume task: %q, opId: %q",
+		taskInfo.Task.Value, taskInfo.ActivationId)
+	res, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		msg := "failed to get UnregisterVolume task result"
+		log.Errorf("%s with error: %v", msg, err)
+		return errors.New(msg)
+	}
+
+	if res == nil {
+		msg := "task result is empty for UnregisterVolume task"
+		log.Errorf("%s from vCenter %q. taskID: %q, opId: %q",
+			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId)
+		return errors.New(msg)
+	}
+
+	volOpRes := res.GetCnsVolumeOperationResult()
+	if volOpRes.Fault != nil {
+		msg := "observed a fault in UnregisterVolume result"
+		log.Errorf("%s volume: %q, fault: %q, opID: %q",
+			msg, volumeID, ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes), taskInfo.ActivationId)
+		return errors.New(msg)
+	}
+
+	log.Infof("volume %q unregistered successfully", volumeID)
+	return nil
 }

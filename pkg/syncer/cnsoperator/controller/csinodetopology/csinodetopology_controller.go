@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -110,7 +111,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		}
 	}
 
-	isMultiVCFSSEnabled := coCommonInterface.IsFSSEnabled(ctx, common.MultiVCenterCSITopology)
 	// Initialize kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -128,12 +128,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		enableTKGsHAinGuest, isMultiVCFSSEnabled, vmOperatorClient, supervisorNamespace))
+		enableTKGsHAinGuest, vmOperatorClient, supervisorNamespace))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	enableTKGsHAinGuest bool, isMultiVCFSSEnabled bool, vmOperatorClient client.Client,
+	enableTKGsHAinGuest bool, vmOperatorClient client.Client,
 	supervisorNamespace string) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
 		client:              mgr.GetClient(),
@@ -141,7 +141,6 @@ func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo,
 		configInfo:          configInfo,
 		recorder:            recorder,
 		enableTKGsHAinGuest: enableTKGsHAinGuest,
-		isMultiVCFSSEnabled: isMultiVCFSSEnabled,
 		vmOperatorClient:    vmOperatorClient,
 		supervisorNamespace: supervisorNamespace}
 }
@@ -466,7 +465,8 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	case csinodetopologyv1alpha1.CSINodeTopologyError:
 		// Increase backoff duration for the instance.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = backOffDuration[namespacedName] * 2
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 
 		// Record an event on the CR.
@@ -508,11 +508,17 @@ func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
 	}
 
 	// Get tag manager instance.
-	tagManager, err := vcenter.GetTagManager(ctx)
+	tagManager, err := cnsvsphere.GetTagManager(ctx, vcenter)
 	if err != nil {
 		log.Errorf("failed to create tagManager. Error: %v", err)
 		return nil, err
 	}
+	defer func() {
+		err := tagManager.Logout(ctx)
+		if err != nil {
+			log.Errorf("failed to logout tagManager. Error: %v", err)
+		}
+	}()
 
 	// Create a map of TopologyCategories with category as key and value as empty string.
 	var isZoneRegion bool

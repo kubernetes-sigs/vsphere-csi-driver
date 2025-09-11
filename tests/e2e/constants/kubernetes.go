@@ -69,6 +69,7 @@ const (
 	DefaultrqLimit                            = "20Gi"
 	RqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"
 	ResizerContainerName                      = "csi-resizer"
+	ReadWritePermission                       = "READ_WRITE"
 	ScParamDatastoreURL                       = "DatastoreURL"
 	ScParamFsType                             = "csi.storage.k8s.io/fstype"
 	ScParamStoragePolicyID                    = "storagePolicyID"
@@ -78,6 +79,7 @@ const (
 	Snapshotapigroup                          = "snapshot.storage.k8s.io"
 	DefaultNginxStorageClassName              = "nginx-sc"
 	MountPath                                 = "/usr/share/nginx/html"
+	ServiceName                               = "nginx"
 	SpsServiceName                            = "sps"
 	SnapshotterContainerName                  = "csi-snapshotter"
 	SshdPort                                  = "22"
@@ -99,7 +101,6 @@ const (
 	VsphereCloudProviderConfiguration         = "vsphere-cloud-provider.conf"
 	VsphereControllerManager                  = "vmware-system-tkg-controller-manager"
 	VSphereCSIConf                            = "csi-vsphere.conf"
-	VsphereTKGSystemNamespace                 = "svc-tkg-domain-c10"
 	WcpServiceName                            = "wcp"
 	VmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant
 	DevopsTKG                                 = "test-cluster-e2e-script"
@@ -195,3 +196,11 @@ var UsageSuffixes = []string{
 	"-vm-usage",
 	"-latebinding-vm-usage",
 }
+
+// for devops persona testing
+const (
+	RbacApiGroup              = "rbac.authorization.k8s.io"
+	RoleKeyword               = "Role"
+	AudienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
+	ServiceAccountKeyword     = "ServiceAccount"
+)

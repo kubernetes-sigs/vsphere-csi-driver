@@ -56,29 +56,20 @@ func InitStoragePoolService(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	clusterIDs := []string{configInfo.Cfg.Global.ClusterID}
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-		clusterComputeResourceMoIds, multipleClustersPerAZ, err := common.GetClusterComputeResourceMoIds(ctx)
+		clusterComputeResourceMoIds, _, err := common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
 			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
 			return err
 		}
 		clusterIDs = clusterComputeResourceMoIds
 		if len(clusterIDs) > 1 &&
-			(!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor) ||
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VdppOnStretchedSupervisor)) {
-			log.Infof("`%s` and `%s` should be enabled for storage pool service on Stretched Supervisor. Exiting...",
-				common.PodVMOnStretchedSupervisor, common.VdppOnStretchedSupervisor)
+			(!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.PodVMOnStretchedSupervisor)) {
+			log.Infof("`%s` should be enabled for storage pool service on Stretched Supervisor. Exiting...",
+				common.PodVMOnStretchedSupervisor)
 			return nil
-		}
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.MultipleClustersPerVsphereZone) {
-			if multipleClustersPerAZ {
-				// vDPP workload is not supported on the deployment with multiple zones per clusters
-				log.Info("AZ has multiple vSphere Clusters. Skip starting storage pool service.")
-				return nil
-			}
 		}
 	}
 	log.Infof("Initializing Storage Pool Service")
-
 	// Create StoragePool CRD.
 	err := k8s.CreateCustomResourceDefinitionFromManifest(ctx, storagepoolconfig.EmbedStoragePoolCRFile,
 		storagepoolconfig.EmbedStoragePoolCRFileName)

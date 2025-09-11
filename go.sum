@@ -32,8 +32,8 @@ github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UF
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/chai2010/gettext-go v1.0.2 h1:1Lwwip6Q2QGsAdl/ZKPCwTe9fe0CjlUbqj5bFNSjIRk=
 github.com/chai2010/gettext-go v1.0.2/go.mod h1:y+wnP2cHYaVj19NZhYKAwEMH2CI1gNHeQQ+5AjwawxA=
-github.com/container-storage-interface/spec v1.9.0 h1:zKtX4STsq31Knz3gciCYCi1SXtO2HJDecIjDVboYavY=
-github.com/container-storage-interface/spec v1.9.0/go.mod h1:ZfDu+3ZRyeVqxZM0Ds19MVLkN2d1XJ5MAfi1L3VjlT0=
+github.com/container-storage-interface/spec v1.11.0 h1:H/YKTOeUZwHtyPOr9raR+HgFmGluGCklulxDYxSdVNM=
+github.com/container-storage-interface/spec v1.11.0/go.mod h1:DtUvaQszPml1YJfIK7c00mlv6/g4wNMLanLgiUbKFRI=
 github.com/containerd/containerd/api v1.8.0 h1:hVTNJKR8fMc/2Tiw60ZRijntNMd1U+JVMyTRdsD2bS0=
 github.com/containerd/containerd/api v1.8.0/go.mod h1:dFv4lt6S20wTu/hMcP4350RL87qPWLVa/OHOwmmdnYc=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=
@@ -289,12 +289,12 @@ github.com/thecodeteam/gofsutil v0.1.2 h1:FL87mBzZeeuDMZm8hpYLFcYylQdq6bbm8UQ1oc
 github.com/thecodeteam/gofsutil v0.1.2/go.mod h1:7bDOpr2aMnmdm9RTdxBEeqdOr+8RpnQhsB/VUEI3DgM=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75 h1:6fotK7otjonDflCTK0BCfls4SPy3NcCVb5dqqmbRknE=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75/go.mod h1:KO6IkyS8Y3j8OdNO85qEYBsRPuteD+YciPomcXdrMnk=
-github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa h1:LRfm1EMc+L96FzMOwujwbifo6pd/dkBJ4QhofuYNzBw=
-github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250509154507-b93e51fc90fa/go.mod h1:V0JbH4beGCU+q7yqnWUYYOuDij0ut5i1iBO4cyzg+tM=
+github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250729185616-b3910fb93c83 h1:EvjDjVpO5x4W/ITTjkfzdABa0NHxaqXGaasvOQfCJ2g=
+github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250729185616-b3910fb93c83/go.mod h1:f2zOJg30nPEsBBF0SlSw5hin1cZs2L5lDdB1t0gzqnc=
 github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa h1:4MKu14YJ7J54O6QKmT4ds5EUpysWLLtQRMff73cVkmU=
 github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa/go.mod h1:8tiuyYslzjLIUmOlXZuGKQdQP2ZgWGCVhVeyptmZYnk=
-github.com/vmware/govmomi v0.52.0-alpha.0.0.20250806225047-fa600e0bc283 h1:bHQhigLaGJxz73T0+k1ZtOP/1UNjBp85UwRjJ+0BFwU=
-github.com/vmware/govmomi v0.52.0-alpha.0.0.20250806225047-fa600e0bc283/go.mod h1:ZJ5Zd2wDGRzsTRBqA1jpqtbyoe8mRok1rWiPsrL8c7k=
+github.com/vmware/govmomi v0.52.0-alpha.0.0.20250807230438-0eee109f1f2c h1:1nMVFr1CBMSNLLjsfx3QPfZ5k0R1/O29QX/A2X0w3RQ=
+github.com/vmware/govmomi v0.52.0-alpha.0.0.20250807230438-0eee109f1f2c/go.mod h1:ZJ5Zd2wDGRzsTRBqA1jpqtbyoe8mRok1rWiPsrL8c7k=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xiang90/probing v0.0.0-20221125231312-a49e3df8f510 h1:S2dVYn90KE98chqDkyE9Z4N61UnQd+KOfgp5Iu53llk=

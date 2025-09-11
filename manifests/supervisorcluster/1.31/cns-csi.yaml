@@ -4,14 +4,23 @@ metadata:
   name: vsphere-csi-controller
   namespace: vmware-system-csi
 ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: vsphere-csi-webhook
+  namespace: vmware-system-csi
+---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "configmaps", "resourcequotas", "namespaces", "services"]
+    resources: ["nodes", "pods", "resourcequotas", "namespaces", "services"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "update"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -126,6 +135,9 @@ rules:
   - apiGroups: ["nsx.vmware.com"]
     resources: ["namespacenetworkinfos"]
     verbs: ["get", "list"]
+  - apiGroups: ["vmoperator.vmware.com"]
+    resources: ["virtualmachinesnapshots"]
+    verbs: ["get", "list", "patch", "update", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -566,14 +578,10 @@ data:
   "list-volumes": "true"
   "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "true"
-  "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
-  "WCP_VMService_BYOK": "true"
   "sv-pvc-snapshot-protection-finalizer": "false"
   "file-volume-with-vm-service": "false"
-  "csi-transaction-support": "false"
-  "storage-policy-reservation-support": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -598,7 +606,7 @@ spec:
       protocol: TCP
   selector:
     app: vsphere-csi-controller
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
@@ -732,7 +740,7 @@ metadata:
   name: vsphere-csi-webhook-cluster-role-binding
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-webhook
     namespace: vmware-system-csi
 roleRef:
   kind: ClusterRole
@@ -756,7 +764,7 @@ metadata:
   namespace: vmware-system-csi
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: vsphere-csi-webhook
     namespace: vmware-system-csi
 roleRef:
   kind: Role
@@ -796,6 +804,7 @@ spec:
                       - vsphere-csi-webhook
               topologyKey: kubernetes.io/hostname
       hostNetwork: true
+      serviceAccount: vsphere-csi-webhook
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
       terminationGracePeriodSeconds: 10

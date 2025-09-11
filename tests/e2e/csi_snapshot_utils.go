@@ -856,7 +856,7 @@ func getRestConfigClientForGuestCluster2(guestClusterRestConfig *rest.Config) *r
 
 // createDynamicVolumeSnapshot util creates dynamic volume snapshot for a volume
 func createDynamicVolumeSnapshotWithoutSnapClass(ctx context.Context, namespace string,
-	snapc *snapclient.Clientset, volumeSnapshotClass *snapV1.VolumeSnapshotClass,
+	snapc *snapclient.Clientset,
 	pvclaim *v1.PersistentVolumeClaim, volHandle string, diskSize string,
 	performCnsQueryVolumeSnapshot bool) (*snapV1.VolumeSnapshot,
 	*snapV1.VolumeSnapshotContent, bool, bool, string, string, error) {

@@ -763,7 +763,7 @@ func isValidVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeCa
 // validateVolumeCapabilitiesInWcp validates the access mode in given volume
 // capabilities in validAccessModes for WCP cluster.
 func validateVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeCapability,
-	validAccessModes []csi.VolumeCapability_AccessMode, volumeType string) error {
+	validAccessModes []csi.VolumeCapability_AccessMode_Mode, volumeType string) error {
 
 	log := logger.GetLogger(ctx)
 	isSharedDiskEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
@@ -772,7 +772,7 @@ func validateVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeC
 	for _, volCap := range volCaps {
 		found := false
 		for _, validAccessMode := range validAccessModes {
-			if volCap.AccessMode.GetMode() == validAccessMode.GetMode() {
+			if volCap.AccessMode.GetMode() == validAccessMode {
 				found = true
 				break
 			}

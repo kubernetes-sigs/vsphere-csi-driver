@@ -45,6 +45,14 @@ type FakeK8SOrchestrator struct {
 	// RWMutex to synchronize access to 'featureStates' field from multiple callers
 	featureStatesLock *sync.RWMutex
 	featureStates     map[string]string
+	// CSINodeTopology instances for topology testing
+	csiNodeTopologyInstances []interface{}
+}
+
+func (c *FakeK8SOrchestrator) HandleLateEnablementOfCapability(
+	ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability, gcPort, gcEndpoint string) {
+	//TODO implement me
+	panic("implement me")
 }
 
 // volumeMigration holds mocked migrated volume information
@@ -104,6 +112,11 @@ type VcsimParams struct {
 type MockVolumeManager struct {
 	createVolumeFunc func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 		extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
+}
+
+func (m *MockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+	//TODO implement me
+	return nil
 }
 
 func (m *MockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
@@ -210,4 +223,9 @@ func (m *MockVolumeManager) BatchAttachVolumes(ctx context.Context,
 		}
 	}
 	return []cnsvolume.BatchAttachResult{}, "", nil
+}
+
+func (m *MockVolumeManager) SyncVolume(ctx context.Context,
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
 }

@@ -65,12 +65,13 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 			controllerNamespace = csiSystemNamespace
 		}
 		bootstrap()
+		var err error
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 
 		nodeNameIPMap = make(map[string]string)
 		ginkgo.By("Retrieving testbed configuration data")
-		err := mapK8sMasterNodeWithIPs(client, nodeNameIPMap)
+		err = mapK8sMasterNodeWithIPs(client, nodeNameIPMap)
 		framework.ExpectNoError(err)
 
 		labelKey = "app"
@@ -158,7 +159,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err = WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
@@ -260,7 +261,7 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+		pvs, err = WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvs).NotTo(gomega.BeEmpty())

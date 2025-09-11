@@ -97,6 +97,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
+
+	authenticationv1 "k8s.io/api/authentication/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -1148,8 +1152,8 @@ func BringDownCsiController(Client clientset.Interface, namespace ...string) {
 
 // bringDownTKGController helps to bring the TKG control manager pod down.
 // Its taks svc client as input.
-func BringDownTKGController(Client clientset.Interface) {
-	UpdateDeploymentReplica(Client, 0, constants.VsphereControllerManager, constants.VsphereTKGSystemNamespace)
+func BringDownTKGController(Client clientset.Interface, vsphereTKGSystemNamespace string) {
+	UpdateDeploymentReplica(Client, 0, constants.VsphereControllerManager, vsphereTKGSystemNamespace)
 	ginkgo.By("TKGControllManager replica is set to 0")
 }
 
@@ -1170,9 +1174,9 @@ func BringUpCsiController(Client clientset.Interface, csiReplicaCount int32, nam
 
 // bringUpTKGController helps to bring the TKG control manager pod up.
 // Its taks svc client as input.
-func BringUpTKGController(Client clientset.Interface, tkgReplica int32) {
+func BringUpTKGController(Client clientset.Interface, tkgReplica int32, vsphereTKGSystemNamespace string) {
 	err := UpdateDeploymentReplicawithWait(Client,
-		tkgReplica, constants.VsphereControllerManager, constants.VsphereTKGSystemNamespace)
+		tkgReplica, constants.VsphereControllerManager, vsphereTKGSystemNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("TKGControllManager is up")
 }
@@ -2558,12 +2562,12 @@ func DeleteService(ns string, c clientset.Interface, service *v1.Service) {
 
 // GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml
 // file present in the manifest path.
-func GetStatefulSetFromManifest(e2eTestConfig *config.E2eTestConfig, ns string) *appsv1.StatefulSet {
-	ssManifestFilePath := filepath.Join("..", constants.ManifestPath, "statefulset.yaml")
+func GetStatefulSetFromManifest(e2eTestConfig *config.TestInputData, ns string) *appsv1.StatefulSet {
+	ssManifestFilePath := filepath.Join(constants.ManifestPath, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
-	if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
+	if e2eTestConfig.TestBedInfo.WindowsEnv {
 		ss.Spec.Template.Spec.Containers[0].Image = constants.WindowsImageOnMcr
 		ss.Spec.Template.Spec.Containers[0].Command = []string{"Powershell.exe"}
 		ss.Spec.Template.Spec.Containers[0].Args = []string{"-Command", constants.WindowsExecCmd}
@@ -3055,6 +3059,7 @@ func TrimQuotes(str string) string {
 // Returns a de-serialized structured config data
 func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 	var config1 config.E2eTestConfig
+	var testInput config.TestInputData
 	var netPerm config.NetPermissionConfig
 	key, value := "", ""
 	var permissions vsanfstypes.VsanFileShareAccessType
@@ -3084,7 +3089,7 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 				value = words[1]
 				// Remove trailing '"]' characters from value.
 				value = strings.TrimSuffix(value, "]")
-				config1.TestInput.Global.VCenterHostname = TrimQuotes(value)
+				testInput.Global.VCenterHostname = TrimQuotes(value)
 				fmt.Printf("Key: VirtualCenter, Value: %s\n", value)
 			}
 			continue
@@ -3095,47 +3100,47 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 		switch key {
 		case "insecure-flag":
 			if strings.Contains(value, "true") {
-				config1.TestInput.Global.InsecureFlag = true
+				testInput.Global.InsecureFlag = true
 			} else {
-				config1.TestInput.Global.InsecureFlag = false
+				testInput.Global.InsecureFlag = false
 			}
 		case "cluster-id":
-			config1.TestInput.Global.ClusterID = value
+			testInput.Global.ClusterID = value
 		case "cluster-distribution":
-			config1.TestInput.Global.ClusterDistribution = value
+			testInput.Global.ClusterDistribution = value
 		case "user":
-			config1.TestInput.Global.User = value
+			testInput.Global.User = value
 		case "password":
-			config1.TestInput.Global.Password = value
+			testInput.Global.Password = value
 		case "datacenters":
-			config1.TestInput.Global.Datacenters = value
+			testInput.Global.Datacenters = value
 		case "port":
-			config1.TestInput.Global.VCenterPort = value
+			testInput.Global.VCenterPort = value
 		case "cnsregistervolumes-cleanup-intervalinmin":
-			config1.TestInput.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
+			testInput.Global.CnsRegisterVolumesCleanupIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "topology-categories":
-			config1.TestInput.Labels.TopologyCategories = value
+			testInput.Labels.TopologyCategories = value
 		case "global-max-snapshots-per-block-volume":
-			config1.TestInput.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
+			testInput.Snapshot.GlobalMaxSnapshotsPerBlockVolume, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "csi-fetch-preferred-datastores-intervalinmin":
-			config1.TestInput.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
+			testInput.Global.CSIFetchPreferredDatastoresIntervalInMin, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "query-limit":
-			config1.TestInput.Global.QueryLimit, strconvErr = strconv.Atoi(value)
+			testInput.Global.QueryLimit, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "list-volume-threshold":
-			config1.TestInput.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
+			testInput.Global.ListVolumeThreshold, strconvErr = strconv.Atoi(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "ca-file":
-			config1.TestInput.Global.CaFile = value
+			testInput.Global.CaFile = value
 		case "supervisor-id":
-			config1.TestInput.Global.SupervisorID = value
+			testInput.Global.SupervisorID = value
 		case "targetvSANFileShareClusters":
-			config1.TestInput.Global.TargetVsanFileShareClusters = value
+			testInput.Global.TargetVsanFileShareClusters = value
 		case "fileVolumeActivated":
-			config1.TestInput.Global.FileVolumeActivated, strconvErr = strconv.ParseBool(value)
+			testInput.Global.FileVolumeActivated, strconvErr = strconv.ParseBool(value)
 			gomega.Expect(strconvErr).NotTo(gomega.HaveOccurred())
 		case "ips":
 			netPerm.Ips = value
@@ -3147,6 +3152,7 @@ func ReadConfigFromSecretString(cfg string) (config.E2eTestConfig, error) {
 			return config1, fmt.Errorf("unknown key %s in the input string", key)
 		}
 	}
+	config1.TestInput = &testInput
 	return config1, nil
 }
 
@@ -5785,7 +5791,7 @@ func CreateParallelStatefulSets(client clientset.Interface, namespace string,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-func CreateParallelStatefulSetSpec(e2eTestConfig *config.E2eTestConfig,
+func CreateParallelStatefulSetSpec(e2eTestConfig *config.TestInputData,
 	namespace string, no_of_sts int, replicas int32) []*appsv1.StatefulSet {
 	stss := []*appsv1.StatefulSet{}
 	var statefulset *appsv1.StatefulSet
@@ -7198,7 +7204,7 @@ func ExecCommandOnGcWorker(sshClientConfig *ssh.ClientConfig,
 	}
 
 	cmdToGetContainerInfo := fmt.Sprintf("ssh -o StrictHostKeyChecking=no -i key %s@%s "+
-		"'%s' | grep -v 'Warning'", constants.GcNodeUser, gcWorkerIp, cmd)
+		"'%s' 2> /dev/null", constants.GcNodeUser, gcWorkerIp, cmd)
 	framework.Logf("Invoking command '%v' on host %v", cmdToGetContainerInfo,
 		svcMasterIP)
 	cmdResult, err = SshExec(sshClientConfig, vs, svcMasterIP,
@@ -7364,6 +7370,405 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	}
 
 	fmt.Println("All required storage policy usages are available.")
+}
+
+// createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
+// and verifies cns metadata of that volume if verifyCNSVolume is set to true
+func CreatePVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface,
+	vs *config.E2eTestConfig, namespace string,
+	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	ds string, storageclass *storagev1.StorageClass,
+	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, error) {
+
+	// Create PVC
+	pvclaim, err := CreatePVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	if err != nil {
+		return pvclaim, nil, fmt.Errorf("failed to create PVC: %w", err)
+	}
+
+	// Wait for PVC to be bound to a PV
+	persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, vs,
+		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
+	if err != nil {
+		return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)
+	}
+
+	// Get VolumeHandle from the PV
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	if vs.TestInput.ClusterFlavor.GuestCluster {
+		volHandle = GetVolumeIDFromSupervisorCluster(volHandle)
+	}
+	if volHandle == "" {
+		return pvclaim, persistentvolumes, fmt.Errorf("volume handle is empty")
+	}
+
+	// Verify the volume in CNS if required
+	if verifyCNSVolume {
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := vcutil.QueryCNSVolumeWithResult(vs, volHandle)
+		if err != nil {
+			return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
+		}
+		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
+			return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+		}
+	}
+
+	return pvclaim, persistentvolumes, nil
+}
+
+// waitForPvResizeForGivenPvc waits for the controller resize to be finished
+func WaitForPvResizeForGivenPvc(pvc *v1.PersistentVolumeClaim, c clientset.Interface,
+	vs *config.E2eTestConfig, duration time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	adminClient, _ := InitializeClusterClientsByUserRoles(c, vs)
+	pvName := pvc.Spec.VolumeName
+	pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+	pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return WaitForPvResize(pv, c, vs, pvcSize, duration)
+}
+
+// waitForPvResize waits for the controller resize to be finished
+func WaitForPvResize(pv *v1.PersistentVolume, c clientset.Interface, vs *config.E2eTestConfig,
+	size resource.Quantity, duration time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	adminClient, _ := InitializeClusterClientsByUserRoles(c, vs)
+	return wait.PollUntilContextTimeout(ctx, constants.ResizePollInterval, duration, true,
+		func(ctx context.Context) (bool, error) {
+			pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+
+			if err != nil {
+				return false, fmt.Errorf("error fetching pv %q for resizing %v", pv.Name, err)
+			}
+
+			pvSize := pv.Spec.Capacity[v1.ResourceStorage]
+
+			// If pv size is greater or equal to requested size that means controller resize is finished.
+			if pvSize.Cmp(size) >= 0 {
+				return true, nil
+			}
+			return false, nil
+		})
+}
+
+// WaitForPVClaimBoundPhase waits until all pvcs phase set to bound
+// client: framework generated client
+// pvclaims: list of PVCs
+// timeout: timeInterval to wait for PVCs to get into bound state
+// ctx: context package variable
+func WaitForPVClaimBoundPhase(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig,
+	pvclaims []*v1.PersistentVolumeClaim, timeout time.Duration) ([]*v1.PersistentVolume, error) {
+	persistentvolumes := make([]*v1.PersistentVolume, len(pvclaims))
+
+	adminClient, _ := InitializeClusterClientsByUserRoles(client, vs)
+	for index, claim := range pvclaims {
+		err := fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, adminClient,
+			claim.Namespace, claim.Name, framework.Poll, timeout)
+		if err != nil {
+			return persistentvolumes, err
+		}
+		// Get new copy of the claim
+		claim, err = client.CoreV1().PersistentVolumeClaims(claim.Namespace).
+			Get(ctx, claim.Name, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PVC Get API error: %w", err)
+		}
+		// Get the bounded PV
+		persistentvolumes[index], err = adminClient.CoreV1().PersistentVolumes().
+			Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PV Get API error: %w", err)
+		}
+	}
+	return persistentvolumes, nil
+}
+
+// createScopedClient generates a kubernetes-client by constructing kubeconfig by
+// creating a user with minimal permissions and enable port forwarding. It takes
+// client: framework generated client
+// namespace: framework generated namespace name
+// saName: service account name
+// ctx: context package variable
+func CreateScopedClient(ctx context.Context, client clientset.Interface,
+	ns string, saName string) (clientset.Interface, error) {
+
+	roleName := ns + "role"
+	roleBindingName := roleName + "-binding"
+	contextName := "e2e-context"
+
+	_, err := client.CoreV1().ServiceAccounts(ns).Create(ctx, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: saName,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SA: %v", err)
+	}
+
+	// 2. Create Role
+	_, err = client.RbacV1().Roles(ns).Create(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleName,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "persistentvolumeclaims", "services"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"statefulsets", "deployments", "replicasets"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"events"},
+				Verbs:     []string{"get", "list"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Role: %v", err)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	_, err = client.RbacV1().RoleBindings(ns).Create(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleBindingName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      constants.ServiceAccountKeyword,
+				Name:      saName,
+				Namespace: ns,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     constants.RoleKeyword,
+			Name:     roleName,
+			APIGroup: constants.RbacApiGroup,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RoleBinding: %v", err)
+	}
+
+	var token string
+
+	tr := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences: []string{constants.AudienceForSvcAccountName},
+		},
+	}
+
+	tokenRequest, err := client.CoreV1().ServiceAccounts(ns).CreateToken(ctx, saName, tr, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %v", err)
+	}
+	token = tokenRequest.Status.Token
+
+	if token == "" {
+		return nil, fmt.Errorf("no token found for service account")
+	}
+	time.Sleep(60 * time.Second)
+	localPort := env.GetAndExpectStringEnvVar("RANDOM_PORT")
+	framework.Logf("Random port: %s", localPort)
+	kubeConfig := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"e2e-cluster": {
+				Server:                fmt.Sprintf("https://127.0.0.1:%s", localPort),
+				InsecureSkipTLSVerify: true,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {
+				Cluster:   "e2e-cluster",
+				AuthInfo:  "e2e-user",
+				Namespace: ns,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"e2e-user": {
+				Token: token,
+			},
+		},
+		CurrentContext: contextName,
+	}
+
+	restCfg, err := clientcmd.NewNonInteractiveClientConfig(kubeConfig,
+		contextName, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build rest.Config: %v", err)
+	}
+
+	nsScopedClient, err := clientset.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Clientset: %v", err)
+	}
+	return nsScopedClient, nil
+}
+
+// initializeClusterClientsByUserRoles takes a client generated by test framework
+// and generates and returns an admin client with administrator priviledges
+// and a client with devops user priviledges
+func InitializeClusterClientsByUserRoles(client clientset.Interface, vs *config.E2eTestConfig) (clientset.Interface,
+	clientset.Interface) {
+	var adminClient clientset.Interface
+	var err error
+	runningAsDevopsUser := env.GetBoolEnvVarOrDefault(constants.EnvIsDevopsUser, false)
+	if vs.TestInput.ClusterFlavor.SupervisorCluster || vs.TestInput.ClusterFlavor.GuestCluster {
+		if runningAsDevopsUser {
+			if svAdminK8sEnv := env.GetAndExpectStringEnvVar(constants.EnvAdminKubeconfig); svAdminK8sEnv != "" {
+				adminClient, err = CreateKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if vs.TestInput.ClusterFlavor.SupervisorCluster {
+				if devopsK8sEnv := env.GetAndExpectStringEnvVar(constants.EnvDevopsKubeconfig); devopsK8sEnv != "" {
+					client, err = CreateKubernetesClientFromConfig(devopsK8sEnv)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		} else {
+			adminClient = client
+		}
+	} else if vs.TestInput.ClusterFlavor.VanillaCluster || adminClient == nil {
+		adminClient = client
+	}
+	return adminClient, client
+}
+
+/*
+CreateStatefulSetAndVerifyPVAndPodNodeAffinty creates user specified statefulset and
+further checks the node and volumes affinities
+*/
+func CreateStatefulSetAndVerifyPVAndPodNodeAffinty(ctx context.Context, client clientset.Interface,
+	vs *config.E2eTestConfig, namespace string, parallelPodPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	podAntiAffinityToSet bool, parallelStatefulSetCreation bool, modifyStsSpec bool,
+	accessMode v1.PersistentVolumeAccessMode,
+	sc *storagev1.StorageClass, verifyTopologyAffinity bool, storagePolicy string) (*v1.Service,
+	*appsv1.StatefulSet, error) {
+
+	ginkgo.By("Create service")
+	service := CreateService(namespace, client)
+
+	framework.Logf("Create StatefulSet")
+	statefulset := CreateCustomisedStatefulSets(ctx, client, vs.TestInput, namespace, parallelPodPolicy,
+		replicas, nodeAffinityToSet, allowedTopologies, podAntiAffinityToSet, modifyStsSpec,
+		"", accessMode, sc, storagePolicy)
+
+	if verifyTopologyAffinity {
+		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
+		err := VerifyPVnodeAffinityAndPODnodedetailsForStatefulsetsLevel5(ctx, vs, client, statefulset,
+			namespace, allowedTopologies, parallelStatefulSetCreation)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error verifying PV node affinity and POD node details: %v", err)
+		}
+	}
+
+	return service, statefulset, nil
+}
+
+/*
+createCustomisedStatefulSets util methods creates statefulset as per the user's
+specific requirement and returns the customised statefulset
+*/
+func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.TestInputData,
+	namespace string, isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
+	allowedTopologies []v1.TopologySelectorLabelRequirement,
+	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
+	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
+	framework.Logf("Preparing StatefulSet Spec")
+	statefulset := GetStatefulSetFromManifest(vs, namespace)
+
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		defaultAccessMode := v1.ReadWriteOnce
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+			Spec.AccessModes[0] = defaultAccessMode
+	} else {
+		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
+			accessMode
+	}
+
+	if modifyStsSpec {
+		if vs.TestBedInfo.MultipleSvc {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &storagePolicy
+		} else {
+			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+				Spec.StorageClassName = &sc.Name
+		}
+
+		if stsName != "" {
+			statefulset.Name = stsName
+			statefulset.Spec.Template.Labels["app"] = statefulset.Name
+			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
+		}
+
+	}
+	if nodeAffinityToSet {
+		nodeSelectorTerms := GetNodeSelectorTerms(allowedTopologies)
+		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
+		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
+			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
+	}
+	if podAntiAffinityToSet {
+		statefulset.Spec.Template.Spec.Affinity = &v1.Affinity{
+			PodAntiAffinity: &v1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"key": "app",
+							},
+						},
+						TopologyKey: "topology.kubernetes.io/zone",
+					},
+				},
+			},
+		}
+
+	}
+	if isParallelPodMgmtPolicy {
+		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+	}
+	statefulset.Spec.Replicas = &replicas
+
+	framework.Logf("Creating statefulset")
+	CreateStatefulSet(namespace, statefulset, client)
+
+	framework.Logf("Wait for StatefulSet pods to be in up and running state")
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+	gomega.Expect(fss.CheckMount(ctx, client, statefulset, constants.MountPath)).NotTo(gomega.HaveOccurred())
+	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
+		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
+	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
+		"Number of Pods in the statefulset should match with number of replicas")
+
+	return statefulset
+}
+
+// CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
+func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
+		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
+	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
+	framework.ExpectNoError(err)
+	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }
 
 func Validate_totalStoragequota_afterCleanUp(ctx context.Context, diskSize string,
@@ -7557,18 +7962,6 @@ func SumupAlltheResourceDiskUsage(diskSizes []string, expectedUnit []byte) int64
 
 }
 
-// Convert mb to String
-func ConvertInt64ToStrMbFormat(diskSize int64) string {
-	result := strconv.FormatInt(diskSize, 10) + "Mi"
-	fmt.Println(result)
-	return result
-}
-
-// expectEqual expects the specified two are the same, otherwise an exception raises
-func ExpectEqual(actual interface{}, extra interface{}, explain ...interface{}) {
-	gomega.ExpectWithOffset(1, actual).To(gomega.Equal(extra), explain...)
-}
-
 /*
 This function creates a wcp namespace in a vSphere supervisor Cluster, associating it
 with multiple storage policies and zones.
@@ -7624,23 +8017,6 @@ func CreatetWcpNsWithZonesAndPolicies(e2eTestConfig *config.E2eTestConfig,
 	return namespace, statusCode, nil
 }
 
-/*
-This util will create initial namespace get/post api call request
-*/
-func CreateInitialNsApiCallUrl(e2eTestConfig *config.E2eTestConfig) string {
-	vcIp := e2eTestConfig.TestInput.Global.VCenterHostname
-
-	isPrivateNetwork := env.GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if isPrivateNetwork {
-		vcIp = env.GetStringEnvVarOrDefault("LOCAL_HOST_IP", constants.DefaultlocalhostIP)
-	}
-
-	initialUrl := "https://" + vcIp + ":" + e2eTestConfig.TestInput.Global.VCenterPort +
-		"/api/vcenter/namespaces/instances/"
-
-	return initialUrl
-}
-
 // invokeVCRestAPIPostRequest invokes POST on given VC REST URL using the passed session token and request body
 func InvokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
 	transCfg := &http.Transport{
@@ -7656,6 +8032,23 @@ func InvokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody stri
 	resp, statusCode := HttpRequest(httpClient, req)
 
 	return resp, statusCode
+}
+
+/*
+This util will create initial namespace get/post api call request
+*/
+func CreateInitialNsApiCallUrl(e2eTestConfig *config.E2eTestConfig) string {
+	vcIp := e2eTestConfig.TestInput.Global.VCenterHostname
+
+	isPrivateNetwork := env.GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if isPrivateNetwork {
+		vcIp = env.GetStringEnvVarOrDefault("LOCAL_HOST_IP", constants.DefaultlocalhostIP)
+	}
+
+	initialUrl := "https://" + vcIp + ":" + e2eTestConfig.TestInput.Global.VCenterPort +
+		"/api/vcenter/namespaces/instances/"
+
+	return initialUrl
 }
 
 // getSvcId fetches the ID of the Supervisor cluster
@@ -7724,6 +8117,18 @@ func InvokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 	resp, statusCode := HttpRequest(httpClient, req)
 
 	return resp, statusCode
+}
+
+// Convert mb to String
+func ConvertInt64ToStrMbFormat(diskSize int64) string {
+	result := strconv.FormatInt(diskSize, 10) + "Mi"
+	fmt.Println(result)
+	return result
+}
+
+// expectEqual expects the specified two are the same, otherwise an exception raises
+func ExpectEqual(actual interface{}, extra interface{}, explain ...interface{}) {
+	gomega.ExpectWithOffset(1, actual).To(gomega.Equal(extra), explain...)
 }
 
 // PvcUsability Verifies Create snapshot of PVC, Creat PVC from Snapshot, Attach to POD
@@ -7880,100 +8285,4 @@ func CreatePvcWithSpec(ctx context.Context, client clientset.Interface, pvcnames
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
 	return pvclaim, err
-}
-
-/*
-createCustomisedStatefulSets util methods creates statefulset as per the user's
-specific requirement and returns the customised statefulset
-*/
-func CreateCustomisedStatefulSets(ctx context.Context, client clientset.Interface, vs *config.TestInputData, e2eTestConfig *config.E2eTestConfig,
-	namespace string, isParallelPodMgmtPolicy bool, replicas int32, nodeAffinityToSet bool,
-	allowedTopologies []v1.TopologySelectorLabelRequirement,
-	podAntiAffinityToSet bool, modifyStsSpec bool, stsName string,
-	accessMode v1.PersistentVolumeAccessMode, sc *storagev1.StorageClass, storagePolicy string) *appsv1.StatefulSet {
-	framework.Logf("Preparing StatefulSet Spec")
-	statefulset := GetStatefulSetFromManifest(e2eTestConfig, namespace)
-
-	if accessMode == "" {
-		// If accessMode is not specified, set the default accessMode.
-		defaultAccessMode := v1.ReadWriteOnce
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-			Spec.AccessModes[0] = defaultAccessMode
-	} else {
-		statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].Spec.AccessModes[0] =
-			accessMode
-	}
-
-	if modifyStsSpec {
-		if vs.TestBedInfo.MultipleSvc {
-			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Spec.StorageClassName = &storagePolicy
-		} else {
-			statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
-				Spec.StorageClassName = &sc.Name
-		}
-
-		if stsName != "" {
-			statefulset.Name = stsName
-			statefulset.Spec.Template.Labels["app"] = statefulset.Name
-			statefulset.Spec.Selector.MatchLabels["app"] = statefulset.Name
-		}
-
-	}
-	if nodeAffinityToSet {
-		nodeSelectorTerms := GetNodeSelectorTerms(allowedTopologies)
-		statefulset.Spec.Template.Spec.Affinity = new(v1.Affinity)
-		statefulset.Spec.Template.Spec.Affinity.NodeAffinity = new(v1.NodeAffinity)
-		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
-			RequiredDuringSchedulingIgnoredDuringExecution = new(v1.NodeSelector)
-		statefulset.Spec.Template.Spec.Affinity.NodeAffinity.
-			RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = nodeSelectorTerms
-	}
-	if podAntiAffinityToSet {
-		statefulset.Spec.Template.Spec.Affinity = &v1.Affinity{
-			PodAntiAffinity: &v1.PodAntiAffinity{
-				RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-					{
-						LabelSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"key": "app",
-							},
-						},
-						TopologyKey: "topology.kubernetes.io/zone",
-					},
-				},
-			},
-		}
-
-	}
-	if isParallelPodMgmtPolicy {
-		statefulset.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
-	}
-	statefulset.Spec.Replicas = &replicas
-
-	framework.Logf("Creating statefulset")
-	CreateStatefulSet(namespace, statefulset, client)
-
-	framework.Logf("Wait for StatefulSet pods to be in up and running state")
-	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
-	gomega.Expect(fss.CheckMount(ctx, client, statefulset, constants.MountPath)).NotTo(gomega.HaveOccurred())
-	ssPodsBeforeScaleDown, err := fss.GetPodList(ctx, client, statefulset)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(ssPodsBeforeScaleDown.Items).NotTo(gomega.BeEmpty(),
-		fmt.Sprintf("Unable to get list of Pods from the Statefulset: %v", statefulset.Name))
-	gomega.Expect(len(ssPodsBeforeScaleDown.Items) == int(replicas)).To(gomega.BeTrue(),
-		"Number of Pods in the statefulset should match with number of replicas")
-
-	return statefulset
-}
-
-// CreateStatefulSet creates a StatefulSet from the manifest at manifestPath in the given namespace.
-func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	framework.Logf("Creating statefulset %v/%v with %d replicas and selector %+v",
-		ss.Namespace, ss.Name, *(ss.Spec.Replicas), ss.Spec.Selector)
-	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
-	framework.ExpectNoError(err)
-	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }

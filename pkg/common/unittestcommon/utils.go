@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
@@ -58,33 +59,32 @@ var mapVolumePathToID map[string]map[string]string
 // GetFakeContainerOrchestratorInterface returns a dummy CO interface based on the CO type
 func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCommonInterface, error) {
 	if orchestratorType == common.Kubernetes {
+		defaultFSS := map[string]string{
+			"csi-migration":                     "true",
+			"file-volume":                       "true",
+			"block-volume-snapshot":             "true",
+			"tkgs-ha":                           "true",
+			"list-volumes":                      "true",
+			"csi-internal-generated-cluster-id": "true",
+			"online-volume-extend":              "true",
+			"csi-windows-support":               "true",
+			"use-csinode-id":                    "true",
+			"pv-to-backingdiskobjectid-mapping": "false",
+			"cnsmgr-suspend-create-volume":      "true",
+			"listview-tasks":                    "true",
+			"storage-quota-m2":                  "false",
+			"workload-domain-isolation":         "true",
+			// From `wcp-cluster-capabilities` configmap in supervisor
+			"Workload_Domain_Isolation_Supported": "false",
+		}
+
 		fakeCO := &FakeK8SOrchestrator{
 			featureStatesLock: &sync.RWMutex{},
-			featureStates: map[string]string{
-				"csi-migration":                     "true",
-				"file-volume":                       "true",
-				"block-volume-snapshot":             "true",
-				"tkgs-ha":                           "true",
-				"list-volumes":                      "true",
-				"csi-internal-generated-cluster-id": "true",
-				"online-volume-extend":              "true",
-				"csi-windows-support":               "true",
-				"use-csinode-id":                    "true",
-				"pv-to-backingdiskobjectid-mapping": "false",
-				"cnsmgr-suspend-create-volume":      "true",
-				"multi-vcenter-csi-topology":        "true",
-				"listview-tasks":                    "true",
-				"storage-quota-m2":                  "false",
-				"workload-domain-isolation":         "true",
-				// Adding FSS from `wcp-cluster-capabilities` configmap in supervisor here for simplicity.
-				// TODO: Enable FSS for unit tests after mockControllerVolumeTopology interfaces are implemented
-				"Workload_Domain_Isolation_Supported": "false",
-			},
+			featureStates:     defaultFSS,
 		}
 		return fakeCO, nil
 	}
 	return nil, fmt.Errorf("unrecognized CO type")
-
 }
 
 // IsFSSEnabled returns the FSS values for a given feature
@@ -389,18 +389,34 @@ func (c *FakeK8SOrchestrator) CreateConfigMap(ctx context.Context, name string, 
 
 // GetCSINodeTopologyInstancesList lists CSINodeTopology instances for a given cluster.
 func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstancesList() []interface{} {
-	return nil
+	return c.csiNodeTopologyInstances
 }
 
 // GetCSINodeTopologyInstanceByName fetches the CSINodeTopology instance for a given node name in the cluster.
 func (c *FakeK8SOrchestrator) GetCSINodeTopologyInstanceByName(nodeName string) (
 	item interface{}, exists bool, err error) {
+	// Search through stored CSINodeTopology instances
+	for _, instance := range c.csiNodeTopologyInstances {
+		if unstructuredObj, ok := instance.(*unstructured.Unstructured); ok {
+			// Get the name from the metadata
+			name := unstructuredObj.GetName()
+			if name == nodeName {
+				return instance, true, nil
+			}
+		}
+	}
 	return nil, false, nil
 }
 
 // GetPVNameFromCSIVolumeID retrieves the pv name from volumeID.
 func (c *FakeK8SOrchestrator) GetPVNameFromCSIVolumeID(volumeID string) (string, bool) {
-	return "", false
+	if strings.Contains(volumeID, "invalid") {
+		// Simulate a case where the volumeID is invalid and does not correspond to any PV.
+		return "", false
+	}
+
+	// Simulate a case where the volumeID corresponds to a PV.
+	return "mock-pv", true
 }
 
 // GetPVCNameFromCSIVolumeID returns `pvc name` and `pvc namespace` for the given volumeID using volumeIDToPvcMap.
@@ -479,6 +495,11 @@ func (c *FakeK8SOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx 
 	return nil, nil
 }
 
+// SetCSINodeTopologyInstances sets the CSINodeTopology instances for testing
+func (c *FakeK8SOrchestrator) SetCSINodeTopologyInstances(instances []interface{}) {
+	c.csiNodeTopologyInstances = instances
+}
+
 // configFromVCSim starts a vcsim instance and returns config for use against the
 // vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {
@@ -524,8 +545,8 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 	if err != nil {
 		log.Fatal(err)
 	}
-	model.Service.RegisterEndpoints = true
 
+	model.Service.RegisterEndpoints = true
 	model.Service.TLS = tlsConfig
 	s := model.Service.NewServer()
 

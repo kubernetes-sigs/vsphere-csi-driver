@@ -25,13 +25,12 @@ import (
 	"sync"
 	"time"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"golang.org/x/crypto/ssh"
-	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
-	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
-
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -49,9 +48,9 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 )
 
 /*
@@ -231,7 +230,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -310,7 +309,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			topValEndIndex)
 
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
-			getSvcId(vcRestSessionId),
+			getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -387,7 +386,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -480,7 +479,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		ginkgo.By("Create a WCP namespace and tag it to zone-2 and zone-3 wrkld " +
 			"domains using storage policy compatible to all zones")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId, []string{storageProfileId},
-			getSvcId(vcRestSessionId), []string{zone2, zone3}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone2, zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
@@ -656,7 +655,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		// here fetching zone:zone-3 from topologyAffinityDetails
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -728,7 +727,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -846,7 +845,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{storageProfileIdZone1, storageProfileIdZone3},
-			getSvcId(vcRestSessionId), []string{zone3}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone3}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {
@@ -899,7 +898,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			// read or create content library if it is empty
 			if contentLibId == "" {
 				contentLibId, err = createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-					dsRef.Value)
+					dsRef.Value, &e2eVSphere)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -921,7 +920,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create a WCP namespace tagged to zone-1 & zone-2")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -1120,7 +1119,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			// read or create content library if it is empty
 			if contentLibId == "" {
 				contentLibId, err = createAndOrGetContentlibId4Url(vcRestSessionId, GetAndExpectStringEnvVar(envContentLibraryUrl),
-					dsRef.Value)
+					dsRef.Value, &e2eVSphere)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
@@ -1144,7 +1143,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 
 		ginkgo.By("Create a WCP namespace tagged to zone-1, zone-2 & zone-3")
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId),
+			[]string{sharedStorageProfileId, storageProfileIdZ1, storageProfileIdZ2}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1, zone2, zone3}, vmClass, contentLibId)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -1297,7 +1296,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		namespace, statuscode, err := createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{zonalStorageProfileId, sharedStorageProfileId},
-			getSvcId(vcRestSessionId),
+			getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone1}, "", "",
 		)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1515,7 +1514,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{storageProfileId}, getSvcId(vcRestSessionId),
+			[]string{storageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
 			[]string{zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
@@ -1637,7 +1636,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(
 			vcRestSessionId,
 			[]string{zonalProfileId},
-			getSvcId(vcRestSessionId), []string{zone1, zone2}, "", "")
+			getSvcId(vcRestSessionId, &e2eVSphere), []string{zone1, zone2}, "", "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
 		defer func() {

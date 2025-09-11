@@ -47,6 +47,8 @@ import (
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+
+	vsanpackage "github.com/vmware/govmomi/vsan"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	"golang.org/x/crypto/ssh"
@@ -2501,13 +2503,93 @@ func CheckVcenterServicesRunning(
 		"Got timed-out while waiting for all required VC services to be up and running")
 }
 
+// EnterHostIntoMM puts a host into maintenance mode with a particular timeout and
+// maintenance mode type
+func EnterHostIntoMM(ctx context.Context, host *object.HostSystem, mmModeType string,
+	timeout int32, evacuateVms bool) {
+	mmSpec := vim25types.VsanHostDecommissionMode{
+		ObjectAction: mmModeType,
+	}
+	hostMMSpec := vim25types.HostMaintenanceSpec{
+		VsanMode: &mmSpec,
+		Purpose:  "",
+	}
+	task, err := host.EnterMaintenanceMode(ctx, timeout, false, &hostMMSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResultEx(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v in in maintenance mode", host)
+}
+
+// ExitHostMM exits a host from maintenance mode with a particular timeout
+func ExitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
+	task, err := host.ExitMaintenanceMode(ctx, timeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	_, err = task.WaitForResultEx(ctx, nil)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	framework.Logf("Host: %v exited from maintenance mode", host)
+}
+
+// GetClusterRefFromClusterName gets cluster Moid from given vsphere cluster name
+func GetClusterRefFromClusterName(ctx context.Context, vs *config.E2eTestConfig,
+	clusterName string) (vim25types.ManagedObjectReference, error) {
+
+	clusterComputeResource, _, err := GetClusterName(ctx, vs)
+	if err != nil {
+		return vim25types.ManagedObjectReference{}, err
+	}
+
+	for _, cluster := range clusterComputeResource {
+		if cluster.Name() == clusterName {
+			return cluster.Reference(), nil
+		}
+
+	}
+	return vim25types.ManagedObjectReference{}, nil
+}
+
+// QueryVsanFileShares fetches vsan file shares from vsan endpoint by giving file share IDs and domain ID
+func QueryVsanFileShares(ctx context.Context, vs *config.E2eTestConfig, fileShareIDs []string,
+	clusterRef vim25types.ManagedObjectReference) []vsantypes.VsanFileShare {
+
+	fileShareDomainID := env.GetAndExpectStringEnvVar(constants.EnvFileShareDomainID)
+	var (
+		VsanQueryObjectIdentitiesInstance = vim25types.ManagedObjectReference{
+			Type:  constants.VsanFileServiceType,
+			Value: constants.VsanClusterFileServiceSystem,
+		}
+	)
+
+	querySpec := &vsantypes.VsanFileShareQuerySpec{
+		DomainName: fileShareDomainID,
+		Uuids:      fileShareIDs,
+	}
+	spec := &vsantypes.VsanClusterQueryFileShares{
+		This:      VsanQueryObjectIdentitiesInstance,
+		QuerySpec: *querySpec,
+		Cluster:   &clusterRef,
+	}
+	_, vsanHealthClient := GetClusterComputeResource(ctx, vs)
+
+	vsanClient, err := vsanpackage.NewClient(ctx, vsanHealthClient.Vim25Client)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vsanFileShares, err := vsanmethods.VsanClusterQueryFileShares(ctx, vsanClient, spec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vsanFileShareList := vsanFileShares.Returnval.FileShares
+	return vsanFileShareList
+}
+
 // getDsMoRefFromURL get datastore MoRef from its URL
-func GetDsMoRefFromURL(ctx context.Context, e2eTestConfig *config.E2eTestConfig, dsURL string) vim25types.ManagedObjectReference {
-	dcList, err := GetAllDatacenters(ctx, e2eTestConfig)
+func GetDsMoRefFromURL(ctx context.Context, vs *config.E2eTestConfig, dsURL string) vim25types.ManagedObjectReference {
+	dcList, err := GetAllDatacenters(ctx, vs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var ds *object.Datastore
 	for _, dc := range dcList {
-		ds, err = GetDatastoreByURL(ctx, e2eTestConfig, dsURL, dc)
+		ds, err = GetDatastoreByURL(ctx, vs, dsURL, dc)
 		if err != nil {
 			if !strings.Contains(err.Error(), "couldn't find Datastore given URL") {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())

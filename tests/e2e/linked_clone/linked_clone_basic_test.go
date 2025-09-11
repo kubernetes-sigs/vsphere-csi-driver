@@ -456,7 +456,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		var replicas int32 = 3
 		ginkgo.By("Creating service")
 		_ = k8testutil.CreateService(namespace, client)
-		statefulset := k8testutil.CreateCustomisedStatefulSets(ctx, client, e2eTestConfig.TestInput, e2eTestConfig, namespace, true, replicas, false, nil,
+		statefulset := k8testutil.CreateCustomisedStatefulSets(ctx, client, e2eTestConfig.TestInput, namespace, true, replicas, false, nil,
 			false, true, "", "", storageclass, storageclass.Name)
 
 		// List the STS Pvcs

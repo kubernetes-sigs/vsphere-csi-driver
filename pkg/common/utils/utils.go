@@ -107,16 +107,12 @@ func ListVirtualMachines(ctx context.Context, clt client.Client,
 			log.Error("Error converting v1alpha3 virtual machines to v1alpha4: ", err)
 			return nil, err
 		}
-	case "v1alpha4":
+	default:
 		err := clt.List(context.Background(), vmList, client.InNamespace(namespace))
 		if err != nil {
 			log.Error("failed listing virtual machines for v1alpha4: ", err)
 			return nil, err
 		}
-	default:
-		// XXX: This should ideally never happen.
-		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"Unsupported version: %s...", version)
 	}
 
 	log.Infof("Successfully listed %d virtual machines in namespace %s",
@@ -546,7 +542,8 @@ func UpdateVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		}
 	}
 	if err != nil {
-		log.Errorf("UpdateVirtualMachine: error while updating virtualmachine name: %s, err %v", vmV1alpha4.Name, err)
+		log.Errorf("UpdateVirtualMachine: error while updating virtualmachine name: %s, err %v",
+			vmV1alpha4.Name, err)
 		return err
 	}
 	log.Infof("UpdateVirtualMachine: successfully updated the virtualmachine, name: %s", vmV1alpha4.Name)
