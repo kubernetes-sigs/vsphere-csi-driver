@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -130,6 +131,10 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 	return "", nil
 }
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
+	// Skip test on ARM64 due to gomonkey limitations
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
 	volumeId := "dummy-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
 		_ cnstypes.CnsSnapshotQueryFilter, _ int64) ([]cnstypes.CnsSnapshotQueryResultEntry, string, error) {
@@ -159,6 +164,10 @@ func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(
 }
 
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsUnexpectedFault(t *testing.T) {
+	// Skip test on ARM64 due to gomonkey limitations
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
 	volumeId := "dummy-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
 		_ cnstypes.CnsSnapshotQueryFilter, _ int64) ([]cnstypes.CnsSnapshotQueryResultEntry, string, error) {
@@ -185,6 +194,10 @@ func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsUnexpectedFault(t *test
 }
 
 func TestQueryVolumeSnapshotWithQuerySnapshotsCnsSnapshotNotFoundFault(t *testing.T) {
+	// Skip test on ARM64 due to gomonkey limitations
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
 	volumeId := "dummy-id"
 	snapId := "dummy-snap-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
@@ -218,6 +231,10 @@ func TestQueryVolumeSnapshotWithQuerySnapshotsCnsSnapshotNotFoundFault(t *testin
 }
 
 func TestQueryVolumeSnapshotWithQuerySnapshotsUnexpectedFault(t *testing.T) {
+	// Skip test on ARM64 due to gomonkey limitations
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
 	volumeId := "dummy-id"
 	snapId := "dummy-snap-id"
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
@@ -245,6 +262,10 @@ func TestQueryVolumeSnapshotWithQuerySnapshotsUnexpectedFault(t *testing.T) {
 }
 
 func TestQueryAllVolumeSnapshotsWithQuerySnapshotsUnexpectedFault(t *testing.T) {
+	// Skip test on ARM64 due to gomonkey limitations
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
 	patches := gomonkey.ApplyFunc(utils.QuerySnapshotsUtil, func(_ context.Context, _ cnsvolume.Manager,
 		_ cnstypes.CnsSnapshotQueryFilter, _ int64) ([]cnstypes.CnsSnapshotQueryResultEntry, string, error) {
 		resultEntry := cnstypes.CnsSnapshotQueryResultEntry{
