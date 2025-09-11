@@ -36,6 +36,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
@@ -65,7 +66,7 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 	// TODO : Write data to volume
 
 	// create volume snapshot
-	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv)
+	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv, constants.DiskSize)
 
 	return pvclaim, pv, volumeSnapshot
 }
@@ -93,7 +94,7 @@ func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, c
 /*
 Create volume snapshot
 */
-func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume) *snapV1.VolumeSnapshot {
+func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume, diskSize string) *snapV1.VolumeSnapshot {
 	// Create or get volume snapshot class
 	ginkgo.By("Get or create volume snapshot class")
 	snapc := getSnashotClientSet(e2eTestConfig)
@@ -107,7 +108,7 @@ func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConf
 	ginkgo.By("Create a volume snapshot")
 	volumeSnapshot, snapshotContent, _,
 		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
-		pvclaim, pv[0].Spec.CSI.VolumeHandle, constants.DiskSize, true)
+		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, true)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	snapContentToDelete = append(snapContentToDelete, snapshotContent)
@@ -327,4 +328,31 @@ func ParseMi(value string) (int, error) {
 	// Remove the "Mi" suffix and convert to int
 	numeric := strings.TrimSuffix(value, "Mi")
 	return strconv.Atoi(numeric)
+}
+
+func CreateAndValidateLcWithSts(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, sc *v1.StorageClass, snapName string, snapshotapigroup string) {
+	statefulset := GetStatefulSetFromManifest(e2eTestConfig, namespace)
+	ginkgo.By("Creating statefulset")
+	annotations := map[string]string{
+		"csi.vsphere.volume/fast-provisioning": "true",
+	}
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.StorageClassName = &sc.Name
+
+	// Add LC annotaion
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		ObjectMeta.SetAnnotations(annotations)
+	// Add datastource
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.DataSource.Name = snapName
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.DataSource.Kind = "VolumeSnapshot"
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.DataSource.APIGroup = &snapshotapigroup
+
+	CreateStatefulSet(namespace, statefulset, client)
+	replicas := *(statefulset.Spec.Replicas)
+	// Waiting for pods status to be Ready.
+	fss.WaitForStatusReadyReplicas(ctx, client, statefulset, replicas)
+
 }

@@ -26,6 +26,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 )
 
 func CreateMultiplePvcPod(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool, numOfPVc int) map[*corev1.PersistentVolumeClaim][]*corev1.PersistentVolume {
@@ -57,7 +58,7 @@ func CreateSnapshotInParallel(ctx context.Context, e2eTestConfig *config.E2eTest
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			snapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList)
+			snapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList, constants.DiskSize)
 			snapshots <- snapshot
 		}()
 	}

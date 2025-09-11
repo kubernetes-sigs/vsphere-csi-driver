@@ -38,6 +38,7 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 )
@@ -233,7 +234,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
-		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv)
+		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		// Check the quota usage for snapshot
 		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
@@ -288,7 +289,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
-		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv)
+		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		// Check the quota usage for snapshot
 		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
@@ -446,18 +447,42 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		var volumeSnapshot *snapV1.VolumeSnapshot
+
 		framework.Logf("Starting test: Verify creating the LC with statefulsets")
 
-		// Create PVC and volume snapshot
-		_, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
+		// Create a statefulset with replica=3
+		ginkgo.By("Creating statefulset")
+		var replicas int32 = 3
+		ginkgo.By("Creating service")
+		_ = k8testutil.CreateService(namespace, client)
+		statefulset := k8testutil.CreateCustomisedStatefulSets(ctx, client, e2eTestConfig.TestInput, e2eTestConfig, namespace, true, replicas, false, nil,
+			false, true, "", "", storageclass, storageclass.Name)
 
-		// create linked clone PVC and verify its bound
-		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		// List the STS Pvcs
+		stsPod, err := fss.GetPodList(ctx, client, statefulset)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeMap := map[*corev1.PersistentVolumeClaim]*corev1.PersistentVolume{}
+		for _, pod := range stsPod.Items {
+			for _, volumeSpec := range pod.Spec.Volumes {
+				if volumeSpec.PersistentVolumeClaim != nil {
+					svPvcName := volumeSpec.PersistentVolumeClaim.ClaimName
+					pv := k8testutil.GetPvFromClaim(client, namespace, svPvcName)
+					// Get SVC PVC
+					svcPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, svPvcName, metav1.GetOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					volumeMap[svcPVC] = pv
+				}
+			}
+		}
 
-		//create another linked clone PVC and verify its bound
-		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		// Create a snapshot for all 3 PVCs
+		for pvclaim, pv := range volumeMap {
+			volumeSnapshot = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, []*corev1.PersistentVolume{pv}, constants.DiskSize1GB)
+		}
 
-		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
+		// Create linked clone using sts
+		k8testutil.CreateAndValidateLcWithSts(ctx, e2eTestConfig, client, namespace, storageclass, volumeSnapshot.Name, constants.Snapshotapigroup)
 
 		framework.Logf("Ending test: Verify creating the LC with statefulsets")
 

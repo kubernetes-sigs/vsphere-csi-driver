@@ -2538,7 +2538,7 @@ func CreateEmptyFilesOnVSphereVolume(e2eTestConfig *config.E2eTestConfig,
 func CreateService(ns string, c clientset.Interface) *v1.Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	svcManifestFilePath := filepath.Join(constants.ManifestPath, "service.yaml")
+	svcManifestFilePath := filepath.Join("..", constants.ManifestPath, "service.yaml")
 	framework.Logf("Parsing service from %v", svcManifestFilePath)
 	svc, err := manifest.SvcFromManifest(svcManifestFilePath)
 	framework.ExpectNoError(err)
@@ -2559,7 +2559,7 @@ func DeleteService(ns string, c clientset.Interface, service *v1.Service) {
 // GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml
 // file present in the manifest path.
 func GetStatefulSetFromManifest(e2eTestConfig *config.E2eTestConfig, ns string) *appsv1.StatefulSet {
-	ssManifestFilePath := filepath.Join(constants.ManifestPath, "statefulset.yaml")
+	ssManifestFilePath := filepath.Join("..", constants.ManifestPath, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
