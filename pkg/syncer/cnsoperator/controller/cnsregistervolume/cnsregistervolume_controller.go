@@ -285,7 +285,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
-		msg := "failed to create CNS volume"
+		msg := fmt.Sprintf("failed to create CNS volume. Error: %v", err)
 		log.Errorf(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -534,6 +534,31 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if pvc != nil {
 		log.Infof("PVC: %s already exists. Validate if there is topology annotation on PVC",
 			instance.Spec.PvcName)
+
+		// Validate that existing PVC's storage class matches the one found by storage policy mapping
+		if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != storageClassName {
+			msg := fmt.Sprintf("PVC %s has storage class %s, but volume maps to storage class %s",
+				instance.Spec.PvcName, *pvc.Spec.StorageClassName, storageClassName)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			// Untag the CNS volume which was created previously.
+			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if delErr != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		} else if pvc.Spec.StorageClassName == nil {
+			msg := fmt.Sprintf("PVC %s has no storage class specified, but requires storage class %s",
+				instance.Spec.PvcName, storageClassName)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			// Untag the CNS volume which was created previously.
+			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if delErr != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 
 		// Validate topology compatibility if PVC exists and can be reused
 		if topologyMgr != nil {
