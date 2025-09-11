@@ -12,7 +12,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vmservice_vm
+package rwx_vmservice_vm
 
 import (
 	"flag"
@@ -46,6 +46,6 @@ func handleFlags() {
 	framework.TestContext.KubeConfig = os.Getenv(constants.KubeconfigEnvVar)
 	mydir, err := os.Getwd()
 	framework.ExpectNoError(err)
-	framework.TestContext.RepoRoot = strings.ReplaceAll(mydir, "/tests/e2e/vmservice_vm", "")
+	framework.TestContext.RepoRoot = strings.ReplaceAll(mydir, "/tests/e2e/rwx_vmservice_vm", "")
 	flag.Parse()
 }

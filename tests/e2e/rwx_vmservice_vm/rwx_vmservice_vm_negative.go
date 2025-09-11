@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vmservice_vm
+package rwx_vmservice_vm
 
 import (
 	"context"
@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vmservice_vm"
 )
 
 var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", func() {
@@ -112,7 +113,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		storageProfileId = vcutil.GetSpbmPolicyID(storagePolicyName, e2eTestConfig)
 
 		// creating/reading content library
-		contentLibId, err := CreateAndOrGetContentlibId4Url(e2eTestConfig, vcRestSessionId,
+		contentLibId, err := vmservice_vm.CreateAndOrGetContentlibId4Url(e2eTestConfig, vcRestSessionId,
 			env.GetAndExpectStringEnvVar(constants.EnvContentLibraryUrl),
 			dsRef.Value)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -124,8 +125,8 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		framework.Logf("Create a WCP namespace for the test")
 		// creating wcp test namespace and setting vmclass, contlib, storage class fields in test ns
-		namespace = CreateTestWcpNs(e2eTestConfig,
-			vcRestSessionId, storageProfileId, vmClass, contentLibId, GetSvcId(e2eTestConfig, vcRestSessionId), userName)
+		namespace = vmservice_vm.CreateTestWcpNs(e2eTestConfig,
+			vcRestSessionId, storageProfileId, vmClass, contentLibId, vmservice_vm.GetSvcId(e2eTestConfig, vcRestSessionId), userName)
 
 		framework.Logf("Verifying storage policies usage for each storage class")
 		restConfig = k8testutil.GetRestConfigClient(e2eTestConfig)
@@ -140,7 +141,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		vmImageName := env.GetAndExpectStringEnvVar(constants.EnvVmsvcVmImageName)
 		framework.Logf("Waiting for virtual machine image list to be available in namespace '%s' for image '%s'",
 			namespace, vmImageName)
-		vmi = WaitNGetVmiForImageName(ctx, vmopC, vmImageName)
+		vmi = vmservice_vm.WaitNGetVmiForImageName(ctx, vmopC, vmImageName)
 		gomega.Expect(vmi).NotTo(gomega.BeEmpty())
 
 		//setting map values
@@ -168,7 +169,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		defer cancel()
 
 		k8testutil.DumpSvcNsEventsOnTestFailure(client, namespace)
-		DelTestWcpNs(e2eTestConfig, vcRestSessionId, namespace)
+		vmservice_vm.DelTestWcpNs(e2eTestConfig, vcRestSessionId, namespace)
 		gomega.Expect(k8testutil.WaitForNamespaceToGetDeleted(ctx, client, namespace, constants.Poll,
 			constants.PollTimeout)).To(gomega.Succeed())
 	})
@@ -212,7 +213,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
 			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
@@ -221,12 +222,12 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		ginkgo.By("Creating VM")
 
-		vms := CreateStandaloneVmServiceVm(
+		vms := vmservice_vm.CreateStandaloneVmServiceVm(
 			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			for _, vm := range vms {
-				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				vmservice_vm.DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
 				crdInstanceName := pvc.Name + vm.Name
 				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
 					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
@@ -235,7 +236,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
 		defer func() {
 
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -248,7 +249,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		for _, vm := range vms[:1] {
 			ginkgo.By("Wait for VM to come up and get an IP")
-			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			vmIp, err := vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vmIPs = append(vmIPs, vmIp)
 
@@ -333,7 +334,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Creating VM bootstrap data")
-		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
 			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
@@ -342,18 +343,18 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		ginkgo.By("Creating VM")
 
-		vms := CreateStandaloneVmServiceVm(
+		vms := vmservice_vm.CreateStandaloneVmServiceVm(
 			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			for _, vm := range vms {
-				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				vmservice_vm.DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
 			}
 
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
 		defer func() {
 
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -366,7 +367,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		for _, vm := range vms[:1] {
 			ginkgo.By("Wait for VM to come up and get an IP")
-			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			vmIp, err := vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			vmIPs = append(vmIPs, vmIp)
 
@@ -439,7 +440,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
 			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
@@ -448,12 +449,12 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		ginkgo.By("Creating VM")
 
-		vms := CreateStandaloneVmServiceVm(
+		vms := vmservice_vm.CreateStandaloneVmServiceVm(
 			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			for _, vm := range vms {
-				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				vmservice_vm.DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
 				crdInstanceName := pvc.Name + vm.Name
 				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
 					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
@@ -462,7 +463,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
 		defer func() {
 
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -474,7 +475,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Wait for VM to come up and get an IP")
-		_, err = WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
+		_, err = vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a CNSFileAccessConfig crd for wrong PVC & VM pair")
@@ -534,7 +535,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
 			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
@@ -543,12 +544,12 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		ginkgo.By("Creating VM")
 
-		vms := CreateStandaloneVmServiceVm(
+		vms := vmservice_vm.CreateStandaloneVmServiceVm(
 			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			for _, vm := range vms {
-				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				vmservice_vm.DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
 				crdInstanceName := pvc.Name + vm.Name
 				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
 					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
@@ -557,7 +558,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
 		defer func() {
 
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -569,7 +570,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Wait for VM to come up and get an IP")
-		_, err = WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
+		_, err = vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a CNSFileAccessConfig crd for wrong PVC & VM pair")
@@ -624,7 +625,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating VM bootstrap data")
-		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
 		defer func() {
 			ginkgo.By("Deleting VM bootstrap data")
 			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
@@ -633,12 +634,12 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 
 		ginkgo.By("Creating VM")
 
-		vms := CreateStandaloneVmServiceVm(
+		vms := vmservice_vm.CreateStandaloneVmServiceVm(
 			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
 		defer func() {
 			ginkgo.By("Deleting VM")
 			for _, vm := range vms {
-				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				vmservice_vm.DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
 				crdInstanceName := pvc.Name + vm.Name
 				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
 					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
@@ -647,7 +648,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
 		defer func() {
 
 			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
@@ -659,7 +660,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		}()
 
 		ginkgo.By("Wait for VM to come up and get an IP")
-		_, err = WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
+		_, err = vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vms[0].Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create a CNSFileAccessConfig crd for PVC & VM-1 pair")

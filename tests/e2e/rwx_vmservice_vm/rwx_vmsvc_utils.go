@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vmservice_vm
+package rwx_vmservice_vm
 
 import (
 	"context"
@@ -34,6 +34,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vmservice_vm"
 )
 
 // CreateCnsFileAccessConfigCRD creates CnsFileAccessConfigCRD using pvc and VMservice VM name
@@ -73,7 +74,7 @@ func FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx context.Context, restConf
 
 // Helper function to run SSH and log result
 func RunSSHFromVmServiceVmAndLog(vmIP, cmd string) error {
-	output := execSshOnVmThroughGatewayVm(vmIP, []string{cmd})
+	output := vmservice_vm.ExecSshOnVmThroughGatewayVm(vmIP, []string{cmd})
 	if output[0].Stderr != "" {
 		return fmt.Errorf("command failed with error: %s", output[0].Stderr)
 	} else {
@@ -127,7 +128,7 @@ func MountRWXVolumeAndVerifyIO(vmIPs []string, nfsAccessPoint string, testDir st
 		for _, writerVM := range vmIPs {
 			fileName := fmt.Sprintf("%s-%s.txt", filePrefix, strings.ReplaceAll(writerVM, ".", "-"))
 			readCmd := fmt.Sprintf("cat /mnt/nfs/%s/%s", testDir, fileName)
-			output := execSshOnVmThroughGatewayVm(readerVM, []string{readCmd})
+			output := vmservice_vm.ExecSshOnVmThroughGatewayVm(readerVM, []string{readCmd})
 			if !strings.Contains(output[0].Stdout, writerVM) {
 				return fmt.Errorf("VM %s failed to read file written by VM %s", readerVM, writerVM)
 			} else {
