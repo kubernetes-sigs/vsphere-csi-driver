@@ -278,7 +278,6 @@ func (vs *vSphere) getVMByUUIDWithWait(ctx context.Context,
 func (vs *vSphere) isVolumeAttachedToVM(client clientset.Interface, volumeID string, vmUUID string) (bool, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	time.Sleep(2 * time.Minute)
 	vmRef, err := vs.getVMByUUID(ctx, vmUUID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("vmRef: %v for the VM uuid: %s", vmRef, vmUUID)
