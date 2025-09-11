@@ -2601,3 +2601,151 @@ func GetDsMoRefFromURL(ctx context.Context, vs *config.E2eTestConfig, dsURL stri
 	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
 	return ds.Reference()
 }
+
+/*
+Stop VC service with WaitGroup
+*/
+func StopServiceWithWg(ctx context.Context, vs *config.E2eTestConfig, vcAddress string, serviceName string,
+	wg *sync.WaitGroup, c chan<- error) {
+	var err error
+	defer wg.Done()
+	err = InvokeVCenterServiceControl(&vs.TestInput.TestBedInfo, ctx, constants.StopOperation, serviceName,
+		vs.TestInput.TestBedInfo.VcAddress)
+	if err != nil {
+		c <- err
+	}
+}
+
+/* This util will perform psod operation on a host */
+func PsodHost(vs *config.E2eTestConfig, hostIP string, psodTimeOut string) error {
+	ginkgo.By("PSOD")
+	var timeout string
+	if psodTimeOut != "" {
+		timeout = psodTimeOut
+	} else {
+		timeout = constants.PsodTime
+	}
+	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", timeout)
+	op, err := RunCommandOnESX(vs, constants.RootUser, hostIP, sshCmd)
+	framework.Logf("%q", op)
+	if err != nil {
+		return fmt.Errorf("failed to set BlueScreenTimeout: %w", err)
+	}
+
+	ginkgo.By("Injecting PSOD")
+	psodCmd := "vsish -e set /reliability/crashMe/Panic 1; exit"
+	op, err = RunCommandOnESX(vs, constants.RootUser, hostIP, psodCmd)
+	framework.Logf("%q", op)
+	if err != nil {
+		return fmt.Errorf("failed to inject PSOD: %w", err)
+	}
+	return nil
+}
+
+/* This util will perform psod operation on a host */
+func PsodHostwithWg(vs *config.E2eTestConfig, hostIP string, psodTimeOut string, wg *sync.WaitGroup, c chan<- error) {
+	var err error
+	defer wg.Done()
+
+	ginkgo.By("PSOD with Wait group")
+	err = PsodHost(vs, hostIP, psodTimeOut)
+	if err != nil {
+		c <- err
+	}
+}
+
+// hostLogin methods sets the ESX host password.
+func HostLogin(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
+	answers = make([]string, len(questions))
+	nimbusGeneratedEsxPwd := env.GetAndExpectStringEnvVar(constants.NimbusEsxPwd)
+	for n := range questions {
+		answers[n] = nimbusGeneratedEsxPwd
+	}
+	return answers, nil
+}
+
+// runCommandOnESX executes ssh commands on the give ESX host and returns the bash
+// result.
+func RunCommandOnESX(vs *config.E2eTestConfig, username string, addr string, cmd string) (string, error) {
+	// Authentication.
+	config := &ssh.ClientConfig{
+		User:            username,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Auth: []ssh.AuthMethod{
+			ssh.KeyboardInteractive(HostLogin),
+		},
+	}
+
+	// Read hosts sshd port number
+	ip, portNum, err := env.GetPortNumAndIP(&vs.TestInput.TestBedInfo, addr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	result := fssh.Result{Host: ip, Cmd: cmd}
+	// Connect.
+	client, err := ssh.Dial("tcp", net.JoinHostPort(ip, portNum), config)
+	if err != nil {
+		framework.Logf("connection failed due to %v", err)
+		return "", err
+	}
+	// Create a session. It is one session per command.
+	session, err := client.NewSession()
+	if err != nil {
+		framework.Logf("session creation failed due to %v", err)
+		return "", err
+	}
+	defer session.Close()
+
+	// Run the command.
+	code := 0
+	var bytesStdout, bytesStderr bytes.Buffer
+	session.Stdout, session.Stderr = &bytesStdout, &bytesStderr
+	if err = session.Run(cmd); err != nil {
+		if exiterr, ok := err.(*ssh.ExitError); ok {
+			// If we got an ExitError and the exit code is nonzero, we'll
+			// consider the SSH itself successful but cmd failed on the host.
+			if code = exiterr.ExitStatus(); code != 0 {
+				err = nil
+			}
+		}
+		if exiterr, ok := err.(*ssh.ExitMissingError); ok {
+			/* If we got an  ExitMissingError and the exit code is zero, we'll
+			consider the SSH itself successful and cmd executed successfully on the host.
+			If  exit code is non zero we'll consider the SSH is successful but
+			cmd failed on the host. */
+			framework.Logf("%q", exiterr.Error())
+			if code == 0 {
+				err = nil
+			} else {
+				err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
+			}
+		} else {
+			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
+		}
+	}
+	result.Stdout = bytesStdout.String()
+	result.Stderr = bytesStderr.String()
+	result.Code = code
+	return result.Stdout, err
+}
+
+// /*
+// This utility fetches a list of hosts in a specified cluster and returns them as a list of strings.
+// */
+// func fetchListofHostsInCluster(ctx context.Context, vs *config.E2eTestConfig, clusterName string) []string {
+// 	var hostList []string
+// 	var hostsInCluster []*object.HostSystem
+// 	clusterComputeResource, _, err := GetClusterName(ctx, vs)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	hostsInCluster = GetHostsByClusterName(ctx, clusterComputeResource, clusterName)
+// 	for i := 0; i < len(hostsInCluster); i++ {
+// 		for _, esxInfo := range tbinfo.esxHosts {
+// 			host := hostsInCluster[i].Common.InventoryPath
+// 			hostIp := strings.Split(host, "/")
+// 			if hostIp[len(hostIp)-1] == esxInfo["ip"] {
+// 				esxHostIP := esxInfo["ip"]
+// 				hostList = append(hostList, esxHostIP)
+// 			}
+// 		}
+// 	}
+// 	return hostList
+// }

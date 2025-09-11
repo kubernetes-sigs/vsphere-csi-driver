@@ -20,11 +20,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 
+	"github.com/onsi/gomega"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
@@ -192,4 +194,28 @@ func GetCnsFileAccessConfigCRD(ctx context.Context, restConfig *rest.Config,
 		return cfc, err
 	}
 	return cfc, nil
+}
+
+// CreateCnsFileAccessConfigCRD creates CnsFileAccessConfigCRD using pvc and VMservice VM name
+// in a given namespace with WaitGroup
+func CreateCnsFileAccessConfigCRDWithWg(ctx context.Context, restConfig *rest.Config, pvcName string,
+	vmsvcVmName string, namespace string, crdName string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	spec := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      crdName,
+			Namespace: namespace},
+		Spec: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigSpec{
+			VMName:  vmsvcVmName,
+			PvcName: pvcName,
+		},
+	}
+
+	if err := cnsOperatorClient.Create(ctx, spec); err != nil {
+		framework.Logf("failed to create CNSFileAccessConfig CRD: %s with err: %v", crdName, err)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

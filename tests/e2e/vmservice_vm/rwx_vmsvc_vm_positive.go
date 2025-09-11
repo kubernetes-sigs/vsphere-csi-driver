@@ -18,6 +18,7 @@ package vmservice_vm
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -593,5 +594,364 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
 		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	})
+
+	/*
+		Attach/Detach PVC with multiple VMServiceVMs
+		Steps:
+		1. Create a PVC with RWX access mode with the assigned storage policy.
+		2. Create 5 VMService VMs.
+		3. Verify all VMService VMs come to powered On state.
+		4. Attach 3 VMServiceVms to this PVC by creating CNSFileAccessConfig CRD for each PVC-VM pair.
+		5. Verify CNSFileAccessConfig CRD gets created and verify NFS Access point has been populated in the CR.
+		6. Verify the number of CNSFileAccessConfig CRDs generated is equal to 3.
+		7. Verify IO by reading and writing to the volume through multiple VMs.
+		8. Detach 2 VMServiceVMs from PVC by deleting CFC CRDs.
+		9. Attach the 2 remaining VMs to the volume by creating CNSFileAccessConfig CRD and mounting them to volume.
+		10. Verify IO by writing to the volume through 1 VM and reading it through other VM
+	*/
+
+	ginkgo.It("Attach/Detach PVC with with multiple"+
+		" VMServiceVMs", ginkgo.Label(constants.P0, constants.File, constants.Wcp,
+		constants.VmServiceVm, constants.Vc901), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var vmIPs, nfsAccessPointList []string
+		vmCount := 5
+
+		ginkgo.By("Create/Get a storageclass")
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create PVC")
+		pvc, pvs, err := k8testutil.CreatePVCAndQueryVolumeInCNS(ctx, client, e2eTestConfig, namespace, labelsMap, accessMode,
+			constants.DiskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM bootstrap data")
+		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		defer func() {
+			ginkgo.By("Deleting VM bootstrap data")
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM")
+
+		vms := CreateStandaloneVmServiceVm(
+			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
+		defer func() {
+			ginkgo.By("Deleting VM")
+			for _, vm := range vms {
+				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				crdInstanceName := pvc.Name + vm.Name
+				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
+			}
+
+		}()
+
+		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		defer func() {
+			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		for _, vm := range vms[:3] {
+			ginkgo.By("Wait for VM to come up and get an IP")
+			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vmIPs = append(vmIPs, vmIp)
+
+			ginkgo.By("Create a CNSFileAccessConfig crd for each PVC-VM pair")
+			crdInstanceName := pvc.Name + vm.Name
+			err = CreateCnsFileAccessConfigCRD(ctx, restConfig, pvc.Name, vm.Name, namespace, crdInstanceName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+				constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, true)
+			nfsAccessPoint, err := FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx, restConfig, crdInstanceName, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nfsAccessPointList = append(nfsAccessPointList, nfsAccessPoint)
+
+		}
+
+		ginkgo.By("Write IO to file volume through multiple VMService VM")
+		for _, nfsAccessPoint := range nfsAccessPointList {
+			err = MountRWXVolumeAndVerifyIO(vmIPs[:3], nfsAccessPoint, "foo")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("verify ACL permissions on file share volumes")
+		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
+		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Detaching PVC from 2 VMService Vms")
+		for _, vm := range vms[:2] {
+			crdInstanceName := pvc.Name + vm.Name
+			err = DeleteCnsFileAccessConfig(ctx, restConfig, crdInstanceName, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("Attach the 2 remaining VMService Vms")
+		for _, vm := range vms[3:5] {
+			ginkgo.By("Wait for VM to come up and get an IP")
+			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vmIPs = append(vmIPs, vmIp)
+
+			ginkgo.By("Create a CNSFileAccessConfig crd for each PVC-VM pair")
+			crdInstanceName := pvc.Name + vm.Name
+			err = CreateCnsFileAccessConfigCRD(ctx, restConfig, pvc.Name, vm.Name, namespace, crdInstanceName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+				constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, true)
+			nfsAccessPoint, err := FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx, restConfig, crdInstanceName, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nfsAccessPointList = append(nfsAccessPointList, nfsAccessPoint)
+
+		}
+
+		ginkgo.By("Write IO to file volume through remaining VMService VM")
+		for _, nfsAccessPoint := range nfsAccessPointList {
+			err = MountRWXVolumeAndVerifyIO(vmIPs[3:5], nfsAccessPoint, "foo")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+	})
+
+	/*
+		Attachment of VMs to a single volume in scale in parallel
+		Steps:
+		1. Create 5 PVC with RWX access mode with the assigned storage policy. (many-to-many)
+		2. Create 5 VMService VMs.
+		3. Verify all VMService VMs come to powered On state.
+		4. Attach 5 VMServiceVms to this PVC by creating CNSFileAccessConfig CRD for each PVC-VM pair in parallel.
+		5. Verify a CNSFileAccessConfig CRD gets created and Verify NFS Access point has been generated in the CR.
+		6. Verify the number of CNSFileAccessConfig CRDs generated is equal to number of VMServiceVM created.
+		7. Verify IO by reading and writing to the volume through multiple VMs.
+	*/
+
+	ginkgo.It("Attachment of VMs to a single volume in scale in"+
+		" parallel", ginkgo.Label(constants.P0, constants.File, constants.Wcp,
+		constants.VmServiceVm, constants.Vc901), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var vmIPs, nfsAccessPointList []string
+		vmCount := 5
+		pvcCount := 5
+		var volhandles []string
+
+		ginkgo.By("Create/Get a storageclass")
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create multiple PVCs")
+		pvclaimsList := k8testutil.CreateMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
+
+		ginkgo.By("Verify PVC claim to be in bound phase")
+		for i := 0; i < len(pvclaimsList); i++ {
+			// var pvclaims []*v1.PersistentVolumeClaim
+			pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
+
+			pv := k8testutil.GetPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+			volhandle := pv.Spec.CSI.VolumeHandle
+			volhandles = append(volhandles, volhandle)
+		}
+
+		ginkgo.By("Creating VM bootstrap data")
+		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		defer func() {
+			ginkgo.By("Deleting VM bootstrap data")
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM")
+
+		vms := CreateStandaloneVmServiceVm(
+			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
+		defer func() {
+			ginkgo.By("Deleting VM")
+			for _, vm := range vms {
+				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+			}
+
+		}()
+
+		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		defer func() {
+			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		for _, vm := range vms {
+			ginkgo.By("Wait for VM to come up and get an IP")
+			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vmIPs = append(vmIPs, vmIp)
+
+			for _, pvc := range pvclaimsList {
+				ginkgo.By(fmt.Sprintf("Create a CNSFileAccessConfig CRD for PVC %s and VM %s", pvc.Name, vm.Name))
+				crdInstanceName := pvc.Name + "-" + vm.Name
+				err = CreateCnsFileAccessConfigCRD(ctx, restConfig, pvc.Name, vm.Name, namespace, crdInstanceName)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+					constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, true)
+
+				nfsAccessPoint, err := FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx, restConfig, crdInstanceName, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				nfsAccessPointList = append(nfsAccessPointList, nfsAccessPoint)
+			}
+		}
+
+		ginkgo.By("Write IO to file volume through multiple VMService VM")
+		for _, nfsAccessPoint := range nfsAccessPointList {
+			err = MountRWXVolumeAndVerifyIO(vmIPs[:3], nfsAccessPoint, "foo")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		for _, volHandle := range volhandles {
+			ginkgo.By("verify ACL permissions on file share volumes")
+			vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
+			err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+	})
+
+	/*
+		Deletion of VM without deleting CFC
+		Steps:
+		1. Create a PVC with RWX access mode with the assigned storage policy.
+		2. Create a VMService VM.
+		3. Verify all VMService VMs come to powered On state.
+		4. Attach VMServiceVms to this PVC by creating CNSFileAccessConfig CRD.
+		5. Verify a CNSFileAccessConfig CRD gets created and verify NFS Access point has been populated in the CR.
+		6. Verify the number of CNSFileAccessConfig CRDs generated is equal to 1.
+		7. Verify IO by reading and writing to the volume through multiple VMs.
+		8. Delete VMService VMs which should also cleanup all the CNSFileAccessConfig CRDs associated with it.
+	*/
+
+	ginkgo.It("Deletion of VM without deleting CFC ", ginkgo.Label(constants.P0, constants.File,
+		constants.Wcp, constants.VmServiceVm, constants.Vc901), func() {
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var vmIPs, nfsAccessPointList []string
+		vmCount := 1
+
+		ginkgo.By("Create/Get a storageclass")
+		storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create PVC")
+		pvc, pvs, err := k8testutil.CreatePVCAndQueryVolumeInCNS(ctx, client, e2eTestConfig,
+			namespace, labelsMap, accessMode,
+			constants.DiskSize, storageclass, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volHandle := pvs[0].Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volHandle)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VM bootstrap data")
+		secretName := CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+		defer func() {
+			ginkgo.By("Deleting VM bootstrap data")
+			err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating VMs")
+		vms := CreateStandaloneVmServiceVm(
+			ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
+		defer func() {
+			ginkgo.By("Deleting VM")
+			for _, vm := range vms {
+				DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+				crdInstanceName := pvc.Name + vm.Name
+				k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName, constants.CrdCNSFileAccessConfig,
+					constants.CrdVersion, constants.CrdGroup, false)
+			}
+
+		}()
+
+		ginkgo.By("Creating loadbalancing service for ssh with the VM")
+		vmlbsvc := CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+		defer func() {
+
+			ginkgo.By("Deleting loadbalancing service for ssh with the VM")
+			err = vmopC.Delete(ctx, &vmopv1.VirtualMachineService{ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name,
+				Namespace: namespace,
+			}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		for _, vm := range vms {
+			ginkgo.By("Wait for VM to come up and get an IP")
+			vmIp, err := WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			vmIPs = append(vmIPs, vmIp)
+
+			ginkgo.By("Create a CNSFileAccessConfig crd for each PVC-VM pair")
+			crdInstanceName := pvc.Name + vm.Name
+			err = CreateCnsFileAccessConfigCRD(ctx, restConfig, pvc.Name, vm.Name, namespace, crdInstanceName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+				constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, true)
+			nfsAccessPoint, err := FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx, restConfig, crdInstanceName, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nfsAccessPointList = append(nfsAccessPointList, nfsAccessPoint)
+
+		}
+
+		ginkgo.By("Write IO to file volume through multiple VMService VM")
+		for _, nfsAccessPoint := range nfsAccessPointList {
+			err = MountRWXVolumeAndVerifyIO(vmIPs, nfsAccessPoint, "/foo2")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By("verify ACL permissions on file share volumes")
+		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
+		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Delete VMService VMs which should also cleanup all the CNSFileAccessConfig CRDs associated with it")
+		DeleteVmServiceVm(ctx, vmopC, namespace, vms[0].Name)
+		crdInstanceName := pvc.Name + vms[0].Name
+		k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName, constants.CrdCNSFileAccessConfig,
+			constants.CrdVersion, constants.CrdGroup, false)
 	})
 })
