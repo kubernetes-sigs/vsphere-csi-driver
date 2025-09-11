@@ -949,6 +949,100 @@ var _ = Describe("isTopologyCompatible", func() {
 	})
 })
 
+// validatePVCStorageClass is a helper function to test the storage class validation logic
+func validatePVCStorageClass(pvc *corev1.PersistentVolumeClaim, expectedStorageClassName,
+	storagePolicyID string) error {
+	if pvc == nil {
+		return nil // No PVC to validate
+	}
+
+	if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != expectedStorageClassName {
+		return fmt.Errorf("existing PVC %s has storage class %s, but storage policy %s maps to storage class %s",
+			pvc.Name, *pvc.Spec.StorageClassName, storagePolicyID, expectedStorageClassName)
+	} else if pvc.Spec.StorageClassName == nil {
+		return fmt.Errorf("existing PVC %s has no storage class specified, but storage policy %s requires storage class %s",
+			pvc.Name, storagePolicyID, expectedStorageClassName)
+	}
+
+	return nil
+}
+
+var _ = Describe("PVC Storage Class Validation", func() {
+	var (
+		expectedSCName  string
+		storagePolicyID string
+		pvcName         string
+	)
+
+	BeforeEach(func() {
+		expectedSCName = "expected-storage-class"
+		storagePolicyID = "test-storage-policy-id"
+		pvcName = "test-pvc"
+	})
+
+	Context("when PVC exists with matching storage class", func() {
+		It("should pass validation without error", func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: pvcName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: &expectedSCName,
+				},
+			}
+
+			err := validatePVCStorageClass(pvc, expectedSCName, storagePolicyID)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when PVC exists with different storage class", func() {
+		It("should return error for storage class mismatch", func() {
+			differentSCName := "different-storage-class"
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: pvcName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: &differentSCName,
+				},
+			}
+
+			err := validatePVCStorageClass(pvc, expectedSCName, storagePolicyID)
+			Expect(err).ToNot(BeNil())
+			Expect(err.Error()).To(ContainSubstring("has storage class different-storage-class"))
+			Expect(err.Error()).To(ContainSubstring(
+				"but storage policy test-storage-policy-id maps to storage class expected-storage-class"))
+		})
+	})
+
+	Context("when PVC exists with nil storage class", func() {
+		It("should return error for missing storage class", func() {
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: pvcName,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: nil,
+				},
+			}
+
+			err := validatePVCStorageClass(pvc, expectedSCName, storagePolicyID)
+			Expect(err).ToNot(BeNil())
+			Expect(err.Error()).To(ContainSubstring("has no storage class specified"))
+			Expect(err.Error()).To(ContainSubstring(
+				"but storage policy test-storage-policy-id requires storage class expected-storage-class"))
+		})
+	})
+
+	Context("when PVC does not exist", func() {
+		It("should skip storage class validation and return nil", func() {
+			err := validatePVCStorageClass(nil, expectedSCName, storagePolicyID)
+			Expect(err).To(BeNil())
+		})
+	})
+})
+
 // mockTopologyService implements commoncotypes.ControllerTopologyService for testing
 type mockTopologyService struct {
 	shouldFail     bool
