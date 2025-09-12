@@ -152,11 +152,9 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" {
 		createSpec.VolumeType = common.BlockVolumeType
 	} else {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.SharedDiskFss) {
+		if isSharedDiskEnabled {
 			// Shared block volume request
-			if instance.Spec.AccessMode == v1.ReadWriteMany &&
-				(instance.Spec.VolumeMode == v1.PersistentVolumeBlock || instance.Spec.VolumeMode == "") {
+			if instance.Spec.AccessMode == v1.ReadWriteMany && instance.Spec.VolumeMode == v1.PersistentVolumeBlock {
 				createSpec.VolumeType = common.BlockVolumeType
 			} else {
 				createSpec.VolumeType = common.FileVolume
@@ -293,15 +291,10 @@ func getPersistentVolumeSpec(ctx context.Context, volumeName string, volumeID st
 		Status: v1.PersistentVolumeStatus{},
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.SharedDiskFss) {
+	if isSharedDiskEnabled {
 		if volumeMode == "" {
-			if accessMode == v1.ReadWriteMany {
-				volumeMode = v1.PersistentVolumeBlock
-			} else {
-				// If accessMode is RWO or empty, default to fileSystem.
-				volumeMode = v1.PersistentVolumeFilesystem
-			}
+			// For both RWO and RWX volumes, default volumeMode is Filesystem.
+			volumeMode = v1.PersistentVolumeFilesystem
 		}
 		pv.Spec.VolumeMode = &volumeMode
 	}

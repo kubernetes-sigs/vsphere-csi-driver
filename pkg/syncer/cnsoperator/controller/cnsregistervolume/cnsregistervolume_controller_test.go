@@ -1002,7 +1002,7 @@ func TestValidateCnsRegisterVolumeSpecWithDiskUrlPath(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "register-vol",
-			Namespace: "tets-ns",
+			Namespace: "test-ns",
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			PvcName:     "pvc-1",
@@ -1022,7 +1022,7 @@ func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndNoAccessMode(t *testing.T) 
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "register-vol",
-			Namespace: "tets-ns",
+			Namespace: "test-ns",
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			PvcName:    "pvc-1",
@@ -1041,7 +1041,7 @@ func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndAccessMode(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "register-vol",
-			Namespace: "tets-ns",
+			Namespace: "test-ns",
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			PvcName:    "pvc-1",
@@ -1053,13 +1053,6 @@ func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndAccessMode(t *testing.T) {
 
 	isSharedDiskEnabled = true
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
-
-	/*patches := gomonkey.NewPatches()
-	patches.ApplyMethod(reflect.TypeOf(&mockCOCommon{}), "GetPVNameFromCSIVolumeID",
-		func(_ commonco.COCommonInterface, volumeId string) (string, bool) {
-			return "static-pv-123456", true
-		})
-	patches.Reset()*/
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
 	assert.NoError(t, err)
 }
@@ -1068,7 +1061,7 @@ func TestIsBlockVolumeRegisterRequestWithSharedBlockVolume(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "register-vol",
-			Namespace: "tets-ns",
+			Namespace: "test-ns",
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			PvcName:    "pvc-1",
@@ -1087,7 +1080,7 @@ func TestIsBlockVolumeRegisterRequestWithFileVolume(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "register-vol",
-			Namespace: "tets-ns",
+			Namespace: "test-ns",
 		},
 		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
 			PvcName:    "pvc-1",
@@ -1114,7 +1107,7 @@ func TestGetPersistentVolumeSpecWhenVolumeModeIsEmpty(t *testing.T) {
 	isSharedDiskEnabled = true
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
 	pv := getPersistentVolumeSpec(context.TODO(), volumeName, volumeID, int64(capacity), accessMode, "", scName, nil)
-	assert.Equal(t, corev1.PersistentVolumeBlock, *pv.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
 }
 
 func TestGetPersistentVolumeSpecWithVolumeMode(t *testing.T) {
