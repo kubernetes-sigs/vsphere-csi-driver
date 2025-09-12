@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 13. delete the pod created in step 10.
 	// 14. delete PVC created in step 2.
 	// 15. delete SC created in step 1.
-	ginkgo.It("Verify offline expansion triggers FS resize", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Verify offline expansion triggers FS resize", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
