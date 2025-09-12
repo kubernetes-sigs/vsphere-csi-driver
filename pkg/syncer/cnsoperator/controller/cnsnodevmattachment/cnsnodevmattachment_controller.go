@@ -257,7 +257,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+					err = k8s.UpdateStatus(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
@@ -278,7 +278,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment "+
 				"request with name: %q on namespace: %q. Err: %+v", request.Name, request.Namespace, err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -296,7 +296,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -307,7 +307,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
 			instance.Status.Error = err.Error()
-			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 			}
@@ -330,7 +330,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					"request with name: %q on namespace: %q. Err: %+v",
 					nodeUUID, request.Name, request.Namespace, err)
 				instance.Status.Error = fmt.Sprintf("Failed to find the VM with UUID: %q", nodeUUID)
-				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+				err = k8s.UpdateStatus(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
@@ -341,7 +341,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			if err != nil {
 				msg := fmt.Sprintf("Failed to get volumeID. Error: %s", err)
 				instance.Status.Error = err.Error()
-				err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+				err = k8s.UpdateStatus(internalCtx, r.client, instance)
 				if err != nil {
 					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 				}
@@ -393,7 +393,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoperatortypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
 					instance.Status.Error = err.Error()
-					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+					err = k8s.UpdateStatus(internalCtx, r.client, instance)
 					if err != nil {
 						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
 					}
@@ -427,7 +427,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				instance.Status.Error = ""
 			}
 
-			err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
 				msg := fmt.Sprintf("failed to update attach status on CnsNodeVmAttachment "+
 					"instance: %q on namespace: %q. Error: %+v",
