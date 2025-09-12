@@ -26,23 +26,20 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
-
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	admissionapi "k8s.io/pod-security-admission/api"
-
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
+	admissionapi "k8s.io/pod-security-admission/api"
 )
 
 /*
@@ -660,7 +657,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		10. Delete PVCs
 		11. Delete SC
 	*/
-	ginkgo.It("[csi-supervisor] Verify label updates on PVC and PV attached to a stateful "+
+	ginkgo.It("[cf-wcp] [csi-supervisor] Verify label updates on PVC and PV attached to a stateful "+
 		"set.", ginkgo.Label(p0, block, vanilla, windows, wcp, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

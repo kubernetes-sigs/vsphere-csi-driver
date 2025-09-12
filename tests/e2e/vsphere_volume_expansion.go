@@ -308,8 +308,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online "+
-		"volume expansion on dynamic volume", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
+	ginkgo.It("[cf-wcp] [csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify "+
+		"online volume expansion on dynamic volume", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1297,7 +1297,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			13. Verify File system has increased
 			14. Delete POD, PVC, PV, CNSregisterVolume and SC
 	*/
-	ginkgo.It("[csi-supervisor] Offline and Online volume resize on statically "+
+	ginkgo.It("[cf-wcp] [csi-supervisor] Offline and Online volume resize on statically "+
 		"created volume", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var err error
 		var fsSize int64

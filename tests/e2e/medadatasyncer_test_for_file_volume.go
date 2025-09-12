@@ -22,12 +22,10 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -89,7 +87,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			6. Delete PVC
 			7. Delete Storage class
 	*/
-	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume",
+	ginkgo.It("[cf-wcp] verify labels are created in CNS after updating pvc and/or pv with new labels for file volume",
 		ginkgo.Label(p0, file, vanilla, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
