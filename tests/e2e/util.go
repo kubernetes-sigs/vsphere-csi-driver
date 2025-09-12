@@ -53,7 +53,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -68,6 +70,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -91,10 +94,6 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
-
-	authenticationv1 "k8s.io/api/authentication/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -6919,7 +6918,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
-		"vmware-rbd-watchdog", "vmware-vcha"}
+		"vmware-rbd-watchdog", "vmware-vcha", "vmware-perfcharts"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string
@@ -7235,7 +7234,8 @@ func validate_totalStoragequota(ctx context.Context, diskSizes []string, totalUs
 	quotaAfter, err := strconv.ParseInt(string(value1), 10, 64)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By(fmt.Sprintf(" quotaAfter :  %v%s", quotaAfter, string(diskunit_quotaAfter)))
+	ginkgo.By(fmt.Sprintf("quotaAfter :  %v%s", quotaAfter, string(diskunit_quotaAfter)))
+	ginkgo.By(fmt.Sprintf("diskSizes :  %s", diskSizes))
 
 	totalDiskStorage = sumupAlltheResourceDiskUsage(diskSizes, diskunit_quotaAfter)
 
