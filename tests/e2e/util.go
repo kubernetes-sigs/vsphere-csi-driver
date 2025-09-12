@@ -6919,7 +6919,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
-		"vmware-rbd-watchdog", "vmware-vcha"}
+		"vmware-perfcharts", "vmware-rbd-watchdog", "vmware-vcha"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string
