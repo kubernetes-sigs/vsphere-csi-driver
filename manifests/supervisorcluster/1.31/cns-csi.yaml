@@ -582,7 +582,7 @@ data:
   "storage-quota-m2": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
-  "sv-pvc-snapshot-protection-finalizer": "false"
+  "sv-pvc-snapshot-protection-finalizer": "true"
   "file-volume-with-vm-service": "false"
 kind: ConfigMap
 metadata:

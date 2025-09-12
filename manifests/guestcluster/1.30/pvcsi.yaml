@@ -547,7 +547,7 @@ data:
   "tkgs-ha": "true"
   "cnsmgr-suspend-create-volume": "true"
   "workload-domain-isolation": "false"
-  "sv-pvc-snapshot-protection-finalizer": "false"
+  "sv-pvc-snapshot-protection-finalizer": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
