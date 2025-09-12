@@ -1482,7 +1482,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		9	Delete pod1
 		10	Delete pvc, sc and SPBM policy created for this test
 	*/
-	ginkgo.It("[csi-supervisor][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
+	ginkgo.It("[cflater-wcp][csi-supervisor][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
 		"[csi-wcp-vsan-direct] Relocate volume to another same type "+
 		"datastore", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
 

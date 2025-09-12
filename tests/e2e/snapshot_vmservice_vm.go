@@ -198,7 +198,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   11. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("Taking snapshot of a vm service vm attached to a dynamic "+
+	ginkgo.It("[cf-wcp] Taking snapshot of a vm service vm attached to a dynamic "+
 		"volume", ginkgo.Label(p0, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -260,13 +260,16 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify PVCs are accessible to the VM")
-		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
-		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+		if !isPrivateNetwork {
+			ginkgo.By("Verify PVCs are accessible to the VM")
+			ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
+			vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for i, vol := range vm.Status.Volumes {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
