@@ -36,13 +36,13 @@ spec:
               description: CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
               oneOf:
                 - properties:
-                  required: [volumeID]
+                  required: [ volumeID ]
                 - properties:
-                  required: [pvcName]
+                  required: [ pvcName ]
               not:
                 allOf:
-                  - required: [volumeID]
-                  - required: [pvcName]
+                  - required: [ volumeID ]
+                  - required: [ pvcName ]
               properties:
                 volumeID:
                   description: VolumeID indicates the volume handle of CNS volume to be unregistered.
