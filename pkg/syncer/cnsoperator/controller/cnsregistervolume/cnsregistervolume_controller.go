@@ -573,7 +573,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				Namespace:  instance.Namespace,
 				Name:       instance.Spec.PvcName,
 			}
-			pvSpec := getPersistentVolumeSpec(ctx, pvName, volumeID, capacityInMb,
+			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
 				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
 			log.Debugf("PV spec is: %+v", pvSpec)
@@ -923,7 +923,8 @@ func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervol
 	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
 		instance.Spec.AccessMode != v1.ReadWriteOnce {
 		if isSharedDiskEnabled {
-			if instance.Spec.AccessMode == v1.ReadWriteMany && instance.Spec.VolumeMode == v1.PersistentVolumeFilesystem {
+			if instance.Spec.AccessMode == v1.ReadWriteMany &&
+				instance.Spec.VolumeMode == v1.PersistentVolumeFilesystem {
 				// File volume is not support for disk URL path.
 				msg = fmt.Sprintf("DiskURLPath cannot be used with accessMode: %s and volumeMode: %s",
 					instance.Spec.AccessMode, instance.Spec.VolumeMode)
@@ -962,7 +963,7 @@ func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolu
 		if isSharedDiskEnabled {
 			// Shared block volume
 			if instance.Spec.AccessMode == v1.ReadWriteMany &&
-				(instance.Spec.VolumeMode == v1.PersistentVolumeBlock || instance.Spec.VolumeMode == "") {
+				instance.Spec.VolumeMode == v1.PersistentVolumeBlock {
 				return true
 			}
 		}

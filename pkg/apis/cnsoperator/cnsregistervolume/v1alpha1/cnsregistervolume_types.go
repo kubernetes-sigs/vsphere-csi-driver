@@ -56,9 +56,7 @@ type CnsRegisterVolumeSpec struct {
 	DiskURLPath string `json:"diskURLPath,omitempty"`
 
 	// VolumeMode can either be Block (for raw block volume) or
-	// Filesystem. Default values:
-	// With RWO accessmode, default is Filesystem.
-	// With RWX accessmode, default is Block.
+	// Filesystem. Default values is Filesystem.
 	VolumeMode v1.PersistentVolumeMode `json:"volumeMode,omitempty"`
 }
 

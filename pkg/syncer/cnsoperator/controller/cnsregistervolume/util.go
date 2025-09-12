@@ -149,22 +149,9 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 			BackingDiskUrlPath: instance.Spec.DiskURLPath,
 		}
 	}
-	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" {
-		createSpec.VolumeType = common.BlockVolumeType
-	} else {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.SharedDiskFss) {
-			// Shared block volume request
-			if instance.Spec.AccessMode == v1.ReadWriteMany &&
-				(instance.Spec.VolumeMode == v1.PersistentVolumeBlock || instance.Spec.VolumeMode == "") {
-				createSpec.VolumeType = common.BlockVolumeType
-			} else {
-				createSpec.VolumeType = common.FileVolume
-			}
-		} else {
-			createSpec.VolumeType = common.FileVolumeType
-		}
-	}
+
+	createSpec.VolumeType = common.BlockVolumeType
+
 	return createSpec
 }
 
@@ -262,7 +249,7 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 }
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
-func getPersistentVolumeSpec(ctx context.Context, volumeName string, volumeID string, capacity int64,
+func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string,
 	claimRef *v1.ObjectReference) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
@@ -293,15 +280,10 @@ func getPersistentVolumeSpec(ctx context.Context, volumeName string, volumeID st
 		Status: v1.PersistentVolumeStatus{},
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.SharedDiskFss) {
+	if isSharedDiskEnabled {
 		if volumeMode == "" {
-			if accessMode == v1.ReadWriteMany {
-				volumeMode = v1.PersistentVolumeBlock
-			} else {
-				// If accessMode is RWO or empty, default to fileSystem.
-				volumeMode = v1.PersistentVolumeFilesystem
-			}
+			// For both RWO and RWX volumes, default volumeMode is Filesystem.
+			volumeMode = v1.PersistentVolumeFilesystem
 		}
 		pv.Spec.VolumeMode = &volumeMode
 	}
@@ -373,8 +355,7 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		},
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.SharedDiskFss) {
+	if isSharedDiskEnabled {
 		claim.Spec.VolumeMode = &volumeMode
 	}
 
