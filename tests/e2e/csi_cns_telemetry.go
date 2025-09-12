@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
@@ -329,8 +330,13 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 
 		expectedErrMsg := "A specified parameter was not correct: createSpecs.metadata.containerCluster.clusterDistribution"
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
-		errorOccurred := checkEventsforError(client, pvclaim.Namespace,
-			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
-		gomega.Expect(errorOccurred).To(gomega.BeTrue())
+		waitErr := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeoutSixMin, true,
+			func(ctx context.Context) (bool, error) {
+				errorOccurred := checkEventsforError(client, pvclaim.Namespace,
+					metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)},
+					expectedErrMsg)
+				return errorOccurred, nil
+			})
+		gomega.Expect(waitErr).ToNot(gomega.HaveOccurred())
 	})
 })
