@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		5. Delete PVCs and SC
 		6. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
+	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-file-vanilla][csi-guest] [csi-supervisor]"+
 		"create volume when CSI restarts - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg,
 		vanilla, vc70), func() {
 		serviceName = "CSI"
