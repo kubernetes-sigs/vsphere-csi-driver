@@ -170,8 +170,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 	7. clean up the statefulset
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [stretched-svc] Statefulset "+
-		"testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
+	ginkgo.It("[cf-wcp] [csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [stretched-svc] "+
+		"Statefulset testing with default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp,
+		core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		defer cancel()
@@ -615,8 +616,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 			10. scale down statefulset to 0
 			11. delete statefulset and all PVC's and SC's
 	*/
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify online "+
-		"volume expansion on statefulset", ginkgo.Label(p1, vanilla, block, wcp, vcptocsiTest, vc70), func() {
+	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-block-vanilla-parallelized] [csi-vcp-mig] Verify "+
+		"online volume expansion on statefulset", ginkgo.Label(p1, vanilla, block, wcp, vcptocsiTest,
+		vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var pvcSizeBeforeExpansion int64
