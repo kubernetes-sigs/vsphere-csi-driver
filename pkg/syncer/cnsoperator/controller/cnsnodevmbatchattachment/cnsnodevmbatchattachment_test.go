@@ -390,6 +390,14 @@ func TestValidateBatchAttachRequestWithRwoPvc(t *testing.T) {
 		expectedEr = fmt.Errorf("incorrect input for PVC pvc-1 in namespace test-ns with accessMode ReadWriteOnce. " +
 			"SharingMode cannot be sharingMultiWriter")
 		assert.EqualError(t, expectedEr, err.Error())
+
+		batchAttachRequest = volumes.BatchAttachRequest{
+			SharingMode: "",
+		}
+
+		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+		err = validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-1")
+		assert.NoError(t, err)
 	})
 }
 
