@@ -130,6 +130,7 @@ type TestBedConfig struct {
 	RwxAccessMode       bool
 	Vcptocsi            bool
 	MultipleSvc         bool
+	LinkedClone         bool
 	WindowsEnv          bool
 	Multivc             bool
 	StretchedSVC        bool
