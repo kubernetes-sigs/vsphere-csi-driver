@@ -120,8 +120,9 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		}
 	})
 
-	ginkgo.It("[csi-supervisor] verify labels are created in CNS after updating pvc "+
-		"and/or pv with new labels", ginkgo.Label(p1, block, vanilla, windows, wcp, core), func() {
+	ginkgo.It("[cf-wcp] [csi-supervisor] verify labels are created in CNS after updating pvc "+
+		"and/or pv with new labels", ginkgo.Label(p1, block, vanilla, windows, wcp,
+		core), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
