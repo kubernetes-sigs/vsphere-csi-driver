@@ -321,7 +321,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 9. Verify PV entry is deleted from CNS.
 	// 10. Delete the SC.
 
-	ginkgo.It("[cf-vks][csi-supervisor] [csi-guest] Verify health annotation is updated "+
+	ginkgo.It("[csi-supervisor] [csi-guest] Verify health annotation is updated "+
 		"from unknown status to accessible", ginkgo.Label(p0, block, wcp, tkg, disruptive, negative, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
