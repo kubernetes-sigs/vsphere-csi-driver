@@ -25,8 +25,20 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 )
+
+type TestbedBasicInfo struct {
+	Name       string `default:"worker"`
+	User       string
+	Location   string
+	VcIp       string
+	VcVmName   string
+	EsxHosts   []map[string]string
+	Podname    string
+	Datastores []map[string]string
+}
+
+var Tbinfo TestbedBasicInfo
 
 // This function provides power on/off functionality to nimbus VMs (space separated list)
 func VMPowerMgmt(user string, location string, podname string, hostList string, shouldBePoweredOn bool) error {
@@ -68,8 +80,6 @@ func DatatoreOperations(user string, location string, podname string, vmName str
 
 // This function read basic testbed info from the provided json file
 func ReadVcEsxIpsViaTestbedInfoJson(filePath string) {
-	tbinfo := config.TestBedConfig{}
-
 	file, err := os.ReadFile(filePath)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -81,8 +91,8 @@ func ReadVcEsxIpsViaTestbedInfoJson(filePath string) {
 
 	vcs := tb["vc"].([]interface{})
 	vc1 := vcs[0].(map[string]interface{})
-	tbinfo.VcIp = vc1["ip"].(string)
-	tbinfo.VcVmName = vc1["name"].(string)
+	Tbinfo.VcIp = vc1["ip"].(string)
+	Tbinfo.VcVmName = vc1["name"].(string)
 
 	esxs := tb["esx"].([]interface{})
 	nfsDS := tb["nfs"].([]interface{})
@@ -114,13 +124,13 @@ func ReadVcEsxIpsViaTestbedInfoJson(filePath string) {
 	}
 	iscsiDatastores = append(iscsiDatastores, nfsDatastores...)
 
-	tbinfo.EsxHosts = esxHosts
-	tbinfo.Datastores = iscsiDatastores
+	Tbinfo.EsxHosts = esxHosts
+	Tbinfo.Datastores = iscsiDatastores
 
-	tbinfo.Name = tb["name"].(string)
-	tbinfo.User = tb["user_name"].(string)
-	tbinfo.Location = tb["nimbusLocation"].(string)
-	tbinfo.Podname = tb["podname"].(string)
+	Tbinfo.Name = tb["name"].(string)
+	Tbinfo.User = tb["user_name"].(string)
+	Tbinfo.Location = tb["nimbusLocation"].(string)
+	Tbinfo.Podname = tb["podname"].(string)
 
-	framework.Logf("Basic testbed info:\n%s\n", spew.Sdump(tbinfo))
+	framework.Logf("Basic testbed info:\n%s\n", spew.Sdump(Tbinfo))
 }
