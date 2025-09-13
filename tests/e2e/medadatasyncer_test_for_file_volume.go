@@ -87,7 +87,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] label-updates for file volumes"
 			6. Delete PVC
 			7. Delete Storage class
 	*/
-	ginkgo.It("[cf-wcp] verify labels are created in CNS after updating pvc and/or pv with new labels for file volume",
+	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new labels for file volume",
 		ginkgo.Label(p0, file, vanilla, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
