@@ -21,6 +21,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
+	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -228,7 +229,18 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		for i := 0; i < len(volumeSnapshotList); i++ {
 			ginkgo.By("Verify volume restore fromsnapshots created earlier is successful")
-			verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+				err = fpod.DeletePodWithWait(ctx, client, pod2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Delete dynamic volume snapshot")
 			_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -394,7 +406,18 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		for i := 0; i < len(volumeSnapshotList); i++ {
 			ginkgo.By("Verify volume restore fromsnapshots created earlier is successful")
-			verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+				err = fpod.DeletePodWithWait(ctx, client, pod2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Delete dynamic volume snapshot")
 			_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -557,7 +580,18 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		for i := 0; i < len(volumeSnapshotList); i++ {
 			ginkgo.By("Verify volume restore fromsnapshots created earlier is successful")
-			verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+				err = fpod.DeletePodWithWait(ctx, client, pod2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Delete dynamic volume snapshot")
 			_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -714,7 +748,18 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Verify restore volume from snapshot is successful")
-			verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshot, diskSize1GB, false)
+			pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshot, diskSize1GB, false)
+			volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+				err = fpod.DeletePodWithWait(ctx, client, pod2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Delete dynamic volume snapshot")
 			_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -775,8 +820,8 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 			pvclaim, err := createPVC(ctx, client, namespace, nil, diskSize1GB, sc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaimsList = append(pvclaimsList, pvclaim)
+			pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvclaim})
 		}
-		pvclaims2d = append(pvclaims2d, pvclaimsList)
 
 		ginkgo.By("wait for pvcs to be bound")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, framework.ClaimProvisionTimeout)
@@ -825,6 +870,14 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		close(pvcChan)
 		close(podChan)
 
+		framework.Logf("newPvcList: %v", newPvcList)
+		framework.Logf("newPodList: %v", newPodList)
+
+		for i := range newPodList {
+			framework.Logf("pvcclaimList: %v", pvclaimsList[i].Name)
+			framework.Logf("podName:%v", newPodList[i].Name)
+		}
+
 		defer func() {
 			framework.Logf("Renaming datastore back to original name")
 			e2eVSphere.renameDs(ctx, datastoreName, &dsRef)
@@ -846,6 +899,15 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		ginkgo.By("wait for pvcs to be bound")
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, newPvcList, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for pods to come to running state")
+		for _, pod := range newPodList {
+			err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		framework.Logf("wait for 5 mins")
+		time.Sleep(5 * time.Minute)
 
 		ginkgo.By("verify that volumes are accessible for all the pods")
 		verifyVolMountsInPods(ctx, client, newPodList, pvclaims2d)
@@ -906,8 +968,8 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 			pvclaim, err := createPVC(ctx, client, namespace, nil, diskSize1GB, sc, "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			pvclaimsList = append(pvclaimsList, pvclaim)
+			pvclaims2d = append(pvclaims2d, []*v1.PersistentVolumeClaim{pvclaim})
 		}
-		pvclaims2d = append(pvclaims2d, pvclaimsList)
 
 		ginkgo.By("wait for pvcs to be bound")
 		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsList, framework.ClaimProvisionTimeout)
@@ -1130,10 +1192,11 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 		datastoreName, dsRef, err := e2eVSphere.fetchDatastoreNameFromDatastoreUrl(ctx, volHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Rename datastore to a new name")
+		framework.Logf("new datastore name: %s", datastoreName+randomStr)
 		e2eVSphere.renameDs(ctx, datastoreName+randomStr, &dsRef)
 
 		defer func() {
-			framework.Logf("Renaming datastore back to original name")
+			framework.Logf("Renaming datastore back to original name: %s", datastoreName)
 			e2eVSphere.renameDs(ctx, datastoreName, &dsRef)
 		}()
 
@@ -1179,7 +1242,18 @@ var _ bool = ginkgo.Describe("ds-rename", func() {
 
 		for i := 0; i < len(volumeSnapshotList); i++ {
 			ginkgo.By("Verify volume restore fromsnapshots created earlier is successful")
-			verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			pvclaim2, pvs2, pod2 := verifyVolumeRestoreOperation(ctx, client, namespace, sc, volumeSnapshotList[i], diskSize1GB, false)
+			volHandle2 := pvs2[0].Spec.CSI.VolumeHandle
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod2.Name, namespace))
+				err = fpod.DeletePodWithWait(ctx, client, pod2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim2.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle2)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
 
 			ginkgo.By("Delete dynamic volume snapshot")
 			_, _, err = deleteVolumeSnapshot(ctx, snapc, namespace,
