@@ -7720,3 +7720,12 @@ func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface)
 	framework.ExpectNoError(err)
 	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }
+
+func StopCSIPodsInParallel(ctx context.Context, client clientset.Interface, namespace string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	CollectPodLogs(ctx, client, constants.CsiSystemNamespace)
+	err := UpdateDeploymentReplicawithWait(client, 0, constants.VSphereCSIControllerPodNamePrefix,
+		namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -193,3 +194,42 @@ func GetCnsFileAccessConfigCRD(ctx context.Context, restConfig *rest.Config,
 	}
 	return cfc, nil
 }
+
+func CreateCnsFileAccessConfigCRDInParallel(ctx context.Context, restConfig *rest.Config, pvcName string,
+	vmsvcVmName string, namespace string, crdName string, wg *sync.WaitGroup) error {
+	defer wg.Done()
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return err
+	}
+	spec := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      crdName,
+			Namespace: namespace},
+		Spec: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigSpec{
+			VMName:  vmsvcVmName,
+			PvcName: pvcName,
+		},
+	}
+
+	if err := cnsOperatorClient.Create(ctx, spec); err != nil {
+		return fmt.Errorf("failed to create CNSFileAccessConfig CRD: %s with err: %v", crdName, err)
+	}
+	return nil
+}
+
+/*
+func ListCnsFileAccessConfig(ctx context.Context, restConfig *rest.Config,
+	cnsFileAccessConfigCRDName string, namespace string) (*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, error) {
+	cfc := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	cnsOperatorClient, err := vcutil.GetCnsOperatorClient(ctx, restConfig)
+	if err != nil {
+		return cfc, err
+	}
+	err = cnsOperatorClient.List(ctx, []pkgtypes.NamespacedName{Name: cnsFileAccessConfigCRDName,
+		Namespace: namespace})
+	if err != nil {
+		return cfc, err
+	}
+	return cfc, nil
+}*/
