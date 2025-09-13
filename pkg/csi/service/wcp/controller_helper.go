@@ -53,6 +53,7 @@ import (
 var (
 	vmfsNamespace         = "com.vmware.storage.volumeallocation"
 	vmfsNamespaceEztValue = "Fully initialized"
+	vmfsClusteredVmdk     = "clustered"
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
@@ -99,22 +100,33 @@ func verifyStoragePolicyForVmfsWithEageredZeroThick(ctx context.Context,
 	storagePolicyId string) error {
 	log := logger.GetLogger(ctx)
 
+	isEzt := false
+	isClustered := false
+	isVmfsNamespace := false
+
 	for _, polictContent := range spbmPolicyContentList {
 		for _, profile := range polictContent.Profiles {
 			for _, rule := range profile.Rules {
 				if rule.Ns == vmfsNamespace {
-					if rule.Value != vmfsNamespaceEztValue {
-						msg := fmt.Sprintf("Policy %s is for VMFS datastores. It must be fully initialized for "+
-							"RWX block volumes", storagePolicyId)
-						err := errors.New(msg)
-						log.Errorf(msg)
-						return err
+					isVmfsNamespace = true
+					switch rule.Value {
+					case vmfsNamespaceEztValue:
+						isEzt = true
+					case vmfsClusteredVmdk:
+						isClustered = true
 					}
-					log.Infof("Policy %s is for VMFS and is fully initialized", storagePolicyId)
-					return nil
 				}
 			}
 		}
+	}
+
+	if isVmfsNamespace && (!isEzt || !isClustered) {
+		msg := fmt.Sprintf("Policy %s is for VMFS datastores. "+
+			"It must be fully initialized and must have clustered VMDK enabled for "+
+			"RWX block volumes", storagePolicyId)
+		err := errors.New(msg)
+		log.Errorf(msg)
+		return err
 	}
 
 	log.Debugf("Policy %s validated correctly", storagePolicyId)
