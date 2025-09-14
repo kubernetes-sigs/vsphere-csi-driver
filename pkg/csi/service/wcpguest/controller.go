@@ -36,6 +36,7 @@ import (
 	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -129,7 +130,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 
-	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha4.GroupName)
+	c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha5.GroupName)
 	if err != nil {
 		log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 		return err
@@ -267,7 +268,7 @@ func (c *controller) ReloadConfiguration() error {
 			return err
 		}
 		log.Infof("successfully re-created supervisorClient using updated configuration")
-		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha4.GroupName)
+		c.vmOperatorClient, err = k8s.NewClientForGroup(ctx, c.restClientConfig, vmoperatorv1alpha5.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return err
@@ -755,14 +756,19 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 	var diskUUID string
 	var err error
 
-	virtualMachine := &vmoperatorv1alpha4.VirtualMachine{}
+	virtualMachine := &vmoperatorv1alpha5.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
 	}
-
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	version, err := utils.GetLatestCRDVersion(ctx, utils.VirtualMachineCRDName)
+	if err != nil {
+		msg := fmt.Sprintf("failed to get latest CRD version for %s: %s", utils.VirtualMachineCRDName, err)
+		log.Error(msg)
+		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+	}
 	for {
 		virtualMachine, _, err = utils.GetVirtualMachineAllApiVersions(
 			ctx, vmKey, c.vmOperatorClient)
@@ -786,10 +792,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		old_virtualMachine := virtualMachine.DeepCopy()
 		// Volume is not present in the virtualMachine.Spec.Volumes, so adding
 		// volume in the spec and patching virtualMachine instance.
-		vmvolumes := vmoperatorv1alpha4.VirtualMachineVolume{
+		vmvolumes := vmoperatorv1alpha5.VirtualMachineVolume{
 			Name: req.VolumeId,
-			VirtualMachineVolumeSource: vmoperatorv1alpha4.VirtualMachineVolumeSource{
-				PersistentVolumeClaim: &vmoperatorv1alpha4.PersistentVolumeClaimVolumeSource{
+			VirtualMachineVolumeSource: vmoperatorv1alpha5.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmoperatorv1alpha5.PersistentVolumeClaimVolumeSource{
 					PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
 						ClaimName: req.VolumeId,
 					},
@@ -808,7 +814,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
-		virtualMachine = &vmoperatorv1alpha4.VirtualMachine{}
+		virtualMachine = &vmoperatorv1alpha5.VirtualMachine{}
 	}
 
 	for _, volume := range virtualMachine.Status.Volumes {
@@ -838,44 +844,68 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			// blocking wait for update event
 			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
 			event := <-watchVirtualMachine.ResultChan()
-			vm := &vmoperatorv1alpha4.VirtualMachine{}
-			vm4, ok := event.Object.(*vmoperatorv1alpha4.VirtualMachine)
-			if !ok {
+			vm := &vmoperatorv1alpha5.VirtualMachine{}
+			switch version {
+			case "v1alpha1":
+				vm1, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha1 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm1.Name)
+				err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm1, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha2":
+				vm2, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha2 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm2.Name)
+				err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm2, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha3":
 				vm3, ok := event.Object.(*vmoperatorv1alpha3.VirtualMachine)
 				if !ok {
-					vm2, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
-					if !ok {
-						vm1, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
-						if !ok {
-							msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-							log.Error(msg)
-							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-						} else {
-							log.Infof("converting v1alpha1 VirtualMachine to v1alpha4 VirtualMachine, name %s", vm1.Name)
-							err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
-								vm1, vm, nil)
-							if err != nil {
-								return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-							}
-						}
-					} else {
-						log.Infof("converting v1alpha2 VirtualMachine to v1alpha4 VirtualMachine, name %s", vm2.Name)
-						err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
-							vm2, vm, nil)
-						if err != nil {
-							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-						}
-					}
-				} else {
-					log.Infof("converting v1alpha2 VirtualMachine to v1alpha4 VirtualMachine, name %s", vm3.Name)
-					err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
-						vm3, vm, nil)
-					if err != nil {
-						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-					}
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 				}
-			} else {
-				vm = vm4
+				log.Infof("converting v1alph3 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm3.Name)
+				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm3, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha4":
+				vm4, ok := event.Object.(*vmoperatorv1alpha4.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha4 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm4.Name)
+				err = vmoperatorv1alpha4.Convert_v1alpha4_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm4, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			default:
+				vm5, ok := event.Object.(*vmoperatorv1alpha5.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				vm = vm5
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
@@ -1136,7 +1166,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
-	virtualMachine := &vmoperatorv1alpha4.VirtualMachine{}
+	virtualMachine := &vmoperatorv1alpha5.VirtualMachine{}
 	vmKey := types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      req.NodeId,
@@ -1144,6 +1174,12 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	var err error
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	version, err := utils.GetLatestCRDVersion(ctx, utils.VirtualMachineCRDName)
+	if err != nil {
+		msg := fmt.Sprintf("failed to get latest CRD version for %s: %s", utils.VirtualMachineCRDName, err)
+		log.Error(msg)
+		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+	}
 	for {
 		virtualMachine, _, err = utils.GetVirtualMachineAllApiVersions(
 			ctx, vmKey, c.vmOperatorClient)
@@ -1178,7 +1214,7 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
-		virtualMachine = &vmoperatorv1alpha4.VirtualMachine{}
+		virtualMachine = &vmoperatorv1alpha5.VirtualMachine{}
 	}
 	isVolumePresentInVMStatus := false
 	for _, volume := range virtualMachine.Status.Volumes {
@@ -1214,41 +1250,68 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
 			// Block on update events
 			event := <-watchVirtualMachine.ResultChan()
-			vm := &vmoperatorv1alpha4.VirtualMachine{}
-			vm4, ok := event.Object.(*vmoperatorv1alpha4.VirtualMachine)
-			if !ok {
+			vm := &vmoperatorv1alpha5.VirtualMachine{}
+			switch version {
+			case "v1alpha1":
+				vm1, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha1 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm1.Name)
+				err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm1, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha2":
+				vm2, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha2 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm2.Name)
+				err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm2, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha3":
 				vm3, ok := event.Object.(*vmoperatorv1alpha3.VirtualMachine)
 				if !ok {
-					vm2, ok := event.Object.(*vmoperatorv1alpha2.VirtualMachine)
-					if !ok {
-						vm1, ok := event.Object.(*vmoperatorv1alpha1.VirtualMachine)
-						if !ok {
-							msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-							log.Error(msg)
-							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-						} else {
-							err = vmoperatorv1alpha1.Convert_v1alpha1_VirtualMachine_To_v1alpha4_VirtualMachine(
-								vm1, vm, nil)
-							if err != nil {
-								return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-							}
-						}
-					} else {
-						err = vmoperatorv1alpha2.Convert_v1alpha2_VirtualMachine_To_v1alpha4_VirtualMachine(
-							vm2, vm, nil)
-						if err != nil {
-							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-						}
-					}
-				} else {
-					err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha4_VirtualMachine(
-						vm3, vm, nil)
-					if err != nil {
-						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
-					}
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 				}
-			} else {
-				vm = vm4
+				log.Infof("converting v1alph3 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm3.Name)
+				err = vmoperatorv1alpha3.Convert_v1alpha3_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm3, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			case "v1alpha4":
+				vm4, ok := event.Object.(*vmoperatorv1alpha4.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				log.Infof("converting v1alpha4 VirtualMachine to v1alpha5 VirtualMachine, name %s", vm4.Name)
+				err = vmoperatorv1alpha4.Convert_v1alpha4_VirtualMachine_To_v1alpha5_VirtualMachine(
+					vm4, vm, nil)
+				if err != nil {
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
+				}
+			default:
+				vm5, ok := event.Object.(*vmoperatorv1alpha5.VirtualMachine)
+				if !ok {
+					msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
+					log.Error(msg)
+					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				}
+				vm = vm5
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
