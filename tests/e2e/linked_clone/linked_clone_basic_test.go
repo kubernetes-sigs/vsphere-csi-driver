@@ -17,10 +17,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/vmware/govmomi/find"
+	"github.com/vmware/govmomi/object"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
@@ -60,6 +64,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		vcRestSessionId string
 		statuscode      int
 		doCleanup       bool
+		storagePolicy   string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -72,7 +77,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		doCleanup = false
 
 		// Read Env variable needed for the test suite
-		storagePolicy := env.GetAndExpectStringEnvVar(constants.EnvStoragePolicy)
+		storagePolicy = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicy)
 
 		// Get the storageclass from storagepolicy
 		storageclass, err = client.StorageV1().StorageClasses().Get(ctx, storagePolicy, metav1.GetOptions{})
@@ -107,6 +112,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		k8testutil.DumpSvcNsEventsOnTestFailure(client, namespace)
 		eventList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		for _, item := range eventList.Items {
 			framework.Logf("%q", item.Message)
 		}
@@ -485,6 +491,231 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		k8testutil.CreateAndValidateLcWithSts(ctx, e2eTestConfig, client, namespace, storageclass, volumeSnapshot.Name, constants.Snapshotapigroup)
 
 		framework.Logf("Ending test: Verify creating the LC with statefulsets")
+
+	})
+
+	// TC-9
+	ginkgo.It("Verify linked clone can be created on the static volume", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Verify linked clone can be created on the static volume")
+
+		curtime := time.Now().Unix()
+		curtimestring := strconv.FormatInt(curtime, 10)
+		pvcName := "cns-pvc-" + curtimestring
+		framework.Logf("pvc name :%s", pvcName)
+
+		restConfig, storageclass, profileID := k8testutil.StaticProvisioningPreSetUpUtil(ctx, e2eTestConfig, f, client, storagePolicy, namespace)
+		framework.Logf("Storage class : %s", storageclass.Name)
+
+		ginkgo.By("Creating FCD (CNS Volume)")
+		var datacenters []string
+		var defaultDatacenter *object.Datacenter
+		datastoreURL := env.GetAndExpectStringEnvVar(constants.EnvSharedDatastoreURL)
+		dsRef := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, datastoreURL)
+		framework.Logf("dsmoId: %v", dsRef.Value)
+		finder := find.NewFinder(e2eTestConfig.VcClient.Client, false)
+		cfg, err := config.GetConfig()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		dcList := strings.Split(cfg.Global.Datacenters, ",")
+		for _, dc := range dcList {
+			dcName := strings.TrimSpace(dc)
+			if dcName != "" {
+				datacenters = append(datacenters, dcName)
+			}
+		}
+		for _, dc := range datacenters {
+			defaultDatacenter, err = finder.Datacenter(ctx, dc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			finder.SetDatacenter(defaultDatacenter)
+			_, err = vcutil.GetDatastoreByURL(ctx, e2eTestConfig, datastoreURL, defaultDatacenter)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		defaultDatastore, err := vcutil.GetDatastoreByURL(ctx, e2eTestConfig, datastoreURL, defaultDatacenter)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		fcdID, err := vcutil.CreateFCDwithValidProfileID(ctx, e2eTestConfig,
+			"staticfcd"+curtimestring, profileID, constants.DiskSizeInMb, defaultDatastore.Reference())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
+			constants.DefaultPandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(constants.DefaultPandoraSyncWaitTime) * time.Second)
+
+		ginkgo.By("Create CNS register volume with above created FCD ")
+		cnsRegisterVolume := k8testutil.GetCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, corev1.ReadWriteOnce)
+		err = k8testutil.CreateCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.ExpectNoError(k8testutil.WaitForCNSRegisterVolumeToGetCreated(ctx, restConfig,
+			namespace, cnsRegisterVolume, constants.Poll, constants.SupervisorClusterOperationsTimeout))
+		cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+		framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+		ginkgo.By(" verify created PV, PVC and check the bidirectional reference")
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := k8testutil.GetPvFromClaim(client, namespace, pvcName)
+		k8testutil.VerifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, fcdID)
+
+		ginkgo.By("Creating pod")
+		pod, err := k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		podName := pod.GetName()
+		framework.Logf("podName : %s", podName)
+
+		// create volume snapshot
+		volumeSnapshot := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
+
+		// create linked clone PVC and verify its bound
+		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1}, constants.DiskSize)
+	})
+
+	// TC-11
+	ginkgo.It("Validate the LC creation passes on the restored volume", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Validate the LC creation passes on the restored volume")
+
+		// Create PVC and volume snapshot
+		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
+
+		// create linked clone PVC and verify its bound
+		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		// Restore the volume using above snapshot
+		ginkgo.By("Restore snapshot to create a new volume")
+		restoredPvc, restoredPV, _ := k8testutil.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, storageclass,
+			volumeSnapshot, constants.DiskSize, false)
+
+		// create volume snapshot from restored pvc
+		volumeSnapshot := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, restoredPvc, restoredPV, constants.DiskSize)
+
+		// create linked clone PVC and verify its bound
+		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		framework.Logf("Ending test: Validate the LC creation passes on the restored volume")
+
+	})
+
+	// TC-12
+	ginkgo.It("Validate the restoration of LC-PVC", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Validate the restoration of LC-PVC")
+
+		// Create PVC and volume snapshot
+		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
+
+		// create linked clone PVC and verify its bound
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+
+		// Create and attach pod to linked clone PVC
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
+
+		// Create snapshot from LC_PVC
+		framework.Logf("Create snapshot from LC_PVC ")
+		volumeSnapshot = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+
+		// Restore the volume using above snapshot
+		ginkgo.By("Restore snapshot to create a new volume")
+		pvc, _, _ := k8testutil.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, storageclass,
+			volumeSnapshot, constants.DiskSize, false)
+
+		// PVC usability
+		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
+
+		framework.Logf("Validate the restoration of LC-PVC")
+
+	})
+
+	// TC-14
+	ginkgo.It("Validate LC PVC can be created with WFFC binding", ginkgo.Label(
+		constants.P0, constants.LinkedClone, constants.Vc901), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		framework.Logf("Starting test: Validate LC PVC can be created with WFFC binding ")
+
+		// Fetch latebinding storage class
+		spWffc := storagePolicy + "-latebinding"
+		storageclassWffc, err := client.StorageV1().StorageClasses().Get(ctx, spWffc, metav1.GetOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// Create PVC
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+		pvc, err := k8testutil.CreatePVC(ctx, client, namespace, labelsMap, "", storageclassWffc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// create pod
+		ginkgo.By("Create Pod to attach to Pvc-2")
+		_, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false,
+			constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc}, constants.PollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := pvs[0]
+		/*
+			vmUUID := k8testutil.GetNodeUUID(ctx, client, pod2.Spec.NodeName)
+			isDiskAttached2, err := vcutil.IsVolumeAttachedToVM(client, e2eTestConfig, pv.Spec.CSI.VolumeHandle, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(isDiskAttached2).To(gomega.BeTrue(), "Volume is not attached to the node") */
+
+		// Create snapshot
+		volumeSnapshot := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
+
+		// Get the storage quota used before LC creation
+		quota := make(map[string]*resource.Quantity)
+		quota["totalQuotaUsedBefore"], _, quota["pvc_storagePolicyQuotaBefore"], _,
+			quota["pvc_storagePolicyUsageBefore"], _ =
+			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, true)
+
+		// create linked clone PVC and verify its bound
+		linkdeClonePvc, err := k8testutil.CreateLinkedClonePvc(ctx, client, namespace, storageclassWffc, volumeSnapshot.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
+
+		// Create and attach pod to linked clone PVC
+		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
+
+		// Validate PVC is bound
+		pvList, err := fpv.WaitForPVClaimBoundPhase(ctx,
+			client, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		//create snapshot from LC-PVC
+		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, pvList, constants.DiskSize)
+
+		// Check the PVC usage quota increased
+		quota["totalQuotaUsedAfter"], _, quota["pvc_storagePolicyQuotaAfter"], _,
+			quota["pvc_storagePolicyUsageAfter"], _ =
+			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, true)
+
+		// Get the numeric part
+		pvc_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaAfter"]))
+		gomega.Expect(err1).To(gomega.BeNil())
+		pvc_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageAfter"]))
+		gomega.Expect(err2).To(gomega.BeNil())
+
+		pvc_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaBefore"]))
+		gomega.Expect(err3).To(gomega.BeNil())
+		pvc_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageBefore"]))
+		gomega.Expect(err4).To(gomega.BeNil())
+
+		// Validate storageQuota increased
+		gomega.Expect(pvc_storagePolicyQuotaBefore).To(gomega.BeNumerically(">", pvc_storagePolicyQuotaAfter), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
+		gomega.Expect(pvc_storagePolicyUsageBefore).To(gomega.BeNumerically(">", pvc_storagePolicyUsageAfter), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+
+		framework.Logf("Ending test: Validate LC PVC can be created with WFFC binding ")
 
 	})
 

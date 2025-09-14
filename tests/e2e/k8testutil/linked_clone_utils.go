@@ -16,6 +16,7 @@ package k8testutil
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -154,7 +155,7 @@ func getSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Client
 /*
 Create PVC using linked clone annotation
 */
-func createLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, error) {
+func CreateLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, error) {
 	pvcspec := PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce, constants.Snapshotapigroup, volumeSnapshotName)
 	ginkgo.By(fmt.Sprintf("Creating linked-clone PVC in namespace: %s using Storage Class: %s",
 		namespace, storageclass.Name))
@@ -174,7 +175,7 @@ Create linked clone PVC and verify its Bound
 func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
 
 	// create linked clone PVC
-	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName)
+	pvclaim, err := CreateLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
 	// Validate PVC is bound
@@ -325,8 +326,13 @@ func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *con
 }
 
 func ParseMi(value string) (int, error) {
-	// Remove the "Mi" suffix and convert to int
-	numeric := strings.TrimSuffix(value, "Mi")
+	var numeric string
+	// Remove the "Mi" or "Gi" suffix and convert to int
+	if strings.HasSuffix(value, "Mi") {
+		numeric = strings.TrimSuffix(value, "Mi")
+	} else if strings.HasSuffix(value, "Gi") {
+		numeric = strings.TrimSuffix(value, "Gi")
+	}
 	return strconv.Atoi(numeric)
 }
 
@@ -342,13 +348,21 @@ func CreateAndValidateLcWithSts(ctx context.Context, e2eTestConfig *config.E2eTe
 	// Add LC annotaion
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		ObjectMeta.SetAnnotations(annotations)
+
 	// Add datastource
+	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
+		Spec.DataSource = new(corev1.TypedLocalObjectReference)
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		Spec.DataSource.Name = snapName
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		Spec.DataSource.Kind = "VolumeSnapshot"
 	statefulset.Spec.VolumeClaimTemplates[len(statefulset.Spec.VolumeClaimTemplates)-1].
 		Spec.DataSource.APIGroup = &snapshotapigroup
+
+	// Change the name
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	name := fmt.Sprintf("web-%v", r.Intn(10000))
+	statefulset.ObjectMeta.Name = name
 
 	CreateStatefulSet(namespace, statefulset, client)
 	replicas := *(statefulset.Spec.Replicas)

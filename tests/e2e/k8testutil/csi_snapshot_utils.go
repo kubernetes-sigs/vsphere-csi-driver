@@ -27,13 +27,17 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
@@ -401,4 +405,84 @@ func WaitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 			return false, nil
 		})
 	return waitErr
+}
+
+// verifyVolumeRestoreOperation verifies if volume(PVC) restore from given snapshot
+// and creates pod and checks attach volume operation if verifyPodCreation is set to true
+func VerifyVolumeRestoreOperation(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface,
+	namespace string, storageclass *storagev1.StorageClass,
+	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
+	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
+
+	ginkgo.By("Create PVC from snapshot")
+	pvcSpec := GetPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
+		v1.ReadWriteOnce, volumeSnapshot.Name, constants.Snapshotapigroup)
+
+	pvclaim2, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	persistentvolumes2, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		volHandle2 = GetVolumeIDFromSupervisorCluster(volHandle2)
+	}
+	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
+
+	var pod *v1.Pod
+	if verifyPodCreation {
+		// Create a Pod to use this PVC, and verify volume has been attached
+		ginkgo.By("Creating pod to attach PV to the node")
+		pod, err = CreatePod(ctx, e2eTestConfig, client, namespace, nil,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, false, constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		var vmUUID string
+		var exists bool
+		nodeName := pod.Spec.NodeName
+
+		if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+			vmUUID = GetNodeUUID(ctx, client, pod.Spec.NodeName)
+		} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+			vmUUID, err = vcutil.GetVMUUIDFromNodeName(e2eTestConfig, pod.Spec.NodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		} else if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[constants.VmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", constants.VmUUIDLabel))
+			_, err := vcutil.GetVMByUUID(ctx, e2eTestConfig, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle2, nodeName))
+		isDiskAttached, err := vcutil.IsVolumeAttachedToVM(client, e2eTestConfig, volHandle2, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Verify the volume is accessible and Read/write is possible")
+		var cmd []string
+		if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", constants.FilePathPod1}
+		} else {
+			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"cat ", constants.FilePathPod1}
+		}
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+
+		var wrtiecmd []string
+		if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
+			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe",
+				"Add-Content /mnt/volume1/Pod1.html 'Hello message from test into Pod1'"}
+		} else {
+			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
+				"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
+		}
+		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+		return pvclaim2, persistentvolumes2, pod
+	}
+	return pvclaim2, persistentvolumes2, pod
 }

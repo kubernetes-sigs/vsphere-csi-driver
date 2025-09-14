@@ -2563,7 +2563,7 @@ func DeleteService(ns string, c clientset.Interface, service *v1.Service) {
 // GetStatefulSetFromManifest creates a StatefulSet from the statefulset.yaml
 // file present in the manifest path.
 func GetStatefulSetFromManifest(e2eTestConfig *config.TestInputData, ns string) *appsv1.StatefulSet {
-	ssManifestFilePath := filepath.Join(constants.ManifestPath, "statefulset.yaml")
+	ssManifestFilePath := filepath.Join("..", constants.ManifestPath, "statefulset.yaml")
 	framework.Logf("Parsing statefulset from %v", ssManifestFilePath)
 	ss, err := manifest.StatefulSetFromManifest(ssManifestFilePath, ns)
 	framework.ExpectNoError(err)
@@ -8285,4 +8285,42 @@ func CreatePvcWithSpec(ctx context.Context, client clientset.Interface, pvcnames
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 	framework.Logf("PVC created: %v in namespace: %v", pvclaim.Name, pvcnamespace)
 	return pvclaim, err
+}
+
+// This method gets storageclass and creates resource quota
+// Returns restConfig,  storageclass and profileId
+// This is used in staticProvisioning for presetup.
+func StaticProvisioningPreSetUpUtil(ctx context.Context, vs *config.E2eTestConfig, f *framework.Framework,
+	c clientset.Interface, storagePolicyName string, namespace string) (*rest.Config, *storagev1.StorageClass, string) {
+	if namespace == "" {
+		namespace = vcutil.GetNamespaceToRunTests(f, vs)
+	}
+	adminClient, _ := InitializeClusterClientsByUserRoles(c, vs)
+	// Get a config to talk to the apiserver
+	k8senv := env.GetAndExpectStringEnvVar("KUBECONFIG")
+	restConfig, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	profileID := vcutil.GetSpbmPolicyID(storagePolicyName, vs)
+	framework.Logf("Profile ID :%s", profileID)
+	scParameters := make(map[string]string)
+	scParameters["storagePolicyID"] = profileID
+
+	if !vs.TestInput.ClusterFlavor.SupervisorCluster {
+		err = adminClient.StorageV1().StorageClasses().Delete(ctx, storagePolicyName, metav1.DeleteOptions{})
+		if !apierrors.IsNotFound(err) {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+	}
+
+	storageclass, err := CreateStorageClass(c, vs, scParameters, nil, "", "", true, storagePolicyName)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.By(fmt.Sprintf("storageclass Name: %s", storageclass.GetName()))
+	storageclass, err = adminClient.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("create resource quota")
+	CreateResourceQuota(adminClient, vs, namespace, constants.RqLimit, storagePolicyName)
+
+	return restConfig, storageclass, profileID
 }
