@@ -265,7 +265,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// TODO volume usability
 
-		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+		framework.Logf("Ending test: reate a snapshot from a linked clone with pod attached to LC-PVC")
 
 	})
 
@@ -320,7 +320,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// TODO volume usability
 
-		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+		framework.Logf("Ending test: Create a snapshot from a linked clone with no pod attached to LC-PVC")
 
 	})
 
@@ -362,7 +362,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// TODO volume usability
 
-		framework.Logf("Ending test: Create a linked clone (PVC) from a snapshot ")
+		framework.Logf("Ending test: Relocate the base PVC from which the linked clone is created")
 
 	})
 
@@ -570,6 +570,8 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
 
 		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1}, constants.DiskSize)
+
+		framework.Logf("Ending test: Verify linked clone can be created on the static volume")
 	})
 
 	// TC-11
@@ -630,7 +632,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// PVC usability
 		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
 
-		framework.Logf("Validate the restoration of LC-PVC")
+		framework.Logf("Endig Test: Validate the restoration of LC-PVC")
 
 	})
 
