@@ -200,12 +200,14 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		if guestCluster {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+		if guestCluster && svcClient != nil && svcNamespace != "" {
 			framework.Logf("Collecting supervisor PVC events before performing PV/PVC cleanup")
 			eventList, err := svcClient.CoreV1().Events(svcNamespace).List(ctx, metav1.ListOptions{})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				framework.Logf("Failed to list events in namespace %q: %v", svcNamespace, err)
+				return
+			}
+
 			for _, item := range eventList.Items {
 				framework.Logf("%q", item.Message)
 			}
@@ -242,8 +244,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		13. Cleanup: Delete PVC, SC (validate they are removed)
 	*/
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] [supervisor-snapshot] Verify snapshot dynamic provisioning "+
-		"workflow", ginkgo.Label(p0, block, tkg, vanilla, wcp, snapshot, stable, vc90), func() {
+	ginkgo.It("[cf-wcp] [block-vanilla-snapshot] [tkg-snapshot] [supervisor-snapshot] Verify snapshot dynamic "+
+		"provisioning workflow", ginkgo.Label(p0, block, tkg, vanilla, wcp, snapshot, stable, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1327,7 +1329,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   16. Query the snapshot from CNS side - it shouldn't be available
 	   17. Delete SC and VolumeSnapshotClass
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] Volume snapshot creation and restoration workflow "+
+	ginkgo.It("[cf-vks] [block-vanilla-snapshot] [tkg-snapshot] Volume snapshot creation and restoration workflow "+
 		"with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1524,7 +1526,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		while the source pvc was created usig thin provisioned psp-operatorlicy
 		6. cleanup spbm policies, sc's, pvc's
 	*/
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot] [supervisor-snapshot] Volume "+
+	ginkgo.It("[cf-wcp] [block-vanilla-snapshot] [tkg-snapshot] [supervisor-snapshot] Volume "+
 		"restore using snapshot on a different "+
 		"storageclass", ginkgo.Label(p0, block, vanilla, wcp, snapshot, tkg, stable, vc90), func() {
 
@@ -1954,7 +1956,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			designed to return success even though it cannot find a snapshot in the backend)
 	*/
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] Delete a non-existent "+
+	ginkgo.It("[cf-wcp] [block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] Delete a non-existent "+
 		"snapshot", ginkgo.Label(p0, block, vanilla, wcp, snapshot, tkg, negative, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2036,7 +2038,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Validate the fields after snapshot creation succeeds (snapshotClass, retentionPolicy)
 	*/
 
-	ginkgo.It("[block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] Create snapshots using default "+
+	ginkgo.It("[cf-wcp] [block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] Create snapshots using default "+
 		"VolumeSnapshotClass", ginkgo.Label(p0, block, vanilla, snapshot, wcp, tkg, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2137,7 +2139,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		4. Create with exact size and ensure it succeeds
 	*/
 
-	ginkgo.It("[block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot] Create Volume from snapshot with "+
+	ginkgo.It("[cf-wcp][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot] Create Volume from snapshot with "+
 		"different size", ginkgo.Label(p1, block, vanilla, snapshot, tkg, wcp, stable, negative, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

@@ -6352,7 +6352,7 @@ func assignPolicyToWcpNamespace(client clientset.Interface, ctx context.Context,
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 			"couldn't execute command: %v due to err %v", curlCmd, err)
 	}
-	gomega.Expect(result.Stdout).To(gomega.Equal(status_code_success))
+	gomega.Expect(strconv.Atoi(result.Stdout)).To(gomega.Equal(status_code_success))
 
 	// wait for sc to get created in SVC
 	for _, policyName := range policyNames {
@@ -6919,7 +6919,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
-		"vmware-rbd-watchdog", "vmware-vcha"}
+		"vmware-perfcharts", "vmware-rbd-watchdog", "vmware-vcha"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string

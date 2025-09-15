@@ -564,6 +564,8 @@ spec:
 ---
 apiVersion: v1
 data:
+  "volume-extend": "true"
+  "volume-health": "true"
   "online-volume-extend": "true"
   "file-volume": "true"
   "trigger-csi-fullsync": "false"
@@ -578,7 +580,7 @@ data:
   "vdpp-on-stretched-supervisor": "true"
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
-  "sv-pvc-snapshot-protection-finalizer": "false"
+  "sv-pvc-snapshot-protection-finalizer": "true"
   "file-volume-with-vm-service": "false"
 kind: ConfigMap
 metadata:
