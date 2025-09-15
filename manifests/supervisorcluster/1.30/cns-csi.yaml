@@ -583,7 +583,6 @@ data:
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "sv-pvc-snapshot-protection-finalizer": "true"
-  "file-volume-with-vm-service": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
