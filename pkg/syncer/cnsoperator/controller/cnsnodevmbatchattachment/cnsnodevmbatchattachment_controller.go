@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -108,7 +108,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)

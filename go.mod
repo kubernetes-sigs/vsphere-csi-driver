@@ -23,7 +23,7 @@ require (
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.22.0
 	github.com/stretchr/testify v1.10.0
-	github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250729185616-b3910fb93c83
+	github.com/vmware-tanzu/vm-operator/api v1.8.7-0.20250820184450-53a697d52f9c
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa
 	github.com/vmware/govmomi v0.52.0-alpha.0.0.20250807230438-0eee109f1f2c
 	go.uber.org/zap v1.27.0
