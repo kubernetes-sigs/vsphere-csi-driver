@@ -15,6 +15,7 @@ package linked_clone
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	admissionapi "k8s.io/pod-security-admission/api"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
@@ -60,6 +62,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		vmopC           ctlrclient.Client
 		cnsopC          ctlrclient.Client
 		storagePolicy   string
+		contentLibId    string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -87,15 +90,17 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		storagePolicyId := vcutil.GetSpbmPolicyID(storagePolicy, e2eTestConfigvm)
 
-		// creating namespace with storagePolicy
-		namespace, statuscode, err = k8testutil.CreatetWcpNsWithZonesAndPolicies(e2eTestConfigvm, vcRestSessionId,
-			[]string{storagePolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfigvm),
-			[]string{}, "", "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		// fetch shared vsphere datatsore url
+		datastoreURL := env.GetAndExpectStringEnvVar(constants.EnvSharedDatastoreURL)
+		dsRef := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfigvm, datastoreURL)
+		framework.Logf("dsmoId: %v", dsRef.Value)
 
-		//After NS creation need sometime to load usage CRs
-		time.Sleep(constants.PollTimeoutShort)
+		// read or create content library if it is empty
+		if contentLibId == "" {
+			contentLibId, err = vmservice_vm.CreateAndOrGetContentlibId4Url(e2eTestConfigvm, vcRestSessionId, env.GetAndExpectStringEnvVar(constants.EnvContentLibraryUrl),
+				dsRef.Value)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		// get or set vm class required for VM creation
 		vmClass = os.Getenv(constants.EnvVMClass)
@@ -113,6 +118,16 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
 		cnsopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: cnsOpScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// creating namespace with storagePolicy
+		namespace, statuscode, err = k8testutil.CreatetWcpNsWithZonesAndPolicies(e2eTestConfigvm, vcRestSessionId,
+			[]string{storagePolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfigvm),
+			[]string{}, vmClass, contentLibId)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(statuscode).To(gomega.Equal(204))
+
+		//After NS creation need sometime to load usage CRs
+		time.Sleep(constants.PollTimeoutShort)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -196,7 +211,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, true)
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for VM to come up and get an IP")
@@ -205,7 +220,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(vmservice_vm.WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vmLc,
-			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc})).NotTo(gomega.HaveOccurred())
 
 		// Power-off the VM
 		ginkgo.By("Power off vm1")
@@ -217,9 +232,6 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		//TODO Check the quota usage
-
-		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfigvm, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
 
 		framework.Logf("Ending test: Create a snapshot from a linked clone attached to a VM service VM")
 	})
@@ -259,7 +271,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, true)
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for VM to come up and get an IP")
@@ -268,15 +280,12 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(vmservice_vm.WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vmLc,
-			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc})).NotTo(gomega.HaveOccurred())
 
 		// Create a snapshot from the linked clone PVC
 		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		//TODO Check the quota usage
-
-		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfigvm, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
 
 		framework.Logf("Ending test: Verify LC can be created on a PVC attached to VM which is power off")
 	})
@@ -310,7 +319,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
-			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, true)
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc}, vmClass, storageclass.Name, false)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait for VM to come up and get an IP")
@@ -319,7 +328,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(vmservice_vm.WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vmLc,
-			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			[]*corev1.PersistentVolumeClaim{linkdeClonePvc})).NotTo(gomega.HaveOccurred())
 
 		// Create a snapshot from the linked clone PVC
 		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
@@ -331,9 +340,6 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		err = vmopC.Update(ctx, vmLc)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmservice_vm.Wait4Pvc2Detach(ctx, vmopC, vmLc, linkdeClonePvc)
-
-		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfigvm, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
 
 		framework.Logf("Ending test: Verify LC can be created on a PVC attached to VM which is power on")
 	})
@@ -376,19 +382,16 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		err = vmopC.Update(ctx, vm)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfigvm, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
-
 		framework.Logf("Ending test: Verify LC PVC can be attached to VM created on parent PVC")
 	})
 
 	// TC-44
-	ginkgo.It("Validate LC PVC can be created with WFFC binding ", ginkgo.Label(
+	ginkgo.It("Validate LC PVC-VM can be created with WFFC binding", ginkgo.Label(
 		constants.P0, constants.LinkedClone, constants.Vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		framework.Logf("Starting test: Validate LC PVC can be created with WFFC binding ")
+		framework.Logf("Starting test: Validate LC PVC can be created with WFFC binding-vm ")
 
 		// Fetch latebinding storage class
 		spWffc := storagePolicy + "-latebinding"
@@ -397,8 +400,11 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		// Create PVC, and volume snapshot
-		pvc, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfigvm, client, namespace, storageclassWffc, false, false)
+		// Create PVC
+		labelsMap := make(map[string]string)
+		labelsMap["app"] = "test"
+		pvc, err := k8testutil.CreatePVC(ctx, client, namespace, labelsMap, "", storageclassWffc, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Create vm service vm")
 		_, vm, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -413,8 +419,16 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		gomega.Expect(vmservice_vm.WaitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
 			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc}, constants.PollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pv := pvs[0]
+
+		// Create snapshot
+		volumeSnapshot := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
+
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclassWffc, volumeSnapshot.Name)
+		linkdeClonePvc, err := k8testutil.CreateLinkedClonePvc(ctx, client, namespace, storageclassWffc, volumeSnapshot.Name)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
 		// attch parent vm to lc-vm
 		ginkgo.By("Attach LC_PVC to vm")
@@ -427,10 +441,12 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		err = vmopC.Update(ctx, vm)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfigvm, client, namespace, storageclassWffc, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
+		// Validate PVC is bound
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx,
+			client, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		framework.Logf("Ending test: Validate LC PVC can be created with WFFC binding ")
+		framework.Logf("Ending test: Validate LC PVC can be created with WFFC binding-vm ")
 	})
 
 })

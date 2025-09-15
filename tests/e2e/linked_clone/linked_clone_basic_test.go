@@ -635,12 +635,12 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 	})
 
 	// TC-14
-	ginkgo.It("Validate LC PVC can be created with WFFC binding", ginkgo.Label(
+	ginkgo.It("Validate LC PVC-Pod can be created with WFFC binding", ginkgo.Label(
 		constants.P0, constants.LinkedClone, constants.Vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		framework.Logf("Starting test: Validate LC PVC can be created with WFFC binding ")
+		framework.Logf("Starting test: Validate LC PVC-Pod can be created with WFFC binding")
 
 		// Fetch latebinding storage class
 		spWffc := storagePolicy + "-latebinding"
@@ -712,10 +712,10 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		gomega.Expect(err4).To(gomega.BeNil())
 
 		// Validate storageQuota increased
-		gomega.Expect(pvc_storagePolicyQuotaBefore).To(gomega.BeNumerically(">", pvc_storagePolicyQuotaAfter), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
-		gomega.Expect(pvc_storagePolicyUsageBefore).To(gomega.BeNumerically(">", pvc_storagePolicyUsageAfter), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+		gomega.Expect(pvc_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", pvc_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
+		gomega.Expect(pvc_storagePolicyUsageAfter).To(gomega.BeNumerically(">", pvc_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
 
-		framework.Logf("Ending test: Validate LC PVC can be created with WFFC binding ")
+		framework.Logf("Ending test: Validate LC PVC-Pod can be created with WFFC binding")
 
 	})
 
