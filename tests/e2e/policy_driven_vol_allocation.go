@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			10	Deleted the SPBM polices created in step 1
 	*/
 	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][csi-supervisor]"+
-		"[csi-wcp-vsan-direct] Verify Thin, EZT, LZT volume creation via SPBM "+
+		"[csi-wcp-vsan-direct][ef-vks-thickthin] Verify Thin, EZT, LZT volume creation via SPBM "+
 		"policies", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -418,7 +418,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		9. Delete the SCs created in step 2
 		10. Deleted the SPBM policies created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct] Fill LZT/EZT "+
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
+		" Fill LZT/EZT "+
 		"volume", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1158,7 +1159,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		11	Delete the SC created in step 2
 		12	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor]"+
+	ginkgo.It("[csi-block-vanilla][csi-guest][csi-supervisor][ef-vks-thickthin]"+
 		"[csi-wcp-vsan-direct] Verify online LZT/EZT volume expansion of attached volumes with "+
 		"IO", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
 
@@ -1803,7 +1804,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		12.	Delete the SC created in step 2
 		13.	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[csi-guest][csi-supervisor][csi-block-vanilla][csi-wcp-vsan-direct] Verify EZT offline volume "+
+	ginkgo.It("[csi-guest][csi-supervisor][csi-block-vanilla][csi-wcp-vsan-direct] [ef-vks-thickthin] Verify "+
+		"EZT offline volume "+
 		"expansion", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

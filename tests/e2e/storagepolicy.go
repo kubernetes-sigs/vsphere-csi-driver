@@ -90,9 +90,9 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		}
 	})
 
-	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] Verify dynamic "+
-		"volume provisioning works when storage policy specified in the storageclass "+
-		"is compliant for shared datastores", func() {
+	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
+		"[csi-guest][ef-vks] Verify dynamic volume provisioning works when storage policy specified "+
+		"in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))
 		scParameters := make(map[string]string)
@@ -115,8 +115,8 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			namespace, scParameters, storagePolicyNameForSharedDatastores)
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] Verify dynamic "+
-		"volume provisioning fails when storage policy specified in the storageclass is compliant "+
+	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] [ef-vks] Verify "+
+		"dynamic volume provisioning fails when storage policy specified in the storageclass is compliant "+
 		"for non-shared datastores", func() {
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
