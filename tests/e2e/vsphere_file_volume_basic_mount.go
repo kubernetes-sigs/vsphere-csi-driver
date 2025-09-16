@@ -302,8 +302,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify File Volume is created without specifying fstype in pv spec", ginkgo.Label(p0,
-		file, vanilla, vc70), func() {
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] Verify File Volume is created without specifying fstype in pv"+
+		"spec", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
