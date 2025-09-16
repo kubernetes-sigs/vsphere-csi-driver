@@ -78,12 +78,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] Volume Filesystem Type Test", func(
 		}
 	})
 
-	ginkgo.It("[csi-block-vanilla-serialized] CSI - verify fstype - ext3 formatted volume", ginkgo.Label(p0,
+	ginkgo.It("[csi-block-vanilla-serialized][cf-vanilla-block] "+
+		"CSI - verify fstype - ext3 formatted volume", ginkgo.Label(p0,
 		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, ext3FSType, ext3FSType, storagePolicyName, profileID)
 	})
 
-	ginkgo.It("[csi-block-vanilla-parallelized] CSI - verify fstype - default value should be ext4", ginkgo.Label(p0,
+	ginkgo.It("[csi-block-vanilla-parallelized][cf-vanilla-block] "+
+		"CSI - verify fstype - default value should be ext4", ginkgo.Label(p0,
 		vanilla, block, wcp, tkg, core, vc70), func() {
 		invokeTestForFstype(f, client, namespace, "", ext4FSType, storagePolicyName, profileID)
 	})
