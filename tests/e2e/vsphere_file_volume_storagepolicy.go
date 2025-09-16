@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 	//    Also verify if VolumeID is created with expected storage policy.
 	// 7. Delete PVC.
 	// 8. Delete storage policy.
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
 		"when storage policy is offered", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f, client,
@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 	// 7. Delete PVC.
 	// 8. Delete storage policy.
 
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
 		"when storage policy is offered and datacenters is not specified in conf file", ginkgo.Label(p0,
 		file, vanilla, vc70), func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 	// 7. Delete PVC.
 	// 8. Delete storage policy.
 
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, "+
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, "+
 		"when storage policy is offered", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSCWithStoragePolicy(f, client,
