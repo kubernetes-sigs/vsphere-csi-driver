@@ -43,7 +43,7 @@ import (
 */
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
-	"[csi-block-vanilla-parallelized] Volume Disk Size ", func() {
+	"[csi-block-vanilla-parallelized] [ef-vks] Volume Disk Size ", func() {
 	f := framework.NewDefaultFramework("volume-disksize")
 	var (
 		client            clientset.Interface
