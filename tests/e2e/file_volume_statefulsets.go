@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with default "+
+	ginkgo.It("[cf-vanilla-file] Statefulset with file volume testing with default "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core, vc70), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with parallel "+
+	ginkgo.It("[cf-vanilla-file]Statefulset with file volume testing with parallel "+
 		"podManagementPolicy", ginkgo.Label(p0, file, vanilla, core, vc70), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()

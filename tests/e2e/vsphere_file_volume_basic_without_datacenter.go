@@ -99,8 +99,9 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing without datacenter", f
 	// 10. Delete Storage class.
 	// 11. Change back the datacenters back to normal in vsphere.conf secret.
 
-	ginkgo.It("verify dynamic provisioning with ReadWriteMany access mode with datastoreURL is set in storage class, "+
-		"when no storage policy and datacenter is offered", ginkgo.Label(p0, file, vanilla, vc70), func() {
+	ginkgo.It("[cf-vanilla-file] verify dynamic provisioning with ReadWriteMany access mode with datastoreURL is set"+
+		"in storage class, when no storage policy and datacenter is offered", ginkgo.Label(p0, file, vanilla,
+		vc70), func() {
 		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 
 		ctx, cancel = context.WithCancel(context.Background())
