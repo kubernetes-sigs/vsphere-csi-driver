@@ -21,6 +21,7 @@ import (
 	"fmt"
 	neturl "net/url"
 	"sync"
+	"time"
 
 	gomega "github.com/onsi/gomega"
 	"github.com/vmware/govmomi"
@@ -68,6 +69,7 @@ func connect(ctx context.Context, vs *vSphere, forceRefresh ...bool) {
 	}
 
 	defer clientLock.Unlock()
+
 	if vs.Client == nil {
 		framework.Logf("Creating new VC session")
 		vs.Client = newClient(ctx, vs)
@@ -100,12 +102,30 @@ func newClient(ctx context.Context, vs *vSphere) *govmomi.Client {
 		vCenterIp, vs.Config.Global.VCenterPort))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	url.User = neturl.UserPassword(vs.Config.Global.User, vs.Config.Global.Password)
-	client, err := govmomi.NewClient(ctx, url, true)
+	client, err := tryCreateClientWithRetry(ctx, url, vcConnectionRetries, pollTimeoutShort)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = client.UseServiceVersion(vsanNamespace)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	client.RoundTripper = vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(roundTripperDefaultCount))
 	return client
+}
+
+func tryCreateClientWithRetry(ctx context.Context, url *neturl.URL, retries int, interval time.Duration) (*govmomi.Client, error) {
+	var client *govmomi.Client
+	var err error
+
+	for i := 0; i < retries; i++ {
+		client, err = govmomi.NewClient(ctx, url, true)
+		if err == nil {
+			return client, nil
+		}
+
+		// If not last attempt, wait before retrying
+		if i < retries-1 {
+			time.Sleep(interval)
+		}
+	}
+	return nil, err
 }
 
 // newCnsClient creates a new CNS client.

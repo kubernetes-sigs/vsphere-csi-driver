@@ -7246,7 +7246,8 @@ func validate_totalStoragequota(ctx context.Context, diskSizes []string, totalUs
 	quotaAfter, err := strconv.ParseInt(string(value1), 10, 64)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By(fmt.Sprintf(" quotaAfter :  %v%s", quotaAfter, string(diskunit_quotaAfter)))
+	ginkgo.By(fmt.Sprintf("quotaAfter :  %v%s", quotaAfter, string(diskunit_quotaAfter)))
+	ginkgo.By(fmt.Sprintf("diskSizes :  %s", diskSizes))
 
 	totalDiskStorage = sumupAlltheResourceDiskUsage(diskSizes, diskunit_quotaAfter)
 
