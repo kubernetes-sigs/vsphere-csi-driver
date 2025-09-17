@@ -195,6 +195,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		err := fpv.DeletePersistentVolumeClaim(ctx, client, linkdeClonePvc.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Post delete it takes few seconds to update the quota
+		time.Sleep(constants.HealthStatusPollInterval)
+
 		// get the quota post LC deletion
 		_, _, quota["storagePolicyQuotaAfterCleanup"], _, quota["storagePolicyUsageAfterCleanup"], _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
@@ -286,6 +289,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
 
+		// It takes few seconds to update the quota
+		time.Sleep(constants.HealthStatusPollInterval)
+
 		// Get the snapshot usage before creating it
 		quota := make(map[string]*resource.Quantity)
 		quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
@@ -296,6 +302,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
 		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+
+		// It takes few seconds to update the quota
+		time.Sleep(constants.HealthStatusPollInterval)
 
 		// Check the quota usage for snapshot
 		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
