@@ -119,8 +119,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		setVpxdTaskTimeout(ctx, 0) // reset vpxd timeout to default
-		time.Sleep(3 * time.Minute)
 		if supervisorCluster {
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		}
@@ -162,7 +160,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			10	Deleted the SPBM polices created in step 1
 	*/
 	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][csi-supervisor]"+
-		"[csi-wcp-vsan-direct][ef-vks-thickthin] Verify Thin, EZT, LZT volume creation via SPBM "+
+		"[csi-wcp-vsan-direct][ef-vks-thickthin][cf-vanilla-block] Verify Thin,"+
+		"EZT, LZT volume creation via SPBM "+
 		"policies", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -700,7 +699,6 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		scParameters := make(map[string]string)
-
 		rand.New(rand.NewSource(time.Now().UnixNano()))
 		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
 		randomStr := strconv.Itoa(rand.Intn(10000))
@@ -2387,6 +2385,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		setVpxdTaskTimeout(ctx, vpxdReducedTaskTimeoutSecsInt)
+		defer func() {
+			setVpxdTaskTimeout(ctx, 0)
+		}()
 		sharedvmfsURL := os.Getenv(envSharedVMFSDatastoreURL)
 		if sharedvmfsURL == "" {
 			ginkgo.Skip(fmt.Sprintf("Env %v is missing", envSharedVMFSDatastoreURL))
