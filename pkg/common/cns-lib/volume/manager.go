@@ -3585,7 +3585,7 @@ func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
 		var errMsg string
 		if len(volumesThatFailedToAttach) != 0 {
 			errMsg = strings.Join(volumesThatFailedToAttach, ",")
-			overallError = errors.New(errMsg)
+			overallError = errors.New("failed to attach volumes: " + errMsg)
 			return batchAttachResult, csifault.CSIBatchAttachFault, overallError
 		}
 		log.Infof("BatchAttach: all volumes attached successfully with opID %s", taskInfo.ActivationId)
