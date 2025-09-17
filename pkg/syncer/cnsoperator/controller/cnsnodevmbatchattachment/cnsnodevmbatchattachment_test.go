@@ -132,6 +132,7 @@ func setTestEnvironment(testCnsNodeVmBatchAttachment *v1alpha1.CnsNodeVmBatchAtt
 	s := scheme.Scheme
 	s.AddKnownTypes(SchemeGroupVersion, cnsNodeVmBatchAttachment)
 	metav1.AddToGroupVersion(s, SchemeGroupVersion)
+	VolumeLock = &sync.Map{}
 
 	fakeClient := fake.NewClientBuilder().
 		WithStatusSubresource(cnsNodeVmBatchAttachment).
