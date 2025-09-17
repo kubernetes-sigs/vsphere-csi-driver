@@ -53,6 +53,7 @@ import (
 var (
 	vmfsNamespace         = "com.vmware.storage.volumeallocation"
 	vmfsNamespaceEztValue = "Fully initialized"
+	vmfsClusteredVmdk     = "Clustered"
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
@@ -91,30 +92,43 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributeIsLinkedCloneKey
 }
 
-// verifyStoragePolicyForVmfsWithEageredZeroThick goes through each rule in the policy to
-// find out if it is fully intialized for VMFS datastores.
-// This check is required for RWX shared block volumes as for VMFS, the policy must be EZT.
-func verifyStoragePolicyForVmfsWithEageredZeroThick(ctx context.Context,
+// verifyStoragePolicyForVmfsUtil goes through each rule in the policy to
+// find out if it is fully intialized and has clustered VMDK enabled for VMFS datastores.
+// This check is required for RWX shared block volumes as for VMFS, the policy must be EZT
+// and clustered.
+func verifyStoragePolicyForVmfsUtil(ctx context.Context,
 	spbmPolicyContentList []vsphere.SpbmPolicyContent,
 	storagePolicyId string) error {
 	log := logger.GetLogger(ctx)
+
+	isEzt := false
+	isClustered := false
+	isVmfsNamespace := false
 
 	for _, polictContent := range spbmPolicyContentList {
 		for _, profile := range polictContent.Profiles {
 			for _, rule := range profile.Rules {
 				if rule.Ns == vmfsNamespace {
-					if rule.Value != vmfsNamespaceEztValue {
-						msg := fmt.Sprintf("Policy %s is for VMFS datastores. It must be fully initialized for "+
-							"RWX block volumes", storagePolicyId)
-						err := errors.New(msg)
-						log.Errorf(msg)
-						return err
+					isVmfsNamespace = true
+					switch rule.Value {
+					case vmfsNamespaceEztValue:
+						isEzt = true
+					case vmfsClusteredVmdk:
+						isClustered = true
 					}
-					log.Infof("Policy %s is for VMFS and is fully initialized", storagePolicyId)
-					return nil
 				}
 			}
 		}
+	}
+
+	// If any policy is for VMFS and it is not EZT or clustered, then send back error.
+	if isVmfsNamespace && (!isEzt || !isClustered) {
+		msg := fmt.Sprintf("Policy %s is for VMFS datastores. "+
+			"It must be fully initialized and must have clustered VMDK enabled for "+
+			"RWX block volumes", storagePolicyId)
+		err := errors.New(msg)
+		log.Errorf(msg)
+		return err
 	}
 
 	log.Debugf("Policy %s validated correctly", storagePolicyId)
@@ -133,7 +147,7 @@ func validateStoragePolicyForVmfs(ctx context.Context,
 		return err
 	}
 
-	return verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, spbmPolicyContentList, storagePolicyId)
+	return verifyStoragePolicyForVmfsUtil(ctx, spbmPolicyContentList, storagePolicyId)
 }
 
 // validateWCPCreateVolumeRequest is the helper function to validate
