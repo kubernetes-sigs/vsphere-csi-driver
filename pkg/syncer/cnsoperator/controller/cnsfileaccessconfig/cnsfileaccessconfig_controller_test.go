@@ -8,14 +8,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestValidateVmAndPvc(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
-	_ = vmoperatorv1alpha4.AddToScheme(scheme)
+	_ = vmoperatortypes.AddToScheme(scheme)
 
 	ctx := context.TODO()
 
@@ -62,7 +62,7 @@ func TestValidateVmAndPvc(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var objects []runtime.Object
 
-			vm := &vmoperatorv1alpha4.VirtualMachine{
+			vm := &vmoperatortypes.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   "my-vm",
 					Labels: test.vmLabels,
