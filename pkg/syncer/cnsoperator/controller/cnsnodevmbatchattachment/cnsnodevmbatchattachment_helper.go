@@ -18,12 +18,21 @@ package cnsnodevmbatchattachment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"sync"
+
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -37,6 +46,7 @@ import (
 
 var (
 	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
+	attachedVmPrefix = "cns.vmware.com/usedby-vm-"
 )
 
 const (
@@ -124,8 +134,10 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 // Volumes in status: pvc-1
 // Volumes on vCenter: pvc-1
 func removeStaleEntriesFromInstanceStatus(ctx context.Context,
+	client client.Client,
+	k8sClient kubernetes.Interface,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
-	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) {
+	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) error {
 	log := logger.GetLogger(ctx)
 
 	// Remove entries them from instance status and update the instance.
@@ -135,12 +147,24 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 			// Volume not found in status, check if it is being detached.
 			if _, existsInDetachList := pvcsToDetach[volumeStatus.PersistentVolumeClaim.ClaimName]; !existsInDetachList {
 				// Volume not getting detached also, it means it is a stale entry.
+
+				// First ensure that the PVC does not have CNS protection finalizer.
+				// This kind of situation can happen when detach is successful but finalizer could not be removed
+				// because of which the instance is back in queue.
+				err := removePvcFinalizer(ctx, client, k8sClient, volumeStatus.PersistentVolumeClaim.ClaimName, instance.Namespace,
+					instance.Spec.NodeUUID)
+				if err != nil {
+					log.Errorf("failed to ensure that PVC finalizers are removed.")
+					return err
+				}
+
 				log.Infof("Status for a PVC %s found in instance %s but it is not present in Spec. "+
 					"Removing it from instance", volumeStatus.PersistentVolumeClaim.ClaimName, instance.Name)
 				deleteVolumeFromStatus(volumeStatus.PersistentVolumeClaim.ClaimName, instance)
 			}
 		}
 	}
+	return nil
 }
 
 // getVolumesToDetach returns list of volumes to detach by taking a diff of
@@ -148,6 +172,7 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 func getVolumesToDetachForVmFromVC(ctx context.Context,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
 	client client.Client,
+	k8sClient kubernetes.Interface,
 	attachedFCDs map[string]bool) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -171,7 +196,11 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
 
 	// Ensure that there are no extra entries in instance status from a previous detach call.
-	removeStaleEntriesFromInstanceStatus(ctx, instance, pvcsToDetach, volumeNamesInSpec)
+	err = removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, instance, pvcsToDetach, volumeNamesInSpec)
+	if err != nil {
+		log.Errorf("failed to remove stale entried from instance spec. Err: %s", err)
+		return pvcsToDetach, err
+	}
 	return pvcsToDetach, nil
 }
 
@@ -419,7 +448,7 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 // Instance is being deleted, then it adds all the volumes in the spec for detach.
 // If instance is not being deleted then finds the volumes to be detached by querying vCenter.
 func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAttachment,
-	vm *cnsvsphere.VirtualMachine, client client.Client) (map[string]string, error) {
+	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
 	if instance.DeletionTimestamp != nil {
@@ -434,7 +463,7 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAt
 	}
 
 	// Find the volumes to detach from the vCenter.
-	volumesToDetach, err := getVolumesToDetachFromVM(ctx, client, instance, vm)
+	volumesToDetach, err := getVolumesToDetachFromVM(ctx, client, k8sClient, instance, vm)
 	if err != nil {
 		log.Errorf("failed to find volumes to detach from the vCenter for instance %s", instance.Name)
 		return volumesToDetach, err
@@ -446,6 +475,7 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAt
 // getVolumesToDetachFromVM queries vCenter to find the list of FCDs
 // which have to be detached from the VM.
 func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
+	k8sClient kubernetes.Interface,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
 	vm *cnsvsphere.VirtualMachine) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
@@ -459,7 +489,7 @@ func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.NodeUUID)
 
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
-	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, attachedFcdList)
+	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient, attachedFcdList)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
 		return map[string]string{}, err
@@ -469,4 +499,237 @@ func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 
 	return volumesToDetach, nil
 
+}
+
+// addPvcAnnotation adds the vmInstanceUUID as an annotation to the given PVC.
+func addPvcAnnotation(ctx context.Context, k8sClient kubernetes.Interface,
+	vmInstanceUUID string, pvc *v1.PersistentVolumeClaim) error {
+
+	return patchPVCAnnotations(ctx, k8sClient, pvc, attachedVmPrefix+vmInstanceUUID, false)
+}
+
+// removePvcAnnotation removes the given vmInstanceUUID from PVC annotations.
+func removePvcAnnotation(ctx context.Context, k8sClient kubernetes.Interface,
+	vmInstanceUUID string, pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+
+	if pvc.Annotations == nil {
+		log.Infof("PVC %s does not have any annotations, nothing to be done", pvc.Name)
+		return nil
+	}
+
+	return patchPVCAnnotations(ctx, k8sClient, pvc, attachedVmPrefix+vmInstanceUUID, true)
+}
+
+// patchPVCAnnotations patches the list of annotations on the PVC with the newAnnotations.
+func patchPVCAnnotations(ctx context.Context, k8sClient kubernetes.Interface,
+	pvc *v1.PersistentVolumeClaim, key string, removeAnnotation bool) error {
+	log := logger.GetLogger(ctx)
+
+	patchAnnotations := make(map[string]interface{})
+	for k, v := range pvc.Annotations {
+		patchAnnotations[k] = v
+	}
+
+	if removeAnnotation {
+		log.Infof("Removing annotation %s from PVC %s", key, pvc.Name)
+		patchAnnotations[key] = nil
+	} else {
+		log.Infof("Adding annotation %s on PVC", key, pvc.Name)
+		patchAnnotations[key] = ""
+	}
+
+	log.Debugf("Updated list of annotations on PVC %s: %+v", pvc.Name, patchAnnotations)
+
+	// Build patch structure
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": patchAnnotations,
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("failed to marshal with annotations for PVC %s. Err: %s", pvc.Name, err)
+		return fmt.Errorf("failed to marshal patch: %v", err)
+	}
+
+	log.Infof("Patching PVC %s with updated annotation", pvc.Name)
+
+	// Apply the patch
+	updatedpvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(
+		ctx,
+		pvc.Name,
+		types.MergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		log.Errorf("failed to patch PVC %s with annotations. Err: %s", pvc.Name, err)
+		return fmt.Errorf("failed to patch PVC %s: %v", pvc.Name, err)
+	}
+	log.Debugf("Successfully patched PVC: %s with annotations %+v", pvc.Name, updatedpvc.Annotations)
+	return nil
+}
+
+// pvcHasUsedByAnnotaion goes through all annotations on the PVC to find out if the PVC is used by any VM or not.
+func pvcHasUsedByAnnotaion(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
+	log := logger.GetLogger(ctx)
+
+	if pvc.Annotations == nil {
+		log.Infof("No annotation found on PVC %s", pvc.Name)
+		return false
+	}
+
+	for key := range pvc.Annotations {
+		if strings.HasPrefix(key, attachedVmPrefix) {
+			log.Infof("Annotation with prefix %s found on PVC %s", attachedVmPrefix, pvc.Name)
+			return true
+		}
+	}
+
+	log.Infof("PVC %s does not contain any annotations with prefix %s", pvc.Name, attachedVmPrefix)
+	return false
+}
+
+// addPvcFinalizer adds the given VM as an annotation for the given PVC and
+// adds CNS finalizer to the PVC.
+func addPvcFinalizer(ctx context.Context, client client.Client,
+	k8sClient kubernetes.Interface,
+	pvcName string, namespace string, vmInstanceUUID string) error {
+	log := logger.GetLogger(ctx)
+
+	// Acquire lock on PVC
+	namespacedVolumeName := namespace + "/" + pvcName
+	actual, _ := VolumeLock.LoadOrStore(namespacedVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return fmt.Errorf("failed to cast lock for PVC: %s", namespacedVolumeName)
+	}
+	instanceLock.Lock()
+	log.Infof("Acquired lock for PVC %s", namespacedVolumeName)
+	defer func() {
+		instanceLock.Unlock()
+		log.Infof("Released lock for PVC %s", namespacedVolumeName)
+	}()
+
+	// Get PVC object from informer cache
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
+	if err != nil {
+		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
+		return err
+	}
+
+	// Add annotation indicating that the PVC is being used by this VM.
+	log.Infof("PVC %s is shared", pvc.Name)
+	err = addPvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
+	if err != nil {
+		log.Errorf("failed to add annotation %s to PVC %s in namespace %s for VM %s", cnsoperatortypes.CNSPvcFinalizer,
+			pvcName, namespace, vmInstanceUUID)
+		return err
+	}
+	log.Infof("Successfully added annotation on PVC %s for VM %s", pvcName, vmInstanceUUID)
+
+	// Obtain the latest PVC again with updated annotations.
+	// Cannot rely on informer cache as it may not be updated.
+	pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get updated PVC %s in namespace %s", pvcName, namespace)
+		return err
+
+	}
+
+	// If finalizer already exists, there is nothing to be done.
+	if controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		// Finalizer already present on PVC
+		log.Infof("Finalizer %s not present on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
+		return nil
+	}
+
+	return k8s.PatchFinalizers(ctx, client, pvc,
+		append(pvc.Finalizers, cnsoperatortypes.CNSPvcFinalizer))
+
+}
+
+// removePvcFinalizer removes the given VM from the PVC's used by annotations
+// and then removes finalizer from the PVC if it was the last attached VM for the PVC.
+func removePvcFinalizer(ctx context.Context, client client.Client,
+	k8sClient kubernetes.Interface,
+	pvcName string, namespace string, vmInstanceUUID string) error {
+	log := logger.GetLogger(ctx)
+
+	namespacedVolumeName := namespace + "/" + pvcName
+	// Acquire lock on PVC
+	actual, _ := VolumeLock.LoadOrStore(namespacedVolumeName, &sync.Mutex{})
+	instanceLock, ok := actual.(*sync.Mutex)
+	if !ok {
+		return fmt.Errorf("failed to cast lock for PVC: %s", namespacedVolumeName)
+	}
+	instanceLock.Lock()
+	log.Infof("Acquired lock for PVC %s", namespacedVolumeName)
+	defer func() {
+		instanceLock.Unlock()
+		log.Infof("Released lock for PVC %s", namespacedVolumeName)
+	}()
+
+	// Get PVC object from informer cache
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
+	if err != nil {
+		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
+		return err
+	}
+
+	// Remove usedby annotation
+	log.Infof("PVC %s is shared", pvc.Name)
+	err = removePvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
+	if err != nil {
+		return err
+	}
+	log.Infof("Successfully updated annotations on PVC %s for VM %s", pvcName, vmInstanceUUID)
+
+	// Obtain the latest PVC again with updated annotations.
+	// Cannot rely on informer cache as it may not be updated.
+	pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to get updated PVC %s in namespace %s", pvcName, namespace)
+		return err
+
+	}
+
+	if pvcHasUsedByAnnotaion(ctx, pvc) {
+		log.Infof("PVC %s is still being use by other VMs. Not removing finalizer.", pvcName)
+		return nil
+	}
+
+	log.Infof("VM %s was the last attached VM for the PVC %s. Finalizer %s can be safely removed fromt the PVC",
+		vmInstanceUUID, pvcName, cnsoperatortypes.CNSPvcFinalizer)
+
+	if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		// Finalizer not present on PVC, nothing to be done here.
+		log.Infof("Finalizer %s not present on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
+		return nil
+	}
+
+	// Remove finalizer from the PVC if it was the last attached VM.
+	finalizersOnPvc := pvc.Finalizers
+	for i, finalizer := range pvc.Finalizers {
+		if finalizer == cnsoperatortypes.CNSPvcFinalizer {
+			log.Infof("Removing %s finalizer from PVC: %s on namespace: %s",
+				cnsoperatortypes.CNSPvcFinalizer, pvcName, namespace)
+			finalizersOnPvc = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
+			break
+		}
+	}
+
+	err = k8s.PatchFinalizers(ctx, client, pvc, finalizersOnPvc)
+	if err != nil {
+		log.Errorf("failed to patch PVC %s with finalizers", pvc.Name)
+		return err
+	}
+
+	log.Infof("Successfully removed finalizer %s from PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvc.Name)
+
+	// Remove this PVC from volume lock store.
+	VolumeLock.Delete(namespacedVolumeName)
+	return nil
 }
