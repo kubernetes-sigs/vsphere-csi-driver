@@ -119,6 +119,12 @@ func TestValidatePVC(t *testing.T) {
 			name: "TestDeletePVCwithSnapshotShouldFail",
 			kubeObjs: []runtime.Object{
 				testPV,
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: testNamespace,
+						// No DeletionTimestamp - normal namespace
+					},
+				},
 			},
 			snapshotObjs: []runtime.Object{
 				&snapshotv1.VolumeSnapshot{
@@ -156,6 +162,12 @@ func TestValidatePVC(t *testing.T) {
 			name: "TestDeletePVCwithoutSnapshotShouldPass",
 			kubeObjs: []runtime.Object{
 				testPV,
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: testNamespace,
+						// No DeletionTimestamp - normal namespace
+					},
+				},
 			},
 			snapshotObjs: []runtime.Object{
 				&snapshotv1.VolumeSnapshot{
@@ -409,6 +421,180 @@ func TestValidatePVC(t *testing.T) {
 				Allowed: true,
 			},
 		},
+		{
+			name: "TestDeletePVCwithSnapshotShouldPassWhenNamespaceIsBeingDeleted",
+			kubeObjs: []runtime.Object{
+				testPV,
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              testNamespace,
+						DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+					},
+				},
+			},
+			snapshotObjs: []runtime.Object{
+				&snapshotv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: testNamespace,
+						Name:      testVolumeSnapshotName,
+					},
+					Spec: snapshotv1.VolumeSnapshotSpec{
+						Source: snapshotv1.VolumeSnapshotSource{
+							PersistentVolumeClaimName: &testFirstPVCName,
+						},
+						VolumeSnapshotClassName: &testVolumeSnapshotClassName,
+					},
+				},
+			},
+			admissionReview: &admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					Kind: metav1.GroupVersionKind{
+						Kind: "PersistentVolumeClaim",
+					},
+					Operation: admissionv1.Delete,
+					OldObject: runtime.RawExtension{
+						Raw: testInstance.oldPVCRaw,
+					},
+				},
+			},
+			expectedResponse: &admissionv1.AdmissionResponse{
+				Allowed: true,
+				Result: &metav1.Status{
+					Reason: "Namespace is being deleted",
+				},
+			},
+		},
+		{
+			name: "TestDeletePVCwithSnapshotShouldPassWhenNamespaceIsAlreadyDeleted",
+			kubeObjs: []runtime.Object{
+				testPV,
+				// No namespace object - simulating already deleted namespace
+			},
+			snapshotObjs: []runtime.Object{
+				&snapshotv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: testNamespace,
+						Name:      testVolumeSnapshotName,
+					},
+					Spec: snapshotv1.VolumeSnapshotSpec{
+						Source: snapshotv1.VolumeSnapshotSource{
+							PersistentVolumeClaimName: &testFirstPVCName,
+						},
+						VolumeSnapshotClassName: &testVolumeSnapshotClassName,
+					},
+				},
+			},
+			admissionReview: &admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					Kind: metav1.GroupVersionKind{
+						Kind: "PersistentVolumeClaim",
+					},
+					Operation: admissionv1.Delete,
+					OldObject: runtime.RawExtension{
+						Raw: testInstance.oldPVCRaw,
+					},
+				},
+			},
+			expectedResponse: &admissionv1.AdmissionResponse{
+				Allowed: true,
+				Result: &metav1.Status{
+					Reason: "Namespace is being deleted",
+				},
+			},
+		},
+		{
+			name: "TestDeletePVCwithVolumeSnapshotContentSourceShouldPassWhenNamespaceIsBeingDeleted",
+			kubeObjs: []runtime.Object{
+				testPV,
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              testNamespace,
+						DeletionTimestamp: &metav1.Time{Time: metav1.Now().Time},
+					},
+				},
+			},
+			snapshotObjs: []runtime.Object{
+				&snapshotv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: testNamespace,
+						Name:      testVolumeSnapshotName,
+					},
+					Spec: snapshotv1.VolumeSnapshotSpec{
+						Source: snapshotv1.VolumeSnapshotSource{
+							// Using VolumeSnapshotContentName instead of PersistentVolumeClaimName
+							// This represents the DSM use case
+							VolumeSnapshotContentName: func() *string {
+								name := "test-volume-snapshot-content"
+								return &name
+							}(),
+						},
+						VolumeSnapshotClassName: &testVolumeSnapshotClassName,
+					},
+				},
+			},
+			admissionReview: &admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					Kind: metav1.GroupVersionKind{
+						Kind: "PersistentVolumeClaim",
+					},
+					Operation: admissionv1.Delete,
+					OldObject: runtime.RawExtension{
+						Raw: testInstance.oldPVCRaw,
+					},
+				},
+			},
+			expectedResponse: &admissionv1.AdmissionResponse{
+				Allowed: true,
+				Result: &metav1.Status{
+					Reason: "Namespace is being deleted",
+				},
+			},
+		},
+		{
+			name: "TestDeletePVCwithVolumeSnapshotContentSourceShouldPassWhenNamespaceIsNormal",
+			kubeObjs: []runtime.Object{
+				testPV,
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: testNamespace,
+						// No DeletionTimestamp - normal namespace
+					},
+				},
+			},
+			snapshotObjs: []runtime.Object{
+				&snapshotv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: testNamespace,
+						Name:      testVolumeSnapshotName,
+					},
+					Spec: snapshotv1.VolumeSnapshotSpec{
+						Source: snapshotv1.VolumeSnapshotSource{
+							// Using VolumeSnapshotContentName instead of PersistentVolumeClaimName
+							// This represents the DSM use case
+							VolumeSnapshotContentName: func() *string {
+								name := "test-volume-snapshot-content"
+								return &name
+							}(),
+						},
+						VolumeSnapshotClassName: &testVolumeSnapshotClassName,
+					},
+				},
+			},
+			admissionReview: &admissionv1.AdmissionReview{
+				Request: &admissionv1.AdmissionRequest{
+					Kind: metav1.GroupVersionKind{
+						Kind: "PersistentVolumeClaim",
+					},
+					Operation: admissionv1.Delete,
+					OldObject: runtime.RawExtension{
+						Raw: testInstance.oldPVCRaw,
+					},
+				},
+			},
+			expectedResponse: &admissionv1.AdmissionResponse{
+				Allowed: true,
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -432,7 +618,7 @@ func TestValidatePVC(t *testing.T) {
 			defer cancel()
 
 			actualResponse := validatePVC(ctx, test.admissionReview.Request)
-			assert.Equal(t, actualResponse, test.expectedResponse)
+			assert.Equal(t, test.expectedResponse, actualResponse)
 		})
 	}
 }
