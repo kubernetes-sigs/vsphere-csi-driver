@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	vmv1a4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -298,7 +298,7 @@ func getGuestClustersForPVC(ctx context.Context, pvcName, pvcNamespace string,
 // getVMsForPVC returns a list of virtual machines that are using the specified PVC.
 func getVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) ([]string, bool, error) {
-	c, err := k8s.NewClientForGroup(ctx, &cfg, vmv1a4.GroupName)
+	c, err := k8s.NewClientForGroup(ctx, &cfg, vmoperatortypes.GroupName)
 	if err != nil {
 		return nil, false, err
 	}
