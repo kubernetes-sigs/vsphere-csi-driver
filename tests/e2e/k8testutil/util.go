@@ -7986,6 +7986,25 @@ func WaitForVolumeSnapshotReadyToUse(client snapclient.Clientset, ctx context.Co
 	return volumeSnapshot, waitErr
 }
 
+// WaitForVolumeSnapshotsReadyToUse waits for the volume's snapshot to be in ReadyToUse
+func WaitForVolumeSnapshotsReadyToUse(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string,
+	pvcSnapshots []*snapV1.VolumeSnapshot) ([]*snapV1.VolumeSnapshot, error) {
+	restConfig := GetRestConfigClient(e2eTestConfig)
+	snapc, _ := snapclient.NewForConfig(restConfig)
+	index := 0
+	var snaperr error
+	for _, snapshot := range pvcSnapshots {
+		volumeSnapshot, err := WaitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, snapshot.Name)
+		if err == nil { //TODO validation
+			pvcSnapshots[index] = volumeSnapshot
+		} else {
+			snaperr = err
+		}
+		index++
+	}
+	return pvcSnapshots, snaperr
+}
+
 // DeleteVolumeSnapshotWithPandoraWait  deletes Volume Snapshot with Pandora wait for CNS to sync
 func DeleteVolumeSnapshotWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, snapshotName string, pandoraSyncWaitTime int) {
@@ -8122,9 +8141,9 @@ func GetDatastoresFreeSpace(ctx context.Context, vs *config.E2eTestConfig) (map[
 }
 
 // ValidateSpaceUsageAfterResourceCreationUsingDatastoresFreeSpace Verifies the freeSpace before and after the resource creation
-func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning map[string]DatastoreFcdFootprint, dsFcdFootprintMapAfterProvisioning map[string]DatastoreFcdFootprint, expectedUsedSpace int64, numVolumes int) (bool, bool, bool, bool, int64) {
+func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning map[string]DatastoreFcdFootprint, dsFcdFootprintMapAfterProvisioning map[string]DatastoreFcdFootprint, expectedUsedSpace int64, numVolumes int) (bool, bool, bool, bool, bool, int64) {
 	var actualUsedSpace int64 = 0
-	var totalNumberOfVmdksBefore, totalNumberOfFcdsBefore, totalNumberOfVolumesBefore, totalNumberOfVmdksAfter, totalNumberOfFcdsAfter, totalNumberOfVolumesAfter int = 0, 0, 0, 0, 0, 0
+	var totalNumberOfVmdksBefore, totalNumberOfFcdsBefore, totalNumberOfVolumesBefore, totalNumberOfVmdksAfter, totalNumberOfFcdsAfter, totalNumberOfVolumesAfter, totalNumberOfSnapshotsBefore, totalNumberOfSnapshotsAfter int = 0, 0, 0, 0, 0, 0, 0, 0
 	for dsName, dsFcdFootprintBeforeProvisioning := range dsFcdFootprintMapBeforeProvisioning {
 		framework.Logf("Before Provisioning Ds Name : %s, Ds Path : %s, DS FreeSpace : %d, Number of Fcds : %d, Number of Vmdks : %d", dsName, dsFcdFootprintBeforeProvisioning.dsPath, dsFcdFootprintBeforeProvisioning.freeSpace, dsFcdFootprintBeforeProvisioning.numFcds, dsFcdFootprintBeforeProvisioning.numVmdks)
 		dsFcdFootprintAfterProvisioning, isExists := dsFcdFootprintMapAfterProvisioning[dsName]
@@ -8139,9 +8158,12 @@ func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFoot
 			totalNumberOfVmdksBefore = totalNumberOfVmdksBefore + dsFcdFootprintBeforeProvisioning.numVmdks
 			totalNumberOfFcdsBefore = totalNumberOfFcdsBefore + dsFcdFootprintBeforeProvisioning.numFcds
 			totalNumberOfVolumesBefore = totalNumberOfVolumesBefore + dsFcdFootprintBeforeProvisioning.numVolumes
+			totalNumberOfSnapshotsBefore = totalNumberOfSnapshotsBefore + dsFcdFootprintBeforeProvisioning.numSnapShots
+
 			totalNumberOfVmdksAfter = totalNumberOfVmdksAfter + dsFcdFootprintAfterProvisioning.numVmdks
 			totalNumberOfFcdsAfter = totalNumberOfFcdsAfter + dsFcdFootprintAfterProvisioning.numFcds
 			totalNumberOfVolumesAfter = totalNumberOfVolumesAfter + dsFcdFootprintAfterProvisioning.numVolumes
+			totalNumberOfSnapshotsAfter = totalNumberOfSnapshotsAfter + dsFcdFootprintAfterProvisioning.numSnapShots
 		}
 	}
 	usedSpaceRetVal := actualUsedSpace == expectedUsedSpace
@@ -8163,7 +8185,10 @@ func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFoot
 	numberOfVolumesRetVal := totalNumberOfVolumesAfter-totalNumberOfVolumesBefore == numVolumes
 	framework.Logf("Is number of Volumes values Before : %d and After : %d Creating the : %d volumes Matched : %t ? ", totalNumberOfVolumesBefore, totalNumberOfVolumesAfter, numVolumes, numberOfVolumesRetVal)
 
-	return usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, deltaUsedSpaceInMb
+	numberOfSnapshotsRetVal := totalNumberOfSnapshotsAfter-totalNumberOfSnapshotsBefore == numVolumes
+	framework.Logf("Is number of Snapshot values Before : %d and After : %d Creating the : %d snapshots Matched : %t ? ", totalNumberOfSnapshotsBefore, totalNumberOfSnapshotsAfter, numVolumes, numberOfSnapshotsRetVal)
+
+	return usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, numberOfSnapshotsRetVal, deltaUsedSpaceInMb
 }
 
 // Convert mb to String
@@ -8402,10 +8427,10 @@ func PvcUsability(ctx context.Context, e2eTestConfig *config.E2eTestConfig, clie
 	}
 }
 
-func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
+func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
 
 	// create linked clone PVC
-	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName)
+	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName, diskSize)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
 	// Validate PVC is bound
@@ -8428,8 +8453,8 @@ func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interfac
 /*
 Create PVC using linked clone annotation
 */
-func createLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string) (*corev1.PersistentVolumeClaim, error) {
-	pvcspec := PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce, constants.Snapshotapigroup, volumeSnapshotName)
+func createLinkedClonePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) (*corev1.PersistentVolumeClaim, error) {
+	pvcspec := PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce, constants.Snapshotapigroup, volumeSnapshotName, diskSize)
 	ginkgo.By(fmt.Sprintf("Creating linked-clone PVC in namespace: %s using Storage Class: %s",
 		namespace, storageclass.Name))
 	pvclaim, err := fpv.CreatePVC(ctx, client, namespace, pvcspec)
@@ -8445,8 +8470,8 @@ func createLinkedClonePvc(ctx context.Context, client clientset.Interface, names
 /*
 This function generates a PVC specification with linked clone annotation.
 */
-func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.StorageClass, accessMode corev1.PersistentVolumeAccessMode, snapshotapigroup string, datasourceName string) *corev1.PersistentVolumeClaim {
-	disksize := constants.DiskSize
+func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.StorageClass, accessMode corev1.PersistentVolumeAccessMode, snapshotapigroup string, datasourceName string, diskSize string) *corev1.PersistentVolumeClaim {
+
 	claim := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "lc-pvc-",
@@ -8461,7 +8486,7 @@ func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.
 			},
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse(disksize),
+					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse(diskSize),
 				},
 			},
 			DataSource: &corev1.TypedLocalObjectReference{

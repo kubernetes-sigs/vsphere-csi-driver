@@ -25,18 +25,31 @@ import (
 	"sync"
 	"time"
 
+	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
+
+var e2eTestConfig *config.E2eTestConfig
+var vcAddress string
+var pvclaims []*v1.PersistentVolumeClaim
+var pvcSnapshots []*snapV1.VolumeSnapshot
+var persistentvolumes []*v1.PersistentVolume
+var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
+var isTestPassed bool
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
 	storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, pvclaims []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
@@ -45,6 +58,65 @@ func createPVC(ctx context.Context, client clientset.Interface, namespace string
 	pvclaim, err := k8testutil.CreatePVC(ctx, client, namespace, nil, ds, storageclass, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pvclaims[index] = pvclaim
+}
+
+func createSnapshot(ctx context.Context, namespace string, pvclaims []*v1.PersistentVolumeClaim, index int, pvcSnapshots []*snapV1.VolumeSnapshot, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+	restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+	snapc, _ := snapclient.NewForConfig(restConfig)
+	ginkgo.By("Create volume snapshot class")
+	volumeSnapshotClass, err := k8testutil.CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pvclaim := pvclaims[index]
+	ginkgo.By("Create a volume snapshot")
+	framework.Logf("Volume snapshot class name is : %s", volumeSnapshotClass.Name)
+	volumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		k8testutil.GetVolumeSnapshotSpec(namespace, volumeSnapshotClass.Name, pvclaim.Name), metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
+	pvcSnapshots[index] = volumeSnapshot
+
+	// defer func() {
+	// 	if snapshotCreated {
+	// 		framework.Logf("Deleting volume snapshot on failure")
+	// 		var pandoraSyncWaitTime int
+	// 		if os.Getenv(constants.EnvPandoraSyncWaitTime) != "" {
+	// 			pandoraSyncWaitTime, err = strconv.Atoi(os.Getenv(constants.EnvPandoraSyncWaitTime))
+	// 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		} else {
+	// 			pandoraSyncWaitTime = constants.DefaultPandoraSyncWaitTime
+	// 		}
+	// 		DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+	// 	}
+	// }()
+}
+
+func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedFromSnapshot []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+
+	ginkgo.By("Create PVC from snapshot")
+	pvcSpec := k8testutil.GetPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
+		v1.ReadWriteOnce, pvcSnapshots[index].Name, constants.Snapshotapigroup)
+	pvcFromSnapshot, err := k8testutil.CreatePvcWithSpec(ctx, client, namespace, pvcSpec)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		[]*v1.PersistentVolumeClaim{pvcFromSnapshot}, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+
+	pvcsCreatedFromSnapshot[index] = pvcFromSnapshot
+}
+
+func createLinkedClone(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedWithLinkedClone []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+	ginkgo.By("Create PVC from snapshot")
+	pvclaim, _ := k8testutil.CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
+	pvcsCreatedWithLinkedClone[index] = pvclaim
 }
 
 func restartService(ctx context.Context, c clientset.Interface, serviceName string, wgMain *sync.WaitGroup) {
