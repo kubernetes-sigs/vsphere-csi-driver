@@ -439,7 +439,7 @@ const (
 	// CNS finalizer on supervisor PVC/Snapshots from PVCSI
 	SVPVCSnapshotProtectionFinalizer = "sv-pvc-snapshot-protection-finalizer"
 	// FileVolumesWithVmService is an FSS to support file volumes with VM service VMs.
-	FileVolumesWithVmService = "file-volume-with-vm-service"
+	FileVolumesWithVmService = "supports_file_volumes_with_VM_service_VMs"
 	// SharedDiskFss is an FSS that tells whether shared disks are supported or not
 	SharedDiskFss = "supports_shared_disks_with_VM_service_VMs"
 	// FCDTransactionSupport is the wcp capability that tells whether transaction is supported in CSI
@@ -474,6 +474,7 @@ var WCPFeatureStates = map[string]struct{}{
 	BYOKEncryption:                  {},
 	FCDTransactionSupport:           {},
 	MultipleClustersPerVsphereZone:  {},
+	FileVolumesWithVmService:        {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -486,6 +487,8 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	MultipleClustersPerVsphereZone: {},
 	WCPVMServiceVMSnapshots:        {},
 	BYOKEncryption:                 {},
+	SharedDiskFss:                  {},
+	FileVolumesWithVmService:       {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
