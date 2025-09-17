@@ -184,7 +184,7 @@ func deleteVolumeSnapshotContentWithPandoraWait(ctx context.Context, snapc *snap
 func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
 	name string, pandoraSyncWaitTime int) error {
 	var err error
-	waitErr := wait.PollUntilContextTimeout(ctx, poll, 2*pollTimeout, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, vscDeleteTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			_, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
