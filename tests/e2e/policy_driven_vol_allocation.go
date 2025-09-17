@@ -1381,7 +1381,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		var op []byte
 		if !windowsEnv {
 			rand.New(rand.NewSource(time.Now().Unix()))
-			testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+			testdataFile = fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 			ginkgo.By(fmt.Sprintf("Creating a 100mb test data file %v", testdataFile))
 			op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
 				"bs=1M", "count=100").Output()
