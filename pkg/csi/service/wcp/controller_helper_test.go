@@ -133,66 +133,93 @@ func TestGetPodVMUUID(t *testing.T) {
 	})
 }
 
-func TestVerifyStoragePolicyForVmfsWithEageredZeroThick(t *testing.T) {
+func TestVerifyStoragePolicyForVmfsUtil(t *testing.T) {
 	ctx := context.TODO()
+	policyId := "policy-123"
 
-	t.Run("Valid VMFS EZT policy", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
+	tests := []struct {
+		name        string
+		input       []cnsvsphere.SpbmPolicyContent
+		expectError bool
+	}{
+		{
+			name: "Valid VMFS policy with EZT and Clustered VMDK",
+			input: []cnsvsphere.SpbmPolicyContent{
+				{
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
+								{Ns: vmfsNamespace, Value: vmfsClusteredVmdk},
+							},
 						},
 					},
 				},
 			},
-		}
-
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "valid-policy-id")
-		assert.NoError(t, err)
-	})
-
-	t.Run("Invalid VMFS policy - not EZT", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: vmfsNamespace, Value: "Thin"},
+			expectError: false,
+		},
+		{
+			name: "VMFS policy missing EZT",
+			input: []cnsvsphere.SpbmPolicyContent{
+				{
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: vmfsNamespace, Value: vmfsClusteredVmdk},
+							},
 						},
 					},
 				},
 			},
-		}
-
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "invalid-policy-id")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "must be fully initialized")
-	})
-
-	t.Run("Policy with no VMFS rule", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: "VSAN", Value: "Whatever"},
+			expectError: true,
+		},
+		{
+			name: "VMFS policy missing Clustered VMDK",
+			input: []cnsvsphere.SpbmPolicyContent{
+				{
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
+							},
 						},
 					},
 				},
 			},
-		}
+			expectError: true,
+		},
+		{
+			name: "Non-VMFS policy should pass",
+			input: []cnsvsphere.SpbmPolicyContent{
+				{
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: "non-vmfs", Value: "some-value"},
+							},
+						},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "Empty policy list should pass",
+			input:       []cnsvsphere.SpbmPolicyContent{},
+			expectError: false,
+		},
+	}
 
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "no-vmfs-rule-policy")
-		assert.NoError(t, err)
-	})
-
-	t.Run("Empty policy list", func(t *testing.T) {
-		var policyList []cnsvsphere.SpbmPolicyContent
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "empty-policy")
-		assert.NoError(t, err)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyStoragePolicyForVmfsUtil(ctx, tt.input, policyId)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func newMockPod(name, namespace, nodeName string, volumes []string,
