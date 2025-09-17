@@ -118,9 +118,9 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized][ef-vks] Should "+
-		"create and delete pod with the same volume source "+
-		"and data", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
+	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][ef-vks][csi-supervisor] [csi-guest] "+
+		"[csi-block-vanilla-parallelized] Should create and delete pod with the same volume"+
+		" source and data", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var sc *storagev1.StorageClass

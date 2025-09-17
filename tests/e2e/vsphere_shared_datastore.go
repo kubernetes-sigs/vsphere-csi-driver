@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 	// Setting non-shared datastore in the storage class should fail dynamic
 	// volume provisioning.
-	ginkgo.It("Verify dynamic provisioning of PV fails with user specified non-shared datastore and "+
+	ginkgo.It("[cf-vanilla-block] Verify dynamic provisioning of PV fails with user specified non-shared datastore and "+
 		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
