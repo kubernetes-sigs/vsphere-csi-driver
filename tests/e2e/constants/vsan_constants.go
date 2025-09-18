@@ -28,4 +28,6 @@ const (
 	HealthRed                    = "red"
 	HealthStatusAccessible       = "accessible"
 	HealthStatusInAccessible     = "inaccessible"
+	VsanClusterFileServiceSystem = "vsan-cluster-file-service-system"
+	VsanFileServiceType          = "VsanFileServiceSystem"
 )

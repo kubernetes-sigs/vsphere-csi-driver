@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -119,7 +119,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Error(msg)
 		return err
 	}
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. error: %+v", err)
 		log.Error(msg)
@@ -168,8 +168,8 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 	// Watch for changes to primary resource VirtualMachineSnapshot.
 	err = c.Watch(source.Kind(mgr.GetCache(),
-		&vmoperatorv1alpha4.VirtualMachineSnapshot{},
-		&handler.TypedEnqueueRequestForObject[*vmoperatorv1alpha4.VirtualMachineSnapshot]{}))
+		&vmoperatortypes.VirtualMachineSnapshot{},
+		&handler.TypedEnqueueRequestForObject[*vmoperatortypes.VirtualMachineSnapshot]{}))
 	if err != nil {
 		log.Errorf("Failed to watch for changes to VirtualMachineSnapshot resource with error: %+v", err)
 		return err
@@ -210,7 +210,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 			request.Namespace, request.Name, time.Since(now))
 	}()
 	// Fetch the VirtualMachineSnapshot instance.
-	vmSnapshot := &vmoperatorv1alpha4.VirtualMachineSnapshot{}
+	vmSnapshot := &vmoperatortypes.VirtualMachineSnapshot{}
 	err := r.client.Get(ctx, request.NamespacedName, vmSnapshot)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -254,7 +254,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	return reconcile.Result{}, nil
 }
 func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, log *zap.SugaredLogger,
-	vmsnapshot *vmoperatorv1alpha4.VirtualMachineSnapshot) error {
+	vmsnapshot *vmoperatortypes.VirtualMachineSnapshot) error {
 	deleteVMSnapshot := false
 	if vmsnapshot.DeletionTimestamp.IsZero() {
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
@@ -297,21 +297,34 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
 			r.vmOperatorClient)
-		if err != nil {
+		// case when underlying virtualmachine is deleted after creating vmsnapshot cr,
+		// when delete snapshot we ignore the error, so that vmsnapshot cr does not stuck deletion pahse
+		if err != nil && !deleteVMSnapshot {
 			log.Errorf("reconcileNormal: could not get VirtualMachine %s/%s. error: %v",
 				vmKey.Namespace, vmKey.Name, err)
 			return err
 		}
 		log.Infof("reconcileNormal: sync and update storage quota for vmsnapshot %s/%s",
 			vmsnapshot.Namespace, vmsnapshot.Name)
-		err = r.syncVolumesAndUpdateCNSVolumeInfo(ctx, log, virtualMachine)
-		if err != nil {
-			log.Errorf("reconcileNormal: failed to validate VirtualMachineSnapshot %s/%s. error: %v",
-				vmsnapshot.Namespace, vmsnapshot.Name, err)
-			return err
+		if virtualMachine != nil {
+			err = r.syncVolumesAndUpdateCNSVolumeInfo(ctx, log, virtualMachine)
+			if err != nil {
+				log.Errorf("reconcileNormal: failed to validate VirtualMachineSnapshot %s/%s. error: %v",
+					vmsnapshot.Namespace, vmsnapshot.Name, err)
+				return err
+			}
+			log.Infof("reconcileNormal: successfully synced and updated storage quota for vmsnapshot %s/%s",
+				vmsnapshot.Namespace, vmsnapshot.Name)
+		} else {
+			if deleteVMSnapshot {
+				log.Infof("reconcileNormal: VirtualMachine %s/%s not found. skipping volume sync.",
+					vmKey.Namespace, vmKey.Name)
+			} else {
+				err = fmt.Errorf("VirtualMachine %s/%s not found", vmKey.Namespace, vmKey.Name)
+				log.Errorf("reconcileNormal: unable to sync volumes. error %v", err)
+				return err
+			}
 		}
-		log.Infof("reconcileNormal: successfully synced and updated storage quota for vmsnapshot %s/%s",
-			vmsnapshot.Namespace, vmsnapshot.Name)
 		if deleteVMSnapshot {
 			log.Infof("reconcileNormal: remove finalizer %s for virtualmachinesnapshot %s/%s",
 				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
@@ -348,7 +361,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 // appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *ReconcileVirtualMachineSnapshot,
-	instance *vmoperatorv1alpha4.VirtualMachineSnapshot, eventtype string, msg string) {
+	instance *vmoperatortypes.VirtualMachineSnapshot, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
 	namespacedName := apitypes.NamespacedName{
@@ -409,14 +422,17 @@ func getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx context.Context) i
 // after volume sync is successful it will fetch the aggregated size of all related volumes
 // will update the relevant CNSVolumeInfo for each volume which will update the storage policy usage.
 func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx context.Context,
-	log *zap.SugaredLogger, vm *vmoperatorv1alpha4.VirtualMachine) error {
+	log *zap.SugaredLogger, vm *vmoperatortypes.VirtualMachine) error {
 	var err error
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
 	for _, vmVolume := range vm.Spec.Volumes {
+		if vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim == nil {
+			continue
+		}
 		pvcKey := apitypes.NamespacedName{
 			Namespace: vm.Namespace,
-			Name:      vmVolume.Name,
+			Name:      vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim.ClaimName,
 		}
 		pvc := &corev1.PersistentVolumeClaim{}
 		err = r.client.Get(ctx, pvcKey, pvc, &client.GetOptions{})
@@ -461,6 +477,10 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: pv not found error: %v", err)
 			return err
 		}
+	}
+	if len(cnsVolumeIds) == 0 {
+		log.Infof("syncVolumesAndUpdateCNSVolumeInfo: no volumes found to sync, skipping volume sync")
+		return nil
 	}
 	// fetch updated cns volumes
 	queryFilter := cnstypes.CnsQueryFilter{

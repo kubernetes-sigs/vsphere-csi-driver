@@ -52,7 +52,7 @@ Steps
 
 */
 
-var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] "+
+var _ = ginkgo.Describe("[ef-vks] [csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] "+
 	"[csi-block-vanilla-parallelized] Volume Filesystem Group Test", func() {
 	f := framework.NewDefaultFramework("volume-fsgroup")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi
 	})
 
 	// Test for Pod creation works when SecurityContext has FSGroup
-	ginkgo.It("Verify Pod Creation works when SecurityContext has "+
+	ginkgo.It("[cf-vanilla-file][cf-vanilla-block] Verify Pod Creation works when SecurityContext has "+
 		"FSGroup", ginkgo.Label(p0, vanilla, block, file, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

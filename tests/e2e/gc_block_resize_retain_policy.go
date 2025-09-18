@@ -43,7 +43,7 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation policy retain", func() {
+var _ = ginkgo.Describe("[csi-guest][ef-vks] Volume Expansion Tests with reclaimation policy retain", func() {
 	f := framework.NewDefaultFramework("gc-resize-reclaim-policy-retain")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

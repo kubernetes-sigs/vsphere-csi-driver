@@ -1210,7 +1210,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 	})
 
 	// Test for valid disk size of 2Gi
-	ginkgo.It("Verify dynamic provisioning of pv using storageclass with a valid disk size passes", func() {
+	ginkgo.It("[cf-vks]Verify dynamic provisioning of pv using storageclass with a valid disk size passes", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test for valid disk size")

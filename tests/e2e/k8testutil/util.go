@@ -95,6 +95,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
+
+	authenticationv1 "k8s.io/api/authentication/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -7318,15 +7322,275 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	fmt.Println("All required storage policy usages are available.")
 }
 
-// ExitHostMM exits a host from maintenance mode with a particular timeout
-func ExitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
-	task, err := host.ExitMaintenanceMode(ctx, timeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// createPVCAndQueryVolumeInCNS creates PVc with a given storage class on a given namespace
+// and verifies cns metadata of that volume if verifyCNSVolume is set to true
+func CreatePVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interface,
+	vs *config.E2eTestConfig, namespace string,
+	pvclaimLabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	ds string, storageclass *storagev1.StorageClass,
+	verifyCNSVolume bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, error) {
 
-	_, err = task.WaitForResultEx(ctx, nil)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Create PVC
+	pvclaim, err := CreatePVC(ctx, client, namespace, pvclaimLabels, ds, storageclass, accessMode)
+	if err != nil {
+		return pvclaim, nil, fmt.Errorf("failed to create PVC: %w", err)
+	}
 
-	framework.Logf("Host: %v exited from maintenance mode", host)
+	// Wait for PVC to be bound to a PV
+	persistentvolumes, err := WaitForPVClaimBoundPhase(ctx, client, vs,
+		[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout*2)
+	if err != nil {
+		return pvclaim, persistentvolumes, fmt.Errorf("failed to wait for PVC to bind to a PV: %w", err)
+	}
+
+	// Get VolumeHandle from the PV
+	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	if vs.TestInput.ClusterFlavor.GuestCluster {
+		volHandle = GetVolumeIDFromSupervisorCluster(volHandle)
+	}
+	if volHandle == "" {
+		return pvclaim, persistentvolumes, fmt.Errorf("volume handle is empty")
+	}
+
+	// Verify the volume in CNS if required
+	if verifyCNSVolume {
+		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+		queryResult, err := vcutil.QueryCNSVolumeWithResult(vs, volHandle)
+		if err != nil {
+			return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
+		}
+		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
+			return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+		}
+	}
+
+	return pvclaim, persistentvolumes, nil
+}
+
+// waitForPvResizeForGivenPvc waits for the controller resize to be finished
+func WaitForPvResizeForGivenPvc(pvc *v1.PersistentVolumeClaim, c clientset.Interface,
+	vs *config.E2eTestConfig, duration time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	adminClient, _ := InitializeClusterClientsByUserRoles(c, vs)
+	pvName := pvc.Spec.VolumeName
+	pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+	pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return WaitForPvResize(pv, c, vs, pvcSize, duration)
+}
+
+// waitForPvResize waits for the controller resize to be finished
+func WaitForPvResize(pv *v1.PersistentVolume, c clientset.Interface, vs *config.E2eTestConfig,
+	size resource.Quantity, duration time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	adminClient, _ := InitializeClusterClientsByUserRoles(c, vs)
+	return wait.PollUntilContextTimeout(ctx, constants.ResizePollInterval, duration, true,
+		func(ctx context.Context) (bool, error) {
+			pv, err := adminClient.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+
+			if err != nil {
+				return false, fmt.Errorf("error fetching pv %q for resizing %v", pv.Name, err)
+			}
+
+			pvSize := pv.Spec.Capacity[v1.ResourceStorage]
+
+			// If pv size is greater or equal to requested size that means controller resize is finished.
+			if pvSize.Cmp(size) >= 0 {
+				return true, nil
+			}
+			return false, nil
+		})
+}
+
+// WaitForPVClaimBoundPhase waits until all pvcs phase set to bound
+// client: framework generated client
+// pvclaims: list of PVCs
+// timeout: timeInterval to wait for PVCs to get into bound state
+// ctx: context package variable
+func WaitForPVClaimBoundPhase(ctx context.Context, client clientset.Interface, vs *config.E2eTestConfig,
+	pvclaims []*v1.PersistentVolumeClaim, timeout time.Duration) ([]*v1.PersistentVolume, error) {
+	persistentvolumes := make([]*v1.PersistentVolume, len(pvclaims))
+
+	adminClient, _ := InitializeClusterClientsByUserRoles(client, vs)
+	for index, claim := range pvclaims {
+		err := fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, adminClient,
+			claim.Namespace, claim.Name, framework.Poll, timeout)
+		if err != nil {
+			return persistentvolumes, err
+		}
+		// Get new copy of the claim
+		claim, err = client.CoreV1().PersistentVolumeClaims(claim.Namespace).
+			Get(ctx, claim.Name, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PVC Get API error: %w", err)
+		}
+		// Get the bounded PV
+		persistentvolumes[index], err = adminClient.CoreV1().PersistentVolumes().
+			Get(ctx, claim.Spec.VolumeName, metav1.GetOptions{})
+		if err != nil {
+			return persistentvolumes, fmt.Errorf("PV Get API error: %w", err)
+		}
+	}
+	return persistentvolumes, nil
+}
+
+// createScopedClient generates a kubernetes-client by constructing kubeconfig by
+// creating a user with minimal permissions and enable port forwarding. It takes
+// client: framework generated client
+// namespace: framework generated namespace name
+// saName: service account name
+// ctx: context package variable
+func CreateScopedClient(ctx context.Context, client clientset.Interface,
+	ns string, saName string) (clientset.Interface, error) {
+
+	roleName := ns + "role"
+	roleBindingName := roleName + "-binding"
+	contextName := "e2e-context"
+
+	_, err := client.CoreV1().ServiceAccounts(ns).Create(ctx, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: saName,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SA: %v", err)
+	}
+
+	// 2. Create Role
+	_, err = client.RbacV1().Roles(ns).Create(ctx, &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleName,
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "persistentvolumeclaims", "services"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"statefulsets", "deployments", "replicasets"},
+				Verbs:     []string{"get", "watch", "list", "delete", "create", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"events"},
+				Verbs:     []string{"get", "list"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Role: %v", err)
+	}
+
+	time.Sleep(5 * time.Second)
+
+	_, err = client.RbacV1().RoleBindings(ns).Create(ctx, &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleBindingName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      constants.ServiceAccountKeyword,
+				Name:      saName,
+				Namespace: ns,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     constants.RoleKeyword,
+			Name:     roleName,
+			APIGroup: constants.RbacApiGroup,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RoleBinding: %v", err)
+	}
+
+	var token string
+
+	tr := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences: []string{constants.AudienceForSvcAccountName},
+		},
+	}
+
+	tokenRequest, err := client.CoreV1().ServiceAccounts(ns).CreateToken(ctx, saName, tr, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %v", err)
+	}
+	token = tokenRequest.Status.Token
+
+	if token == "" {
+		return nil, fmt.Errorf("no token found for service account")
+	}
+	time.Sleep(60 * time.Second)
+	localPort := env.GetAndExpectStringEnvVar("RANDOM_PORT")
+	framework.Logf("Random port: %s", localPort)
+	kubeConfig := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"e2e-cluster": {
+				Server:                fmt.Sprintf("https://127.0.0.1:%s", localPort),
+				InsecureSkipTLSVerify: true,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			contextName: {
+				Cluster:   "e2e-cluster",
+				AuthInfo:  "e2e-user",
+				Namespace: ns,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"e2e-user": {
+				Token: token,
+			},
+		},
+		CurrentContext: contextName,
+	}
+
+	restCfg, err := clientcmd.NewNonInteractiveClientConfig(kubeConfig,
+		contextName, &clientcmd.ConfigOverrides{}, nil).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build rest.Config: %v", err)
+	}
+
+	nsScopedClient, err := clientset.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Clientset: %v", err)
+	}
+	return nsScopedClient, nil
+}
+
+// initializeClusterClientsByUserRoles takes a client generated by test framework
+// and generates and returns an admin client with administrator priviledges
+// and a client with devops user priviledges
+func InitializeClusterClientsByUserRoles(client clientset.Interface, vs *config.E2eTestConfig) (clientset.Interface,
+	clientset.Interface) {
+	var adminClient clientset.Interface
+	var err error
+	runningAsDevopsUser := env.GetBoolEnvVarOrDefault(constants.EnvIsDevopsUser, false)
+	if vs.TestInput.ClusterFlavor.SupervisorCluster || vs.TestInput.ClusterFlavor.GuestCluster {
+		if runningAsDevopsUser {
+			if svAdminK8sEnv := env.GetAndExpectStringEnvVar(constants.EnvAdminKubeconfig); svAdminK8sEnv != "" {
+				adminClient, err = CreateKubernetesClientFromConfig(svAdminK8sEnv)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if vs.TestInput.ClusterFlavor.SupervisorCluster {
+				if devopsK8sEnv := env.GetAndExpectStringEnvVar(constants.EnvDevopsKubeconfig); devopsK8sEnv != "" {
+					client, err = CreateKubernetesClientFromConfig(devopsK8sEnv)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}
+		} else {
+			adminClient = client
+		}
+	} else if vs.TestInput.ClusterFlavor.VanillaCluster || adminClient == nil {
+		adminClient = client
+	}
+	return adminClient, client
 }
 
 /*

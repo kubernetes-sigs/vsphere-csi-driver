@@ -42,6 +42,7 @@ const (
 	EztAllocType            = "Fully initialized"
 	LztAllocType            = "Reserve space"
 	Nfs4FSType              = "nfs4"
+	Nfs4Keyword             = "NFSv4.1"
 	ObjOrItemNotFoundErr    = "The object or item referred to could not be found"
 	ProviderPrefix          = "vsphere://"
 )

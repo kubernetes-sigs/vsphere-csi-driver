@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode, "+
 		"when no storage policy is offered", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany)
 	})
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, "+
+	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] verify dynamic provisioning with ReadOnlyMany access mode, "+
 		"when no storage policy is offered", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		testHelperForCreateFileVolumeWithNoDatastoreURLInSC(f, client, namespace, v1.ReadOnlyMany)
 	})
