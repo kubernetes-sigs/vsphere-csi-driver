@@ -357,12 +357,15 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				volumeID, nodeVM, request.Name, request.Namespace)
-			diskUUID, faulttype, attachErr := r.volumeManager.AttachVolume(internalCtx, nodeVM, volumeID, false)
-
-			if attachErr != nil {
+			diskUUID, faulttype, err := r.volumeManager.AttachVolume(internalCtx, nodeVM, volumeID, false)
+			if err != nil {
 				log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
-					volumeID, nodeVM, request.Name, request.Namespace, attachErr)
+					volumeID, nodeVM, request.Name, request.Namespace, err)
+				instance.Status.Error = err.Error()
+				_ = k8s.UpdateStatus(internalCtx, r.client, instance)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
+				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
 			pvc := &v1.PersistentVolumeClaim{}
@@ -383,7 +386,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				faulttype, err = addFinalizerToPVC(internalCtx, r.client, pvc)
+				_, err = addFinalizerToPVC(internalCtx, r.client, pvc)
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
@@ -396,31 +399,27 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 				}
 			}
-			if attachErr != nil {
-				// Update CnsNodeVMAttachment instance with attach error message.
-				instance.Status.Error = attachErr.Error()
-			} else {
-				// Add the CNS volume ID in the attachment metadata. This is used later
-				// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
-				// Note that the supervisor PVC can be deleted due to following:
-				// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
-				//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
-				//    This causes supervisor PVC to be deleted.
-				// 2. Supervisor namespace user deletes PVC used by a guest cluster.
-				// 3. Supervisor namespace is deleted
-				// Basically, we cannot rely on the existence of PVC in supervisor
-				// cluster for detaching the volume from guest cluster VM. So, the
-				// logic stores the CNS volume ID in attachmentMetadata itself which
-				// is used during detach.
-				// Update CnsNodeVMAttachment instance with attached status set to true
-				// and attachment metadata.
-				instance.Status.AttachmentMetadata = make(map[string]string)
-				instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID] = volumeID
-				instance.Status.AttachmentMetadata[v1a1.AttributeFirstClassDiskUUID] = diskUUID
-				instance.Status.Attached = true
-				// Clear the error message.
-				instance.Status.Error = ""
-			}
+
+			// Add the CNS volume ID in the attachment metadata. This is used later
+			// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
+			// Note that the supervisor PVC can be deleted due to following:
+			// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
+			//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
+			//    This causes supervisor PVC to be deleted.
+			// 2. Supervisor namespace user deletes PVC used by a guest cluster.
+			// 3. Supervisor namespace is deleted
+			// Basically, we cannot rely on the existence of PVC in supervisor
+			// cluster for detaching the volume from guest cluster VM. So, the
+			// logic stores the CNS volume ID in attachmentMetadata itself which
+			// is used during detach.
+			// Update CnsNodeVMAttachment instance with attached status set to true
+			// and attachment metadata.
+			instance.Status.AttachmentMetadata = make(map[string]string)
+			instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID] = volumeID
+			instance.Status.AttachmentMetadata[v1a1.AttributeFirstClassDiskUUID] = diskUUID
+			instance.Status.Attached = true
+			// Clear the error message.
+			instance.Status.Error = ""
 
 			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
@@ -429,11 +428,6 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					request.Name, request.Namespace, err)
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
-			}
-
-			if attachErr != nil {
-				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
-				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
 			msg := fmt.Sprintf("ReconcileCnsNodeVMAttachment: Successfully updated entry in CNS for instance "+
@@ -607,6 +601,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		log.Infof("Finished Reconcile for CnsNodeVMAttachment request: %q", request.NamespacedName)
 		return reconcile.Result{}, "", nil
 	}
+
 	// creating new context for reconcileCnsNodeVMAttachmentInternal, as kubernetes supplied context can get canceled
 	// This is required to ensure CNS operations won't get prematurely canceled by the controller runtime’s
 	// internal reconcile logic.
