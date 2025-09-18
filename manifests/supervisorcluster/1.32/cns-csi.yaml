@@ -58,7 +58,7 @@ rules:
     resources: ["cnsfilevolumeclients"]
     verbs: ["get", "list", "update", "create", "delete"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsregistervolumes", "cnsunregistervolumes"]
+    resources: ["cnsregistervolumes", "cnsunregistervolumes", "cnsunregistervolumes/status"]
     verbs: ["get", "list", "watch", "update", "delete"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["triggercsifullsyncs"]
