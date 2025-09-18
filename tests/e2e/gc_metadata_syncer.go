@@ -80,7 +80,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		bootstrap()
-		setResourceQuota(svcClient, svNamespace, rqLimit)
+
+		restConfig := getRestConfigClient()
+		_, svNamespace = getSvcClientAndNamespace()
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, rqLimit)
+
 		scParameters = make(map[string]string)
 		storagePolicyName = GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		labelKey = "app"
@@ -94,7 +98,6 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		if isVsanHealthServiceStopped {
