@@ -423,7 +423,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 		7. Delete all PVCs from the tests namespace.
 		8. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing scale-up first and "+
+	ginkgo.It("[ef-file-vanilla] Statefulset with file volume testing scale-up first and "+
 		"scale-down", ginkgo.Label(p0, file, vanilla, core, vc70), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
@@ -738,7 +738,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	  10. Increase the CSI driver  replica to 3
 
 	*/
-	ginkgo.It("List-volumeResponseFor-fileVolumes", ginkgo.Label(p1, listVolume, file, vanilla, core, vc80), func() {
+	ginkgo.It("[ef-file-vanilla] List-volumeResponseFor-fileVolumes", ginkgo.Label(p1, listVolume,
+		file, vanilla, core, vc80), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)

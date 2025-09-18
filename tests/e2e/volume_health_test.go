@@ -2693,7 +2693,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// Verify PV entry is deleted from CNS.
 	// Delete the SC.
 
-	ginkgo.It("[csi-file-vanilla] File Vanilla Verify pvc is not annotated with health "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]File Vanilla Verify pvc is not annotated with health "+
 		"status", ginkgo.Label(p1, file, vanilla, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

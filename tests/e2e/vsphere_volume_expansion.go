@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 4. Wait for PVC's status to become Bound.
 	// 5. Modify PVC's size to a bigger size.
 	// 6. Verify if the PVC expansion fails.
-	ginkgo.It("[csi-file-vanilla] Verify file volume expansion is not "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify file volume expansion is not "+
 		"supported", ginkgo.Label(p1, file, vanilla, core, vc70), func() {
 		invokeTestForUnsupportedFileVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
 	})

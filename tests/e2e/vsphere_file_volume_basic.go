@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		7. Delete PVC
 		8. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with "+
 		"datastoreURL is set in storage class, when no storage policy is offered", func() {
 		datastoreURL := GetAndExpectStringEnvVar(envSharedDatastoreURL)
 		testHelperForCreateFileVolumeWithDatastoreURLInSC(f, client, namespace, v1.ReadWriteMany, datastoreURL, false)
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode with "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]verify dynamic provisioning with ReadWriteMany access mode with "+
 		"datastoreURL specified in storage class is a non-VSAN datastore, when no storage policy is "+
 		"offered", ginkgo.Label(p1, negative, file, vanilla, vc70), func() {
 		nonVSANDatastoreURL := GetAndExpectStringEnvVar(envNonSharedStorageClassDatastoreURL)
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]verify dynamic volume provisioning fails for VSAN datastore "+
 		"specified in sc.datastoreUrl but doesn't have VSAN FS enabled", ginkgo.Label(p1,
 		negative, file, vanilla, vc70), func() {
 		datastoreURL := os.Getenv(envFileServiceDisabledSharedDatastoreURL)
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] verify dynamic volume provisioning fails for VSAN datastore "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]verify dynamic volume provisioning fails for VSAN datastore "+
 		"in datacenter doesn't have VSAN FS enabled", ginkgo.Label(p1, negative, file, vanilla, vc70), func() {
 		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, "")
 	})
