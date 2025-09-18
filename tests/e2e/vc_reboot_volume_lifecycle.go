@@ -23,7 +23,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -98,8 +97,8 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] [stretched-svc] verify "+
-		"volume operations on VC works fine after vc reboots", ginkgo.Label(p1, block, wcp, vanilla,
+	ginkgo.It("[ef-stretched-svc][pq-wcp][csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] "+
+		"[stretched-svc] verify volume operations on VC works fine after vc reboots", ginkgo.Label(p1, block, wcp, vanilla,
 		tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
