@@ -1,0 +1,1100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+  <testsuites tests="358" disabled="357" errors="0" failures="1" time="2644.114045667">
+      <testsuite name="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" package="/Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm" tests="358" disabled="0" skipped="357" errors="0" failures="1" time="2644.114045667" timestamp="2025-09-12T14:33:23">
+          <properties>
+              <property name="SuiteSucceeded" value="false"></property>
+              <property name="SuiteHasProgrammaticFocus" value="false"></property>
+              <property name="SpecialSuiteFailureReason" value=""></property>
+              <property name="SuiteLabels" value="[]"></property>
+              <property name="RandomSeed" value="1757667721"></property>
+              <property name="RandomizeAllSpecs" value="false"></property>
+              <property name="LabelFilter" value=""></property>
+              <property name="FocusStrings" value="RWX volumes creation and attachment to VMs during password rotation,RWX volumes creation and attachment to VMs during password rotation"></property>
+              <property name="SkipStrings" value=""></property>
+              <property name="FocusFiles" value=""></property>
+              <property name="SkipFiles" value=""></property>
+              <property name="FailOnPending" value="false"></property>
+              <property name="FailOnEmpty" value="false"></property>
+              <property name="FailFast" value="false"></property>
+              <property name="FlakeAttempts" value="0"></property>
+              <property name="DryRun" value="false"></property>
+              <property name="ParallelTotal" value="1"></property>
+              <property name="OutputInterceptorMode" value=""></property>
+          </properties>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Dynamic PVC creation with multiple VMServiceVMs [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Delete PVC with CFC crd still existing [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Attachment of VMService VMs while csi pods goes down [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms PVC with ReadOnlyMany accessmode [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms RWX Volume attachment to powered off VMs [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms RWX volumes creation and attachment to VMs during password rotation [p0, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="failed" time="2644.085621542">
+              <failure message="Unexpected error:&#xA;    &lt;*fmt.wrapError | 0xc000a54080&gt;: &#xA;    client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#xA;    {&#xA;        msg: &#34;client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        err: &lt;*errors.errorString | 0xc000a80200&gt;{&#xA;            s: &#34;rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        },&#xA;    }&#xA;occurred" type="failed">[FAILED] Unexpected error:&#xA;    &lt;*fmt.wrapError | 0xc000a54080&gt;: &#xA;    client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#xA;    {&#xA;        msg: &#34;client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        err: &lt;*errors.errorString | 0xc000a80200&gt;{&#xA;            s: &#34;rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        },&#xA;    }&#xA;occurred&#xA;In [It] at: /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:883 @ 09/12/25 15:17:02.95&#xA;</failure>
+              <system-err>&gt; Enter [BeforeEach] [rwx-vmsvc-vm] RWX support with VMService Vms - set up framework | framework.go:200 @ 09/12/25 14:33:23.425&#xA;STEP: Creating a kubernetes client - /Users/ka000726/go/pkg/mod/k8s.io/kubernetes@v1.33.0/test/e2e/framework/framework.go:220 @ 09/12/25 14:33:23.426&#xA;I0912 14:33:23.428085 84644 util.go:453] &gt;&gt;&gt; kubeConfig: /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/kubeconfig&#xA;&lt; Exit [BeforeEach] [rwx-vmsvc-vm] RWX support with VMService Vms - set up framework | framework.go:200 @ 09/12/25 14:33:23.45 (25ms)&#xA;&gt; Enter [BeforeEach] [rwx-vmsvc-vm] RWX support with VMService Vms - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:80 @ 09/12/25 14:33:23.45&#xA;I0912 14:33:55.577170 84644 resource.go:131] Condition Ready of node 42033c511ef66642451fdf1902b03ef4 is false, but Node is tainted by NodeController with [{node-role.kubernetes.io/control-plane  NoSchedule &lt;nil&gt;} {node.kubernetes.io/unreachable  NoSchedule 2025-09-12 09:11:31 +0530 IST} {node.kubernetes.io/unreachable  NoExecute 2025-09-12 09:11:38 +0530 IST}]. Failure&#xA;I0912 14:33:55.585849 84644 util.go:6213] Running command: curl -k -X POST https://10.161.163.130/rest/com/vmware/cis/session -u &#39;Administrator@vsphere.local:ZKXI3gtM.b.5qaVt&#39;&#xA;I0912 14:34:08.805121 84644 ssh.go:363] ssh root@10.161.163.130:22: command:   curl -k -X POST https://10.161.163.130/rest/com/vmware/cis/session -u &#39;Administrator@vsphere.local:ZKXI3gtM.b.5qaVt&#39;&#xA;I0912 14:34:08.805870 84644 ssh.go:364] ssh root@10.161.163.130:22: stdout:    &#34;{\&#34;value\&#34;:\&#34;bab08a9bc409cb734452d373aefcf4e9\&#34;}&#34;&#xA;I0912 14:34:08.805914 84644 ssh.go:365] ssh root@10.161.163.130:22: stderr:    &#34;  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\r  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\r100    44    0    44    0     0    123      0 --:--:-- --:--:-- --:--:--   123\n&#34;&#xA;I0912 14:34:08.805950 84644 ssh.go:366] ssh root@10.161.163.130:22: exit code: 0&#xA;I0912 14:34:08.806630 84644 util.go:6226] sessionID is: bab08a9bc409cb734452d373aefcf4e9&#xA;I0912 14:34:10.856497 84644 rwx_vmsvc_vm_positive.go:111] dsmoId: datastore-89&#xA;I0912 14:34:12.051588 84644 vc_util.go:599] storage policy id: aa6d5a82-1c88-45da-85d3-3d74b91a5bad for storage policy name is: vSAN Default Storage Policy&#xA;I0912 14:34:12.052940 84644 vmservice_vm_utils.go:278] Invoking GET on url: https://10.161.163.130/api/content/subscribed-library&#xA;I0912 14:34:18.738449 84644 util.go:1539] API Response status 200&#xA;I0912 14:34:18.740106 84644 vmservice_vm_utils.go:246] Content lib IDs:&#xA;[d39f2d3d-ff36-499e-bb52-e23aa5894f39 196872de-88c3-48b8-ae4a-ef8dd6dca56c]&#xA;I0912 14:34:18.740387 84644 vmservice_vm_utils.go:278] Invoking GET on url: https://10.161.163.130/api/content/subscribed-library/d39f2d3d-ff36-499e-bb52-e23aa5894f39&#xA;I0912 14:34:19.663252 84644 util.go:1539] API Response status 200&#xA;I0912 14:34:19.663935 84644 vmservice_vm_utils.go:267] Content lib with id d39f2d3d-ff36-499e-bb52-e23aa5894f39: {d39f2d3d-ff36-499e-bb52-e23aa5894f39 Kubernetes Service Content Library datastore-89 https://wp-content.vmware.com/v2/latest/lib.json}&#xA;I0912 14:34:19.663984 84644 vmservice_vm_utils.go:278] Invoking GET on url: https://10.161.163.130/api/content/subscribed-library/196872de-88c3-48b8-ae4a-ef8dd6dca56c&#xA;I0912 14:34:21.308672 84644 util.go:1539] API Response status 200&#xA;I0912 14:34:21.308855 84644 vmservice_vm_utils.go:267] Content lib with id 196872de-88c3-48b8-ae4a-ef8dd6dca56c: {196872de-88c3-48b8-ae4a-ef8dd6dca56c csi-vmsvc-4752 datastore-89 https://wp-content-pstg.broadcom.com/vmsvc/lib.json}&#xA;I0912 14:34:21.309298 84644 rwx_vmsvc_vm_positive.go:126] Create a WCP namespace for the test&#xA;I0912 14:34:21.309882 84644 vmservice_vm_utils.go:278] Invoking GET on url: https://10.161.163.130/api/vcenter/namespace-management/supervisors/summaries&#xA;I0912 14:34:22.668299 84644 util.go:1539] API Response status 200&#xA;I0912 14:34:22.674074 84644 vmservice_vm_utils.go:126] Supervisor summary: map[items:[map[info:map[config_status:ERROR kubernetes_status:ERROR name:supervisor stats:map[cpu_capacity:235884 cpu_used:9871 memory_capacity:244412 memory_used:50895 storage_capacity:151422 storage_used:55215]] supervisor:d67351f7-c110-4a4c-9676-5fc174a457e1]]]&#xA;I0912 14:34:22.678188 84644 vmservice_vm_utils.go:294] Invoking POST on url: https://10.161.163.130/api/vcenter/namespaces/instances/v2&#xA;I0912 14:34:24.735673 84644 util.go:1539] API Response status 204&#xA;I0912 14:34:24.739018 84644 vmservice_vm_utils.go:103] Successfully created namepsace csi-vmsvcns-198 in SVC.&#xA;I0912 14:34:24.739122 84644 rwx_vmsvc_vm_positive.go:131] Verifying storage policies usage for each storage class&#xA;I0912 14:34:35.576514 84644 rwx_vmsvc_vm_positive.go:148] Waiting for virtual machine image list to be available in namespace &#39;csi-vmsvcns-198&#39; for image &#39;ubuntu-2004-cloud-init-21.4-kube-v1.20.10&#39;&#xA;I0912 14:34:36.438797 84644 vmservice_vm_utils.go:331] Found vmi vmi-be9aea643654120ad for image name ubuntu-2004-cloud-init-21.4-kube-v1.20.10&#xA;&lt; Exit [BeforeEach] [rwx-vmsvc-vm] RWX support with VMService Vms - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:80 @ 09/12/25 14:34:36.909 (1m13.459s)&#xA;&gt; Enter [It] RWX volumes creation and attachment to VMs during password rotation - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:821 @ 09/12/25 14:34:36.909&#xA;STEP: Create/Get a storageclass - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:829 @ 09/12/25 14:34:36.91&#xA;STEP: Create PVC - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:833 @ 09/12/25 14:34:37.337&#xA;STEP: Creating PVC using the Storage Class vsan-default-storage-policy with disk size 2Gi and labels: map[app:test] accessMode: ReadWriteMany - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/k8testutil/util.go:982 @ 09/12/25 14:34:37.338&#xA;I0912 14:34:38.631113 84644 util.go:986] PVC created: pvc-ls7wz in namespace: csi-vmsvcns-198&#xA;I0912 14:34:38.631701 84644 pv.go:790] Waiting up to timeout=10m0s for PersistentVolumeClaims [pvc-ls7wz] to have phase Bound&#xA;I0912 14:34:38.947672 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:41.349858 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:43.813823 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:46.262240 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:48.562402 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:50.852241 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:53.140288 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:55.481706 84644 pv.go:806] PersistentVolumeClaim pvc-ls7wz found but phase is Pending instead of Bound.&#xA;I0912 14:34:57.755818 84644 pv.go:801] PersistentVolumeClaim pvc-ls7wz found and phase=Bound (19.123484167s)&#xA;STEP: Invoking QueryCNSVolumeWithResult with VolumeID: file:c7eaf27c-8f5f-4734-ab8b-891eb36d4b4a - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/k8testutil/util.go:7356 @ 09/12/25 14:34:58.455&#xA;STEP: Creating VM bootstrap data - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:846 @ 09/12/25 14:35:21.923&#xA;STEP: Creating VM - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:854 @ 09/12/25 14:35:22.424&#xA;I0912 14:35:23.454248 84644 vmservice_vm_utils.go:499] Found VM csi-test-vm-8177 in namespace csi-vmsvcns-198&#xA;I0912 14:35:24.367686 84644 vmservice_vm_utils.go:499] Found VM csi-test-vm-6849 in namespace csi-vmsvcns-198&#xA;I0912 14:35:25.400556 84644 vmservice_vm_utils.go:499] Found VM csi-test-vm-8161 in namespace csi-vmsvcns-198&#xA;STEP: Creating loadbalancing service for ssh with the VM - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:868 @ 09/12/25 14:35:25.401&#xA;I0912 14:35:25.403397 84644 vmservice_vm_utils.go:549] Creating loadbalancer VM: csi-test-vm-8177-svc-7848 for vm: csi-test-vm-8177&#xA;STEP: Wait for VM to come up and get an IP - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:881 @ 09/12/25 14:35:26.195&#xA;I0912 15:15:26.232174 84644 vmservice_vm_utils.go:521] Found IP &#39;&#39; for VM &#39;csi-test-vm-8177&#39;&#xA;STEP: Deleting loadbalancing service for ssh with the VM - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:872 @ 09/12/25 15:15:26.259&#xA;STEP: Deleting VM - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:859 @ 09/12/25 15:15:26.567&#xA;I0912 15:15:57.234798 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-3155&#34;&#xA;I0912 15:15:57.236175 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-6723&#34;&#xA;I0912 15:15:57.236253 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-9404&#34;&#xA;I0912 15:16:27.839365 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-3155&#34;&#xA;I0912 15:16:27.840087 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-6723&#34;&#xA;I0912 15:16:27.840136 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-9404&#34;&#xA;I0912 15:16:58.415382 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-3155&#34;&#xA;I0912 15:16:58.415846 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-6723&#34;&#xA;I0912 15:16:58.415885 84644 util.go:2885] CRD is not matching : &#34;pvc-kgfrqcsi-test-vm-9404&#34;&#xA;STEP: Deleting VM bootstrap data - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:849 @ 09/12/25 15:16:58.417&#xA;I0912 15:16:58.655621 84644 pv.go:205] Deleting PersistentVolumeClaim &#34;pvc-ls7wz&#34;&#xA;I0912 15:16:59.985795 84644 vc_connection.go:63] Current session is not valid or not authenticated, trying to logout from it&#xA;I0912 15:17:00.236115 84644 vc_connection.go:66] Ignoring the log out error: ServerFaultCode: The session is not authenticated.&#xA;I0912 15:17:00.236174 84644 vc_connection.go:68] Creating new client session after attempting to logout from existing session&#xA;[FAILED] Unexpected error:&#xA;    &lt;*fmt.wrapError | 0xc000a54080&gt;: &#xA;    client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#xA;    {&#xA;        msg: &#34;client rate limiter Wait returned an error: rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        err: &lt;*errors.errorString | 0xc000a80200&gt;{&#xA;            s: &#34;rate: Wait(n=1) would exceed context deadline&#34;,&#xA;        },&#xA;    }&#xA;occurred&#xA;In [It] at: /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:883 @ 09/12/25 15:17:02.95&#xA;&lt; Exit [It] RWX volumes creation and attachment to VMs during password rotation - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:821 @ 09/12/25 15:17:02.954 (42m26.04s)&#xA;&gt; Enter [AfterEach] [rwx-vmsvc-vm] RWX support with VMService Vms - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:177 @ 09/12/25 15:17:02.956&#xA;STEP: Found 44 events in svc ns csi-vmsvcns-198. - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/k8testutil/util.go:6672 @ 09/12/25 15:17:03.461&#xA;I0912 15:17:03.463703 84644 util.go:6678] At 2025-09-12 14:34:32 +0530 IST - event for pvc-ls7wz: {persistentvolume-controller } ExternalProvisioning: Waiting for a volume to be created either by the external provisioner &#39;csi.vsphere.vmware.com&#39; or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.&#xA;I0912 15:17:03.463789 84644 util.go:6678] At 2025-09-12 14:34:36 +0530 IST - event for cl-f15ca8feefebcffa8: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager/contentlibrary-controller } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.463829 84644 util.go:6678] At 2025-09-12 14:34:39 +0530 IST - event for cl-f15ca8feefebcffa8: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager/contentlibrary-controller } CreateItemsSuccess: CreateItems success&#xA;I0912 15:17:03.463852 84644 util.go:6678] At 2025-09-12 14:34:39 +0530 IST - event for pvc-ls7wz: {csi.vsphere.vmware.com_4203a8f776ed87fd4a1483c332d709e0_4d5712df-4d38-4248-821a-13241d67d402 } Provisioning: External provisioner is provisioning volume for claim &#34;csi-vmsvcns-198/pvc-ls7wz&#34;&#xA;I0912 15:17:03.463877 84644 util.go:6678] At 2025-09-12 14:34:40 +0530 IST - event for clitem-ea7866d623113fc7a: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.463897 84644 util.go:6678] At 2025-09-12 14:34:42 +0530 IST - event for clitem-be9aea643654120ad: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.463916 84644 util.go:6678] At 2025-09-12 14:34:43 +0530 IST - event for clitem-2d27917b138f1e027: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.463935 84644 util.go:6678] At 2025-09-12 14:34:44 +0530 IST - event for clitem-eb308bcf9e2edb03b: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464267 84644 util.go:6678] At 2025-09-12 14:34:46 +0530 IST - event for clitem-6698d1f60c320581d: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464312 84644 util.go:6678] At 2025-09-12 14:34:48 +0530 IST - event for clitem-74aaad606dc48c7f1: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464337 84644 util.go:6678] At 2025-09-12 14:34:49 +0530 IST - event for clitem-e5b121b8d9945d08b: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464358 84644 util.go:6678] At 2025-09-12 14:34:50 +0530 IST - event for clitem-3f1c85e73b9723b8e: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464388 84644 util.go:6678] At 2025-09-12 14:34:50 +0530 IST - event for vmi-dd28017e5c4b6bdaf: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464438 84644 util.go:6678] At 2025-09-12 14:34:51 +0530 IST - event for clitem-c3f193ab8c403acf2: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464457 84644 util.go:6678] At 2025-09-12 14:34:52 +0530 IST - event for clitem-6d9842850597c8697: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464475 84644 util.go:6678] At 2025-09-12 14:34:52 +0530 IST - event for vmi-ea7866d623113fc7a: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464494 84644 util.go:6678] At 2025-09-12 14:34:53 +0530 IST - event for clitem-de83295d2a62b3002: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464513 84644 util.go:6678] At 2025-09-12 14:34:55 +0530 IST - event for clitem-c3ca3e100df9a6b8d: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464531 84644 util.go:6678] At 2025-09-12 14:34:56 +0530 IST - event for clitem-8058646cc370a5371: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464596 84644 util.go:6678] At 2025-09-12 14:34:56 +0530 IST - event for vmi-be9aea643654120ad: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464616 84644 util.go:6678] At 2025-09-12 14:34:57 +0530 IST - event for clitem-dd28017e5c4b6bdaf: {vmware-system-imageregistry/vmware-system-imageregistry-controller-manager } UpdateStatusSuccess: UpdateStatus success&#xA;I0912 15:17:03.464634 84644 util.go:6678] At 2025-09-12 14:34:58 +0530 IST - event for pvc-ls7wz: {csi.vsphere.vmware.com_4203a8f776ed87fd4a1483c332d709e0_4d5712df-4d38-4248-821a-13241d67d402 } ProvisioningSucceeded: Successfully provisioned volume pvc-ede1fc91-0460-4331-8f8c-a3472fc177d9&#xA;I0912 15:17:03.464652 84644 util.go:6678] At 2025-09-12 14:35:01 +0530 IST - event for vmi-2d27917b138f1e027: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464670 84644 util.go:6678] At 2025-09-12 14:35:06 +0530 IST - event for vmi-eb308bcf9e2edb03b: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464691 84644 util.go:6678] At 2025-09-12 14:35:11 +0530 IST - event for vmi-6698d1f60c320581d: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464729 84644 util.go:6678] At 2025-09-12 14:35:15 +0530 IST - event for vmi-74aaad606dc48c7f1: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464747 84644 util.go:6678] At 2025-09-12 14:35:17 +0530 IST - event for csi-test-vm-8177: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } CreateFailure: VirtualMachineClass.vmoperator.vmware.com &#34;best-effort-small&#34; not found&#xA;I0912 15:17:03.464776 84644 util.go:6678] At 2025-09-12 14:35:18 +0530 IST - event for csi-test-vm-6849: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } CreateFailure: VirtualMachineClass.vmoperator.vmware.com &#34;best-effort-small&#34; not found&#xA;I0912 15:17:03.464796 84644 util.go:6678] At 2025-09-12 14:35:19 +0530 IST - event for csi-test-vm-8161: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } CreateFailure: VirtualMachineClass.vmoperator.vmware.com &#34;best-effort-small&#34; not found&#xA;I0912 15:17:03.464822 84644 util.go:6678] At 2025-09-12 14:35:19 +0530 IST - event for vmi-e5b121b8d9945d08b: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464845 84644 util.go:6678] At 2025-09-12 14:35:20 +0530 IST - event for csi-test-vm-8177-svc-7848: {HAProxyGateway } Reconcile: Success&#xA;I0912 15:17:03.464865 84644 util.go:6678] At 2025-09-12 14:35:20 +0530 IST - event for csi-test-vm-8177-svc-7848: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachineservice-controller } CreateK8sServiceSuccess: CreateK8sService success&#xA;I0912 15:17:03.464882 84644 util.go:6678] At 2025-09-12 14:35:22 +0530 IST - event for vmi-3f1c85e73b9723b8e: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464898 84644 util.go:6678] At 2025-09-12 14:35:27 +0530 IST - event for vmi-c3f193ab8c403acf2: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464914 84644 util.go:6678] At 2025-09-12 14:35:30 +0530 IST - event for vmi-6d9842850597c8697: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464931 84644 util.go:6678] At 2025-09-12 14:35:33 +0530 IST - event for vmi-de83295d2a62b3002: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464947 84644 util.go:6678] At 2025-09-12 14:35:37 +0530 IST - event for vmi-c3ca3e100df9a6b8d: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464966 84644 util.go:6678] At 2025-09-12 14:35:41 +0530 IST - event for vmi-8058646cc370a5371: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/contentlibraryitem-controller } UpdateSuccess: Update success&#xA;I0912 15:17:03.464982 84644 util.go:6678] At 2025-09-12 15:15:20 +0530 IST - event for csi-test-vm-8177: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } DeleteSuccess: Delete success&#xA;I0912 15:17:03.464998 84644 util.go:6678] At 2025-09-12 15:15:20 +0530 IST - event for csi-test-vm-8177-svc-7848: {HAProxyGateway } Delete: Success&#xA;I0912 15:17:03.465014 84644 util.go:6678] At 2025-09-12 15:15:20 +0530 IST - event for csi-test-vm-8177-svc-7848: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachineservice-controller } DeleteK8sServiceSuccess: DeleteK8sService success&#xA;I0912 15:17:03.465029 84644 util.go:6678] At 2025-09-12 15:15:20 +0530 IST - event for csi-test-vm-8177-svc-7848: {HAProxyGateway } Reconcile: Failed: failed to reconcile service routes: failed to get Endpoints resource: Endpoints &#34;csi-test-vm-8177-svc-7848&#34; not found&#xA;I0912 15:17:03.465045 84644 util.go:6678] At 2025-09-12 15:15:51 +0530 IST - event for csi-test-vm-6849: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } DeleteSuccess: Delete success&#xA;I0912 15:17:03.465061 84644 util.go:6678] At 2025-09-12 15:16:22 +0530 IST - event for csi-test-vm-8161: {vmware-system-vmop/vmware-system-vmop-controller-manager-5c55889887-wdzfx/virtualmachine-controller } DeleteSuccess: Delete success&#xA;I0912 15:17:03.465706 84644 vmservice_vm_utils.go:311] Invoking DELETE on url: https://10.161.163.130/api/vcenter/namespaces/instances/csi-vmsvcns-198&#xA;I0912 15:17:04.659493 84644 util.go:1539] API Response status 204&#xA;I0912 15:17:04.659667 84644 vmservice_vm_utils.go:113] Successfully Deleted namepsace csi-vmsvcns-198 in SVC.&#xA;I0912 15:17:04.660035 84644 util.go:3884] Waiting up to 10m0s for namespace csi-vmsvcns-198 to get deleted&#xA;I0912 15:17:04.887744 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (226.387958ms)&#xA;I0912 15:17:07.176382 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (2.516038542s)&#xA;I0912 15:17:09.414572 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (4.754275333s)&#xA;I0912 15:17:11.673489 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (7.013150042s)&#xA;I0912 15:17:13.962285 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (9.300999083s)&#xA;I0912 15:17:16.202825 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (11.542435292s)&#xA;I0912 15:17:18.489125 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (13.828788083s)&#xA;I0912 15:17:20.734899 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (16.074436667s)&#xA;I0912 15:17:23.000482 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (18.340107375s)&#xA;I0912 15:17:25.244756 84644 util.go:3888] Namespace csi-vmsvcns-198 found and status={Terminating []} (20.584230542s)&#xA;I0912 15:17:27.505736 84644 util.go:3892] namespace csi-vmsvcns-198 was removed&#xA;&lt; Exit [AfterEach] [rwx-vmsvc-vm] RWX support with VMService Vms - /Users/ka000726/Downloads/CSI/rwx-vmsvc-part2/vsphere-csi-driver/tests/e2e/vmservice_vm/rwx_vmsvc_vm_positive.go:177 @ 09/12/25 15:17:27.506 (24.549s)&#xA;&gt; Enter [DeferCleanup (Each)] [rwx-vmsvc-vm] RWX support with VMService Vms - dump namespaces | framework.go:218 @ 09/12/25 15:17:27.506&#xA;STEP: dump namespace information after failure - /Users/ka000726/go/pkg/mod/k8s.io/kubernetes@v1.33.0/test/e2e/framework/framework.go:297 @ 09/12/25 15:17:27.512&#xA;END STEP: dump namespace information after failure - /Users/ka000726/go/pkg/mod/k8s.io/kubernetes@v1.33.0/test/e2e/framework/framework.go:297 @ 09/12/25 15:17:27.514 (2ms)&#xA;&lt; Exit [DeferCleanup (Each)] [rwx-vmsvc-vm] RWX support with VMService Vms - dump namespaces | framework.go:218 @ 09/12/25 15:17:27.514 (8ms)&#xA;&gt; Enter [DeferCleanup (Each)] [rwx-vmsvc-vm] RWX support with VMService Vms - tear down framework | framework.go:215 @ 09/12/25 15:17:27.515&#xA;&lt; Exit [DeferCleanup (Each)] [rwx-vmsvc-vm] RWX support with VMService Vms - tear down framework | framework.go:215 @ 09/12/25 15:17:27.516 (1ms)&#xA;</system-err>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Delete CnsFileAccessConfig CRD without deleting VMServiceVM [p1, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Accessing VMService VM from VMService VM without creating CNSFileAccessConfig CRD [p1, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [rwx-vmsvc-vm] RWX support with VMService Vms Deletion of namespace with CFC CRs [p1, file, wcp, vmServiceVm, vc901]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should be consumable via environment variable [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should be consumable via the environment [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should fail to create ConfigMap with empty key [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should update ConfigMap successfully [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should run through a ConfigMap lifecycle [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ConfigMap should be consumable as environment variable names when configmap keys start with a digit [Feature:RelaxedEnvironmentVariableValidation] [sig-node, Feature:RelaxedEnvironmentVariableValidation]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should get a host IP [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should be submitted and removed [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should be updated [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should allow activeDeadlineSeconds to be updated [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should contain environment variables for services [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should support remote command execution over websockets [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should support retrieving logs from the container over websockets [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should have their auto-restart back-off timer reset on image update [Slow] [NodeConformance] [sig-node, Slow, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should cap back-off at MaxContainerBackOff [Slow] [NodeConformance] [sig-node, Slow, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should support pod readiness gates [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should delete a collection of pods [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should run through the lifecycle of Pods and PodStatus [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pods should patch a pod status [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Secrets should be consumable from pods in env vars [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Secrets should be consumable via the environment [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Secrets should fail to create secret due to empty secret key [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Secrets should patch a secret [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Secrets should be consumable as environment variable names when secret keys start with a digit [Feature:RelaxedEnvironmentVariableValidation] [sig-node, Feature:RelaxedEnvironmentVariableValidation]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] new files should be created with FSGroup ownership when container is root [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] new files should be created with FSGroup ownership when container is non-root [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] nonexistent volume subPath should have the correct mode and owner using FSGroup [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] files with FSGroup ownership should support (root,0644,tmpfs) [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] volume on default medium should have the correct mode using FSGroup [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes when FSGroup is specified [LinuxOnly] volume on tmpfs should have the correct mode using FSGroup [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes volume on tmpfs should have the correct mode [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0644,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0666,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0777,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0644,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0666,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0777,tmpfs) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes volume on default medium should have the correct mode [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0644,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0666,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (root,0777,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0644,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0666,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes should support (non-root,0777,default) [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes pod should support shared volumes between containers [Conformance] [sig-storage, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] EmptyDir volumes pod should support memory backed volumes of specified size [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable from pods in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable from pods in volume with defaultMode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable from pods in volume as non-root with defaultMode and fsGroup set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable from pods in volume with mappings [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable from pods in volume with mappings and Item Mode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be able to mount in a volume regardless of a different secret existing with same name in different namespace [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be consumable in multiple volumes in a pod [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets optional updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets should be immutable if `immutable` field is set [Conformance] [sig-storage, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets Should fail non-optional pod creation due to secret object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Secrets Should fail non-optional pod creation due to the key in the secret object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container with readiness probe should not be ready before initial delay and never restart [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container with readiness probe that fails should never be ready and never restart [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with a exec &#34;cat /tmp/health&#34; liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted with a exec &#34;cat /tmp/health&#34; liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with a /healthz http liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted with a tcp:8080 liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should have monotonically increasing restart count [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted with a /healthz http liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with an exec liveness probe with timeout [MinimumKubeletVersion:1.20] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should not be ready with an exec readiness probe timeout [MinimumKubeletVersion:1.20] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with a failing exec liveness probe that took longer than the timeout [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with a local redirect http liveness probe [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted with a non-local redirect http liveness probe [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted startup probe fails [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted by liveness probe because startup probe delays it [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted by liveness probe after startup probe enables it [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be ready immediately after startupProbe succeeds [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should override timeoutGracePeriodSeconds when LivenessProbe field is set [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should override timeoutGracePeriodSeconds when StartupProbe field is set [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should *not* be restarted with a GRPC liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should be restarted with a GRPC liveness probe [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should mark readiness on pods to false while pod is in progress of terminating when a pod has a readiness probe [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Probing container should mark readiness on pods to false and disable liveness probes while pod is in progress of terminating [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:PodLifecycleSleepActionAllowZero] when create a pod with lifecycle hook using sleep action with a duration of zero seconds prestop hook using sleep action with zero duration [sig-node, Feature:PodLifecycleSleepActionAllowZero]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test when starting a container that exits should run with the expected status [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test on terminated container should report termination message if TerminationMessagePath is set [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test on terminated container should report termination message if TerminationMessagePath is set as non-root user and at a non-default path [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test on terminated container should report termination message from log output if TerminationMessagePolicy FallbackToLogsOnError is set [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test on terminated container should report termination message as empty when pod succeeds and TerminationMessagePolicy FallbackToLogsOnError is set [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test on terminated container should report termination message from file when pod succeeds and TerminationMessagePolicy FallbackToLogsOnError is set [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test when running a container with a new image should not be able to pull image from invalid registry [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test when running a container with a new image should be able to pull image [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test when running a container with a new image should not be able to pull from private registry without secret [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Runtime blackbox test when running a container with a new image should be able to pull from private registry with secret [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] User Namespaces for Pod Security Standards [LinuxOnly] with UserNamespacesSupport and UserNamespacesPodSecurityStandards enabled should allow pod [Feature:UserNamespacesPodSecurityStandards] [sig-node, Feature:UserNamespacesPodSecurityStandards]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart exec hook properly [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop exec hook properly [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart http hook properly [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart https hook properly [MinimumKubeletVersion:1.23] [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop http hook properly [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Restartable Init Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop https hook properly [MinimumKubeletVersion:1.23] [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] InitContainer [NodeConformance] should invoke init containers on a RestartNever pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] InitContainer [NodeConformance] should invoke init containers on a RestartAlways pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] InitContainer [NodeConformance] should not start app containers if init containers fail on a RestartAlways pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] InitContainer [NodeConformance] should not start app containers and fail the pod if init containers fail on a RestartNever pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with HostUsers must create the user namespace if set to false [LinuxOnly] [Feature:UserNamespacesSupport] [sig-node, Feature:UserNamespacesSupport]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with HostUsers must create the user namespace in the configured hostUID/hostGID range [LinuxOnly] [Feature:UserNamespacesSupport] [sig-node, Feature:UserNamespacesSupport]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with HostUsers must not create the user namespace if set to true [LinuxOnly] [Feature:UserNamespacesSupport] [sig-node, Feature:UserNamespacesSupport]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with HostUsers should mount all volumes with proper permissions with hostUsers=false [LinuxOnly] [Feature:UserNamespacesSupport] [sig-node, Feature:UserNamespacesSupport]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with HostUsers should set FSGroup to user inside the container with hostUsers=false [LinuxOnly] [Feature:UserNamespacesSupport] [sig-node, Feature:UserNamespacesSupport]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsUser should run the container with uid 65534 [LinuxOnly] [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsUser should run the container with uid 0 [LinuxOnly] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsNonRoot should run with an explicit non-root user ID [LinuxOnly] [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsNonRoot should not run with an explicit root user ID [LinuxOnly] [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsNonRoot should run with an image specified user ID [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a container with runAsNonRoot should not run without a specified user ID [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with readOnlyRootFilesystem should run the container with readonly rootfs when readOnlyRootFilesystem=true [LinuxOnly] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with readOnlyRootFilesystem should run the container with writable rootfs when readOnlyRootFilesystem=false [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with privileged should run the container as unprivileged when false [LinuxOnly] [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context When creating a pod with privileged should run the container as privileged when true [LinuxOnly] [Feature:HostAccess] [sig-node, Feature:HostAccess]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context when creating containers with AllowPrivilegeEscalation should allow privilege escalation when not explicitly set and uid != 0 [LinuxOnly] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context when creating containers with AllowPrivilegeEscalation should not allow privilege escalation when false [LinuxOnly] [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context when creating containers with AllowPrivilegeEscalation should allow privilege escalation when true [LinuxOnly] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy nil in SecurityContext when if the container&#39;s primary UID belongs to some groups in the image when scheduled node does not support SupplementalGroupsPolicy it should add SupplementalGroups to them [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy nil in SecurityContext when if the container&#39;s primary UID belongs to some groups in the image when scheduled node supports SupplementalGroupsPolicy it should add SupplementalGroups to them [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy was set to Merge in PodSpec when the container&#39;s primary UID belongs to some groups in the image when scheduled node does not support SupplementalGroupsPolicy it should add SupplementalGroups to them [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy was set to Merge in PodSpec when the container&#39;s primary UID belongs to some groups in the image when scheduled node supports SupplementalGroupsPolicy it should add SupplementalGroups to them [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy was set to Strict in PodSpec when the container&#39;s primary UID belongs to some groups in the image when scheduled node does not support SupplementalGroupsPolicy it should reject the pod [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Security Context SupplementalGroupsPolicy [LinuxOnly] [Feature:SupplementalGroupsPolicy] [FeatureGate:SupplementalGroupsPolicy] [Beta] when SupplementalGroupsPolicy was set to Strict in PodSpec when the container&#39;s primary UID belongs to some groups in the image when scheduled node supports SupplementalGroupsPolicy it should NOT add SupplementalGroups to them [LinuxOnly] [sig-node, Feature:SupplementalGroupsPolicy, FeatureGate:SupplementalGroupsPolicy, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet when scheduling a busybox command in a pod should print the output to logs [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet when scheduling a busybox command that always fails in a pod should have an terminated reason [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet when scheduling a busybox command that always fails in a pod should be possible to delete [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet when scheduling an agnhost Pod with hostAliases should write entries to /etc/hosts [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet when scheduling a read only busybox container should not write to root filesystem [LinuxOnly] [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Lease lease API should be available [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] PodTemplates should run the lifecycle of PodTemplates [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] PodTemplates should delete a collection of pod templates [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] PodTemplates should replace a pod template [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for intra-pod communication: http [NodeConformance] [Conformance] [sig-network, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for intra-pod communication: udp [NodeConformance] [Conformance] [sig-network, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for node-pod communication: http [LinuxOnly] [NodeConformance] [Conformance] [sig-network, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for node-pod communication: udp [LinuxOnly] [NodeConformance] [Conformance] [sig-network, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for intra-pod communication: sctp [LinuxOnly] [Feature:SCTPConnectivity] [sig-network, Feature:SCTPConnectivity]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-network] Networking Granular Checks: Pods should function for node-pod communication: sctp [LinuxOnly] [Feature:SCTPConnectivity] [sig-network, Feature:SCTPConnectivity]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API [Serial] [Disruptive] [Feature:DownwardAPIHugePages] Downward API tests for hugepages should provide container&#39;s limits.hugepages-&lt;pagesize&gt; and requests.hugepages-&lt;pagesize&gt; as env vars [sig-node, Serial, Disruptive, Feature:DownwardAPIHugePages]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API [Serial] [Disruptive] [Feature:DownwardAPIHugePages] Downward API tests for hugepages should provide default limits.hugepages-&lt;pagesize&gt; from node allocatable [sig-node, Serial, Disruptive, Feature:DownwardAPIHugePages]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Volumes NFSv4 should be mountable for NFSv4 [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Volumes NFSv3 should be mountable for NFSv3 [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Sysctls [LinuxOnly] [NodeConformance] should support sysctls [MinimumKubeletVersion:1.21] [Environment:NotInUserNS] [Conformance] [sig-node, NodeConformance, Environment:NotInUserNS, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Sysctls [LinuxOnly] [NodeConformance] should reject invalid sysctls [MinimumKubeletVersion:1.21] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Sysctls [LinuxOnly] [NodeConformance] should not launch unsafe, but not explicitly enabled sysctls on the node [MinimumKubeletVersion:1.21] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Sysctls [LinuxOnly] [NodeConformance] should support sysctls with slashes as separator [MinimumKubeletVersion:1.23] [Environment:NotInUserNS] [sig-node, NodeConformance, Environment:NotInUserNS]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should reject a Pod requesting a non-existent RuntimeClass [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should reject a Pod requesting a RuntimeClass with an unconfigured handler [Feature:RuntimeHandler] [sig-node, Feature:RuntimeHandler]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should run a Pod requesting a RuntimeClass with a configured handler [Feature:RuntimeHandler] [sig-node, Feature:RuntimeHandler]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should schedule a Pod requesting a RuntimeClass without PodOverhead [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should schedule a Pod requesting a RuntimeClass and initialize its Overhead [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should reject a Pod requesting a deleted RuntimeClass [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] RuntimeClass should support RuntimeClasses API operations [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Burstable QoS pod with container resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Burstable QoS pod, 1 container with resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Burstable QoS pod, no container resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Guaranteed QoS pod with container resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Guaranteed QoS pod with container resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Guaranteed QoS pod, 1 container with resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod Level Resources [Serial] [Feature:PodLevelResources] Guaranteed QoS pod, no container resources [sig-node, Serial, Feature:PodLevelResources]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume with defaultMode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume as non-root with defaultMode and fsGroup set [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume as non-root [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume as non-root with FSGroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume with mappings [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume with mappings and Item mode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume with mappings as non-root [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable from pods in volume with mappings as non-root with FSGroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap optional updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap should be consumable in multiple volumes in the same pod [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap Should fail non-optional pod creation due to configMap object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected configMap Should fail non-optional pod creation due to the key in the configMap object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume with defaultMode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume as non-root with defaultMode and fsGroup set [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume as non-root [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume as non-root with FSGroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume with mappings [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume with mappings and Item mode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume with mappings as non-root [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable from pods in volume with mappings as non-root with FSGroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap binary data should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap optional updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be consumable in multiple volumes in the same pod [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap should be immutable if `immutable` field is set [Conformance] [sig-storage, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap Should fail non-optional pod creation due to configMap object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] ConfigMap Should fail non-optional pod creation due to the key in the configMap object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should allow composing env vars into new env vars [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should allow substituting values in a container&#39;s command [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should allow substituting values in a container&#39;s args [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should allow substituting values in a volume subpath [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should fail substituting values in a volume subpath with backticks [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should fail substituting values in a volume subpath with absolute path [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should verify that a failing subpath expansion can be modified during the lifecycle of a container [Slow] [Conformance] [sig-node, Slow, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion should succeed in writing subpaths in container [Conformance] [sig-node, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Variable Expansion allow almost all printable ASCII characters as environment variable names [Feature:RelaxedEnvironmentVariableValidation] [sig-node, Feature:RelaxedEnvironmentVariableValidation]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:PodLifecycleSleepAction] when create a pod with lifecycle hook using sleep action valid prestop hook using sleep action [sig-node, Feature:PodLifecycleSleepAction]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:PodLifecycleSleepAction] when create a pod with lifecycle hook using sleep action reduce GracePeriodSeconds during runtime [sig-node, Feature:PodLifecycleSleepAction]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:PodLifecycleSleepAction] when create a pod with lifecycle hook using sleep action ignore terminated container [sig-node, Feature:PodLifecycleSleepAction]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [vsan-stretch-vmsvc] vm service with csi vol tests RWX volumes with VMService VMs and primary site goes down [p0, vmsvc, vsanStretch, file, wcp]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [vsan-stretch-vmsvc] vm service with csi vol tests RWX volumes with VMService VMs deletion while secondary site goes down [p0, vmsvc, vsanStretch, file, wcp]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide podname only [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should set DefaultMode on files [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should set mode on item file [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide podname as non-root with fsgroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide podname as non-root with fsgroup and defaultMode [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should update labels on modification [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should update annotations on modification [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide container&#39;s cpu limit [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide container&#39;s memory limit [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide container&#39;s cpu request [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide container&#39;s memory request [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide node allocatable (cpu) as default cpu limit if the limit is not set [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected downwardAPI should provide node allocatable (memory) as default memory limit if the limit is not set [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API [Serial] [Disruptive] [Feature:EphemeralStorage] Downward API tests for local ephemeral storage should provide container&#39;s limits.ephemeral-storage and requests.ephemeral-storage as env vars [sig-storage, Serial, Disruptive, Feature:EphemeralStorage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API [Serial] [Disruptive] [Feature:EphemeralStorage] Downward API tests for local ephemeral storage should provide default limits.ephemeral-storage from node allocatable [sig-storage, Serial, Disruptive, Feature:EphemeralStorage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide pod name, namespace and IP address as env vars [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide host IP as an env var [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide hostIPs as an env var [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide host IP and pod IP as an env var if pod uses host network [LinuxOnly] [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide container&#39;s limits.cpu/memory and requests.cpu/memory as env vars [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide default limits.cpu/memory from node allocatable [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Downward API should provide pod UID as env vars [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Ephemeral Containers [NodeConformance] will start an ephemeral container in an existing pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Ephemeral Containers [NodeConformance] should update the ephemeral containers in an existing pod [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Kubelet with pods in a privileged namespace when scheduling an agnhost Pod with hostAliases and hostNetwork should write entries to /etc/hosts when hostNetwork is enabled [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] PodOSRejection [NodeConformance] Kubelet [LinuxOnly] should reject pod when the node OS doesn&#39;t match pod&#39;s OS [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable from pods in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable from pods in volume with defaultMode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable from pods in volume as non-root with defaultMode and fsGroup set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable from pods in volume with mappings [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable from pods in volume with mappings and Item Mode set [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be able to mount in a volume regardless of a different secret existing with same name in different namespace [NodeConformance] [sig-storage, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret should be consumable in multiple volumes in a pod [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret optional updates should be reflected in volume [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret Should fail non-optional pod creation due to secret object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected secret Should fail non-optional pod creation due to the key in the secret object does not exist [Slow] [sig-storage, Slow]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] NodeLease NodeLease the kubelet should create and update a lease in the kube-node-lease namespace [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] NodeLease NodeLease should have OwnerReferences set [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] NodeLease NodeLease the kubelet should report node status infrequently [sig-node]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] HostPath should give a volume the correct mode [LinuxOnly] [NodeConformance] [sig-storage, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] HostPath should support r/w [NodeConformance] [sig-storage, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] HostPath should support subPath [NodeConformance] [sig-storage, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Containers should use the image defaults if command and args are blank [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Containers should be able to override the image&#39;s default arguments (container cmd) [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Containers should be able to override the image&#39;s default command (container entrypoint) [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Containers should be able to override the image&#39;s default command and arguments [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] KubeletManagedEtcHosts should test kubelet managed /etc/hosts file [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide podname only [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should set DefaultMode on files [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should set mode on item file [LinuxOnly] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide podname as non-root with fsgroup [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide podname as non-root with fsgroup and defaultMode [LinuxOnly] [sig-storage]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should update labels on modification [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should update annotations on modification [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide container&#39;s cpu limit [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide container&#39;s memory limit [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide container&#39;s cpu request [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide container&#39;s memory request [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide node allocatable (cpu) as default cpu limit if the limit is not set [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Downward API volume should provide node allocatable (memory) as default memory limit if the limit is not set [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-storage] Projected combined should project all components that make up the projection API [Projection] [NodeConformance] [Conformance] [sig-storage, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] PrivilegedPod [NodeConformance] should enable privileged commands [LinuxOnly] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart exec hook properly [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop exec hook properly [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart http hook properly [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute poststart https hook properly [MinimumKubeletVersion:1.23] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop http hook properly [NodeConformance] [Conformance] [sig-node, NodeConformance, Conformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Container Lifecycle Hook when create a pod with lifecycle hook should execute prestop https hook properly [MinimumKubeletVersion:1.23] [NodeConformance] [sig-node, NodeConformance]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:ContainerStopSignals] when create a pod with a StopSignal lifecycle StopSignal defined with pod.OS [sig-node, Feature:ContainerStopSignals]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container with readiness probe should not be ready before initial delay and never restart [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container with readiness probe that fails should never be ready and never restart [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with a exec &#34;cat /tmp/health&#34; liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted with a exec &#34;cat /tmp/health&#34; liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with a /healthz http liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted with a tcp:8080 liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should have monotonically increasing restart count [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted with a /healthz http liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with an exec liveness probe with timeout [MinimumKubeletVersion:1.20] [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should not be ready with an exec readiness probe timeout [MinimumKubeletVersion:1.20] [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with a failing exec liveness probe that took longer than the timeout [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with a local redirect http liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted with a non-local redirect http liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted startup probe fails [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted by liveness probe because startup probe delays it [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted by liveness probe after startup probe enables it [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be ready immediately after startupProbe succeeds [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should override timeoutGracePeriodSeconds when LivenessProbe field is set [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should override timeoutGracePeriodSeconds when StartupProbe field is set [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should *not* be restarted with a GRPC liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should be restarted with a GRPC liveness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should mark readiness on pods to false while pod is in progress of terminating when a pod has a readiness probe [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] [Feature:SidecarContainers] Probing restartable init container should mark readiness on pods to false and disable liveness probes while pod is in progress of terminating [sig-node, Feature:SidecarContainers]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] BestEffort QoS pod - empty resize [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, mixed containers - add limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, mixed containers - add requests [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, mixed containers - scale up cpu and memory [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container - decrease CPU (NotRequired) &amp; memory (RestartContainer) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container - decrease memory request (RestartContainer memory resize policy) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container - increase memory request (NoRestart memory resize policy) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease CPU limits only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease CPU requests and increase CPU limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease CPU requests and increase memory limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease CPU requests and limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease CPU requests only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease memory requests and increase CPU limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease memory requests and increase memory limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - decrease memory requests only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase CPU limits only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase CPU requests and decrease CPU limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase CPU requests and limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase CPU requests only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase memory limits only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase memory requests and decrease CPU limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase memory requests and limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - increase memory requests only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests - decrease memory request [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests - increase cpu request [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu requests and limits - resize with equivalents [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container, one restartable init container - decrease init container CPU only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container, one restartable init container - decrease init container memory requests only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container, one restartable init container - increase init container CPU &amp; memory [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container, one restartable init container - increase init container CPU only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container, one restartable init container - increase init container memory only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, three containers - decrease c1 resources, increase c2 resources, no change for c3 (net increase for pod) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, three containers - increase c1 resources, no change for c2, decrease c3 resources (no net change for pod) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, three containers - no change for c1, increase c2 resources, decrease c3 (net decrease for pod) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one container - decrease CPU only [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one container - increase CPU &amp; memory [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one container - increase CPU &amp; memory with an extended resource [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one container - increase CPU (NotRequired) &amp; memory (RestartContainer) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one container, one restartable init container - decrease init container CPU [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one restartable init container - decrease CPU &amp; increase memory [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, one restartable init container - increase CPU &amp; memory [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Guaranteed QoS pod, three containers (c1, c2, c3) - increase: CPU (c1,c3), memory (c2, c3) ; decrease: CPU (c2) [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] BestEffort pod - try requesting memory, expect error [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod with memory requests + limits - decrease memory limit [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with CPU requests + limits, cpu requests - remove memory requests [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - remove CPU limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with cpu &amp; memory requests + limits - remove memory limits [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, one container with memory requests + limits, cpu requests - remove CPU requests [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] Pod InPlace Resize Container [FeatureGate:InPlacePodVerticalScaling] [Beta] Burstable QoS pod, two containers with cpu &amp; memory requests + limits - reorder containers [sig-node, FeatureGate:InPlacePodVerticalScaling, Beta]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+          <testcase name="[It] [sig-node] ImageCredentialProvider [Feature:KubeletCredentialProviders] should be able to create pod with image credentials fetched from external credential provider  [sig-node, Feature:KubeletCredentialProviders]" classname="CNS-CSI-Driver-End-to-End-RwxVmsvc-Tests" status="skipped" time="0">
+              <skipped message="skipped"></skipped>
+          </testcase>
+      </testsuite>
+  </testsuites>
