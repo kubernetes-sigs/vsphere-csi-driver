@@ -2628,7 +2628,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// Verify PV entry is deleted from CNS.
 	// Delete the SC.
 
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify pvc is not annotated "+
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Verify pvc is not annotated "+
 		"with health status in vanilla setup", ginkgo.Label(p1, block, vanilla, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

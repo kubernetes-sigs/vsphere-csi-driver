@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		}
 	})
 
-	ginkgo.It("[ef-wcp][cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
+	ginkgo.It("[ef-vanilla-block][ef-wcp][cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
 		"[csi-guest][ef-vks] Verify dynamic volume provisioning works when storage policy specified "+
 		"in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
@@ -114,9 +114,9 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			namespace, scParameters, storagePolicyNameForSharedDatastores)
 	})
 
-	ginkgo.It("[ef-wcp][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] [ef-vks] Verify "+
-		"dynamic volume provisioning fails when storage policy specified in the storageclass is compliant "+
-		"for non-shared datastores", func() {
+	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-block-vanilla-parallelized][csi-supervisor][csi-guest]"+
+		"[ef-vks] Verify dynamic volume provisioning fails when storage policy specified in the storageclass is "+
+		"compliant for non-shared datastores", func() {
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
 		scParameters := make(map[string]string)
@@ -163,8 +163,8 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify non-existing SPBM policy is not honored "+
-		"for dynamic volume provisioning using storageclass", func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Verify non-existing SPBM policy "+
+		"is not honored for dynamic volume provisioning using storageclass", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
