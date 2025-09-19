@@ -304,8 +304,8 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	// 10. Delete pod.
 	// 11. Wait for volume to be detached.
 	// 12. Delete PVC and SC.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Dynamic volume provisioning data persistence "+
-		"test with XFS filesystem", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Dynamic volume provisioning data"+
+		" persistence test with XFS filesystem", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var sc *storagev1.StorageClass

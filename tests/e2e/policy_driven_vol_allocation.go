@@ -1156,8 +1156,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		11	Delete the SC created in step 2
 		12	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[ef-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor][ef-vks-thickthin]"+
-		"[csi-wcp-vsan-direct] Verify online LZT/EZT volume expansion of attached volumes with "+
+	ginkgo.It("[ef-vanilla-block][ef-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor]"+
+		"[ef-vks-thickthin][csi-wcp-vsan-direct] Verify online LZT/EZT volume expansion of attached volumes with "+
 		"IO", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1480,9 +1480,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		9	Delete pod1
 		10	Delete pvc, sc and SPBM policy created for this test
 	*/
-	ginkgo.It("[ef-svc-volallowcation][cflater-wcp][csi-supervisor][csi-block-vanilla][csi-block-vanilla-parallelized]"+
-		"[csi-guest][csi-wcp-vsan-direct] Relocate volume to another same type datastore", ginkgo.Label(p0, vanilla, block,
-		thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][ef-svc-volallowcation][cflater-wcp][csi-supervisor][csi-block-vanilla]"+
+		"[csi-block-vanilla-parallelized][csi-guest][csi-wcp-vsan-direct] Relocate volume to another same type "+
+		"datastore", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1801,9 +1801,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		12.	Delete the SC created in step 2
 		13.	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[ef-svc-volallowcation][csi-guest][csi-supervisor][csi-block-vanilla][csi-wcp-vsan-direct] "+
-		"[ef-vks-thickthin] Verify EZT offline volume expansion", ginkgo.Label(p0, vanilla, block, thickThin,
-		wcp, tkg, windows, stable, vsanDirect, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][ef-svc-volallowcation][csi-guest][csi-supervisor][csi-block-vanilla]"+
+		"[csi-wcp-vsan-direct][ef-vks-thickthin] Verify EZT offline volume expansion", ginkgo.Label(p0, vanilla, block,
+		thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2138,7 +2138,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		14	Delete the SCs created in step 2
 		15	Delete the SPBM policies created in step 1
 	*/
-	ginkgo.It("[csi-block-vanilla] verify volume allocation change post snapshot deletion works"+
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla] verify volume allocation change post snapshot deletion works"+
 		" fine", ginkgo.Label(p0, vanilla, block, thickThin, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2847,8 +2847,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			11. Verify online volume conversion is successful.
 			12. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's conversion and "+
-		"relocation in parallel", ginkgo.Label(p0, vanilla, block, thickThin, stable, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's "+
+		"conversion and relocation in parallel", ginkgo.Label(p0, vanilla, block, thickThin, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3072,9 +3072,9 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			11. Verify online volume conversion is successful.
 			12. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized]"+
-		" Start attached volume's conversion and relocation of volume with updation of "+
-		"its metadata in parallel", ginkgo.Label(p0, vanilla, block, thickThin, stable, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's "+
+		"conversion and relocation of volume with updation of its metadata in parallel", ginkgo.Label(p0, vanilla,
+		block, thickThin, stable, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

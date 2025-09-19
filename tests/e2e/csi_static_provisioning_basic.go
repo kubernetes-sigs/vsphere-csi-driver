@@ -267,8 +267,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning "+
-		"workflow", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static "+
+		"provisioning workflow", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -376,8 +376,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify volume is detached from the node.
 	// 10. Delete PVC.
 	// 11. Verify PV is deleted automatically.
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify basic static provisioning workflow "+
-		"with XFS filesystem", ginkgo.Label(p1, block, vanilla, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Verify basic static provisioning"+
+		" workflow with XFS filesystem", ginkgo.Label(p1, block, vanilla, core, vc70), func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
