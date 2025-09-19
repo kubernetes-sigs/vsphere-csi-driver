@@ -323,7 +323,8 @@ func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncI
 		return
 	}
 
-	for _, pv := range pvList {
+	pvsWithoutSupervisorPvcTopologyAnnotation := make(map[string]*v1.PersistentVolume)
+	addNodeAffinityOnPVInternal := func(pv *v1.PersistentVolume) error {
 		if pv.Spec.NodeAffinity == nil {
 			supervisorPVClaim, err := metadataSyncer.supervisorClient.CoreV1().
 				PersistentVolumeClaims(supervisorNamespace).Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
@@ -331,15 +332,20 @@ func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncI
 				log.Errorf("AddNodeAffinityRulesOnPV: failed to get supervisor PVC: %v "+
 					"for the TKG PV %v in the supervisor namespace: %v. Err: %v",
 					pv.Spec.CSI.VolumeHandle, pv.Name, supervisorNamespace, err)
-				continue
+				return err
 			}
 			accessibleTopologies, err := generateVolumeAccessibleTopologyFromPVCAnnotation(supervisorPVClaim)
 			if err != nil {
 				log.Errorf("failed to generate volume accessibleTopologies "+
-					"from supervisor PVC: %v for csi.vsphere.volume-accessible-topology annoation: %v "+
+					"from supervisor PVC: %v for csi.vsphere.volume-accessible-topology annoation: %v, "+
 					"Err: %v", supervisorPVClaim.Name,
-					supervisorPVClaim.Annotations["csi.vsphere.volume-accessible-topology"], err)
-				continue
+					supervisorPVClaim.Annotations[common.AnnVolumeAccessibleTopology], err)
+				// If volume accessible topology annotation is not yet available on the supervisor PVC, then add
+				// this PV to the map and we will check again after some time if annotation gets added.
+				if supervisorPVClaim.Annotations[common.AnnVolumeAccessibleTopology] == "" {
+					pvsWithoutSupervisorPvcTopologyAnnotation[pv.Name] = pv
+				}
+				return err
 			}
 			var csiAccessibleTopology []*csi.Topology
 			for _, topoSegments := range accessibleTopologies {
@@ -351,28 +357,54 @@ func AddNodeAffinityRulesOnPV(ctx context.Context, metadataSyncer *metadataSyncI
 			oldData, err := json.Marshal(pv)
 			if err != nil {
 				log.Errorf("failed to marshal pv: %v, Error: %v", pv, err)
-				continue
+				return err
 			}
 			newPV := pv.DeepCopy()
 			newPV.Spec.NodeAffinity = GenerateVolumeNodeAffinity(csiAccessibleTopology)
 			newData, err := json.Marshal(newPV)
 			if err != nil {
 				log.Errorf("failed to marshal updated PV with node affinity rules: %v, Error: %v", newPV, err)
-				continue
+				return err
 			}
 
 			patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
 			if err != nil {
 				log.Errorf("error Creating two way merge patch for PV %q with error : %v", pv.Name, err)
-				continue
+				return err
 			}
 			_, err = k8sClient.CoreV1().PersistentVolumes().Patch(
 				context.TODO(), pv.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 			if err != nil {
 				log.Errorf("error patching PV %q error : %v", pv.Name, err)
-				continue
+				return err
 			}
 			log.Infof("patched PV: %v with node affinity %v", pv.Name, newPV.Spec.NodeAffinity)
+		}
+		return nil
+	}
+
+	for _, pv := range pvList {
+		_ = addNodeAffinityOnPVInternal(pv)
+	}
+
+	// Check if there are any PVs on which we didn't add node affinity rules yet, as topology annotation
+	// was missing from associated supervisor PVC. We will iterate over all such PVs again and will check if
+	// PVC annotation is added now. We will retry this until all PVs get node affinity rules added or until
+	// timeout of 5 minutes is reached.
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	for len(pvsWithoutSupervisorPvcTopologyAnnotation) != 0 {
+		select {
+		case <-timeoutCtx.Done():
+			log.Infof("Timeout exceeded for adding node affinity rules on PVs. Waited 5 minutes to get " +
+				"volume accessibility topology annotation added on supervisor PVCs.")
+		default:
+			for pvName, pv := range pvsWithoutSupervisorPvcTopologyAnnotation {
+				err := addNodeAffinityOnPVInternal(pv)
+				if err != nil {
+					delete(pvsWithoutSupervisorPvcTopologyAnnotation, pvName)
+				}
+			}
 		}
 	}
 	log.Info("AddNodeAffinityRulesOnPV End.")
