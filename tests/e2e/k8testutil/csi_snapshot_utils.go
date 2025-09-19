@@ -486,3 +486,147 @@ func VerifyVolumeRestoreOperation(ctx context.Context, e2eTestConfig *config.E2e
 	}
 	return pvclaim2, persistentvolumes2, pod
 }
+
+/* createPreProvisionedSnapshotInGuestCluster created pre-provisioned snaphot  on Guest cluster */
+func CreatePreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnapshot *snapV1.VolumeSnapshot,
+	updatedSnapshotContent *snapV1.VolumeSnapshotContent,
+	snapc *snapclient.Clientset, namespace string, pandoraSyncWaitTime int,
+	svcVolumeSnapshotName string, diskSize string) (*snapV1.VolumeSnapshotContent,
+	*snapV1.VolumeSnapshot, bool, bool, error) {
+
+	framework.Logf("Change the deletion policy of VolumeSnapshotContent from Delete to Retain " +
+		"in Guest Cluster")
+
+	updatedSnapshotContent, err := ChangeDeletionPolicyOfVolumeSnapshotContent(ctx, updatedSnapshotContent,
+		snapc, snapV1.VolumeSnapshotContentRetain)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to change deletion policy of VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Delete dynamic volume snapshot from Guest Cluster")
+	DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+	framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
+	err = DeleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, pandoraSyncWaitTime)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to delete VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Creating static VolumeSnapshotContent in Guest Cluster using "+
+		"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName)
+	staticSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
+		GetVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
+			"static-vs", namespace), metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to create static VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Verify VolumeSnapshotContent is created or not in Guest Cluster")
+	staticSnapshotContent, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		staticSnapshotContent.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to get static VolumeSnapshotContent: %v", err)
+	}
+	framework.Logf("Snapshotcontent name is  %s", staticSnapshotContent.ObjectMeta.Name)
+
+	staticSnapshotContent, err = WaitForVolumeSnapshotContentReadyToUse(*snapc, ctx, staticSnapshotContent.Name)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("volume snapshot content is not ready to use")
+	}
+	staticSnapshotContentCreated := true
+
+	ginkgo.By("Create a static volume snapshot by static snapshotcontent")
+	staticVolumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		GetVolumeSnapshotSpecByName(namespace, "static-vs",
+			staticSnapshotContent.ObjectMeta.Name), metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to create static volume snapshot: %v", err)
+	}
+	framework.Logf("Volume snapshot name is : %s", staticVolumeSnapshot.Name)
+
+	ginkgo.By("Verify static volume snapshot is created")
+	staticSnapshot, err := WaitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, staticVolumeSnapshot.Name)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("volumeSnapshot is still not ready to use: %v", err)
+	}
+	if staticSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
+		return nil, nil, false, false, fmt.Errorf("expected RestoreSize does not match")
+	}
+	framework.Logf("Snapshot details is %+v", staticSnapshot)
+	staticSnapshotCreated := true
+
+	return staticSnapshotContent, staticSnapshot, staticSnapshotContentCreated, staticSnapshotCreated, nil
+}
+
+/*
+changeDeletionPolicyOfVolumeSnapshotContentOnGuest changes the deletion policy
+of volume snapshot content from delete to retain in Guest Cluster
+*/
+func ChangeDeletionPolicyOfVolumeSnapshotContent(ctx context.Context,
+	snapshotContent *snapV1.VolumeSnapshotContent, snapc *snapclient.Clientset,
+	policyName snapV1.DeletionPolicy) (*snapV1.VolumeSnapshotContent, error) {
+
+	// Retrieve the latest version of the object
+	latestSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, snapshotContent.Name,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply changes to the latest version
+	latestSnapshotContent.Spec.DeletionPolicy = policyName
+
+	// Update the object
+	updatedSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Update(ctx,
+		latestSnapshotContent, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedSnapshotContent, nil
+}
+
+// getVolumeSnapshotContentSpec returns a spec for the volume snapshot content
+func GetVolumeSnapshotContentSpec(deletionPolicy snapV1.DeletionPolicy, snapshotHandle string,
+	futureSnapshotName string, namespace string) *snapV1.VolumeSnapshotContent {
+	var volumesnapshotContentSpec = &snapV1.VolumeSnapshotContent{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotContent",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshotcontent-",
+		},
+		Spec: snapV1.VolumeSnapshotContentSpec{
+			DeletionPolicy: deletionPolicy,
+			Driver:         constants.E2evSphereCSIDriverName,
+			Source: snapV1.VolumeSnapshotContentSource{
+				SnapshotHandle: &snapshotHandle,
+			},
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name:      futureSnapshotName,
+				Namespace: namespace,
+			},
+		},
+	}
+	return volumesnapshotContentSpec
+}
+
+// getVolumeSnapshotSpecByName returns a spec for the volume snapshot by name
+func GetVolumeSnapshotSpecByName(namespace string, snapshotName string,
+	snapshotcontentname string) *snapV1.VolumeSnapshot {
+	var volumesnapshotSpec = &snapV1.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      snapshotName,
+			Namespace: namespace,
+		},
+		Spec: snapV1.VolumeSnapshotSpec{
+			Source: snapV1.VolumeSnapshotSource{
+				VolumeSnapshotContentName: &snapshotcontentname,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}

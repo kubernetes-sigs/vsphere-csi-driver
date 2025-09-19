@@ -57,7 +57,7 @@ This method will create PVC, attach pod to it and creates snapshot
 func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume, *snapV1.VolumeSnapshot) {
 
 	// Create PVC and verify PVC is bound
-	pvclaim, pv := createAndValidatePvc(ctx, client, namespace, storageclass)
+	pvclaim, pv := CreateAndValidatePvc(ctx, client, namespace, storageclass)
 
 	// Create Pod and attach to PVC
 	if doCreatePod || doCreateDep {
@@ -67,7 +67,7 @@ func CreatePvcPodAndSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestC
 	// TODO : Write data to volume
 
 	// create volume snapshot
-	volumeSnapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv, constants.DiskSize)
+	volumeSnapshot, _ := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pv, constants.DiskSize)
 
 	return pvclaim, pv, volumeSnapshot
 }
@@ -95,7 +95,7 @@ func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, c
 /*
 Create volume snapshot
 */
-func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume, diskSize string) *snapV1.VolumeSnapshot {
+func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *corev1.PersistentVolumeClaim, pv []*corev1.PersistentVolume, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent) {
 	// Create or get volume snapshot class
 	ginkgo.By("Get or create volume snapshot class")
 	snapc := getSnashotClientSet(e2eTestConfig)
@@ -115,13 +115,13 @@ func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConf
 	snapContentToDelete = append(snapContentToDelete, snapshotContent)
 	snapToDelete = append(snapToDelete, volumeSnapshot)
 
-	return volumeSnapshot
+	return volumeSnapshot, snapshotContent
 }
 
 /*
 Create and validate PVC status
 */
-func createAndValidatePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *v1.StorageClass) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
+func CreateAndValidatePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *v1.StorageClass) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
 	ginkgo.By("Create PVC")
 	pvclaim, err := CreatePVC(ctx, client, namespace, nil, "", storageclass, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

@@ -156,7 +156,7 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 			_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, client, namespace, []*corev1.PersistentVolumeClaim{lc}, true, false)
 
 			framework.Logf("Create snapshot from LC_PVC ")
-			_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, lc, lcPvList[i], constants.DiskSize)
+			_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, lc, lcPvList[i], constants.DiskSize)
 		}
 	})
 

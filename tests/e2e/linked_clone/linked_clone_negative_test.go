@@ -161,7 +161,7 @@ var _ bool = ginkgo.Describe("[linked-clone-Negative] Linked-Clone-Negative", fu
 
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
-		lcSnap := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+		lcSnap, _ := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		// create linked clone PVC
 		pvcspec := k8testutil.PvcSpecWithLinkedCloneAnnotation(namespace, storageclass, corev1.ReadWriteOnce, constants.Snapshotapigroup, lcSnap.Name)

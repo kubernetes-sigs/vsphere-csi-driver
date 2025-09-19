@@ -37,7 +37,7 @@ func CreateMultiplePvcPod(ctx context.Context, e2eTestConfig *config.E2eTestConf
 	for i := 0; i < numOfPVc; i++ {
 		ginkgo.By(fmt.Sprintf("Creating PVC in iteration: %v",
 			i))
-		pvclaim, pv := createAndValidatePvc(ctx, client, namespace, storageclass)
+		pvclaim, pv := CreateAndValidatePvc(ctx, client, namespace, storageclass)
 		volumeMap[pvclaim] = pv
 
 		// Create Pod and attach to PVC
@@ -58,7 +58,7 @@ func CreateSnapshotInParallel(ctx context.Context, e2eTestConfig *config.E2eTest
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			snapshot := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList, constants.DiskSize)
+			snapshot, _ := CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList, constants.DiskSize)
 			snapshots <- snapshot
 		}()
 	}

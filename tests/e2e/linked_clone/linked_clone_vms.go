@@ -229,7 +229,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Create a snapshot from the linked clone PVC
-		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		//TODO Check the quota usage
 
@@ -283,7 +283,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			[]*corev1.PersistentVolumeClaim{linkdeClonePvc})).NotTo(gomega.HaveOccurred())
 
 		// Create a snapshot from the linked clone PVC
-		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		//TODO Check the quota usage
 
@@ -331,7 +331,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			[]*corev1.PersistentVolumeClaim{linkdeClonePvc})).NotTo(gomega.HaveOccurred())
 
 		// Create a snapshot from the linked clone PVC
-		_ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
+		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		ginkgo.By("Detach pvc3 from vm3")
 		vmLc, err = vmservice_vm.GetVmsvcVM(ctx, vmopC, vmLc.Namespace, vmLc.Name) // refresh vm info
@@ -424,7 +424,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		pv := pvs[0]
 
 		// Create snapshot
-		volumeSnapshot := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
+		volumeSnapshot, _ := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfigvm, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
 
 		// create linked clone PVC and verify its bound
 		linkdeClonePvc, err := k8testutil.CreateLinkedClonePvc(ctx, client, namespace, storageclassWffc, volumeSnapshot.Name)
