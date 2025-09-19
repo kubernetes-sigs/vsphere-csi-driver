@@ -725,6 +725,17 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		time.Sleep(2 * time.Minute)
+		if supervisorCluster {
+			pod, err = client.CoreV1().Pods(namespace).Get(ctx,
+				pod.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			annotations := pod.Annotations
+			vmUUID, exists = annotations[vmUUIDLabel]
+			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
+			_, err := e2eVSphere.getVMByUUID(ctx, vmUUID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle2, nodeName))
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volHandle2, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
