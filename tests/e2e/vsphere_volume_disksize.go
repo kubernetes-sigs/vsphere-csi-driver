@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 	})
 
 	// Test for valid disk size of 2Gi
-	ginkgo.It("[cf-vanilla-file] [cf-vanilla-block] Verify dynamic provisioning of pv using "+
+	ginkgo.It("[ef-wcp][cf-vanilla-file] [cf-vanilla-block] Verify dynamic provisioning of pv using "+
 		"storageclass with a valid disk size passes", ginkgo.Label(p0, block, file, wcp, tkg, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

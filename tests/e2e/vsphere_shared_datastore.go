@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 9. Delete Pod
 	// 10. Delete PVC and SC
 
-	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-guest] [csi-supervisor] "+
+	ginkgo.It("[ef-wcp][cf-vks][csi-block-vanilla] [csi-guest] [csi-supervisor] "+
 		"[ef-vks] Verify impact on existing pv pvc when sc recreated with "+
 		"different binding mode", ginkgo.Label(p0,
 		block, wcp, tkg, vanilla, vc70), func() {
