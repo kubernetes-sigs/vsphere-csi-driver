@@ -75,6 +75,14 @@ spec:
                     This field must only be set by the entity completing the unregister
                     operation, i.e. the CNS Operator.
                   type: boolean
+                validatedParams:
+                  type: object
+                  description: ValidatedParams contains the parameters that were validated
+                    and used during the unregister operation across multiple reconcile loops. 
+                    This field must only be set by the entity completing the unregister operation, 
+                    i.e. the CNS Operator.
+                  additionalProperties:
+                    type: string
               required:
                 - unregistered
               type: object
