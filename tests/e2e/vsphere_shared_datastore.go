@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	})
 
 	// Shared datastore should be provisioned successfully.
-	ginkgo.It("Verify dynamic provisioning of PV passes with user specified shared datastore and "+
+	ginkgo.It("[ef-vanilla-block] Verify dynamic provisioning of PV passes with user specified shared datastore and "+
 		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -154,9 +154,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 9. Delete Pod
 	// 10. Delete PVC and SC
 
-	ginkgo.It("[ef-wcp][cf-vks][csi-block-vanilla] [csi-guest] [csi-supervisor] "+
-		"[ef-vks] Verify impact on existing pv pvc when sc recreated with "+
-		"different binding mode", ginkgo.Label(p0,
+	ginkgo.It("[ef-vanilla-block][ef-wcp][cf-vks][csi-block-vanilla][csi-guest][csi-supervisor][ef-vks] Verify impact on "+
+		"existing pv pvc when sc recreated with different binding mode", ginkgo.Label(p0,
 		block, wcp, tkg, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

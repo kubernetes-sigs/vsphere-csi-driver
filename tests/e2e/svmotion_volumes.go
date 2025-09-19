@@ -104,7 +104,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 	})
 
 	// Test for relocating volume being detached state
-	ginkgo.It("Verify relocating detached volume works fine", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block] Verify relocating detached volume works fine", ginkgo.Label(p0, vanilla, block, core,
+		vc70), func() {
 		ginkgo.By("Invoking Test for relocating detached volume")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -498,8 +499,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify online volume expansion is successful.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's relocation and then "+
-		"expand it", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's "+
+		"relocation and then expand it", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -721,8 +722,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify online volume expansion is successful.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's expansion and then relocate"+
-		"it", ginkgo.Label(p1, vanilla, block, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start attached volume's"+
+		"expansion and then relocate it", ginkgo.Label(p1, vanilla, block, core, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -935,8 +936,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify the labels in cnsvolume metadata post relocation.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and then "+
-		"update its metadata", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and "+
+		"then update its metadata", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sharedvmfsURL, sharedNfsURL := "", ""
@@ -1142,8 +1143,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify snapshot creation was successful.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and take a "+
-		"snapshot", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and take"+
+		" a snapshot", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
