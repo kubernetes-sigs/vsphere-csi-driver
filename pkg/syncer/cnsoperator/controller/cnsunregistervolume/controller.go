@@ -210,7 +210,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	log.Info("reconciling instance")
 	// Initialize backOffDuration for the instance, if required.
 	duration := getBackoffDuration(ctx, request.NamespacedName)
-	params, err := getValidatedParams(ctx, *instance)
+	params, err := getValidatedParams(ctx, r.client, *instance)
 	if err != nil {
 		log.Error("failed to get input parameters with error ", err)
 		setInstanceError(ctx, r, instance, err.Error())
@@ -345,13 +345,21 @@ type params struct {
 
 var getValidatedParams = _getValidatedParams
 
-func _getValidatedParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) (*params, error) {
+func _getValidatedParams(ctx context.Context, c client.Client, instance v1a1.CnsUnregisterVolume) (*params, error) {
 	log := logger.GetLogger(ctx).With("name", instance.Namespace+"/"+instance.Name)
 	var err error
 	p := params{
 		retainFCD: instance.Spec.RetainFCD,
 		force:     instance.Spec.ForceUnregister,
 		namespace: instance.Namespace,
+	}
+
+	if instance.Status.ValidatedParams != nil {
+		log.Debug("using previously validated parameters")
+		p.volumeID = instance.Status.ValidatedParams[v1a1.VolumeID]
+		p.pvcName = instance.Status.ValidatedParams[v1a1.PVCName]
+		p.pvName = instance.Status.ValidatedParams[v1a1.PVName]
+		return &p, nil
 	}
 
 	if instance.Spec.VolumeID == "" && instance.Spec.PVCName == "" {
@@ -381,6 +389,18 @@ func _getValidatedParams(ctx context.Context, instance v1a1.CnsUnregisterVolume)
 	if err != nil {
 		log.Info("no PV found for the Volume ID ", p.volumeID)
 	}
+	// Update instance status with validated parameters.
+	instance.Status.ValidatedParams = map[string]string{
+		v1a1.VolumeID: p.volumeID,
+		v1a1.PVCName:  p.pvcName,
+		v1a1.PVName:   p.pvName,
+	}
+	err = k8s.UpdateStatus(ctx, c, &instance)
+	if err != nil {
+		log.Error("failed to update instance status with validated parameters")
+		return nil, err
+	}
+
 	return &p, nil
 }
 

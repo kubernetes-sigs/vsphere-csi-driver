@@ -266,7 +266,8 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 func getPvcsInSpec(instance *v1alpha1.CnsNodeVmBatchAttachment) (map[string]string, error) {
 	pvcsInSpec := make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
-		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
+		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
+			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
 		if !ok {
 			return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
 		}

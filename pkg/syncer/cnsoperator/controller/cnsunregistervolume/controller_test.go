@@ -114,7 +114,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		registerSchemes(tt, cb)
 		ctx := context.Background()
 		backOffDuration = make(map[types.NamespacedName]time.Duration)
-		instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "", []string{cnsoptypes.CNSUnregisterVolumeFinalizer}, false, false, false, true)
+		instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+			[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, false, false, false, true, false)
 		registerRuntimeObjects(tt, cb, instance)
 		reconciler := &Reconciler{
 			client: cb.Build(),
@@ -135,7 +136,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		registerSchemes(tt, cb)
 		ctx := context.Background()
 		backOffDuration = make(map[types.NamespacedName]time.Duration)
-		instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "", nil, false, false, true, false)
+		instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+			nil, false, false, true, false, false)
 		registerRuntimeObjects(tt, cb, instance)
 		reconciler := &Reconciler{
 			client: cb.Build(),
@@ -153,7 +155,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 	cb := fake.NewClientBuilder()
 	registerSchemes(t, cb)
 	ctx := context.Background()
-	instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "", nil, false, false, false, false)
+	instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+		nil, false, false, false, false, false)
 	registerRuntimeObjects(t, cb, instance)
 
 	t.Run("WhenAddingFinalizerFails", func(tt *testing.T) {
@@ -185,7 +188,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 	t.Run("WhenParamsAreInvalid", func(tt *testing.T) {
 		// Setup
 		backOffDuration = make(map[types.NamespacedName]time.Duration)
-		getValidatedParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (*params, error) {
+		getValidatedParams = func(ctx context.Context, c client.Client, instance v1a1.CnsUnregisterVolume) (*params, error) {
 			return nil, errors.New("invalid parameters")
 		}
 		reconciler := &Reconciler{
@@ -210,7 +213,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		}], "Expected backoff duration to be 2 seconds")
 	})
 
-	getValidatedParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) (*params, error) {
+	getValidatedParams = func(ctx context.Context, c client.Client, instance v1a1.CnsUnregisterVolume) (*params, error) {
 		return &params{
 			retainFCD: false,
 			force:     false,
@@ -482,12 +485,34 @@ func TestGetValidatedParams(t *testing.T) {
 		getVolumeID = getVolumeIDOriginal
 	}()
 
-	t.Run("WhenVolumeIDAndPVCNameAreEmpty", func(t *testing.T) {
+	t.Run("WhenParametersAreAlreadyValidated", func(t *testing.T) {
 		// Setup
-		instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "", nil, false, false, false, false)
+		instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "mock-pvc-name",
+			[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, false, false, false, false, true)
+		exp := params{
+			retainFCD: false,
+			force:     false,
+			namespace: "mock-namespace",
+			volumeID:  "mock-volume-id",
+			pvcName:   "mock-pvc-name",
+			pvName:    "mock-pv-name",
+		}
 
 		// Execute
-		params, err := getValidatedParams(context.Background(), *instance)
+		params, err := getValidatedParams(context.Background(), nil, *instance)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, exp, *params, "Expected params to match")
+	})
+
+	t.Run("WhenVolumeIDAndPVCNameAreEmpty", func(t *testing.T) {
+		// Setup
+		instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "",
+			nil, false, false, false, false, false)
+
+		// Execute
+		params, err := getValidatedParams(context.Background(), nil, *instance)
 
 		// Assert
 		assert.Nil(t, params, "Expected params to be nil")
@@ -496,10 +521,11 @@ func TestGetValidatedParams(t *testing.T) {
 
 	t.Run("WhenVolumeIDAndPVCNameAreBothSet", func(t *testing.T) {
 		// Setup
-		instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "mock-pvc-name", nil, false, false, false, false)
+		instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "mock-pvc-name",
+			nil, false, false, false, false, false)
 
 		// Execute
-		params, err := getValidatedParams(context.Background(), *instance)
+		params, err := getValidatedParams(context.Background(), nil, *instance)
 
 		// Assert
 		assert.Nil(t, params, "Expected params to be nil")
@@ -509,14 +535,17 @@ func TestGetValidatedParams(t *testing.T) {
 	t.Run("WhenVolumeIDIsSet", func(t *testing.T) {
 		t.Run("WhenPVCNotFound", func(t *testing.T) {
 			// Setup
+			cb := fake.NewClientBuilder()
+			registerSchemes(t, cb)
 			getPVCName = func(ctx context.Context, volumeID string) (string, string, error) {
 				return "", "", errors.New("PVC not found")
 			}
 			getPVName = func(ctx context.Context, volumeID string) (string, error) {
 				return "mock-pv", nil
 			}
-			instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "", nil, false, false, false, false)
-			exp := params{
+			instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+				nil, false, false, false, false, false)
+			expParams := params{
 				retainFCD: false,
 				force:     false,
 				namespace: "mock-namespace",
@@ -524,24 +553,44 @@ func TestGetValidatedParams(t *testing.T) {
 				pvcName:   "",
 				pvName:    "mock-pv",
 			}
+			expValidatedParams := map[string]string{
+				v1a1.VolumeID: "mock-volume-id",
+				v1a1.PVCName:  "",
+				v1a1.PVName:   "mock-pv",
+			}
+			registerRuntimeObjects(t, cb, instance)
+			c := cb.Build()
 
 			// Execute
-			params, err := getValidatedParams(context.Background(), *instance)
+			params, err := getValidatedParams(context.Background(), c, *instance)
 
 			// Assert
 			assert.Nil(t, err, "Expected no error")
-			assert.Equal(t, exp, *params, "Expected params to match")
+			assert.Equal(t, expParams, *params, "Expected params to match")
+
+			// Verify that ValidatedParams in status is updated
+			updatedInstance := &v1a1.CnsUnregisterVolume{}
+			err = c.Get(context.Background(), types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			}, updatedInstance)
+			assert.Nil(t, err, "Expected no error while getting updated instance")
+			assert.Equal(t, expValidatedParams, updatedInstance.Status.ValidatedParams,
+				"Expected ValidatedParams to be set correctly")
 		})
 		t.Run("WhenPVNotFound", func(t *testing.T) {
 			// Setup
+			cb := fake.NewClientBuilder()
+			registerSchemes(t, cb)
 			getPVCName = func(ctx context.Context, volumeID string) (string, string, error) {
 				return "mock-pvc", "mock-namespace", nil
 			}
 			getPVName = func(ctx context.Context, volumeID string) (string, error) {
 				return "", errors.New("PV not found")
 			}
-			instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "", nil, false, false, false, false)
-			exp := params{
+			instance := newInstance(t, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+				nil, false, false, false, false, false)
+			expParams := params{
 				retainFCD: false,
 				force:     false,
 				namespace: "mock-namespace",
@@ -549,27 +598,47 @@ func TestGetValidatedParams(t *testing.T) {
 				pvcName:   "mock-pvc",
 				pvName:    "",
 			}
+			expValidatedParams := map[string]string{
+				v1a1.VolumeID: "mock-volume-id",
+				v1a1.PVCName:  "mock-pvc",
+				v1a1.PVName:   "",
+			}
+			registerRuntimeObjects(t, cb, instance)
+			c := cb.Build()
 
 			// Execute
-			params, err := getValidatedParams(context.Background(), *instance)
+			params, err := getValidatedParams(context.Background(), c, *instance)
 
 			// Assert
 			assert.Nil(t, err, "Expected no error")
-			assert.Equal(t, exp, *params, "Expected params to match")
+			assert.Equal(t, expParams, *params, "Expected params to match")
+
+			// Verify that ValidatedParams in status is updated
+			updatedInstance := &v1a1.CnsUnregisterVolume{}
+			err = c.Get(context.Background(), types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			}, updatedInstance)
+			assert.Nil(t, err, "Expected no error while getting updated instance")
+			assert.Equal(t, expValidatedParams, updatedInstance.Status.ValidatedParams,
+				"Expected ValidatedParams to be set correctly")
 		})
 	})
 
 	t.Run("WhenPVCNameIsSet", func(t *testing.T) {
 		t.Run("WhenVolumeIDNotFound", func(t *testing.T) {
 			// Setup
+			cb := fake.NewClientBuilder()
+			registerSchemes(t, cb)
 			getVolumeID = func(ctx context.Context, namespace string, pvcName string) (string, error) {
 				return "", errors.New("VolumeID not found")
 			}
 			getPVName = func(ctx context.Context, volumeID string) (string, error) {
 				return "mock-pv", nil
 			}
-			instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "mock-pvc-name", nil, false, false, false, false)
-			exp := params{
+			instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "mock-pvc-name",
+				nil, false, false, false, false, false)
+			expParams := params{
 				retainFCD: false,
 				force:     false,
 				namespace: "mock-namespace",
@@ -577,24 +646,43 @@ func TestGetValidatedParams(t *testing.T) {
 				pvcName:   "mock-pvc-name",
 				pvName:    "mock-pv",
 			}
+			expValidatedParams := map[string]string{
+				v1a1.VolumeID: "",
+				v1a1.PVCName:  "mock-pvc-name",
+				v1a1.PVName:   "mock-pv",
+			}
+			registerRuntimeObjects(t, cb, instance)
+			c := cb.Build()
 
 			// Execute
-			params, err := getValidatedParams(context.Background(), *instance)
+			params, err := getValidatedParams(context.Background(), c, *instance)
 
 			// Assert
 			assert.Nil(t, err, "Expected no error")
-			assert.Equal(t, exp, *params, "Expected params to match")
+			assert.Equal(t, expParams, *params, "Expected params to match")
+			// Verify that ValidatedParams in status is updated
+			updatedInstance := &v1a1.CnsUnregisterVolume{}
+			err = c.Get(context.Background(), types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			}, updatedInstance)
+			assert.Nil(t, err, "Expected no error while getting updated instance")
+			assert.Equal(t, expValidatedParams, updatedInstance.Status.ValidatedParams,
+				"Expected ValidatedParams to be set correctly")
 		})
 		t.Run("WhenPVNotFound", func(t *testing.T) {
 			// Setup
+			cb := fake.NewClientBuilder()
+			registerSchemes(t, cb)
 			getVolumeID = func(ctx context.Context, namespace string, pvcName string) (string, error) {
 				return "mock-volume-id", nil
 			}
 			getPVName = func(ctx context.Context, volumeID string) (string, error) {
 				return "", errors.New("PV not found")
 			}
-			instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "mock-pvc-name", nil, false, false, false, false)
-			exp := params{
+			instance := newInstance(t, "mock-instance", "mock-namespace", "", "", "mock-pvc-name",
+				nil, false, false, false, false, false)
+			expParams := params{
 				retainFCD: false,
 				force:     false,
 				namespace: "mock-namespace",
@@ -602,13 +690,29 @@ func TestGetValidatedParams(t *testing.T) {
 				pvcName:   "mock-pvc-name",
 				pvName:    "",
 			}
+			expValidatedParams := map[string]string{
+				v1a1.VolumeID: "mock-volume-id",
+				v1a1.PVCName:  "mock-pvc-name",
+				v1a1.PVName:   "",
+			}
+			registerRuntimeObjects(t, cb, instance)
+			c := cb.Build()
 
 			// Execute
-			params, err := getValidatedParams(context.Background(), *instance)
+			params, err := getValidatedParams(context.Background(), c, *instance)
 
 			// Assert
 			assert.Nil(t, err, "Expected no error")
-			assert.Equal(t, exp, *params, "Expected params to match")
+			assert.Equal(t, expParams, *params, "Expected params to match")
+			// Verify that ValidatedParams in status is updated
+			updatedInstance := &v1a1.CnsUnregisterVolume{}
+			err = c.Get(context.Background(), types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			}, updatedInstance)
+			assert.Nil(t, err, "Expected no error while getting updated instance")
+			assert.Equal(t, expValidatedParams, updatedInstance.Status.ValidatedParams,
+				"Expected ValidatedParams to be set correctly")
 		})
 	})
 }
@@ -635,7 +739,7 @@ func registerRuntimeObjects(t *testing.T, cb *fake.ClientBuilder, objs ...client
 }
 
 func newInstance(t *testing.T, name, namespace, volumeID, errMsg, pvcName string, finalizers []string,
-	retainFCD, forceUnregister, unregistered, withDeletionTS bool) *v1a1.CnsUnregisterVolume {
+	retainFCD, forceUnregister, unregistered, withDeletionTS, withValidatedParams bool) *v1a1.CnsUnregisterVolume {
 	t.Helper()
 	instance := &v1a1.CnsUnregisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
@@ -657,6 +761,14 @@ func newInstance(t *testing.T, name, namespace, volumeID, errMsg, pvcName string
 
 	if withDeletionTS {
 		instance.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	}
+
+	if withValidatedParams {
+		instance.Status.ValidatedParams = map[string]string{
+			v1a1.VolumeID: volumeID,
+			"pvcName":     pvcName,
+			"pvName":      "mock-pv-name",
+		}
 	}
 	return instance
 }
