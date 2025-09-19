@@ -669,15 +669,16 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			pvcSpec, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("Failed to create PVC with spec: %+v. Error: %+v", pvcSpec, err)
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err))
+			errMsg := fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err)
+			setInstanceError(ctx, r, instance, errMsg)
 			// Delete PV created above.
 			err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
 			if err != nil {
 				log.Errorf("Delete PV %s failed with error: %+v", pvName, err)
+				combinedErrMsg := fmt.Sprintf("%s. Additionally, cleanup failed: Delete PV %s failed with error: %+v",
+					errMsg, pvName, err)
+				setInstanceError(ctx, r, instance, combinedErrMsg)
 			}
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Delete PV %s failed with error: %+v", pvName, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		} else {
 			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
