@@ -95,11 +95,20 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		storagePolicyId := vcutil.GetSpbmPolicyID(storagePolicy, e2eTestConfig)
 
 		// creating namespace with storagePolicy
-		namespace, statuscode, err = k8testutil.CreatetWcpNsWithZonesAndPolicies(e2eTestConfig, vcRestSessionId,
-			[]string{storagePolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfig),
-			[]string{}, "", "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(204))
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			namespace, statuscode, err = k8testutil.CreatetWcpNsWithZonesAndPolicies(e2eTestConfig, vcRestSessionId,
+				[]string{storagePolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfig),
+				[]string{}, "", "")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(statuscode).To(gomega.Equal(204))
+		} else {
+			labels_ns := map[string]string{}
+			labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
+			labels_ns["e2e-framework"] = f.BaseName
+			gcNs, err := framework.CreateTestingNS(ctx, f.BaseName, client, labels_ns)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Error creating namespace on GC")
+			namespace = gcNs.Name
+		}
 
 		//After NS creation need sometime to load usage CRs
 		time.Sleep(constants.PollTimeoutShort)
