@@ -94,6 +94,11 @@ func CreateBlockVolumeUtil(
 		}
 	}
 
+	username, err := vc.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
 	var clusterMorefs []vim25types.ManagedObjectReference
 	var datastoreInfoList []*vsphere.DatastoreInfo
 
@@ -103,7 +108,7 @@ func CreateBlockVolumeUtil(
 		clusterID = manager.CnsConfig.Global.SupervisorID
 	}
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		manager.CnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		username, clusterFlavor,
 		manager.CnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -455,10 +460,15 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{},
 		datastores = append(datastores, ds.Reference())
 	}
 
+	username, err := params.Vcenter.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	clusterID := params.CNSConfig.Global.ClusterID
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		params.CNSConfig.VirtualCenter[params.Vcenter.Config.Host].User, params.ClusterFlavor,
+		username, params.ClusterFlavor,
 		params.CNSConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
@@ -648,9 +658,14 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 	if useSupervisorId {
 		clusterID = cnsConfig.Global.SupervisorID
 	}
+
+	username, err := vc.GetActiveUser(ctx)
+	if err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
 	var containerClusterArray []cnstypes.CnsContainerCluster
 	containerCluster := vsphere.GetContainerCluster(clusterID,
-		cnsConfig.VirtualCenter[vc.Config.Host].User, clusterFlavor,
+		username, clusterFlavor,
 		cnsConfig.Global.ClusterDistribution)
 	containerClusterArray = append(containerClusterArray, containerCluster)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
