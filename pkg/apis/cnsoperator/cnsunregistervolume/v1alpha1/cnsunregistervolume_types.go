@@ -20,11 +20,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	// PVCName is the name of the PersistentVolumeClaim to be unregistered.
+	PVCName = "pvcName"
+
+	// VolumeID is the volume handle of CNS volume to be unregistered.
+	VolumeID = "volumeID"
+
+	// PVName is the name of the PersistentVolume to be unregistered.
+	PVName = "pvName"
+)
+
 // CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
 // +k8s:openapi-gen=true
 type CnsUnregisterVolumeSpec struct {
 	// VolumeID indicates the volume handle of CNS volume to be unregistered
-	VolumeID string `json:"volumeID"`
+	VolumeID string `json:"volumeID,omitempty"`
+
+	// PVCName indicates the name of the PVC to be unregistered.
+	PVCName string `json:"pvcName,omitempty"`
 
 	// RetainFCD indicates if the volume should be retained as an FCD.
 	// If set to false or not specified, the volume will be retained as a VMDK.
@@ -43,6 +57,11 @@ type CnsUnregisterVolumeStatus struct {
 	// This field must only be set by the entity completing the unregister
 	// operation, i.e. the CNS Operator.
 	Unregistered bool `json:"unregistered"`
+
+	// ValidatedParams contains parameters discovered during input validation and persisted
+	// across reconciliation cycles. This enables efficient resource cleanup without
+	// re-validation on subsequent reconciles. This field is managed by the controller.
+	ValidatedParams map[string]string `json:"validatedParams,omitempty"`
 
 	// The last error encountered during export operation, if any.
 	// This field must only be set by the entity completing the export
