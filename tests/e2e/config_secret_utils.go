@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -358,7 +359,9 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 				cluster, masterIp, err)
 		}
 		clusDetails = nil
-		if !strings.Contains(clusterResult.Stdout, "10.") {
+		ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+		// if !strings.Contains(clusterResult.Stdout, "10.") || !strings.Contains(clusterResult.Stdout, "192.") {
+		if !ipRegex.MatchString(clusterResult.Stdout) {
 			if clusterResult.Stdout != "" {
 				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
 				clusDetails = append(clusDetails, clusListTemp...)
