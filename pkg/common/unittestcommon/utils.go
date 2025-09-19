@@ -60,7 +60,6 @@ var mapVolumePathToID map[string]map[string]string
 func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCommonInterface, error) {
 	if orchestratorType == common.Kubernetes {
 		defaultFSS := map[string]string{
-			"csi-migration":                     "true",
 			"file-volume":                       "true",
 			"block-volume-snapshot":             "true",
 			"tkgs-ha":                           "true",

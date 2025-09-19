@@ -37,6 +37,7 @@ var (
 const (
 	feature_flag_1 = "feature_flag_1"
 	feature_flag_2 = "feature_flag_2"
+	feature_flag_3 = "feature_flag_3"
 )
 
 func init() {
@@ -166,9 +167,9 @@ func TestIsFSSEnabledInGcWrongValues(t *testing.T) {
 // TestIsFSSEnabledInSV tests IsFSSEnabled in Supervisor flavor - all scenarios
 func TestIsFSSEnabledInSV(t *testing.T) {
 	svFSS := map[string]string{
-		feature_flag_1:  "true",
-		feature_flag_2:  "false",
-		"csi-migration": "enabled",
+		feature_flag_1: "true",
+		feature_flag_2: "false",
+		feature_flag_3: "enabled",
 	}
 	svFSSConfigMapInfo := FSSConfigMapInfo{
 		configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
@@ -189,9 +190,9 @@ func TestIsFSSEnabledInSV(t *testing.T) {
 		t.Errorf("%s feature state is enabled!", feature_flag_2)
 	}
 	// Wrong value given
-	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "csi-migration")
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, feature_flag_3)
 	if isEnabled {
-		t.Errorf("csi-migration feature state is enabled even when it was assigned a wrong value!")
+		t.Errorf("%s feature state is enabled even when it was assigned a wrong value!", feature_flag_3)
 	}
 	// Feature state missing
 	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "online-volume-extend")
