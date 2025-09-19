@@ -58,9 +58,9 @@ type CnsUnregisterVolumeStatus struct {
 	// operation, i.e. the CNS Operator.
 	Unregistered bool `json:"unregistered"`
 
-	// ValidatedParams contains the parameters that were validated and used
-	// during the unregister operation across multiple reconciliation loops.
-	// This field must only be set by the entity completing the unregister operation, i.e. the CNS Operator.
+	// ValidatedParams contains parameters discovered during input validation and persisted
+	// across reconciliation cycles. This enables efficient resource cleanup without
+	// re-validation on subsequent reconciles. This field is managed by the controller.
 	ValidatedParams map[string]string `json:"validatedParams,omitempty"`
 
 	// The last error encountered during export operation, if any.

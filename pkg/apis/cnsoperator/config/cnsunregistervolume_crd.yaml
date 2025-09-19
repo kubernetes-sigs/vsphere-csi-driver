@@ -77,10 +77,8 @@ spec:
                   type: boolean
                 validatedParams:
                   type: object
-                  description: ValidatedParams contains the parameters that were validated
-                    and used during the unregister operation across multiple reconcile loops. 
-                    This field must only be set by the entity completing the unregister operation, 
-                    i.e. the CNS Operator.
+                  description: ValidatedParams contains parameters discovered during input validation and persisted across reconciliation cycles.
+                    This enables efficient resource cleanup without re-validation on subsequent reconciles. This field is managed by the controller.
                   additionalProperties:
                     type: string
               required:
