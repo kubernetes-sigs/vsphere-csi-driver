@@ -324,6 +324,14 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		l.mu.Lock()
 		log.Infof("acquired lock before re-creating listview")
 		if recreateView {
+			if l.listView != nil {
+				destroyListviewErr := l.listView.Destroy(l.ctx)
+				if destroyListviewErr != nil {
+					log.Errorf("failed to destroy listview object. err: %v", destroyListviewErr)
+				} else {
+					log.Info("successfully destroyed existing listview")
+				}
+			}
 			log.Info("re-creating the listView object")
 			err := l.createListView(l.ctx, nil)
 			if err != nil {
@@ -331,6 +339,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 				l.mu.Unlock()
 				continue
 			}
+			log.Info("successfully created listview")
 
 			filter = getListViewWaitFilter(l.listView)
 			l.waitForUpdatesContext, l.waitForUpdatesCancelFunc = context.WithCancel(context.Background())
