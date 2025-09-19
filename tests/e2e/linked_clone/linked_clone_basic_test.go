@@ -626,7 +626,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// create linked clone PVC and verify its bound
 		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, staticSnapshot.Name)
 
-		framework.Logf("Ending test: Validate the LC creation passes on the restored volume")
+		framework.Logf("Ending test: Verify linked clone can be created on the static snapshot")
 
 	})
 
