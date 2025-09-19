@@ -38,6 +38,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,6 +67,11 @@ import (
 var (
 	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+	// Per volume lock for concurrent access to PVCs.
+	// Keys are strings representing namespace + PVC name.
+	// Values are individual sync.Mutex locks that need to be held
+	// to make updates to the PVC on the API server.
+	VolumeLock *sync.Map
 )
 
 const (
@@ -116,11 +122,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, k8sclient, recorder))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
+	k8sclient kubernetes.Interface,
 	recorder record.EventRecorder) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
@@ -135,6 +142,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	maxWorkerThreads := getMaxWorkerThreads(ctx)
 
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	VolumeLock = &sync.Map{}
 
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).
@@ -158,6 +166,7 @@ type Reconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client           client.Client
+	k8sclient        kubernetes.Interface
 	scheme           *runtime.Scheme
 	configInfo       config.ConfigurationInfo
 	volumeManager    volumes.Manager
@@ -300,7 +309,17 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	// This means all volumes can be considered detached. So remove finalizer from CR instance.
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
-		// TODO: remove PVC finalizer
+
+		// For every PVC mentioned in instance.Spec, remove finalizer from its PVC.
+		for _, volume := range instance.Spec.Volumes {
+			err := removePvcFinalizer(ctx, r.client, r.k8sclient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
+				instance.Spec.NodeUUID)
+			if err != nil {
+				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
+					err)
+				return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+			}
+		}
 
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
@@ -449,11 +468,18 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			// If VM was not found, can assume that the detach is successful.
 			if cnsvsphere.IsManagedObjectNotFound(detachErr, vm.VirtualMachine.Reference()) {
 				log.Infof("Found a managed object not found fault for vm: %+v", vm)
-				// TODO: remove PVC finalizer
 
-				// Remove entry of this volume from the instance's status.
-				deleteVolumeFromStatus(pvc, instance)
-				log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+				// Remove finalizer from the PVC as the detach was successful.
+				err := removePvcFinalizer(ctx, r.client, r.k8sclient, pvc, instance.Namespace, instance.Spec.NodeUUID)
+				if err != nil {
+					log.Errorf("failed to rempve finalizer from PVC %s. Err: %s", pvc, err)
+					updateInstanceWithErrorForPvc(instance, pvc, err.Error())
+					volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
+				} else {
+					// Remove entry of this volume from the instance's status.
+					deleteVolumeFromStatus(pvc, instance)
+					log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+				}
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.NodeUUID, faulttype, detachErr)
@@ -462,10 +488,17 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 			}
 		} else {
-			// TODO: remove PVC finalizer
-			// Remove entry of this volume from the instance's status.
-			deleteVolumeFromStatus(pvc, instance)
-			log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+			// Remove finalizer from the PVC as the detach was successful.
+			err := removePvcFinalizer(ctx, r.client, r.k8sclient, pvc, instance.Namespace, instance.Spec.NodeUUID)
+			if err != nil {
+				log.Errorf("failed to rempve finalizer from PVC %s. Err: %s", pvc, err)
+				updateInstanceWithErrorForPvc(instance, pvc, err.Error())
+				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
+			} else {
+				// Remove entry of this volume from the instance's status.
+				deleteVolumeFromStatus(pvc, instance)
+				log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+			}
 		}
 		log.Infof("Detach call ended for PVC %s in namespace %s for instance %s",
 			pvc, instance.Namespace, instance.Name)
@@ -508,6 +541,17 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, vm *cnsvsphere.Virt
 			log.Errorf("failed to get volumeName for pvc %s", pvcName)
 			return fmt.Errorf("failed to get volumeName for pvc %s", pvcName)
 
+		}
+
+		// If attach was successful, add finalizer to the PVC.
+		if result.Error == nil {
+			// Add finalizer on PVC as attach was successful.
+			err = addPvcFinalizer(ctx, r.client, r.k8sclient, pvcName, instance.Namespace, instance.Spec.NodeUUID)
+			if err != nil {
+				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
+				result.Error = err
+				attachErr = err
+			}
 		}
 		// Update instance with attach result
 		updateInstanceWithAttachVolumeResult(instance, volumeName, pvcName, result)
