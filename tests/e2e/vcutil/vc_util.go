@@ -1296,18 +1296,19 @@ func GetVsanClusterResource(ctx context.Context,
 			clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			cluster = clusterComputeResource[0]
-
-			if strings.Contains(strings.ToLower(cluster.Name()), "edge") {
-				cluster = clusterComputeResource[1]
+			for _, cluster = range clusterComputeResource {
+				if strings.Contains(strings.ToLower(cluster.Name()), "edge") || strings.Contains(strings.ToLower(cluster.Name()), "infra") {
+					continue
+				} else {
+					break
+				}
 			}
 
 			framework.Logf("Looking for cluster with the default datastore passed into test in DC: %s", dc)
 			datastoreURL := env.GetAndExpectStringEnvVar(constants.EnvSharedDatastoreURL)
 			vs.TestInput.TestBedInfo.DefaultDatastore, err = GetDatastoreByURL(ctx, vs, datastoreURL, defaultDatacenter)
 			if err == nil {
-				framework.Logf("Cluster %s found matching the datastore URL: %s", clusterComputeResource[0].Name(),
-					datastoreURL)
+				framework.Logf("Cluster %s found matching the datastore URL: %s", cluster.Name(), datastoreURL)
 				vs.TestInput.TestBedInfo.DefaultCluster = cluster
 				break
 			}
@@ -1391,13 +1392,7 @@ func WaitForHostConnectionState(ctx context.Context, vs *config.E2eTestConfig, a
 	var output string
 	waitErr := wait.PollUntilContextTimeout(ctx, constants.Poll, constants.PollTimeout, true,
 		func(ctx context.Context) (bool, error) {
-
-			output, err := GetHostConnectionState(ctx, vs, addr)
-			if err != nil {
-				framework.Logf("The host's %s last seen state before returning error is : %s", addr, output)
-				return false, nil
-			}
-
+			output, _ = GetHostConnectionState(ctx, vs, addr)
 			if state == output {
 				framework.Logf("The host's %s current state is as expected state : %s", addr, output)
 				return true, nil
@@ -2600,4 +2595,101 @@ func GetDsMoRefFromURL(ctx context.Context, vs *config.E2eTestConfig, dsURL stri
 	}
 	gomega.Expect(ds).NotTo(gomega.BeNil(), "Could not find MoRef for ds URL %v", dsURL)
 	return ds.Reference()
+}
+
+// This function lists the FCDs
+func ListFCD(ctx context.Context, vs *config.E2eTestConfig, dsRef vim25types.ManagedObjectReference) ([]vim25types.ID, error) {
+
+	req := vim25types.ListVStorageObject{
+		This:      *vs.VcClient.Client.ServiceContent.VStorageObjectManager,
+		Datastore: dsRef,
+	}
+	res, err := methods.ListVStorageObject(ctx, vs.VcClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	fcdIDs := res.Returnval
+	return fcdIDs, nil
+}
+
+// This function call CnsQueryVolume and returns all the volumes
+func QueryCNSVolumeList(vs *config.E2eTestConfig, datastores []vim25types.ManagedObjectReference) ([]cnstypes.CnsVolume, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Connect to VC
+	connections.ConnectToVC(ctx, vs)
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		Datastores: datastores,
+		Cursor: &cnstypes.CnsCursor{
+			Offset: 0,
+			Limit:  1000,
+		},
+	}
+	req := cnstypes.CnsQueryVolume{
+		This:   cnsclient.CnsVolumeManagerInstance,
+		Filter: &queryFilter,
+	}
+
+	err := connections.ConnectCns(ctx, vs)
+	if err != nil {
+		return nil, err
+	}
+	res, err := cnsmethods.CnsQueryVolume(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return nil, err
+	}
+
+	return res.Returnval.Volumes, nil
+}
+
+// GetClusterResourceByName returns the cluster's details of given given cluster name
+func GetClusterResourceByName(ctx context.Context,
+	vs *config.E2eTestConfig, clusterName string) *object.ClusterComputeResource {
+
+	finder := find.NewFinder(vs.VcClient.Client, false)
+	cfg, err := config.GetConfig()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dcList := strings.Split(cfg.Global.Datacenters, ",")
+	datacenters := []string{}
+	for _, dc := range dcList {
+		dcName := strings.TrimSpace(dc)
+		if dcName != "" {
+			datacenters = append(datacenters, dcName)
+		}
+	}
+
+	for _, dc := range datacenters {
+		defaultDatacenter, err := finder.Datacenter(ctx, dc)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		finder.SetDatacenter(defaultDatacenter)
+
+		clusterComputeResource, err := finder.ClusterComputeResourceList(ctx, "*")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for _, cluster := range clusterComputeResource {
+			if cluster.Name() == clusterName {
+				return cluster
+			}
+		}
+	}
+
+	framework.Logf("Not found any cluster with name : %s ", clusterName)
+	return nil
+}
+
+// GetAllHostsIPsInCluster reads cluster, gets hosts in it and returns IP array
+func GetAllHostsIPsInCluster(ctx context.Context, vs *config.E2eTestConfig, clusterName string) []string {
+	var result []string
+	cluster := GetClusterResourceByName(ctx, vs, clusterName)
+	if cluster != nil {
+		hosts, err := cluster.Hosts(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		for _, moHost := range hosts {
+			result = append(result, moHost.Name())
+		}
+	}
+	return result
 }
