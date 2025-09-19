@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Provision Testing With S
 		7. Delete Storage class
 	*/
 
-	ginkgo.It("[csi-file-vanilla] verify dynamic provisioning with ReadWriteMany access mode "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]verify dynamic provisioning with ReadWriteMany access mode "+
 		"when storage policy has non-vSAN compliant datastores", ginkgo.Label(p1,
 		negative, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
