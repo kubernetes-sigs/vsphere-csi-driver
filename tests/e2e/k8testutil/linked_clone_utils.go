@@ -107,9 +107,13 @@ func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConf
 
 	// Create volume snapshot
 	ginkgo.By("Create a volume snapshot")
+	performCnsQueryVolumeSnapshot := false
+	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		performCnsQueryVolumeSnapshot = true
+	}
 	volumeSnapshot, snapshotContent, _,
 		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
-		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, true)
+		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, performCnsQueryVolumeSnapshot)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	snapContentToDelete = append(snapContentToDelete, snapshotContent)
