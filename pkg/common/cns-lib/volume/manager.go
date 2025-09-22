@@ -1119,7 +1119,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		}
 
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
+		if volumeOperationRes.Fault != nil && volumeOperationRes.Fault.Fault != nil {
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
 			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 			if isResourceInUseFault {
@@ -1133,6 +1133,37 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 					return diskUUID, "", nil
 				}
 			}
+
+			// Check if this is a CnsFault with NotSupported fault cause
+			if cnsFault, isCnsFault := volumeOperationRes.Fault.Fault.(*cnstypes.CnsFault); isCnsFault {
+				if cnsFault.FaultCause != nil {
+					notSupportedFault, isNotSupportedFault := cnsFault.FaultCause.Fault.(*vim25types.NotSupported)
+					if isNotSupportedFault {
+						log.Infof("observed CnsFault with NotSupported fault cause while attaching volume: %q with vm: %q",
+							volumeID, vm.String())
+
+						// Extract the specific error message from NotSupported fault's FaultMessage array
+						var errorMessages []string
+						for _, faultMsg := range notSupportedFault.FaultMessage {
+							if faultMsg.Message != "" {
+								errorMessages = append(errorMessages, faultMsg.Message)
+							}
+						}
+
+						if len(errorMessages) > 0 {
+							extractedMessage := strings.Join(errorMessages, " - ")
+							log.Infof("NotSupported fault extracted message: %s", extractedMessage)
+							return "", faultType, logger.LogNewErrorf(log,
+								"%q Failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+								extractedMessage, volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+						}
+
+						// Fallback to detailed dump for debugging
+						log.Debugf("NotSupported fault details: %+v", spew.Sdump(cnsFault.FaultCause))
+					}
+				}
+			}
+
 			return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
 				volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
