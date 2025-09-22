@@ -362,6 +362,7 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 		ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 		// if !strings.Contains(clusterResult.Stdout, "10.") || !strings.Contains(clusterResult.Stdout, "192.") {
 		if !ipRegex.MatchString(clusterResult.Stdout) {
+			framework.Logf("Fetching cluster details using regex")
 			if clusterResult.Stdout != "" {
 				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
 				clusDetails = append(clusDetails, clusListTemp...)
