@@ -389,7 +389,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 10. Delete PVCs.
 	// 11. Delete SC.
 
-	ginkgo.It("[ef-vks] Statefulset tests with label updates", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Statefulset tests with label updates", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
