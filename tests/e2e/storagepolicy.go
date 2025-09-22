@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 	})
 
 	ginkgo.It("[ef-vanilla-block][ef-wcp][cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
-		"[csi-guest][ef-vks] Verify dynamic volume provisioning works when storage policy specified "+
+		"[csi-guest] Verify dynamic volume provisioning works when storage policy specified "+
 		"in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))

@@ -389,7 +389,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 10. Delete PVCs.
 	// 11. Delete SC.
 
-	ginkgo.It("[ef-vks][cf-vks] Statefulset tests with label updates", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Statefulset tests with label updates", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -848,7 +848,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 9. Wait for Pod name to be deleted in CNS.
 	// 10. Delete PVCs.
 
-	ginkgo.It("[cf-vks][ef-vks] Multiple PVCs - Verify Pod Name is updated/deleted "+
+	ginkgo.It("[cf-vks] Multiple PVCs - Verify Pod Name is updated/deleted "+
 		"on CNS", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var err error
@@ -1364,7 +1364,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	//    and PVC in SV.
 	// 19.Delete the corresponding PVC on SV.
 
-	ginkgo.It("[cf-vks][ef-vks] Static provisioning across Guest Clusters.", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Static provisioning across Guest Clusters.", ginkgo.Label(p1, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

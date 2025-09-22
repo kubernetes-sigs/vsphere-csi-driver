@@ -1331,7 +1331,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   17. Delete SC and VolumeSnapshotClass
 	*/
 	ginkgo.It("[cf-vks][cf-vanilla-block][block-vanilla-snapshot][tkg-snapshot]"+
-		"[ef-vks-snapshot] Volume snapshot creation and restoration workflow with xfs "+
+		"Volume snapshot creation and restoration workflow with xfs "+
 		"filesystem", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

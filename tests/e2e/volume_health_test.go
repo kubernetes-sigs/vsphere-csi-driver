@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	//    7.	Verify PV entry is deleted from CNS.
 	//    8.	Delete the SC.
 
-	ginkgo.It("[ef-wcp][cf-vks][csi-supervisor] [csi-guest][ef-vks] Verify health annotation added on the pvc is "+
+	ginkgo.It("[ef-wcp][cf-vks][csi-supervisor] [csi-guest] Verify health annotation added on the pvc is "+
 		"accessible", ginkgo.Label(p0, block, wcp, tkg, vc70), func() {
 
 		var storageclass *storagev1.StorageClass
@@ -1122,7 +1122,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 7. Delete PVC from the tests namespace.
 	// 8. Delete the storage class.
 
-	ginkgo.It("[cf-vks][csi-guest] [ef-vks] In Guest Cluster Verify Volume health on "+
+	ginkgo.It("[cf-vks][csi-guest] In Guest Cluster Verify Volume health on "+
 		"Statefulset", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
