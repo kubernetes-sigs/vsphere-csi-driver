@@ -396,7 +396,8 @@ func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluste
 	var hostsList, hostList []string
 	framework.Logf("Fetching ESXi host details")
 	for i := 0; i < len(cluster); i++ {
-		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
+		// hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
+		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " | grep -Eo '[0-9]{1,3}(\\.[0-9]{1,3}){3}'"
 		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
 		if err != nil && hostsResult.Code != 0 {
 			fssh.LogResult(hostsResult)
