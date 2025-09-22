@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][ef-vks] "+
+	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
 		"Statefulset testing with raw block volume and default podManagementPolicy", ginkgo.Label(p0, block, vanilla,
 		tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -416,7 +416,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		10. Delete pod.
 		11. Wait for volume to be detached.
 	*/
-	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized][ef-vks] "+
+	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
 		"Should create and delete pod with the same raw block volume", ginkgo.Label(p0, block, vanilla, tkg,
 		vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
