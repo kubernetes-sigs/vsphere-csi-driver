@@ -50,6 +50,7 @@ var pvcSnapshots []*snapV1.VolumeSnapshot
 var persistentvolumes []*v1.PersistentVolume
 var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 var isTestPassed bool
+var dsType string
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
 	storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, pvclaims []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
@@ -58,6 +59,26 @@ func createPVC(ctx context.Context, client clientset.Interface, namespace string
 	pvclaim, err := k8testutil.CreatePVC(ctx, client, namespace, nil, ds, storageclass, accessMode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	pvclaims[index] = pvclaim
+}
+
+func deletePVC(ctx context.Context, client clientset.Interface, namespace string, pvclaims []*v1.PersistentVolumeClaim, persistentvolumes []*v1.PersistentVolume, index int, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+
+	err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaims[index].Name, namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Verify PVs, volumes are deleted from CNS")
+	err = fpv.WaitForPersistentVolumeDeleted(ctx, client, persistentvolumes[index].Name, framework.Poll,
+		framework.PodDeleteTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	volumeID := persistentvolumes[index].Spec.CSI.VolumeHandle
+	err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+			"kubernetes", volumeID))
 }
 
 func createSnapshot(ctx context.Context, namespace string, pvclaims []*v1.PersistentVolumeClaim, index int, pvcSnapshots []*snapV1.VolumeSnapshot, wgMain *sync.WaitGroup) {
@@ -111,6 +132,17 @@ func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, s
 	pvcsCreatedFromSnapshot[index] = pvcFromSnapshot
 }
 
+func deleteSnapshot(ctx context.Context, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, index int, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+	restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+	snapc, _ := snapclient.NewForConfig(restConfig)
+	ginkgo.By("Delete volume snapshot")
+
+	framework.Logf("Deleting volume snapshot")
+	k8testutil.DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, pvcSnapshots[index].Name, constants.DefaultPandoraSyncWaitTime)
+}
+
 func createLinkedClone(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedWithLinkedClone []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
@@ -119,36 +151,101 @@ func createLinkedClone(ctx context.Context, client clientset.Interface, storagec
 	pvcsCreatedWithLinkedClone[index] = pvclaim
 }
 
-func restartService(ctx context.Context, c clientset.Interface, serviceName string, wgMain *sync.WaitGroup) {
+func restartService(ctx context.Context, client clientset.Interface, serviceName string, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
 
 	time.Sleep(time.Duration(2) * time.Second) //Waiting provisioning to start
 
 	var fullSyncWaitTime int
-	var isCsiServiceStopped, isVpxaServiceStopped, isWebHookServiceStopped, isServiceStopped bool //isHostDServiceStopped
+	var isCsiServiceStopped, isVpxaServiceStopped, isWebHookServiceStopped, isServiceStopped bool
 	switch serviceName {
+
+	case constants.ApdName:
+		framework.Logf("In APD....")
+		resultDatastores, _ := vcutil.GetDatastoresByType(e2eTestConfig.VcClient, constants.Vmfs)
+
+		ginkgo.By("Fetch IPs for the all the hosts in the cluster")
+		clusterName := os.Getenv(constants.EnvComputeClusterName)
+		framework.Logf("Cluster Name : %s", clusterName)
+		hostIPs := vcutil.GetAllHostsIPsInCluster(ctx, e2eTestConfig, clusterName)
+		framework.Logf("No of hosts in the cluster : %s = %d", clusterName, len(hostIPs))
+
+		for _, vmfaDatastore := range resultDatastores {
+			scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+			var wg sync.WaitGroup
+			wg.Add(len(hostIPs))
+			for _, hostIP := range hostIPs {
+				go vcutil.InjectAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, scsiLun, hostIP, &wg)
+			}
+			wg.Wait()
+		}
+
+		defer func() {
+			framework.Logf("In defer function clearing the APD")
+			for _, vmfaDatastore := range resultDatastores {
+				scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+				var wg sync.WaitGroup
+				wg.Add(len(hostIPs))
+				for _, hostIP := range hostIPs {
+					go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, scsiLun, hostIP, &wg)
+				}
+				wg.Wait()
+			}
+		}()
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+
+		ginkgo.By("Clearing the APD..........")
+
+		for _, vmfaDatastore := range resultDatastores {
+			scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+			var wg sync.WaitGroup
+			wg.Add(len(hostIPs))
+			for _, hostIP := range hostIPs {
+				go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, scsiLun, hostIP, &wg)
+			}
+			wg.Wait()
+		}
+
+	case constants.VsanPartition:
+		framework.Logf("In Vsan-Partition....")
+		framework.Logf("Disable vsan network on one the host's vmknic in the cluster")
+		nicMgr, err := k8testutil.CreateVsanPartition(ctx, e2eTestConfig, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		defer func() {
+			framework.Logf("In defer func, enable vsan network on one the host's vmknic in the cluster")
+			k8testutil.RemoveVsanPartition(ctx, nicMgr)
+		}()
+
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+
+		ginkgo.By("Removing the vSAN Partition..........")
+		k8testutil.RemoveVsanPartition(ctx, nicMgr)
 
 	case constants.CsiServiceName:
 		// Get CSI Controller's replica count from the setup
-		deployment, err := c.AppsV1().Deployments(constants.CsiSystemNamespace).Get(ctx,
+		deployment, err := client.AppsV1().Deployments(constants.CsiSystemNamespace).Get(ctx,
 			constants.VSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping CSI driver")
-		isCsiServiceStopped, err = k8testutil.StopCSIPods(ctx, c, constants.CsiSystemNamespace)
+		isCsiServiceStopped, err = k8testutil.StopCSIPods(ctx, client, constants.CsiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isCsiServiceStopped {
 				framework.Logf("Starting CSI driver")
-				isCsiServiceStopped, err = k8testutil.StartCSIPods(ctx, c, csiReplicaCount, constants.CsiSystemNamespace)
+				isCsiServiceStopped, err = k8testutil.StartCSIPods(ctx, client, csiReplicaCount, constants.CsiSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		framework.Logf("Starting CSI driver")
-		isCsiServiceStopped, err = k8testutil.StartCSIPods(ctx, c, csiReplicaCount, constants.CsiSystemNamespace)
+		isCsiServiceStopped, err = k8testutil.StartCSIPods(ctx, client, csiReplicaCount, constants.CsiSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if os.Getenv(constants.EnvFullSyncWaitTime) != "" {
@@ -167,24 +264,24 @@ func restartService(ctx context.Context, c clientset.Interface, serviceName stri
 
 	case constants.StorageQuotaWebhookServiceName:
 		// Get CSI Controller's replica count from the setup
-		deployment, err := c.AppsV1().Deployments(constants.KubeSystemNamespace).Get(ctx,
+		deployment, err := client.AppsV1().Deployments(constants.KubeSystemNamespace).Get(ctx,
 			constants.StorageQuotaWebhookPrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount := *deployment.Spec.Replicas
 
 		ginkgo.By("Stopping webhook driver")
-		isWebHookServiceStopped, err = k8testutil.StopStorageQuotaWebhookPodInKubeSystem(ctx, c, constants.KubeSystemNamespace)
+		isWebHookServiceStopped, err = k8testutil.StopStorageQuotaWebhookPodInKubeSystem(ctx, client, constants.KubeSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		defer func() {
 			if isWebHookServiceStopped {
 				framework.Logf("Starting storage-quota-webhook driver")
-				isWebHookServiceStopped, err = k8testutil.StartStorageQuotaWebhookPodInKubeSystem(ctx, c, csiReplicaCount, constants.KubeSystemNamespace)
+				isWebHookServiceStopped, err = k8testutil.StartStorageQuotaWebhookPodInKubeSystem(ctx, client, csiReplicaCount, constants.KubeSystemNamespace)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}()
 		framework.Logf("Starting storage-quota-webhook ")
-		isWebHookServiceStopped, err = k8testutil.StartStorageQuotaWebhookPodInKubeSystem(ctx, c, csiReplicaCount, constants.KubeSystemNamespace)
+		isWebHookServiceStopped, err = k8testutil.StartStorageQuotaWebhookPodInKubeSystem(ctx, client, csiReplicaCount, constants.KubeSystemNamespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if os.Getenv(constants.EnvFullSyncWaitTime) != "" {
@@ -224,7 +321,6 @@ func restartService(ctx context.Context, c clientset.Interface, serviceName stri
 			go k8testutil.StartHostd(ctx, e2eTestConfig, hostIP, &wg)
 		}
 		wg.Wait()
-		// isHostDServiceStopped = false
 
 	case constants.VpxaServiceName:
 		ginkgo.By("Fetch IPs for the all the hosts in the cluster")

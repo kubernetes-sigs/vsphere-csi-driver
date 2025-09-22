@@ -8499,3 +8499,24 @@ func PvcSpecWithLinkedCloneAnnotation(namespace string, storageclass *storagev1.
 	}
 	return claim
 }
+
+// CreateVsanPartition selects a random host as partitioned host and creates vSAN
+// partitioning by disabling the vSAN service on the vmkernel adapter
+func CreateVsanPartition(ctx context.Context, vs *config.E2eTestConfig, client clientset.Interface) (*object.HostVirtualNicManager, error) {
+	ginkgo.By("Disable vsan network on one the host's vmknic in the cluster")
+	workervms := GetWorkerVmMoRefs(ctx, vs, client)
+	targetHost := vcutil.GetHostFromVMReference(ctx, vs, workervms[0].Reference())
+	targetHostSystem := object.NewHostSystem(vs.VcClient.Client, targetHost.Reference())
+	nicMgr, err := targetHostSystem.ConfigManager().VirtualNicManager(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = nicMgr.DeselectVnic(ctx, "vsan", env.GetAndExpectStringEnvVar(constants.EnvVmknic4Vsan))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return nicMgr, err
+}
+
+// RemoveVsanPartition method removes vSAN partitioning by enabling the vSAN service on the vmkernel adapter in the partitioned host
+func RemoveVsanPartition(ctx context.Context, nicMgr *object.HostVirtualNicManager) {
+	ginkgo.By("Enable vsan network on the host's vmknic in cluster")
+	err := nicMgr.SelectVnic(ctx, "vsan", env.GetAndExpectStringEnvVar(constants.EnvVmknic4Vsan))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}

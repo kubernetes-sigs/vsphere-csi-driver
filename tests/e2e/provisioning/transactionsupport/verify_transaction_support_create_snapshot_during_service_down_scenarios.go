@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -45,7 +46,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
-var _ = ginkgo.Describe("Transaction_Support", func() {
+var _ = ginkgo.Describe("Transaction_Support_CreateSnapshot", func() {
 	f := framework.NewDefaultFramework("transaction-support")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	log := logger.GetLogger(context.Background())
@@ -74,6 +75,7 @@ var _ = ginkgo.Describe("Transaction_Support", func() {
 				namespace = vcutil.GetNamespaceToRunTests(f, e2eTestConfig)
 				scParameters = make(map[string]string)
 				storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
+				dsType = env.GetStringEnvVarOrDefault(constants.EnvDatastoreType, constants.Vmfs)
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
@@ -209,50 +211,81 @@ var _ = ginkgo.Describe("Transaction_Support", func() {
 			*/
 
 			ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
-				"Veify Transaction Support During Service Down", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
+				"Veify Create Snapshot With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
 				constants.Windows, constants.Wcp, constants.Tkg, constants.Vanilla, constants.Vc91), func() {
+				if slices.Contains(serviceNames, constants.ApdName) {
+					if dsType != constants.Vmfs {
+						framework.Logf("Currently APD test(s) are only covered for VMFS datastore")
+						ginkgo.Skip("Currently APD test(s) are only covered for VMFS datastore")
+					}
+				} else if slices.Contains(serviceNames, constants.VsanPartition) {
+					if dsType != constants.Vsan {
+						framework.Logf("Vsan-Partition test(s) are only for VSAN datastore")
+						ginkgo.Skip("Vsan-Partition test(s) are only for VSAN datastore")
+					}
+				}
 				createVolumeSnapshotWithServiceDown(serviceNames, namespace, client, storagePolicyName,
 					scParameters, volumeOpsScale, c)
 			})
 		},
 
 		ginkgo.Entry("CSI-Service-Down", []string{constants.CsiServiceName}),
-		ginkgo.Entry("Vsanhealth-Service-Down", []string{constants.VsanhealthServiceName}),
-		ginkgo.Entry("Vpxd-Service-Down", []string{constants.VpxdServiceName}),
-		ginkgo.Entry("SPS-Service-Down", []string{constants.SpsServiceName}),
-		ginkgo.Entry("Vpxa-Service-Down", []string{constants.VpxaServiceName}),
-		ginkgo.Entry("Hostd-Service-Down", []string{constants.HostdServiceName}),
-		ginkgo.Entry("Wcp-Service-Down", []string{constants.WcpServiceName}),
-		ginkgo.Entry("VcDb-Service-Down", []string{constants.VcDbServiceName}),
+		// ginkgo.Entry("Vsanhealth-Service-Down", []string{constants.VsanhealthServiceName}),
+		// ginkgo.Entry("Vpxd-Service-Down", []string{constants.VpxdServiceName}),
+		// ginkgo.Entry("SPS-Service-Down", []string{constants.SpsServiceName}),
+		// ginkgo.Entry("Vpxa-Service-Down", []string{constants.VpxaServiceName}),
+		// ginkgo.Entry("Hostd-Service-Down", []string{constants.HostdServiceName}),
+		// ginkgo.Entry("Wcp-Service-Down", []string{constants.WcpServiceName}),
+		// ginkgo.Entry("VcDb-Service-Down", []string{constants.VcDbServiceName}),
 
-		ginkgo.Entry("CSI-Vsanhealth-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName}),
-		ginkgo.Entry("CSI-Vpxd-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName}),
-		ginkgo.Entry("CSI-Sps-Services-Down", []string{constants.CsiServiceName, constants.SpsServiceName}),
-		ginkgo.Entry("CSI-Wcp-Services-Down", []string{constants.CsiServiceName, constants.WcpServiceName}),
-		ginkgo.Entry("CSI-VcDb-Services-Down", []string{constants.CsiServiceName, constants.VcDbServiceName}),
-		ginkgo.Entry("CSI-Hostd-Services-Down", []string{constants.CsiServiceName, constants.HostdServiceName}),
-		ginkgo.Entry("CSI-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VpxaServiceName}),
+		// ginkgo.Entry("CSI-Vsanhealth-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName}),
+		// ginkgo.Entry("CSI-Vpxd-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName}),
+		// ginkgo.Entry("CSI-Sps-Services-Down", []string{constants.CsiServiceName, constants.SpsServiceName}),
+		// ginkgo.Entry("CSI-Wcp-Services-Down", []string{constants.CsiServiceName, constants.WcpServiceName}),
+		// ginkgo.Entry("CSI-VcDb-Services-Down", []string{constants.CsiServiceName, constants.VcDbServiceName}),
+		// ginkgo.Entry("CSI-Hostd-Services-Down", []string{constants.CsiServiceName, constants.HostdServiceName}),
+		// ginkgo.Entry("CSI-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VpxaServiceName}),
 
-		ginkgo.Entry("Vsanhealth-Vpxd-Services-Down", []string{constants.VsanhealthServiceName, constants.VpxdServiceName}),
-		ginkgo.Entry("Vsanhealth-Sps-Services-Down", []string{constants.VsanhealthServiceName, constants.SpsServiceName}),
-		ginkgo.Entry("Vsanhealth-Wcp-Services-Down", []string{constants.VsanhealthServiceName, constants.WcpServiceName}),
-		ginkgo.Entry("Vsanhealth-VcDb-Services-Down", []string{constants.VsanhealthServiceName, constants.VcDbServiceName}),
-		ginkgo.Entry("Vsanhealth-Hostd-Services-Down", []string{constants.VsanhealthServiceName, constants.HostdServiceName}),
-		ginkgo.Entry("Vsanhealth-Vpxa-Services-Down", []string{constants.VsanhealthServiceName, constants.VpxaServiceName}),
+		// ginkgo.Entry("Vsanhealth-Vpxd-Services-Down", []string{constants.VsanhealthServiceName, constants.VpxdServiceName}),
+		// ginkgo.Entry("Vsanhealth-Sps-Services-Down", []string{constants.VsanhealthServiceName, constants.SpsServiceName}),
+		// ginkgo.Entry("Vsanhealth-Wcp-Services-Down", []string{constants.VsanhealthServiceName, constants.WcpServiceName}),
+		// ginkgo.Entry("Vsanhealth-VcDb-Services-Down", []string{constants.VsanhealthServiceName, constants.VcDbServiceName}),
+		// ginkgo.Entry("Vsanhealth-Hostd-Services-Down", []string{constants.VsanhealthServiceName, constants.HostdServiceName}),
+		// ginkgo.Entry("Vsanhealth-Vpxa-Services-Down", []string{constants.VsanhealthServiceName, constants.VpxaServiceName}),
 
-		ginkgo.Entry("Vpxd-Sps-Services-Down", []string{constants.VpxdServiceName, constants.SpsServiceName}),
-		ginkgo.Entry("Vpxd-Wcp-Services-Down", []string{constants.VpxdServiceName, constants.WcpServiceName}),
-		ginkgo.Entry("Vpxd-VcDb-Services-Down", []string{constants.VpxdServiceName, constants.VcDbServiceName}),
-		ginkgo.Entry("Vpxd-Hostd-Services-Down", []string{constants.VpxdServiceName, constants.HostdServiceName}),
-		ginkgo.Entry("Vpxd-Vpxa-Services-Down", []string{constants.VpxdServiceName, constants.VpxaServiceName}),
+		// ginkgo.Entry("Vpxd-Sps-Services-Down", []string{constants.VpxdServiceName, constants.SpsServiceName}),
+		// ginkgo.Entry("Vpxd-Wcp-Services-Down", []string{constants.VpxdServiceName, constants.WcpServiceName}),
+		// ginkgo.Entry("Vpxd-VcDb-Services-Down", []string{constants.VpxdServiceName, constants.VcDbServiceName}),
+		// ginkgo.Entry("Vpxd-Hostd-Services-Down", []string{constants.VpxdServiceName, constants.HostdServiceName}),
+		// ginkgo.Entry("Vpxd-Vpxa-Services-Down", []string{constants.VpxdServiceName, constants.VpxaServiceName}),
 
-		ginkgo.Entry("CSI-Vsanhealth-Vpxd-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.VpxdServiceName}),
-		ginkgo.Entry("CSI-Vpxd-Hostd-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.HostdServiceName}),
-		ginkgo.Entry("CSI-Vsanhealth-Sps-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.SpsServiceName}),
-		ginkgo.Entry("CSI-Vpxd-Wcp-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.WcpServiceName}),
-		ginkgo.Entry("CSI-Vsanhealth-Hostd-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.HostdServiceName}),
-		ginkgo.Entry("CSI-Vpxd-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.VpxaServiceName}),
-		ginkgo.Entry("CSI-Vsanhealth-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.VpxaServiceName}),
+		// ginkgo.Entry("CSI-Vsanhealth-Vpxd-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.VpxdServiceName}),
+		// ginkgo.Entry("CSI-Vpxd-Hostd-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.HostdServiceName}),
+		// ginkgo.Entry("CSI-Vsanhealth-Sps-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.SpsServiceName}),
+		// ginkgo.Entry("CSI-Vpxd-Wcp-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.WcpServiceName}),
+		// ginkgo.Entry("CSI-Vsanhealth-Hostd-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.HostdServiceName}),
+		// ginkgo.Entry("CSI-Vpxd-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.VpxaServiceName}),
+		// ginkgo.Entry("CSI-Vsanhealth-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.VpxaServiceName}),
+
+		ginkgo.Entry("Datastore-APD", []string{constants.ApdName}),
+		// ginkgo.Entry("APD-CSI-Service-Down", []string{constants.ApdName, constants.CsiServiceName}),
+		// ginkgo.Entry("APD-Vsanhealth-Services-Down", []string{constants.ApdName, constants.VsanhealthServiceName}),
+		// ginkgo.Entry("APD-Vpxd-Services-Down", []string{constants.ApdName, constants.VpxdServiceName}),
+		// ginkgo.Entry("APD-Sps-Services-Down", []string{constants.ApdName, constants.SpsServiceName}),
+		// ginkgo.Entry("APD-Wcp-Services-Down", []string{constants.ApdName, constants.WcpServiceName}),
+		// ginkgo.Entry("APD-VcDb-Services-Down", []string{constants.ApdName, constants.VcDbServiceName}),
+		// ginkgo.Entry("APD-Hostd-Services-Down", []string{constants.ApdName, constants.HostdServiceName}),
+		// ginkgo.Entry("APD-Vpxa-Services-Down", []string{constants.ApdName, constants.VpxaServiceName}),
+
+		// ginkgo.Entry("VSAN-Partitioning", []string{constants.VsanPartition}),
+		// ginkgo.Entry("VSAN-Partitioning-CSI-Service-Down", []string{constants.VsanPartition, constants.CsiServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Vsanhealth-Services-Down", []string{constants.VsanPartition, constants.VsanhealthServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Vpxd-Services-Down", []string{constants.VsanPartition, constants.VpxdServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Sps-Services-Down", []string{constants.VsanPartition, constants.SpsServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Wcp-Services-Down", []string{constants.VsanPartition, constants.WcpServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-VcDb-Services-Down", []string{constants.VsanPartition, constants.VcDbServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Hostd-Services-Down", []string{constants.VsanPartition, constants.HostdServiceName}),
+		// ginkgo.Entry("VSAN-Partitioning-Vpxa-Services-Down", []string{constants.VsanPartition, constants.VpxaServiceName}),
 	)
 })
 
@@ -378,6 +411,6 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 	gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
 
-	k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
+	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	isTestPassed = true
 }

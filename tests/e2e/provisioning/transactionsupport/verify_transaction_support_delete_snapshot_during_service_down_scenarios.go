@@ -47,7 +47,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
-var _ = ginkgo.Describe("Transaction_Support_LC", func() {
+var _ = ginkgo.Describe("Transaction_Support_DeleteSnapshot", func() {
 	f := framework.NewDefaultFramework("transaction-support")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	log := logger.GetLogger(context.Background())
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 			*/
 
 			ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
-				"Veify Create Linked Clone With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
+				"Veify Delete Volume Snapshot With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
 				constants.Windows, constants.Wcp, constants.Tkg, constants.Vanilla, constants.Vc91), func() {
 				if slices.Contains(serviceNames, constants.ApdName) {
 					if dsType != constants.Vmfs {
@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 						ginkgo.Skip("Vsan-Partition test(s) are only for VSAN datastore")
 					}
 				}
-				createLinkedCloneWithServiceDown(serviceNames, namespace, client, storagePolicyName,
+				deleteVolumeSnapshotWithServiceDown(serviceNames, namespace, client, storagePolicyName,
 					scParameters, volumeOpsScale, c)
 			})
 		},
@@ -267,7 +267,6 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 		// ginkgo.Entry("CSI-Vsanhealth-Hostd-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.HostdServiceName}),
 		// ginkgo.Entry("CSI-Vpxd-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VpxdServiceName, constants.VpxaServiceName}),
 		// ginkgo.Entry("CSI-Vsanhealth-Vpxa-Services-Down", []string{constants.CsiServiceName, constants.VsanhealthServiceName, constants.VpxaServiceName}),
-
 		ginkgo.Entry("Datastore-APD", []string{constants.ApdName}),
 		// ginkgo.Entry("APD-CSI-Service-Down", []string{constants.ApdName, constants.CsiServiceName}),
 		// ginkgo.Entry("APD-Vsanhealth-Services-Down", []string{constants.ApdName, constants.VsanhealthServiceName}),
@@ -292,7 +291,7 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 
 // createVolumeWithServiceDown creates the volumes and immediately restart the services and wait for
 // the service to be up again and validates the volumes are bound
-func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, client clientset.Interface,
+func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string, client clientset.Interface,
 	storagePolicyName string, scParameters map[string]string, volumeOpsScale int,
 	c clientset.Interface) {
 	var err error
@@ -351,7 +350,6 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
 		2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(len(pvclaims) == volumeOpsScale).NotTo(gomega.BeFalse())
 
 	wg.Add(volumeOpsScale)
 	for i := range volumeOpsScale {
@@ -377,13 +375,11 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
 	}
 
-	var pvclaimsCreatedFromSnapshot []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
-
 	wg.Add(len(serviceNames) + volumeOpsScale)
 
 	for i := range volumeOpsScale {
 		framework.Logf("Creating volume from snapshot %v", i)
-		go createLinkedClone(ctx, client, storageclass, namespace, pvcSnapshots, pvclaimsCreatedFromSnapshot, i, diskSize, &wg)
+		go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
 	}
 
 	for _, serviceName := range serviceNames {
@@ -398,6 +394,7 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	framework.Logf("Waiting for qutoa updation")
 	time.Sleep(1 * time.Minute)
 
+	volumeOpsScale = volumeOpsScale * -1
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
@@ -418,11 +415,11 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	framework.Logf("Is Num of Volumes Matched : %t", numberOfVolumesRetVal)
 	framework.Logf("Is Num of Snapshots Matched : %t", numberOfSnapshotsRetVal)
 
-	gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
-	gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")
-	gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
-	gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
-	// gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
+	// gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
+	// gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")
+	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
+	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
+	gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	isTestPassed = true

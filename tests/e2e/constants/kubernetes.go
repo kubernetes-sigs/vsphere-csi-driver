@@ -107,6 +107,8 @@ const (
 	VpxaServiceCommand                        = "/etc/init.d/vpxa"
 	VpxaServiceName                           = "vpxa"
 	CsiServiceName                            = "CSI"
+	ApdName                                   = "APD"
+	VsanPartition                             = "VSANPARTITION"
 	StorageQuotaWebhookServiceName            = "storage-quota-webhook"
 	WcpServiceName                            = "wcp"
 	VmcWcpHost                                = "10.2.224.24" //This is the LB IP of VMC WCP and its constant

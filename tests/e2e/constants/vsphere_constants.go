@@ -26,10 +26,12 @@ const (
 	DiskSize1GB             = "1Gi"
 	DiskSize                = "2Gi"
 	DiskSize10GB            = "10Gi"
+	DiskSize5GB             = "10Gi"
 	DiskSizeLarge           = "100Gi"
 	DiskSizeInMb            = int64(2048)
 	DiskSizeInMinMb         = int64(200)
 	DiskSize10GBInMb        = int64(10240)
+	DiskSize5GBInMb         = int64(5120)
 	E2eTestPassword         = "E2E-test-password!23"
 	E2evSphereCSIDriverName = "csi.vsphere.vmware.com"
 	Ext3FSType              = "ext3"
@@ -51,4 +53,9 @@ const (
 	ObjOrItemNotFoundErr    = "The object or item referred to could not be found"
 	ProviderPrefix          = "vsphere://"
 	Local                   = "local"
+
+	// Datastore Types
+	Vmfs = "VMFS"
+	Vsan = "VSAN"
+	Nfs  = "NFS"
 )
