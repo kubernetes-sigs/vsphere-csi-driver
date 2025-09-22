@@ -361,6 +361,8 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 		clusDetails = nil
 		ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 		// if !strings.Contains(clusterResult.Stdout, "10.") || !strings.Contains(clusterResult.Stdout, "192.") {
+		matches := ipRegex.FindAllString(clusterResult.Stdout, -1)
+		framework.Logf("Matched IPs: %v", matches)
 		if !ipRegex.MatchString(clusterResult.Stdout) {
 			framework.Logf("Fetching cluster details using regex")
 			if clusterResult.Stdout != "" {
