@@ -116,8 +116,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	//    PV/PVC/Pod in GC and PVC in SV.
 	// 6. Delete Pod.
 	// 7. Delete PVC.
-	ginkgo.It("[ef-vks] Verify CnsVolumeMetadata's entityReference for the volume on CNS", ginkgo.Label(p0,
-		block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Verify CnsVolumeMetadata's entityReference for the volume "+
+		"on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -208,7 +208,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 8. Verify CnsVolumeMetadata CRD in SV is updated.
 	// 9. Wait for labels to be deleted in CNS.
 	// 10. Delete PVC.
-	ginkgo.It("[ef-vks] Validate PVC labels are updated/deleted on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Validate PVC labels are updated/deleted on CNS", ginkgo.Label(p0,
+		block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -289,7 +290,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 8. Verify CnsVolumeMetadata CRD in SV is deleted.
 	// 9. Wait for Pod name to be deleted in CNS.
 	// 10. Delete PVC.
-	ginkgo.It("[ef-vks] Verify Pod Name is updated/deleted on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Verify Pod Name is updated/deleted on CNS", ginkgo.Label(p0,
+		block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -511,7 +513,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 6. Bring up csi-controller pod in SV.
 	// 7. Verify PV and PVC entry is updated in CNS.
 	// 8. Delete PVC.
-	ginkgo.It("[ef-vks] Verify CNS Operator receives callbacks on all objects when "+
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Verify CNS Operator receives callbacks on all objects when "+
 		"csi-controller was brought back up", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -633,7 +635,8 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 9. Wait for labels to be deleted in CNS.
 	// 10. Delete PVC.
 
-	ginkgo.It("[ef-vks] Validate PV labels are updated/deleted on CNS.", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Validate PV labels are updated/deleted on CNS.", ginkgo.Label(p0,
+		block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -718,7 +721,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 10. Verify CnsVolumeMetadata CRD in SV are updated.
 	// 11. Wait for labels to be deleted in CNS.
 	// 12. Delete PVC.
-	ginkgo.It("[ef-vks] Validate PV and PVC labels are updated/deleted "+
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Validate PV and PVC labels are updated/deleted "+
 		"on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
