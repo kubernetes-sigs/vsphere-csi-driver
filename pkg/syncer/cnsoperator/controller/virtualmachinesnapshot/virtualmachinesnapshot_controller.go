@@ -292,7 +292,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		// if found fetch vmsnapshot and pvcs and pvs
 		vmKey := apitypes.NamespacedName{
 			Namespace: vmsnapshot.Namespace,
-			Name:      vmsnapshot.Spec.VMRef.Name,
+			Name:      vmsnapshot.Spec.VMName,
 		}
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
