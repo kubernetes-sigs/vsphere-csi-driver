@@ -41,6 +41,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -216,6 +217,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	dsList = append(dsList, datastoreInfoObj.Datastore.Reference())
 	runTestMetadataSyncInformer(t)
 	runTestFullSyncWorkflows(t)
+	runTestCsiFullSync_WorkloadCluster(t)
 	t.Log("TestSyncerWorkflows: end")
 }
 
@@ -990,4 +992,48 @@ func TestGetVCForTopologySegments(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCsiFullSync_WorkloadCluster tests that CsiFullSync works correctly for WORKLOAD clusters
+// This test runs as a subtest within TestSyncerWorkflows to ensure proper initialization
+func runTestCsiFullSync_WorkloadCluster(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize commonco.ContainerOrchestratorUtility for WORKLOAD cluster testing
+	// This is required for CsiFullSync to work properly with WORKLOAD clusters
+	fakeCommonCO, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("Failed to get fake CO interface: %v", err)
+	}
+	// Store the original value to restore later
+	originalCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = fakeCommonCO
+	defer func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+	}()
+
+	// Create a WORKLOAD cluster metadataSyncer (note: volumeManagers map is NOT populated)
+	// This simulates the real WORKLOAD cluster setup where only volumeManager is set
+	workloadMetadataSyncer := &metadataSyncInformer{
+		clusterFlavor:     cnstypes.CnsClusterFlavorWorkload,
+		volumeManager:     volumeManager, // Use the initialized global volumeManager
+		host:              virtualCenter.Config.Host,
+		configInfo:        metadataSyncer.configInfo,        // Use the global metadataSyncer's configInfo
+		coCommonInterface: metadataSyncer.coCommonInterface, // Use the global metadataSyncer's coCommonInterface
+		// Copy the Kubernetes listers from the global metadataSyncer
+		pvLister:  metadataSyncer.pvLister,
+		pvcLister: metadataSyncer.pvcLister,
+		podLister: metadataSyncer.podLister,
+		// volumeManagers map is intentionally NOT populated to simulate real WORKLOAD cluster
+	}
+
+	// Test that CsiFullSync works for WORKLOAD cluster - this is the high-level test
+	// that verifies the entire full sync flow doesn't fail due to the regression
+	err = CsiFullSync(ctx, workloadMetadataSyncer, virtualCenter.Config.Host)
+	if err != nil {
+		t.Errorf("CsiFullSync failed for WORKLOAD cluster: %v", err)
+	}
+
+	t.Logf("CsiFullSync completed successfully for WORKLOAD cluster")
 }
