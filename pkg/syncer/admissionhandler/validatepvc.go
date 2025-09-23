@@ -106,6 +106,18 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 
 		// only admit PVC deletion or expansion events.
 		if req.Operation == admissionv1.Delete || req.Operation == admissionv1.Update && newReq.Cmp(oldReq) > 0 {
+			// Check if the namespace is being deleted for PVC deletion operations
+			if req.Operation == admissionv1.Delete && isNamespaceBeingDeleted(ctx, oldPVC.Namespace) {
+				log.Infof("Allowing PVC %s/%s deletion as namespace %s is being deleted",
+					oldPVC.Namespace, oldPVC.Name, oldPVC.Namespace)
+				return &admissionv1.AdmissionResponse{
+					Allowed: true,
+					Result: &metav1.Status{
+						Reason: "Namespace is being deleted",
+					},
+				}
+			}
+
 			snapshots, err := getSnapshotsForPVC(ctx, oldPVC.Namespace, oldPVC.Name)
 			if err != nil {
 				log.Warnf("error getting snapshots for pvc: %v. skipping validation.", err)
@@ -435,77 +447,85 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 
 	// Retrieve the source PVC from the VolumeSnapshot
 	sourcePVCName := volumeSnapshot.Spec.Source.PersistentVolumeClaimName
-	sourcePVC, err := k8sClient.CoreV1().PersistentVolumeClaims(volumeSnapshot.Namespace).Get(ctx, *sourcePVCName,
-		metav1.GetOptions{})
-	if err != nil {
-		errMsg := fmt.Sprintf("error getting source PVC %v from api server: %v", *sourcePVCName, err)
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+	// If the VolumeSnapshot is statically provisioned, we don't need to
+	// validate based on the source PVC.
+	if sourcePVCName != nil {
+		sourcePVC, err := k8sClient.CoreV1().PersistentVolumeClaims(volumeSnapshot.Namespace).Get(ctx, *sourcePVCName,
+			metav1.GetOptions{})
+		if err != nil {
+			errMsg := fmt.Sprintf("error getting source PVC %v/%v from api server: %v",
+				volumeSnapshot.Namespace, *sourcePVCName, err)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
-	}
 
-	// The storageclass associated LinkedClone PVC should be the same the source PVC
-	sourcePVCStorageClassName := sourcePVC.Spec.StorageClassName
-	same := strings.Compare(*pvc.Spec.StorageClassName, *sourcePVCStorageClassName)
-	if same != 0 {
-		errMsg := fmt.Sprintf("StorageClass mismatch, LinkedClone StorageClass: %s, source PVC StorageClass: %s",
-			*pvc.Spec.StorageClassName, *sourcePVCStorageClassName)
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+		// The storageclass associated LinkedClone PVC should be the same the source PVC
+		sourcePVCStorageClassName := sourcePVC.Spec.StorageClassName
+		same := strings.Compare(*pvc.Spec.StorageClassName, *sourcePVCStorageClassName)
+		if same != 0 {
+			errMsg := fmt.Sprintf("StorageClass mismatch, Namespace: %s, LinkedClone StorageClass: "+
+				"%s, source PVC StorageClass: %s", sourcePVC.Namespace, *pvc.Spec.StorageClassName,
+				*sourcePVCStorageClassName)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
-	}
 
-	// the size should be same
-	sourcePVCSize, ok1 := sourcePVC.Spec.Resources.Requests[corev1.ResourceStorage]
-	linkedClonePVCSize, ok2 := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
-	if !ok1 {
-		errMsg := fmt.Sprintf("source PVC %s does not have a storage request defined", sourcePVC.Name)
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+		// the size should be same
+		sourcePVCSize, ok1 := sourcePVC.Spec.Resources.Requests[corev1.ResourceStorage]
+		linkedClonePVCSize, ok2 := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+		if !ok1 {
+			errMsg := fmt.Sprintf("source PVC %s/%s does not have a storage request defined",
+				sourcePVC.Namespace, sourcePVC.Name)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
-	}
-	if !ok2 {
-		errMsg := fmt.Sprintf("linkedClone PVC %s does not have a storage request defined", pvc.Name)
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+		if !ok2 {
+			errMsg := fmt.Sprintf("linkedClone PVC %s/%s does not have a storage request defined",
+				pvc.Namespace, pvc.Name)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
-	}
-	szResult := sourcePVCSize.Cmp(linkedClonePVCSize)
-	if szResult != 0 {
-		errMsg := fmt.Sprintf("size mismatch, Source PVC: %s LinkedClone PVC: %s",
-			sourcePVCSize.String(), linkedClonePVCSize.String())
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+		szResult := sourcePVCSize.Cmp(linkedClonePVCSize)
+		if szResult != 0 {
+			errMsg := fmt.Sprintf("size mismatch, Source PVC: %s LinkedClone PVC: %s",
+				sourcePVCSize.String(), linkedClonePVCSize.String())
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
-	}
 
-	// should not be a second level LinkedClone
-	if metav1.HasAnnotation(sourcePVC.ObjectMeta, common.AnnKeyLinkedClone) {
-		errMsg := fmt.Sprintf("cannot create a LinkedClone " +
-			"from a VolumeSnapshot that is created from another LinkedClone")
-		return &admissionv1.AdmissionResponse{
-			Allowed: false,
-			Result: &metav1.Status{
-				Message: errMsg,
-			},
+		// should not be a second level LinkedClone
+		if metav1.HasAnnotation(sourcePVC.ObjectMeta, common.AnnKeyLinkedClone) {
+			errMsg := fmt.Sprintf("cannot create a LinkedClone "+
+				"from a VolumeSnapshot %s/%s that is created from another LinkedClone %s/%s",
+				volumeSnapshot.Namespace, volumeSnapshot.Name, sourcePVC.Namespace, sourcePVC.Name)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
 		}
 	}
-
 	// return AdmissionResponse result
 	return &admissionv1.AdmissionResponse{
 		Allowed: true,

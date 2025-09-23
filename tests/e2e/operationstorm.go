@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		7. Delete Namespace  and Wait for volumes to be deleted and Volume Disk to be detached from the Node.
 	*/
 
-	ginkgo.It("[csi-file-vanilla] [csi-guest] Delete namespace to "+
+	ginkgo.It("[csi-file-vanilla] [csi-guest][pq-vanilla-file] Delete namespace to "+
 		"confirm all volumes and pods are deleted", ginkgo.Label(p0, vanilla, block, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

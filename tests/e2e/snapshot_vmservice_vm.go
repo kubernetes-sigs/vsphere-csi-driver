@@ -2846,7 +2846,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[stretched-svc] Taking snapshot of a vm service vm in a stretched supervisor "+
+	ginkgo.It("[ef-stretched-svc][stretched-svc] Taking snapshot of a vm service vm in a stretched supervisor "+
 		"cluster", ginkgo.Label(p0, block, stretchedSvc, vmServiceVm, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -3068,8 +3068,8 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   25. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[stretched-svc] Restoring snapshots and attaching it to a new vm service vms in a stretched supervisor "+
-		"env", ginkgo.Label(p0, block, stretchedSvc, snapshot, vc80), func() {
+	ginkgo.It("[ef-stretched-svc][stretched-svc] Restoring snapshots and attaching it to a new vm service vms in a "+
+		"stretched supervisor env", ginkgo.Label(p0, block, stretchedSvc, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

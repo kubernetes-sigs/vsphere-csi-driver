@@ -103,7 +103,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 	// 10. Verify pv and pvc label has been updated.
 	// 11. Delete PVC.
 	// 12. Delete Storage class.
-	ginkgo.It("verify labels are created in CNS after updating pvc and/or pv with new"+
+	ginkgo.It("[ef-file-vanilla] verify labels are created in CNS after updating pvc and/or pv with new"+
 		" labels for file volume", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		scParameters := make(map[string]string)

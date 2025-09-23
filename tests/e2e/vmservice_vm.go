@@ -745,7 +745,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvc1, pvc2
 	   9   Remove spbm policy attached to test namespace in step1
 	*/
-	ginkgo.It("[stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
+	ginkgo.It("[ef-stretched-svc][stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -860,7 +860,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   9	delete pvc1
 	   10   Remove spbm policy attached to test namespace in step1
 	*/
-	ginkgo.It("[stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
+	ginkgo.It("[ef-stretched-svc][stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -69,6 +70,14 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 				return admission.Denied(reason)
 			}
 			log.Debugf("Validating VolumeSnapshot LinkedClone count: %s/%s", vs.Namespace, vs.Name)
+
+			// Check if the namespace is being deleted. If so, allow the VolumeSnapshot deletion.
+			if isNamespaceBeingDeleted(ctx, vs.Namespace) {
+				log.Infof("Allowing VolumeSnapshot %s/%s deletion as namespace %s is being deleted",
+					vs.Namespace, vs.Name, vs.Namespace)
+				return admission.Allowed("Namespace is being deleted")
+			}
+
 			return checkIfLinkedClonesExist(ctx, vs)
 		}
 		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
@@ -126,6 +135,14 @@ func validateSnapshotOperationSupervisorRequest(ctx context.Context,
 				return admission.Denied(reason)
 			}
 			log.Debugf("Validating VolumeSnapshot LinkedClone count:%s/%s", vs.Namespace, vs.Name)
+
+			// Check if the namespace is being deleted. If so, allow the VolumeSnapshot deletion.
+			if isNamespaceBeingDeleted(ctx, vs.Namespace) {
+				log.Infof("Allowing VolumeSnapshot %s/%s deletion as namespace %s is being deleted",
+					vs.Namespace, vs.Name, vs.Namespace)
+				return admission.Allowed("Namespace is being deleted")
+			}
+
 			return checkIfLinkedClonesExist(ctx, vs)
 		}
 	}
@@ -162,4 +179,29 @@ func checkIfLinkedClonesExist(ctx context.Context, vs snap.VolumeSnapshot) admis
 		return admission.Denied(errMsg)
 	}
 	return admission.Allowed("")
+}
+
+// isNamespaceBeingDeleted checks if a namespace is being deleted by examining its DeletionTimestamp
+// Returns true if:
+// 1. Namespace exists and has DeletionTimestamp set (being deleted)
+// 2. Namespace is not found (already deleted)
+func isNamespaceBeingDeleted(ctx context.Context, namespaceName string) bool {
+	log := logger.GetLogger(ctx)
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to get kubernetes client while checking namespace deletion status: %v", err)
+		return false
+	}
+
+	namespace, err := k8sClient.CoreV1().Namespaces().Get(ctx, namespaceName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("Namespace %s not found - assuming it's deleted", namespaceName)
+			return true
+		}
+		log.Errorf("Failed to get namespace %s while checking deletion status: %v", namespaceName, err)
+		return false
+	}
+
+	return namespace.DeletionTimestamp != nil
 }

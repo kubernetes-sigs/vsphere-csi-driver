@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
-var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption", func() {
+var _ = ginkgo.Describe("[ef-encryption][csi-supervisor] [encryption] Block volume encryption", func() {
 	f := framework.NewDefaultFramework("encryption")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
