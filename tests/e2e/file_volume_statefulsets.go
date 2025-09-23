@@ -542,7 +542,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume statefulset", func() {
 	   9. Delete all PVCs from the tests namespace.
 	   10. Delete the storage class.
 	*/
-	ginkgo.It("Statefulset with file volume testing with CSI daemonset "+
+	ginkgo.It("[pq-vanilla-file]Statefulset with file volume testing with CSI daemonset "+
 		"restart", ginkgo.Label(p1, file, vanilla, core, negative, vc70), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
