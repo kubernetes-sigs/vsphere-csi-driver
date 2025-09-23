@@ -2795,13 +2795,13 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 // This function ensures that no orphaned snapshots are left behind on the vSphere backend
 // in case of failures during the snapshot creation process
 func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volumeID string,
-	snapshotID string, extraParams interface{}) (*CnsSnapshotInfo, string, error) {
+	snapshotName string, extraParams interface{}) (*CnsSnapshotInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		// Reference to the CreateSnapshot task on CNS.
 		createSnapshotsTask *object.Task
 		// Name of the CnsVolumeOperationRequest instance.
-		instanceName = snapshotID + "-" + volumeID
+		instanceName = snapshotName + "-" + volumeID
 		// Local instance of CreateSnapshot details that needs to be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// error
@@ -2809,6 +2809,15 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		quotaInfo                  *cnsvolumeoperationrequest.QuotaDetails
 		isStorageQuotaM2FSSEnabled bool
 	)
+	// By default, external-snapshotter sets the snapshot name prefix to "snapshot-".
+	// This logic will break if the prefix configuration is changed.
+	// In Supervisor deployments, we assume this configuration remains unchanged by admin/DevOps.
+	// In Vanilla deployments, we publish the deployment manifest with the default configuration to ensure consistency.
+	if !strings.HasPrefix(snapshotName, "snapshot-") {
+		return nil, csifault.CSIInternalFault,
+			logger.LogNewErrorf(log, "invalid snapshotName %q: must start with 'snapshot-'", snapshotName)
+	}
+	snapshotID := strings.TrimPrefix(snapshotName, "snapshot-")
 	if extraParams != nil {
 		createSnapParams, ok := extraParams.(*CreateSnapshotExtraParams)
 		if !ok {
@@ -2888,8 +2897,20 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 	}
 	log.Infof("CreateSnapshots: VolumeID: %q, opId: %q", volumeID, createSnapshotsTaskInfo.ActivationId)
-
-	snapshotCreateResult := interface{}(createSnapshotsTaskInfo).(*cnstypes.CnsSnapshotCreateResult)
+	createSnapshotsTaskResult, err := cns.GetTaskResult(ctx, createSnapshotsTaskInfo)
+	if err != nil || createSnapshotsTaskResult == nil {
+		return nil, "", logger.LogNewErrorf(log, "unable to find the task result for CreateSnapshots task: %q "+
+			"from vCenter %q with err: %v", createSnapshotsTaskInfo.Task.Value, m.virtualCenter.Config.Host, err)
+	}
+	snapshotCreateResult, ok := createSnapshotsTaskResult.(*cnstypes.CnsSnapshotCreateResult)
+	if !ok || snapshotCreateResult == nil {
+		return nil, "", logger.LogNewErrorf(log,
+			"invalid task result: got %T with value %+v", createSnapshotsTaskResult, createSnapshotsTaskResult)
+	}
+	if snapshotCreateResult.Fault != nil {
+		return nil, "", logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q with fault: %+v",
+			instanceName, volumeID, snapshotCreateResult.Fault)
+	}
 	cnsSnapshotInfo := &CnsSnapshotInfo{
 		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
 		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
@@ -2947,14 +2968,15 @@ func (m *defaultManager) CreateSnapshot(
 			}
 		}
 		if createSnapParams != nil && createSnapParams.IsCSITransactionSupportEnabled {
-			var snapcontentPrefix = "snapcontent-"
 			cnssnapshotInfo, fault, err := m.createSnapshotWithTransaction(ctx, volumeID,
-				strings.TrimPrefix(snapshotName, snapcontentPrefix), extraParams)
+				snapshotName, extraParams)
 			if err != nil {
 				if IsNotSupportedFaultType(ctx, fault) {
 					log.Infof("Creating Snapshot with Transaction is not supported. " +
 						"Re-creating Snapshot without setting Snapshot ID in the spec")
 					return m.createSnapshotWithImprovedIdempotencyCheck(ctx, volumeID, snapshotName, extraParams)
+				} else {
+					return nil, logger.LogNewErrorf(log, "failed to create snapshot. error :%+v", err)
 				}
 			}
 			return cnssnapshotInfo, nil
