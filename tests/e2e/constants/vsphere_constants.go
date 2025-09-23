@@ -25,13 +25,13 @@ const (
 	DisklibUnlinkErr        = "DiskLib_Unlink"
 	DiskSize1GB             = "1Gi"
 	DiskSize                = "2Gi"
+	DiskSize5GB             = "5Gi"
 	DiskSize10GB            = "10Gi"
-	DiskSize5GB             = "10Gi"
 	DiskSizeLarge           = "100Gi"
-	DiskSizeInMb            = int64(2048)
 	DiskSizeInMinMb         = int64(200)
-	DiskSize10GBInMb        = int64(10240)
+	DiskSizeInMb            = int64(2048)
 	DiskSize5GBInMb         = int64(5120)
+	DiskSize10GBInMb        = int64(10240)
 	E2eTestPassword         = "E2E-test-password!23"
 	E2evSphereCSIDriverName = "csi.vsphere.vmware.com"
 	Ext3FSType              = "ext3"
@@ -58,4 +58,6 @@ const (
 	Vmfs = "VMFS"
 	Vsan = "VSAN"
 	Nfs  = "NFS"
+
+	VmfsScsiLun = "vmhba64:C0:T0:L0"
 )

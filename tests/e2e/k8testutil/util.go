@@ -8150,10 +8150,10 @@ func ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFoot
 		if isExists {
 			framework.Logf("After Provisioning Ds Name : %s, Ds Path : %s, DS FreeSpace : %d, Number of Fcds : %d, Number of Vmdks : %d", dsName, dsFcdFootprintAfterProvisioning.dsPath, dsFcdFootprintAfterProvisioning.freeSpace, dsFcdFootprintAfterProvisioning.numFcds, dsFcdFootprintAfterProvisioning.numVmdks)
 			usedSpace := dsFcdFootprintBeforeProvisioning.freeSpace - dsFcdFootprintAfterProvisioning.freeSpace
-			if usedSpace > 0 {
-				actualUsedSpace = actualUsedSpace + usedSpace
-				framework.Logf("After Provisioning usedSpace : %d ", usedSpace)
-			}
+			// if usedSpace > 0 {
+			actualUsedSpace = actualUsedSpace + usedSpace
+			framework.Logf("After Provisioning usedSpace : %d ", usedSpace)
+			// }
 
 			totalNumberOfVmdksBefore = totalNumberOfVmdksBefore + dsFcdFootprintBeforeProvisioning.numVmdks
 			totalNumberOfFcdsBefore = totalNumberOfFcdsBefore + dsFcdFootprintBeforeProvisioning.numFcds
