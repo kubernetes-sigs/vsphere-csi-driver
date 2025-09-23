@@ -230,68 +230,6 @@
     ]
   },
   {
-    "description": "Datastore-APD",
-    "input": [
-      "APD"
-    ]
-  },
-  {
-    "description": "APD-CSI-Service-Down",
-    "input": [
-      "APD",
-      "CSI"
-    ]
-  },
-  {
-    "description": "APD-Vsanhealth-Services-Down",
-    "input": [
-      "APD",
-      "vsan-health"
-    ]
-  },
-  {
-    "description": "APD-Vpxd-Services-Down",
-    "input": [
-      "APD",
-      "vpxd"
-    ]
-  },
-  {
-    "description": "APD-Sps-Services-Down",
-    "input": [
-      "APD",
-      "sps"
-    ]
-  },
-  {
-    "description": "APD-Wcp-Services-Down",
-    "input": [
-      "APD",
-      "wcp"
-    ]
-  },
-  {
-    "description": "APD-VcDb-Services-Down",
-    "input": [
-      "APD",
-      "vmware-vpostgres"
-    ]
-  },
-  {
-    "description": "APD-Hostd-Services-Down",
-    "input": [
-      "APD",
-      "hostd"
-    ]
-  },
-  {
-    "description": "APD-Vpxa-Services-Down",
-    "input": [
-      "APD",
-      "vpxa"
-    ]
-  },
-  {
     "description": "VSAN-Partitioning",
     "input": [
       "VSANPARTITION"
