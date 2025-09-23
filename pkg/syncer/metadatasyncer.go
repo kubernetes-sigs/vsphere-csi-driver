@@ -1550,7 +1550,7 @@ func fetchPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[st
 }
 
 // fetchStorageClassToStoragePolicyMapping will fetch storageclass and returns mapping with storagepolicy id
-func fetchStorageClassToStoragePolicyMapping(ctx context.Context) (map[string]string, error) {
+var fetchStorageClassToStoragePolicyMapping = func(ctx context.Context) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debug("fetchStorageClassToStoragePolicyMapping: Fetching StorageClass and create mapping for storageclass" +
 		"and storagepolicyid")
