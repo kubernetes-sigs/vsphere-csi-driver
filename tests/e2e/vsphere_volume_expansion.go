@@ -1305,7 +1305,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			13. Verify File system has increased
 			14. Delete POD, PVC, PV, CNSregisterVolume and SC
 	*/
-	ginkgo.It("[cf-wcp] [csi-supervisor] Offline and Online volume resize on statically "+
+	ginkgo.It("[cf-wcp-f] [csi-supervisor] Offline and Online volume resize on statically "+
 		"created volume", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var err error
 		var fsSize int64
