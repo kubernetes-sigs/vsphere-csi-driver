@@ -28,96 +28,81 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-// verifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume
-// if gcPvc, gcPv or pod are nil we skip verification for them altogether and wont check if they are absent in CNS entry
+// verifyCnsVolumeMetadata4GCVol verifies CNS volume metadata for a GC volume.
+// If gcPvc, gcPv or pod are nil, we skip verification for them altogether and won't check if they are absent in CNS entry.
 func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1.PersistentVolumeClaim,
 	gcPv *v1.PersistentVolume, pod *v1.Pod) bool {
 
+	framework.Logf("[START] Verifying CNS metadata for volumeID: %s", volumeID)
+
+	// Query CNS for volume metadata
 	cnsQueryResult, err := e2eVSphere.queryCNSVolumeWithResult(volumeID)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	if len(cnsQueryResult.Volumes) == 0 {
-		framework.Logf("CNS volume query yielded no results for volume id: %s", volumeID)
+		framework.Logf("[ERROR] CNS volume query yielded no results for volume id: %s", volumeID)
 		return false
 	}
+
 	cnsVolume := cnsQueryResult.Volumes[0]
+	framework.Logf("[INFO] CNS volume found: %s", spew.Sdump(cnsVolume))
+
+	// Initialize verification flags
 	podEntryFound := false
-	verifyPvEntry := false
-	verifyPvcEntry := false
-	verifyPodEntry := false
-	gcPVCVerified := false
-	gcPVVerified := false
+	verifyPvEntry := gcPv != nil
+	verifyPvcEntry := gcPvc != nil
+	verifyPodEntry := pod != nil
+	gcPVCVerified := !verifyPvcEntry
+	gcPVVerified := !verifyPvEntry
 	svcPVCVerified := false
 	svcPVVerified := false
+
+	// Fetch supervisor PVC and PV
 	svcPVC := getPVCFromSupervisorCluster(svcPVCName)
 	svcPV := getPvFromSupervisorCluster(svcPVCName)
-	if gcPvc != nil {
-		verifyPvcEntry = true
-	} else {
-		gcPVCVerified = true
-	}
-	if gcPv != nil {
-		verifyPvEntry = true
-	} else {
-		gcPVVerified = true
-	}
-	if pod != nil {
-		verifyPodEntry = true
-	}
-	framework.Logf("Found CNS volume with id %v\n"+spew.Sdump(cnsVolume), volumeID)
-	gomega.Expect(cnsVolume.Metadata).NotTo(gomega.BeNil())
+	framework.Logf("[INFO] Retrieved svcPVC: %v", spew.Sdump(svcPVC))
+	framework.Logf("[INFO] Retrieved svcPV: %v", spew.Sdump(svcPV))
+
+	// Iterate over CNS entity metadata
 	for _, entity := range cnsVolume.Metadata.EntityMetadata {
-		var pvc *v1.PersistentVolumeClaim
-		var pv *v1.PersistentVolume
 		entityMetadata := entity.(*cnstypes.CnsKubernetesEntityMetadata)
-		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePVC) {
-			verifySvcPvc := false
-			verifySvcPv := false
-			if entityMetadata.EntityName == svcPVCName {
+		framework.Logf("[DEBUG] Processing entity: Type=%s, Name=%s, Namespace=%s", entityMetadata.EntityType, entityMetadata.EntityName, entityMetadata.Namespace)
+
+		switch entityMetadata.EntityType {
+		case string(cnstypes.CnsKubernetesEntityTypePVC):
+			var pv *v1.PersistentVolume
+			var pvc *v1.PersistentVolumeClaim
+			verifySvcPvc := entityMetadata.EntityName == svcPVCName
+			verifySvcPv := verifySvcPvc
+
+			if verifySvcPvc {
 				pvc = svcPVC
 				pv = svcPV
-				verifySvcPvc = true
-				verifySvcPv = true
 			} else {
 				pvc = gcPvc
 				pv = gcPv
 			}
-			if verifyPvcEntry || verifySvcPvc {
+
+			if (verifyPvcEntry && pvc != nil) || verifySvcPvc {
 				if entityMetadata.EntityName != pvc.Name {
-					framework.Logf("PVC name '%v' does not match PVC name in metadata '%v', for volume id %v",
-						pvc.Name, entityMetadata.EntityName, volumeID)
+					framework.Logf("[MISMATCH] PVC name mismatch: expected='%s', actual='%s'", pvc.Name, entityMetadata.EntityName)
 					break
 				}
-				if verifyPvEntry || verifySvcPv {
+				if (verifyPvEntry && pv != nil) || verifySvcPv {
 					if entityMetadata.ReferredEntity == nil {
-						framework.Logf("Missing ReferredEntity in PVC entry for volume id %v", volumeID)
+						framework.Logf("[MISSING] ReferredEntity missing in PVC metadata for volume id %s", volumeID)
 						break
 					}
 					if entityMetadata.ReferredEntity[0].EntityName != pv.Name {
-						framework.Logf("PV name '%v' in referred entity does not match PV name '%v', "+
-							"in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
-							pv.Name, volumeID)
+						framework.Logf("[MISMATCH] PV name mismatch in ReferredEntity: expected='%s', actual='%s'", pv.Name, entityMetadata.ReferredEntity[0].EntityName)
 						break
 					}
 				}
-				if pvc.Labels == nil {
-					if entityMetadata.Labels != nil {
-						framework.Logf("PVC labels '%v' does not match PVC labels in metadata '%v', for volume id %v",
-							pvc.Labels, entityMetadata.Labels, volumeID)
-						break
-					}
-				} else {
-					labels := getLabelMap(entityMetadata.Labels)
-					if !(reflect.DeepEqual(labels, pvc.Labels)) {
-						framework.Logf(
-							"Labels on pvc '%v' are not matching with labels in metadata '%v' for volume id %v",
-							pvc.Labels, entityMetadata.Labels, volumeID)
-						break
-					}
+				if !reflect.DeepEqual(getLabelMap(entityMetadata.Labels), pvc.Labels) {
+					framework.Logf("[MISMATCH] PVC labels mismatch: expected='%v', actual='%v'", pvc.Labels, entityMetadata.Labels)
+					break
 				}
 				if entityMetadata.Namespace != pvc.Namespace {
-					framework.Logf(
-						"PVC namespace '%v' does not match PVC namespace in pvc metadata '%v', for volume id %v",
-						pvc.Namespace, entityMetadata.Namespace, volumeID)
+					framework.Logf("[MISMATCH] PVC namespace mismatch: expected='%s', actual='%s'", pvc.Namespace, entityMetadata.Namespace)
 					break
 				}
 			}
@@ -127,110 +112,88 @@ func verifyCnsVolumeMetadata4GCVol(volumeID string, svcPVCName string, gcPvc *v1
 			} else {
 				gcPVCVerified = true
 			}
-			continue
-		}
-		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePV) {
-			verifySvcPv := false
-			if entityMetadata.EntityName == svcPV.Name {
-				pvc = svcPVC
+
+		case string(cnstypes.CnsKubernetesEntityTypePV):
+			var pv *v1.PersistentVolume
+			verifySvcPv := entityMetadata.EntityName == svcPV.Name
+
+			if verifySvcPv {
 				pv = svcPV
-				verifySvcPv = true
 			} else {
-				pvc = gcPvc
 				pv = gcPv
 			}
-			if verifyPvEntry || verifySvcPv {
+
+			if (verifyPvEntry && pv != nil) || verifySvcPv {
 				if entityMetadata.EntityName != pv.Name {
-					framework.Logf("PV name '%v' does not match PV name in metadata '%v', for volume id %v",
-						pv.Name, entityMetadata.EntityName, volumeID)
+					framework.Logf("[MISMATCH] PV name mismatch: expected='%s', actual='%s'", pv.Name, entityMetadata.EntityName)
 					break
 				}
-				if pv.Labels == nil {
-					if entityMetadata.Labels != nil {
-						framework.Logf("PV labels '%v' does not match PV labels in metadata '%v', for volume id %v",
-							pv.Labels, entityMetadata.Labels, volumeID)
-						break
-					}
-				} else {
-					labels := getLabelMap(entityMetadata.Labels)
-					if !(reflect.DeepEqual(labels, pv.Labels)) {
-						framework.Logf(
-							"Labels on pv '%v' are not matching with labels in pv metadata '%v' for volume id %v",
-							pv.Labels, entityMetadata.Labels, volumeID)
-						break
-					}
+				if !reflect.DeepEqual(getLabelMap(entityMetadata.Labels), pv.Labels) {
+					framework.Logf("[MISMATCH] PV labels mismatch: expected='%v', actual='%v'", pv.Labels, entityMetadata.Labels)
+					break
 				}
 				if !verifySvcPv {
 					if entityMetadata.ReferredEntity == nil {
-						framework.Logf("Missing ReferredEntity in SVC PV entry for volume id %v", volumeID)
+						framework.Logf("[MISSING] ReferredEntity missing in PV metadata for volume id %s", volumeID)
 						break
 					}
 					if entityMetadata.ReferredEntity[0].EntityName != svcPVCName {
-						framework.Logf("SVC PVC name '%v' in referred entity does not match SVC PVC name '%v', "+
-							"in SVC PV metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
-							svcPVCName, volumeID)
+						framework.Logf("[MISMATCH] SVC PVC name mismatch in ReferredEntity: expected='%s', actual='%s'", svcPVCName, entityMetadata.ReferredEntity[0].EntityName)
 						break
 					}
 					if entityMetadata.ReferredEntity[0].Namespace != svcPVC.Namespace {
-						framework.Logf("SVC PVC namespace '%v' does not match SVC PVC namespace in SVC PV referred "+
-							"entity metadata '%v', for volume id %v",
-							pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
+						framework.Logf("[MISMATCH] SVC PVC namespace mismatch in ReferredEntity: expected='%s', actual='%s'", svcPVC.Namespace, entityMetadata.ReferredEntity[0].Namespace)
 						break
 					}
 				}
 			}
+
 			if verifySvcPv {
 				svcPVVerified = true
 			} else {
 				gcPVVerified = true
 			}
-			continue
-		}
-		if entityMetadata.EntityType == string(cnstypes.CnsKubernetesEntityTypePOD) {
-			pvc = gcPvc
-			if verifyPodEntry {
+
+		case string(cnstypes.CnsKubernetesEntityTypePOD):
+			if verifyPodEntry && pod != nil {
 				podEntryFound = true
 				if entityMetadata.EntityName != pod.Name {
-					framework.Logf("POD name '%v' does not match Pod name in metadata '%v', for volume id %v",
-						pod.Name, entityMetadata.EntityName, volumeID)
+					framework.Logf("[MISMATCH] Pod name mismatch: expected='%s', actual='%s'", pod.Name, entityMetadata.EntityName)
 					podEntryFound = false
 					break
-				}
-				if verifyPvcEntry {
-					if entityMetadata.ReferredEntity == nil {
-						framework.Logf("Missing ReferredEntity in pod entry for volume id %v", volumeID)
-						podEntryFound = false
-						break
-					}
-					if entityMetadata.ReferredEntity[0].EntityName != pvc.Name {
-						framework.Logf("PVC name '%v' in referred entity does not match PVC name '%v', "+
-							"in PVC metadata for volume id %v", entityMetadata.ReferredEntity[0].EntityName,
-							pvc.Name, volumeID)
-						podEntryFound = false
-						break
-					}
-					if entityMetadata.ReferredEntity[0].Namespace != pvc.Namespace {
-						framework.Logf("PVC namespace '%v' does not match PVC namespace in Pod metadata "+
-							"referered entity, '%v', for volume id %v",
-							pvc.Namespace, entityMetadata.ReferredEntity[0].Namespace, volumeID)
-						podEntryFound = false
-						break
-					}
 				}
 				if entityMetadata.Namespace != pod.Namespace {
-					framework.Logf(
-						"Pod namespace '%v' does not match pod namespace in pvc metadata '%v', for volume id %v",
-						pod.Namespace, entityMetadata.Namespace, volumeID)
+					framework.Logf("[MISMATCH] Pod namespace mismatch: expected='%s', actual='%s'", pod.Namespace, entityMetadata.Namespace)
 					podEntryFound = false
 					break
+				}
+				if verifyPvcEntry && gcPvc != nil {
+					if entityMetadata.ReferredEntity == nil {
+						framework.Logf("[MISSING] ReferredEntity missing in Pod metadata for volume id %s", volumeID)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].EntityName != gcPvc.Name {
+						framework.Logf("[MISMATCH] PVC name mismatch in Pod ReferredEntity: expected='%s', actual='%s'", gcPvc.Name, entityMetadata.ReferredEntity[0].EntityName)
+						podEntryFound = false
+						break
+					}
+					if entityMetadata.ReferredEntity[0].Namespace != gcPvc.Namespace {
+						framework.Logf("[MISMATCH] PVC namespace mismatch in Pod ReferredEntity: expected='%s', actual='%s'", gcPvc.Namespace, entityMetadata.ReferredEntity[0].Namespace)
+						podEntryFound = false
+						break
+					}
 				}
 			}
 		}
 	}
-	framework.Logf("gcPVVerified: %v, verifyPvEntry: %v, gcPVCVerified: %v, verifyPvcEntry: %v, "+
-		"podEntryFound: %v, verifyPodEntry: %v, svcPVCVerified: %v, svcPVVerified: %v ", gcPVVerified, verifyPvEntry,
-		gcPVCVerified, verifyPvcEntry, podEntryFound, verifyPodEntry, svcPVCVerified, svcPVVerified)
-	return gcPVVerified && gcPVCVerified && podEntryFound == verifyPodEntry && svcPVCVerified && svcPVVerified
+
+	framework.Logf("[RESULT] Verification flags — gcPVVerified: %v, verifyPvEntry: %v, gcPVCVerified: %v, verifyPvcEntry: %v, podEntryFound: %v, verifyPodEntry: %v, svcPVCVerified: %v, svcPVVerified: %v",
+		gcPVVerified, verifyPvEntry, gcPVCVerified, verifyPvcEntry, podEntryFound, verifyPodEntry, svcPVCVerified, svcPVVerified)
+
+	finalResult := gcPVVerified && gcPVCVerified && podEntryFound == verifyPodEntry && svcPVCVerified && svcPVVerified
+	framework.Logf("[END] CNS metadata verification result for volumeID %s: %v", volumeID, finalResult)
+	return finalResult
 }
 
 // waitAndVerifyCnsVolumeMetadata4GCVol verifies cns volume metadata for a GC volume with wait
