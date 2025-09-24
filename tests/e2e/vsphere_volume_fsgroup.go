@@ -53,7 +53,7 @@ Steps
 */
 
 var _ = ginkgo.Describe("[ef-wcp][ef-vks] [csi-block-vanilla] [csi-file-vanilla] [csi-guest] [csi-supervisor] "+
-	"[csi-block-vanilla-parallelized] Volume Filesystem Group Test", func() {
+	"[csi-block-vanilla-parallelized][ef-vks-n1][ef-vks-n2] Volume Filesystem Group Test", func() {
 	f := framework.NewDefaultFramework("volume-fsgroup")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

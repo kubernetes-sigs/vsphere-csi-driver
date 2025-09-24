@@ -96,8 +96,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 		}
 	})
 
-	ginkgo.It("[ef-vks][pq-vanilla-file]Statefulset service for cluster-distribution metadata check", ginkgo.Label(p0,
-		block, file, vanilla, wcp, tkg, vc70), func() {
+	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] [pq-vanilla-file]Statefulset service for cluster-distribution metadata "+
+		"check", ginkgo.Label(p0, block, file, vanilla, wcp, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		var clusterDistributionValue string
 		var sc *v1.StorageClass
