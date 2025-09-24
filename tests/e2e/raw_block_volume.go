@@ -711,8 +711,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][ef-vks] "+
-		"Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0, block, vanilla, tkg,
+	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
+		"[cf-vks-f] Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
+		block, vanilla, tkg,
 		vc70), func() {
 		ginkgo.By("Invoking Test for online Volume Expansion on raw block volume")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -883,8 +884,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 	   13. Delete pod and Wait for Volume Disk to be detached from the Node.
 	   14. Delete PVC, PV and Storage Class.
 	*/
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest] [ef-vks] Verify "+
-		"offline volume expansion with raw block volume", ginkgo.Label(p0, block, vanilla, tkg, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-guest]"+
+		"[ef-vks][ef-vks-n1][ef-vks-n2] Verify offline volume expansion with raw block volume", ginkgo.Label(p0,
+		block, vanilla, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Invoking Test for Offline Volume Expansion")
