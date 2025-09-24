@@ -203,7 +203,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvcs
 	   9   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("[cf-wcp-f] verify vmservice vm creation with a pvc in its spec", ginkgo.Label(p0,
+	ginkgo.It("[cf-wcp] verify vmservice vm creation with a pvc in its spec", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -227,8 +227,8 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			"staticfcd"+curtimestring, storageProfileId, diskSizeInMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
-			pandoraSyncWaitTime, fcdID))
-		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+			defaultPandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(defaultPandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By("Create CNS register volume with above created FCD ")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
