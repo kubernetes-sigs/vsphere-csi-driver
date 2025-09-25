@@ -33,7 +33,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
-	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -75,8 +74,8 @@ var (
 	storagePolicyName                                                        string
 	volumeOpsScale                                                           int
 	deployment                                                               *appsv1.Deployment
-	f                                                                        *framework.Framework
-	log                                                                      *zap.SugaredLogger
+	pvclaimsCreatedFromSnapshot                                              []*v1.PersistentVolumeClaim
+	pvsCreatedFromSnapshot                                                   []*v1.PersistentVolume
 )
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
@@ -140,20 +139,20 @@ func createSnapshot(ctx context.Context, namespace string, pvclaims []*v1.Persis
 	// }()
 }
 
-func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedFromSnapshot []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
+func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedFromSnapshot []*v1.PersistentVolumeClaim, pvsCreatedFromSnapshot []*v1.PersistentVolume, index int, diskSize string, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
-
+	var err error
 	ginkgo.By("Create PVC from snapshot")
 	pvcSpec := k8testutil.GetPersistentVolumeClaimSpecWithDatasource(namespace, diskSize, storageclass, nil,
 		v1.ReadWriteOnce, pvcSnapshots[index].Name, constants.Snapshotapigroup)
 	pvcFromSnapshot, err := k8testutil.CreatePvcWithSpec(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	persistentvolumes, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+	pvsCreatedFromSnapshot, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
 		[]*v1.PersistentVolumeClaim{pvcFromSnapshot}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	volHandle := persistentvolumes[0].Spec.CSI.VolumeHandle
+	volHandle := pvsCreatedFromSnapshot[0].Spec.CSI.VolumeHandle
 	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
 
 	pvcsCreatedFromSnapshot[index] = pvcFromSnapshot
@@ -533,7 +532,7 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 
 	ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", constants.DefaultProvisionerTimeInSec))
 	k8testutil.UpdateCSIDeploymentProvisionerTimeout(c, constants.CsiSystemNamespace, constants.DefaultProvisionerTimeInSec)
-	if isTestPassed { //If test passed then only doing cleanup otherwise keeping the things as it is
+	if isTestPassed {
 		for _, claim := range pvclaims {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -549,32 +548,32 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
 					"kubernetes", volumeID))
 		}
+	}
 
-		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-			k8testutil.DeleteResourceQuota(client, namespace)
-			k8testutil.DumpSvcNsEventsOnTestFailure(client, namespace)
-		} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
-			svcClient, svNamespace := k8testutil.GetSvcClientAndNamespace()
-			k8testutil.SetResourceQuota(svcClient, svNamespace, constants.RqLimit)
-			k8testutil.DumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
-		}
+	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		k8testutil.DeleteResourceQuota(client, namespace)
+		k8testutil.DumpSvcNsEventsOnTestFailure(client, namespace)
+	} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		svcClient, svNamespace := k8testutil.GetSvcClientAndNamespace()
+		k8testutil.SetResourceQuota(svcClient, svNamespace, constants.RqLimit)
+		k8testutil.DumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	}
 }
 
-func testSetUp() {
+func testSetUp(fw *framework.Framework) {
 	framework.Logf("In test initialization.......testSetUp")
 	e2eTestConfig = bootstrap.Bootstrap()
-	client = f.ClientSet
+	client = fw.ClientSet
 	vcAddress = e2eTestConfig.TestInput.TestBedInfo.VcAddress
-	namespace = vcutil.GetNamespaceToRunTests(f, e2eTestConfig)
+	namespace = vcutil.GetNamespaceToRunTests(fw, e2eTestConfig)
 	scParameters = make(map[string]string)
 	storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
 	dsType = env.GetStringEnvVarOrDefault(constants.EnvDatastoreType, constants.Vmfs)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, fw.ClientSet)
 	framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-	isTestPassed = false
+	isTestPassed = true
 
 	if !(len(nodeList.Items) > 0) {
 		framework.Failf("Unable to find ready and schedulable Node")
@@ -638,3 +637,9 @@ func loadTestCases(fileName string) []TestCase {
 
 	return testCases
 }
+
+// func zoneRemoval() {
+// 	vcRestSessionId := k8testutil.CreateVcSession4RestApis(ctx, e2eTestConfig)
+// 		zone1 = topologyAffinityDetails[topologyCategories[0]][0]
+// 		zone2 = topologyAffinityDetails[topologyCategories[0]][1
+// }
