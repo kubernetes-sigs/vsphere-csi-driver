@@ -1514,3 +1514,42 @@ func CreateStandaloneVmServiceVm(ctx context.Context, c ctlrclient.Client, names
 	}
 	return vms
 }
+
+func CleanupVmServiceResources(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
+	namespace string, vms []*vmopv1.VirtualMachine, vmlbsvc *vmopv1.VirtualMachineService,
+	secretName string, pvcList []*v1.PersistentVolumeClaim) {
+
+	// Delete VMs and verify CNS CRD cleanup
+	for i, vm := range vms {
+		vm, err := GetVmsvcVM(ctx, vmopC, namespace, vm.Name)
+		if err != nil {
+			DeleteVmServiceVm(ctx, vmopC, namespace, vm.Name)
+		}
+		if len(pvcList) > 0 {
+			crdInstanceName := pvcList[i%len(pvcList)].Name + vm.Name
+			k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+				constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, false)
+		}
+	}
+
+	// Delete VM service
+	if vmlbsvc != nil {
+		err := vmopC.Delete(ctx, &vmopv1.VirtualMachineService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      vmlbsvc.Name,
+				Namespace: namespace,
+			},
+		})
+		if err != nil {
+			fmt.Printf("error deleting VM service %s: %v\n", vmlbsvc.Name, err)
+		}
+	}
+
+	// Delete bootstrap secret
+	if secretName != "" {
+		err := client.CoreV1().Secrets(namespace).Delete(ctx, secretName, *metav1.NewDeleteOptions(0))
+		if err != nil {
+			fmt.Printf("error deleting bootstrap secret %s: %v\n", secretName, err)
+		}
+	}
+}

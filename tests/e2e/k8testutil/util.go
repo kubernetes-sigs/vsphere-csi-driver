@@ -7672,3 +7672,22 @@ func CreateStorageClassWithMultiplePVCs(client clientset.Interface, vs *config.E
 	}
 	return sc, pvclaims, nil
 }
+
+func CleanupPVCsAndCNSVolumes(ctx context.Context, client clientset.Interface, namespace string,
+	pvcList []*v1.PersistentVolumeClaim, volHandles []string, testConfig *config.E2eTestConfig) {
+
+	for i := range pvcList {
+		pvcName := pvcList[i].Name
+		volHandle := volHandles[i]
+
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvcName, namespace)
+		if err != nil {
+			fmt.Printf("error deleting PVC %s: %v\n", pvcName, err)
+		}
+
+		err = vcutil.WaitForCNSVolumeToBeDeleted(testConfig, volHandle)
+		if err != nil {
+			fmt.Printf("error waiting for CNS volume deletion %s: %v\n", volHandle, err)
+		}
+	}
+}

@@ -22,20 +22,28 @@ import (
 	"strings"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vmservice_vm"
 )
+
+var e2eTestConfig *config.E2eTestConfig
 
 // CreateCnsFileAccessConfigCRD creates CnsFileAccessConfigCRD using pvc and VMservice VM name
 // in a given namespace
@@ -107,7 +115,7 @@ func MountRWXVolumeAndVerifyIO(vmIPs []string, nfsAccessPoint string, testDir st
 
 		for _, cmd := range setupCmds {
 			err = RunSSHFromVmServiceVmAndLog(vmIP, cmd)
-			if err != nil && !strings.Contains(err.Error(), "does not have a Release file") {
+			if err != nil && !strings.Contains(err.Error(), "no longer has a Release file") {
 				return err
 			}
 
@@ -219,4 +227,139 @@ func CreateCnsFileAccessConfigCRDWithWg(ctx context.Context, restConfig *rest.Co
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func CreateMultiplePVCs(ctx context.Context, adminClient clientset.Interface, client clientset.Interface,
+	vs *config.E2eTestConfig, namespace string, storageClassName string,
+	labelsMap map[string]string, accessMode v1.PersistentVolumeAccessMode, pvcCount int) ([]*v1.PersistentVolumeClaim, []string, error) {
+
+	var pvcList []*v1.PersistentVolumeClaim
+	var volHandles []string
+
+	// Get the storage class
+	storageclass, err := adminClient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get storage class: %v", err)
+	}
+
+	// Create PVCs
+	for i := 0; i < pvcCount; i++ {
+		pvc, pvs, err := k8testutil.CreatePVCAndQueryVolumeInCNS(ctx, client, vs, namespace, labelsMap, accessMode,
+			constants.DiskSize, storageclass, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create PVC: %v", err)
+		}
+		pvcList = append(pvcList, pvc)
+		volHandles = append(volHandles, pvs[0].Spec.CSI.VolumeHandle)
+	}
+
+	return pvcList, volHandles, nil
+}
+
+func CreateVmServiceVms(ctx context.Context, client clientset.Interface, vmopC ctlrclient.Client,
+	namespace string, vmClass string, vmi string, storageClassName string,
+	vmCount int) ([]*vmopv1.VirtualMachine, []string, *vmopv1.VirtualMachineService, string, error) {
+
+	var vmIPs []string
+
+	// Create VM bootstrap secret
+	secretName := vmservice_vm.CreateBootstrapSecretForVmsvcVms(ctx, client, namespace)
+
+	// Create VMs
+	vms := vmservice_vm.CreateStandaloneVmServiceVm(
+		ctx, vmopC, namespace, vmClass, vmi, storageClassName, secretName, vmopv1.VirtualMachinePoweredOn, vmCount)
+
+	// Create load balancing service for SSH
+	vmlbsvc := vmservice_vm.CreateService4Vm(ctx, vmopC, namespace, vms[0].Name)
+
+	// Wait for VM IPs
+	for _, vm := range vms {
+		vmIp, err := vmservice_vm.WaitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+		if err != nil {
+			return nil, nil, nil, "", fmt.Errorf("failed to get IP for VM %s: %v", vm.Name, err)
+		}
+		vmIPs = append(vmIPs, vmIp)
+	}
+
+	return vms, vmIPs, vmlbsvc, secretName, nil
+}
+
+func CreateCnsFileAccessConfigCRDs(ctx context.Context, restConfig *rest.Config, namespace string,
+	pvcs []*v1.PersistentVolumeClaim, vms []*vmopv1.VirtualMachine, createInParallel bool) ([]string, []string, error) {
+
+	var (
+		crdNames           []string
+		nfsAccessPointList []string
+		mu                 sync.Mutex
+		wg                 sync.WaitGroup
+		errChan            = make(chan error, len(pvcs)*len(vms))
+	)
+
+	createFunc := func(pvc *v1.PersistentVolumeClaim, vm *vmopv1.VirtualMachine) {
+		defer wg.Done()
+
+		crdInstanceName := pvc.Name + "-" + vm.Name
+
+		fmt.Printf("Creating CNSFileAccessConfig CRD for PVC %s and VM %s\n", pvc.Name, vm.Name)
+		if err := CreateCnsFileAccessConfigCRD(ctx, restConfig, pvc.Name, vm.Name, namespace, crdInstanceName); err != nil {
+			errChan <- fmt.Errorf("failed to create CNSFileAccessConfig CRD for %s: %w", crdInstanceName, err)
+			return
+		}
+
+		fmt.Printf("Verifying CNSFileAccessConfig CRD %s in supervisor cluster\n", crdInstanceName)
+		k8testutil.VerifyCNSFileAccessConfigCRDInSupervisor(ctx, crdInstanceName,
+			constants.CrdCNSFileAccessConfig, constants.CrdVersion, constants.CrdGroup, true)
+
+		ginkgo.By(fmt.Sprintf("Fetching NFS access point for CRD %s", crdInstanceName))
+		nfsAccessPoint, err := FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx, restConfig, crdInstanceName, namespace)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to fetch NFS access point for %s: %w", crdInstanceName, err)
+			return
+		}
+
+		mu.Lock()
+		crdNames = append(crdNames, crdInstanceName)
+		nfsAccessPointList = append(nfsAccessPointList, nfsAccessPoint)
+		mu.Unlock()
+	}
+
+	for _, pvc := range pvcs {
+		for _, vm := range vms {
+			wg.Add(1)
+			if createInParallel {
+				go createFunc(pvc, vm)
+			} else {
+				createFunc(pvc, vm)
+			}
+		}
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) > 0 {
+		return nil, nil, <-errChan // return first error encountered
+	}
+
+	return crdNames, nfsAccessPointList, nil
+}
+
+func VerifyIOAcrossVMs(vmIPs []string, accessPoints []string, text string) error {
+	fmt.Sprintf("Write IO to file volume through VMService VMs (%s)", text)
+	for _, accessPoint := range accessPoints {
+		if err := MountRWXVolumeAndVerifyIO(vmIPs, accessPoint, "foo"); err != nil {
+			return fmt.Errorf("IO verification failed for access point %s: %w", accessPoint, err)
+		}
+	}
+	return nil
+}
+
+func DetachPVCFromVMs(ctx context.Context, restConfig *rest.Config, namespace string, crdNames []string) error {
+	for _, crdName := range crdNames {
+		ginkgo.By(fmt.Sprintf("Detaching PVC by deleting CRD %s", crdName))
+		if err := DeleteCnsFileAccessConfig(ctx, restConfig, crdName, namespace); err != nil {
+			return fmt.Errorf("failed to delete CNSFileAccessConfig CRD %s: %w", crdName, err)
+		}
+	}
+	return nil
 }
