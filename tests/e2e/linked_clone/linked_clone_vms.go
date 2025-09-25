@@ -43,8 +43,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 )
 
-var e2eTestConfigvm *config.E2eTestConfig
-
 var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 
 	f := framework.NewDefaultFramework("linked-clone")
@@ -64,6 +62,8 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		storagePolicy   string
 		contentLibId    string
 	)
+
+	var e2eTestConfigvm *config.E2eTestConfig
 
 	ginkgo.BeforeEach(func() {
 		e2eTestConfigvm = bootstrap.Bootstrap()
