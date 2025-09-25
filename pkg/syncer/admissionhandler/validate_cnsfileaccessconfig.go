@@ -108,8 +108,22 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		return "", err
 	}
 
+	// Obtain VM's UID.
+	vmUID, err := getVmUID(ctx, vm, namespace)
+	if err != nil {
+		log.Errorf("SALKO failed to get VM UID for VM %s", vm)
+		return "", err
+	}
+
+	// Obtain PVC's UID
+	pvcUID, err := getPVCUID(ctx, pvc, namespace)
+	if err != nil {
+		return "", err
+	}
+
 	// List only that CnsFileAccessConfig CRs which has the same VM name and PVC name labels.
-	labelSelector := labels.SelectorFromSet(labels.Set{vmNameLabelKey: vm, pvcNameLabelKey: pvc})
+	labelSelector := labels.SelectorFromSet(labels.Set{vmUIDLabelKey: vmUID, pvcUIDLabelKey: pvcUID})
+
 	// Get the list of all CnsFileAccessConfig CRs in the given namespace.
 	cnsFileAccessConfigList := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{}
 	err = cnsOperatorClient.List(ctx, cnsFileAccessConfigList, &client.ListOptions{
