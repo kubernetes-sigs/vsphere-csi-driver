@@ -361,6 +361,7 @@ func invokeVCRestAPIDeleteRequest(vcRestSessionId string, url string) ([]byte, i
 // waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
 func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName string) string {
 	vmi := ""
+	time.Sleep(pollTimeoutShort)
 	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			vmImagesList := &vmopv1.VirtualMachineImageList{}
