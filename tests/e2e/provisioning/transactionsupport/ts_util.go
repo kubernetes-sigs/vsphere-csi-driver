@@ -33,6 +33,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/types"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -76,6 +77,7 @@ var (
 	deployment                                                               *appsv1.Deployment
 	pvclaimsCreatedFromSnapshot                                              []*v1.PersistentVolumeClaim
 	pvsCreatedFromSnapshot                                                   []*v1.PersistentVolume
+	fcdIDs                                                                   []string
 )
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
@@ -198,7 +200,7 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 		framework.Logf("No of hosts in the cluster : %s = %d", clusterName, len(hostIPs))
 
 		// for _, vmfaDatastore := range resultDatastores {
-		// 	scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+		// scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
 		// 	var wg sync.WaitGroup
 		// 	wg.Add(len(hostIPs))
 		// 	for _, hostIP := range hostIPs {
@@ -642,4 +644,81 @@ func loadTestCases(fileName string) []TestCase {
 // 	vcRestSessionId := k8testutil.CreateVcSession4RestApis(ctx, e2eTestConfig)
 // 		zone1 = topologyAffinityDetails[topologyCategories[0]][0]
 // 		zone2 = topologyAffinityDetails[topologyCategories[0]][1
+// }
+
+func createFcd(ctx context.Context, fcdIDs []string, index int, size int64, dsRef types.ManagedObjectReference, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+	ginkgo.By("Creating FCD Disk")
+	fcdName := fmt.Sprintf("fcd-%d", index)
+	fcdID, err := vcutil.CreateFCD(ctx, e2eTestConfig, fcdName, constants.DiskSizeInMb, dsRef)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	fcdIDs[index] = fcdID
+	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", constants.DefaultPandoraSyncWaitTime, fcdID))
+	time.Sleep(time.Duration(constants.DefaultPandoraSyncWaitTime) * time.Second)
+}
+
+func createPVCFromFcd(ctx context.Context, fcdIDs []string, namespace string, pvclaimsCreatedFromFcd []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+	// Creating label for PV.
+	// PVC will use this label as Selector to find PV.
+	staticPVLabels := make(map[string]string)
+	staticPVLabels["fcd-id"] = fcdIDs[index]
+	var err error
+
+	ginkgo.By("Creating the PV")
+	pv := k8testutil.GetPersistentVolumeSpec(fcdIDs[index], v1.PersistentVolumeReclaimDelete, staticPVLabels, constants.Ext4FSType)
+	pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
+	if err != nil {
+		return
+	}
+	err = vcutil.WaitForCNSVolumeToBeCreated(e2eTestConfig, pv.Spec.CSI.VolumeHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By("Creating the PVC")
+	pvc := k8testutil.GetPersistentVolumeClaimSpec(namespace, staticPVLabels, pv.Name)
+	pvc, err = client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pvclaimsCreatedFromFcd[index] = pvc
+}
+
+// func createVmdk(ctx context.Context, host string, dsName string, size string, objType string, diskFormat string) (string, error) {
+// 	dir := "/vmfs/volumes/" + dsName + "/fcd"
+// 	err := createDir(ctx, dir, host)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	if diskFormat == "" {
+// 		diskFormat = "thin"
+// 	}
+// 	if objType == "" {
+// 		objType = "vsan"
+// 	}
+// 	if size == "" {
+// 		size = "2g"
+// 	}
+
+// 	// Read hosts sshd port number
+// 	ip, portNum, err := getPortNumAndIP(host)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+// 	addr := ip + ":" + portNum
+
+// 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
+// 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
+// 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
+// 	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
+// 	if err != nil || result.Code != 0 {
+// 		fssh.LogResult(result)
+// 		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
+// 	}
+// 	return vmdkPath, nil
+// }
+
+// func createDir(ctx context.Context, path string, host string) {
+
+// 	mkdirCmd := fmt.Sprintf("mkdir -p %s", path)
+// 	framework.Logf("Invoking command '%v' on ESX host %v", mkdirCmd, host)
+
+// 	_, err := k8testutil.RunCommandOnESX(vs, "root", host, mkdirCmd)
+// 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create direct")
+
 // }
