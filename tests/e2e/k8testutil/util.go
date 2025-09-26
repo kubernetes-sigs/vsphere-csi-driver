@@ -6094,6 +6094,19 @@ func StopCSIPods(ctx context.Context, client clientset.Interface, namespace stri
 	isServiceStopped := false
 	err := UpdateDeploymentReplicawithWait(client, 0, constants.VSphereCSIControllerPodNamePrefix,
 		namespace)
+
+	var reTry int = 5
+
+	for firstRun := true; err != nil && firstRun; firstRun = (reTry > 0) {
+		err := UpdateDeploymentReplicawithWait(client, 0, constants.VSphereCSIControllerPodNamePrefix, namespace)
+
+		if err != nil {
+			time.Sleep(5 * time.Second)
+		} else {
+			break
+		}
+		reTry--
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	isServiceStopped = true
 	return isServiceStopped, err
@@ -8525,7 +8538,7 @@ func CreateVsanPartition(ctx context.Context, vs *config.E2eTestConfig, client c
 	targetHostSystem := object.NewHostSystem(vs.VcClient.Client, targetHost.Reference())
 	nicMgr, err := targetHostSystem.ConfigManager().VirtualNicManager(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = nicMgr.DeselectVnic(ctx, "vsan", env.GetAndExpectStringEnvVar(constants.EnvVmknic4Vsan))
+	err = nicMgr.DeselectVnic(ctx, "vsan", env.GetStringEnvVarOrDefault(constants.EnvVmknic4Vsan, "vmk0"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return nicMgr, err
 }
@@ -8533,7 +8546,7 @@ func CreateVsanPartition(ctx context.Context, vs *config.E2eTestConfig, client c
 // RemoveVsanPartition method removes vSAN partitioning by enabling the vSAN service on the vmkernel adapter in the partitioned host
 func RemoveVsanPartition(ctx context.Context, nicMgr *object.HostVirtualNicManager) {
 	ginkgo.By("Enable vsan network on the host's vmknic in cluster")
-	err := nicMgr.SelectVnic(ctx, "vsan", env.GetAndExpectStringEnvVar(constants.EnvVmknic4Vsan))
+	err := nicMgr.SelectVnic(ctx, "vsan", env.GetStringEnvVarOrDefault(constants.EnvVmknic4Vsan, "vmk0"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

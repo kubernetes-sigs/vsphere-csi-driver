@@ -474,29 +474,37 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 	for _, serviceName := range serviceNames {
 		switch serviceName {
 		case constants.ApdName:
-			resultDatastores, _ := vcutil.GetDatastoresByType(e2eTestConfig.VcClient, constants.Vmfs)
-			ginkgo.By("Fetch IPs for the all the hosts in the cluster")
-			clusterName := os.Getenv(constants.EnvComputeClusterName)
-			framework.Logf("Cluster Name : %s", clusterName)
-			hostIPs := vcutil.GetAllHostsIPsInCluster(ctx, e2eTestConfig, clusterName)
-			framework.Logf("No of hosts in the cluster : %s = %d", clusterName, len(hostIPs))
+			if dsType != constants.Vmfs {
+				// resultDatastores, _ := vcutil.GetDatastoresByType(e2eTestConfig.VcClient, constants.Vmfs)
+				ginkgo.By("Fetch IPs for the all the hosts in the cluster")
+				clusterName := os.Getenv(constants.EnvComputeClusterName)
+				framework.Logf("Cluster Name : %s", clusterName)
+				hostIPs := vcutil.GetAllHostsIPsInCluster(ctx, e2eTestConfig, clusterName)
+				framework.Logf("No of hosts in the cluster : %s = %d", clusterName, len(hostIPs))
 
-			ginkgo.By("Clearing the APD..........")
+				ginkgo.By("Clearing the APD..........")
 
-			for _, vmfaDatastore := range resultDatastores {
-				scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+				// for _, vmfaDatastore := range resultDatastores {
+				// 	scsiLun, _ := vcutil.GetScsiLun(e2eTestConfig.VcClient, vmfaDatastore)
+				// 	var wg sync.WaitGroup
+				// 	wg.Add(len(hostIPs))
+				// 	for _, hostIP := range hostIPs {
+				// 		go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, scsiLun, hostIP, &wg)
+				// 	}
+				// 	wg.Wait()
+				// }
 				var wg sync.WaitGroup
 				wg.Add(len(hostIPs))
 				for _, hostIP := range hostIPs {
-					go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, scsiLun, hostIP, &wg)
+					go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP, &wg)
 				}
 				wg.Wait()
 			}
-
 		case constants.VsanPartition:
-			ginkgo.By("Removing the vSAN Partition..........")
-			k8testutil.RemoveVsanPartition(ctx, nicMgr)
-
+			if dsType != constants.Vsan {
+				ginkgo.By("Removing the vSAN Partition..........")
+				k8testutil.RemoveVsanPartition(ctx, nicMgr)
+			}
 		case constants.CsiServiceName:
 			framework.Logf("Starting CSI driver")
 			ignoreLabels := make(map[string]string)
@@ -571,6 +579,7 @@ func testSetUp(fw *framework.Framework) {
 	scParameters = make(map[string]string)
 	storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
 	dsType = env.GetStringEnvVarOrDefault(constants.EnvDatastoreType, constants.Vmfs)
+	framework.Logf("Datastore Type: %s", dsType)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, fw.ClientSet)

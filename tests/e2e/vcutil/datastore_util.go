@@ -40,6 +40,7 @@ func GetDatastoresByType(vcClient *govmomi.Client, dsType string) ([]mo.Datastor
 	var resultDatastores []mo.Datastore
 	// Filter datastores by type
 	for _, ds := range datastores {
+		PrintDatastoreSummary(ds)
 		if ds.Summary.Type == dsType && *ds.Summary.MultipleHostAccess { //Considering only shared datastores
 			resultDatastores = append(resultDatastores, ds)
 		}
@@ -113,7 +114,6 @@ func PrintDatastoreSummary(datastore mo.Datastore) {
 		datastore.Summary.Type,
 		datastore.Summary.Datastore.Value,
 		*datastore.Summary.MultipleHostAccess)
-
 }
 
 // Given the host mor, this function return the ip
