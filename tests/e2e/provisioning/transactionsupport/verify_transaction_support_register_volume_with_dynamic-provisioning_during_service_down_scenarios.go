@@ -121,7 +121,7 @@ func dynamicProvisioningRegisterVolumeWithServiceDown(serviceNames []string, nam
 	dsName := resultDatastores[0].Info.GetDatastoreInfo().Name
 	dirPath := "/vmfs/volumes/" + dsName + "/fcd"
 	hostIPs := vcutil.GetAllHostsIP(ctx, e2eTestConfig, true)
-	createDir(dirPath, hostIPs[0])
+	createDir(ctx, dirPath, hostIPs[0])
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 
 	var wg sync.WaitGroup
@@ -138,7 +138,7 @@ func dynamicProvisioningRegisterVolumeWithServiceDown(serviceNames []string, nam
 
 	for i := range volumeOpsScale {
 		framework.Logf("Creating pvc from vmdk[%d] : %s", i, vmdks[i])
-		go createPvcFromVmdk(ctx, namespace, diskSize, vmdks, pvclaims, i, &wg)
+		go createPvcFromVmdk(ctx, namespace, vmdks, pvclaims, i, &wg)
 	}
 
 	for _, serviceName := range serviceNames {
@@ -178,7 +178,7 @@ func dynamicProvisioningRegisterVolumeWithServiceDown(serviceNames []string, nam
 			ginkgo.By("Deleting vmdks")
 			for _, vmdk := range vmdks {
 				framework.Logf("Deleting vmdk : %s", vmdk)
-				deleteVmdk(vmdk, hostIPs[0])
+				deleteVmdk(ctx, vmdk, hostIPs[0])
 			}
 		}
 	}()

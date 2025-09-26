@@ -423,7 +423,7 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		// TODO: Create Thick Storage Policy from Pre-setup
-		scParameters[constants.ScParamStoragePolicyName] = "Management Storage Policy - Regular"
+		scParameters[constants.ScParamStoragePolicyName] = os.Getenv(constants.EnvStoragePolicyNameWithThickProvision)
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
@@ -651,7 +651,7 @@ func createFcd(ctx context.Context, fcdIDs []string, index int, size int64, dsRe
 	defer wgMain.Done()
 	ginkgo.By("Creating FCD Disk")
 	fcdName := fmt.Sprintf("fcd-%d", index)
-	fcdID, err := vcutil.CreateFCD(ctx, e2eTestConfig, fcdName, constants.DiskSizeInMb, dsRef)
+	fcdID, err := vcutil.CreateFCD(ctx, e2eTestConfig, fcdName, size, dsRef)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	fcdIDs[index] = fcdID
 	ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora", constants.DefaultPandoraSyncWaitTime, fcdID))
@@ -702,29 +702,28 @@ func createVmdk(ctx context.Context, host string, dir string, size string, vmdks
 	vmdkCreateCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
 	framework.Logf("Invoking command '%v' on ESX host %v", vmdkCreateCmd, host)
 
-	_, err := k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, vmdkCreateCmd)
+	_, err := vcutil.RunSsh(ctx, vmdkCreateCmd, e2eTestConfig, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create vmdk")
 
 	vmdks[index] = vmdkPath
 }
 
-func deleteVmdk(vmdk string, host string) {
+func deleteVmdk(ctx context.Context, vmdk string, host string) {
 	delVmdkCmd := fmt.Sprintf("rm -f %s", vmdk)
 	framework.Logf("Invoking command '%v' on ESX host %v", delVmdkCmd, host)
-	k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, delVmdkCmd)
+	vcutil.RunSsh(ctx, delVmdkCmd, e2eTestConfig, host)
 }
 
-func createDir(path string, host string) {
+func createDir(ctx context.Context, path string, host string) {
 
 	mkdirCmd := fmt.Sprintf("mkdir -p %s", path)
 	framework.Logf("Invoking command '%v' on ESX host %v", mkdirCmd, host)
 
-	_, err := k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, mkdirCmd)
+	_, err := vcutil.RunSsh(ctx, mkdirCmd, e2eTestConfig, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create direct")
-
 }
 
-func createPvcFromVmdk(ctx context.Context, namespace string, size string, vmdks []string, pvclaimsCreatedFromFcd []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
+func createPvcFromVmdk(ctx context.Context, namespace string, vmdks []string, pvclaimsCreatedFromFcd []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
 
