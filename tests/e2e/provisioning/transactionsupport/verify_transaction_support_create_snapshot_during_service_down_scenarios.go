@@ -178,7 +178,7 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	wg.Wait()
 
 	//After service restart
-	bootstrap.Bootstrap()
+	e2eTestConfig = bootstrap.Bootstrap()
 
 	ginkgo.By("Verify volume snapshot is created")
 	pvcSnapshots, err = k8testutil.WaitForVolumeSnapshotsReadyToUse(ctx, e2eTestConfig, namespace, pvcSnapshots)

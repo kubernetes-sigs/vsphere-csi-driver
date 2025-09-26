@@ -187,7 +187,7 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	wg.Wait()
 
 	//After service restart
-	bootstrap.Bootstrap()
+	e2eTestConfig = bootstrap.Bootstrap()
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")

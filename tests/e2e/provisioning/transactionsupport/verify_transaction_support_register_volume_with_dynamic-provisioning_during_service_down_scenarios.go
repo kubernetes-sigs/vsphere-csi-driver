@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/vmware/govmomi/vim25/mo"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -39,13 +40,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
-// TestCase holds the data for a single table-driven test case.
-type TestCase struct {
-	Description string   `json:"description"`
-	Input       []string `json:"input"`
-}
-
-var _ = ginkgo.Describe("Transaction_Support_DeleteVolume", func() {
+var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Dynamic", func() {
 
 	f := framework.NewDefaultFramework("transaction-support")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
@@ -60,7 +55,7 @@ var _ = ginkgo.Describe("Transaction_Support_DeleteVolume", func() {
 			entries = append(entries, ginkgo.Entry(tc.Description, tc.Input))
 		}
 
-		ginkgo.DescribeTableSubtree("Transaction_Support_DeleteVolume_Table_Tests",
+		ginkgo.DescribeTableSubtree("Transaction_Support_Create_Volume_Table_Tests",
 			func(serviceNames []string) {
 
 				ginkgo.BeforeEach(func() {
@@ -74,7 +69,7 @@ var _ = ginkgo.Describe("Transaction_Support_DeleteVolume", func() {
 				})
 
 				ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
-					"Veify Delete Volume With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
+					"Veify Register Volume (Dynamic Provisiong) With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
 					constants.Windows, constants.Wcp, constants.Tkg, constants.Vanilla, constants.Vc91), func() {
 					if slices.Contains(serviceNames, constants.ApdName) {
 						if dsType != constants.Vmfs {
@@ -87,8 +82,7 @@ var _ = ginkgo.Describe("Transaction_Support_DeleteVolume", func() {
 							ginkgo.Skip("Vsan-Partition test(s) are only for VSAN datastore")
 						}
 					}
-					deleteVolumeWithServiceDown(serviceNames, namespace, client, storagePolicyName,
-						scParameters, volumeOpsScale, c)
+					dynamicProvisioningRegisterVolumeWithServiceDown(serviceNames, namespace, client, storagePolicyName, scParameters, volumeOpsScale, c)
 				})
 			},
 			entries,
@@ -96,68 +90,22 @@ var _ = ginkgo.Describe("Transaction_Support_DeleteVolume", func() {
 	})
 })
 
-// createVolumeWithServiceDown creates the volumes and immediately restart the services and wait for
+// dynamicProvisioningRegisterVolumeWithServiceDown register vmdk and immediately restart the services and wait for
 // the service to be up again and validates the volumes are bound
-func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client clientset.Interface,
-	storagePolicyName string, scParameters map[string]string, volumeOpsScale int,
-	c clientset.Interface) {
+func dynamicProvisioningRegisterVolumeWithServiceDown(serviceNames []string, namespace string, client clientset.Interface, storagePolicyName string, scParameters map[string]string, volumeOpsScale int, c clientset.Interface) {
 	var err error
-	var accessMode v1.PersistentVolumeAccessMode
-
+	// var accessMode v1.PersistentVolumeAccessMode
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	diskSize := constants.DiskSize10GB
-	diskSizeInMb := constants.DiskSize10GBInMb //TODO modify these values as per datastore
+	diskSize := constants.DiskSize5GB
+	diskSizeInMb := constants.DiskSize5GBInMb //TODO modify these values as per datastore
 
-	ginkgo.By(fmt.Sprintf("`Invoking Test for delete volume when` %v goes down", serviceNames))
+	ginkgo.By(fmt.Sprintf("`Invoking Test for register volume when` %v goes down", serviceNames))
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+	vmdks := make([]string, volumeOpsScale)
 
 	storageclass := getStorageClass(ctx, scParameters, client, namespace, storagePolicyName)
-
-	ginkgo.By("Creating PVCs using the Storage Class")
-	var wg sync.WaitGroup
-	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
-
-	wg.Add(volumeOpsScale)
-
-	if e2eTestConfig.TestInput.TestBedInfo.RwxAccessMode {
-		accessMode = v1.ReadWriteMany
-	} else {
-		accessMode = v1.ReadWriteOnce
-	}
-
-	for i := range volumeOpsScale {
-		framework.Logf("Creating pvc %v", i)
-		go createPVC(ctx, client, namespace, diskSize, storageclass, accessMode, pvclaims, i, &wg)
-	}
-	wg.Wait()
-
-	ginkgo.By("Waiting for all claims to be in bound state")
-	framework.Logf("Waiting for all claims : %d (volumeOpsScale : %d) to be in bound state ", len(pvclaims), volumeOpsScale)
-
-	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
-		2*framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	defer func() {
-		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		ginkgo.By("Verify PVs, volumes are deleted from CNS")
-		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
-				framework.PodDeleteTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			volumeID := pv.Spec.CSI.VolumeHandle
-			err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}
-	}()
-
 	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
@@ -167,10 +115,30 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
 	}
 
-	wg.Add(len(serviceNames) + volumeOpsScale)
+	var resultDatastores []mo.Datastore
+	resultDatastores, _ = vcutil.GetDatastoresByType(e2eTestConfig.VcClient, dsType)
+
+	dsName := resultDatastores[0].Info.GetDatastoreInfo().Name
+	dirPath := "/vmfs/volumes/" + dsName + "/fcd"
+	hostIPs := vcutil.GetAllHostsIP(ctx, e2eTestConfig, true)
+	createDir(dirPath, hostIPs[0])
+	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
+
+	var wg sync.WaitGroup
+	wg.Add(volumeOpsScale)
 	for i := range volumeOpsScale {
-		framework.Logf("Deleting pvc %v", i)
-		go deletePVC(ctx, client, namespace, pvclaims, persistentvolumes, i, &wg)
+		framework.Logf("Creating vmdks %v", i)
+		go createVmdk(ctx, hostIPs[0], dirPath, diskSize, vmdks, i, &wg)
+	}
+	wg.Wait()
+	deleteVmdksRequired := true
+
+	ginkgo.By("Creating PVCs using the Vmdks")
+	wg.Add(len(serviceNames) + volumeOpsScale)
+
+	for i := range volumeOpsScale {
+		framework.Logf("Creating pvc from vmdk[%d] : %s", i, vmdks[i])
+		go createPvcFromVmdk(ctx, namespace, diskSize, vmdks, pvclaims, i, &wg)
 	}
 
 	for _, serviceName := range serviceNames {
@@ -181,15 +149,46 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	//After service restart
 	e2eTestConfig = bootstrap.Bootstrap()
 
+	ginkgo.By("Waiting for all claims to be in bound state")
+	framework.Logf("Waiting for all claims : %d (volumeOpsScale : %d) to be in bound state ", len(pvclaims), volumeOpsScale)
+
+	persistentvolumes, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaims,
+		2*framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// defer func() {
+	// 	for _, claim := range pvclaims {
+	// 		err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}
+	// 	ginkgo.By("Verify PVs, volumes are deleted from CNS")
+	// 	for _, pv := range persistentvolumes {
+	// 		err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+	// 			framework.PodDeleteTimeout)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 		volumeID := pv.Spec.CSI.VolumeHandle
+	// 		err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+	// 			fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+	// 				"kubernetes", volumeID))
+	// 	}
+	// }()
+	defer func() {
+		if deleteVmdksRequired {
+			ginkgo.By("Deleting vmdks")
+			for _, vmdk := range vmdks {
+				framework.Logf("Deleting vmdk : %s", vmdk)
+				deleteVmdk(vmdk, hostIPs[0])
+			}
+		}
+	}()
+
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
 	time.Sleep(1 * time.Minute)
 
-	volumeOpsScale = volumeOpsScale * -1
-
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
-
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
@@ -206,7 +205,7 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 	//Verify Vmdk count and fcd/volume list and used space
 	usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, _, deltaUsedSpace := k8testutil.ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning, dsFcdFootprintMapAfterProvisioning, newdiskSizeInBytes, volumeOpsScale)
-	framework.Logf("DeleteVolume-------------------------")
+	framework.Logf("RegisterVolume-------------------------")
 	framework.Logf("Is Datastore Used Space Matched : %t, Delta Used Space If any : %d", usedSpaceRetVal, deltaUsedSpace)
 	framework.Logf("Is Num of Vmdks Matched : %t", numberOfVmdksRetVal)
 	framework.Logf("Is Num of Fcds Matched : %t", numberOfFcdsRetVal)
@@ -217,6 +216,6 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 
+	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// isTestPassed = true
-	isTestPassed = false
 }

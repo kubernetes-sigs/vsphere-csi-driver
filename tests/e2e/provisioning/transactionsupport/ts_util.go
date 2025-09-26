@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,7 +78,6 @@ var (
 	deployment                                                               *appsv1.Deployment
 	pvclaimsCreatedFromSnapshot                                              []*v1.PersistentVolumeClaim
 	pvsCreatedFromSnapshot                                                   []*v1.PersistentVolume
-	fcdIDs                                                                   []string
 )
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
@@ -683,42 +683,75 @@ func createPVCFromFcd(ctx context.Context, fcdIDs []string, namespace string, pv
 	pvclaimsCreatedFromFcd[index] = pvc
 }
 
-// func createVmdk(ctx context.Context, host string, dsName string, size string, objType string, diskFormat string) (string, error) {
-// 	dir := "/vmfs/volumes/" + dsName + "/fcd"
-// 	err := createDir(ctx, dir, host)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	if diskFormat == "" {
-// 		diskFormat = "thin"
-// 	}
-// 	if objType == "" {
-// 		objType = "vsan"
-// 	}
-// 	if size == "" {
-// 		size = "2g"
-// 	}
+func createVmdk(ctx context.Context, host string, dir string, size string, vmdks []string, index int, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
 
-// 	// Read hosts sshd port number
-// 	ip, portNum, err := getPortNumAndIP(host)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-// 	addr := ip + ":" + portNum
+	ginkgo.By("Creating the vmdk(s)")
+	diskFormat := "eagerzeroedthick"
+	var objType string
 
-// 	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
-// 	sshCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
-// 	framework.Logf("Invoking command '%v' on ESX host %v", sshCmd, host)
-// 	result, err := fssh.SSH(ctx, sshCmd, addr, framework.TestContext.Provider)
-// 	if err != nil || result.Code != 0 {
-// 		fssh.LogResult(result)
-// 		return vmdkPath, fmt.Errorf("couldn't execute command: '%s' on ESX host: %v", sshCmd, err)
-// 	}
-// 	return vmdkPath, nil
-// }
+	if dsType == constants.Vsan {
+		objType = "vsan"
+	} else {
+		objType = "file"
+	}
 
-// func createDir(ctx context.Context, path string, host string) {
+	// Read hosts sshd port number
+	vmdkPath := fmt.Sprintf("%s/test-%v-%v.vmdk", dir, time.Now().UnixNano(), rand.Intn(1000))
+	vmdkCreateCmd := fmt.Sprintf("vmkfstools -c %s -d %s -W %s %s", size, diskFormat, objType, vmdkPath)
+	framework.Logf("Invoking command '%v' on ESX host %v", vmdkCreateCmd, host)
 
-// 	mkdirCmd := fmt.Sprintf("mkdir -p %s", path)
-// 	framework.Logf("Invoking command '%v' on ESX host %v", mkdirCmd, host)
+	_, err := k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, vmdkCreateCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create vmdk")
 
-// 	_, err := k8testutil.RunCommandOnESX(vs, "root", host, mkdirCmd)
-// 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create direct")
+	vmdks[index] = vmdkPath
+}
 
-// }
+func deleteVmdk(vmdk string, host string) {
+	delVmdkCmd := fmt.Sprintf("rm -f %s", vmdk)
+	framework.Logf("Invoking command '%v' on ESX host %v", delVmdkCmd, host)
+	k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, delVmdkCmd)
+}
+
+func createDir(path string, host string) {
+
+	mkdirCmd := fmt.Sprintf("mkdir -p %s", path)
+	framework.Logf("Invoking command '%v' on ESX host %v", mkdirCmd, host)
+
+	_, err := k8testutil.RunCommandOnESX(e2eTestConfig, "root", host, mkdirCmd)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to create direct")
+
+}
+
+func createPvcFromVmdk(ctx context.Context, namespace string, size string, vmdks []string, pvclaimsCreatedFromFcd []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
+	defer ginkgo.GinkgoRecover()
+	defer wgMain.Done()
+
+	ginkgo.By("Creating the pvc from vmdk")
+	pvcName := fmt.Sprintf("vmdk-%d", index)
+	framework.Logf("pvc name :%s", pvcName)
+
+	framework.Logf("VMDK path : %s", vmdks[index])
+	ginkgo.By("Create CNS register volume with VMDK")
+
+	cnsRegisterVolume := k8testutil.GetCNSRegisterVolumeSpec(ctx, namespace, "", vmdks[index], pvcName, v1.ReadWriteOnce)
+
+	restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+	err := k8testutil.CreateCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.ExpectNoError(k8testutil.WaitForCNSRegisterVolumeToGetCreated(ctx, restConfig, namespace, cnsRegisterVolume, constants.Poll, constants.SupervisorClusterOperationsTimeout), "WaitForCNSRegisterVolumeToGetCreated Failed ")
+
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	framework.Logf("CNS register volume name : %s", cnsRegisterVolumeName)
+
+	ginkgo.By("Verify Created PV, PVC")
+	pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	pv := k8testutil.GetPvFromClaim(client, namespace, pvcName)
+	pvName := pvc.Spec.VolumeName
+	// pvName will be like static-pv-<volumeID> This volumeID Should be same as in PV volumeHandle
+	volumeID := strings.ReplaceAll(pvName, "static-pv-", "")
+	k8testutil.VerifyBidirectionalReferenceOfPVandPVC(ctx, client, pvc, pv, volumeID)
+
+}

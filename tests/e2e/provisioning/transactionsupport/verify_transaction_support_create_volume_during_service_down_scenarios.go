@@ -139,7 +139,7 @@ func createVolumeWithServiceDown(serviceNames []string, namespace string, client
 	wg.Wait()
 
 	//After service restart
-	bootstrap.Bootstrap()
+	e2eTestConfig = bootstrap.Bootstrap()
 
 	ginkgo.By("Waiting for all claims to be in bound state")
 	framework.Logf("Waiting for all claims : %d (volumeOpsScale : %d) to be in bound state ", len(pvclaims), volumeOpsScale)
