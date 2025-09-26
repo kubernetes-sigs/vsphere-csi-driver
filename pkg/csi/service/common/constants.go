@@ -144,8 +144,17 @@ const (
 	// UnknownVolumeType is assigned to CNS volumes whose type couldn't be determined.
 	UnknownVolumeType = "UNKNOWN"
 
+	// Nfsv3AccessPointKey is the key for NFSv3 access point.
+	Nfsv3AccessPointKey = "NFSv3"
+
 	// Nfsv4AccessPointKey is the key for NFSv4 access point.
 	Nfsv4AccessPointKey = "NFSv4.1"
+
+	// Nfsv3ExportPathAnnotationKey specifies the NFSv3 export path annotation key on PVC
+	Nfsv3ExportPathAnnotationKey = "csi.vsphere.exportpath.nfs3"
+
+	// Nfsv4ExportPathAnnotationKey specifies the NFSv4.1 export path annotation key on PVC
+	Nfsv4ExportPathAnnotationKey = "csi.vsphere.exportpath.nfs41"
 
 	// Nfsv4AccessPoint is the access point of file volume.
 	Nfsv4AccessPoint = "Nfsv4AccessPoint"

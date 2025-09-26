@@ -1013,6 +1013,15 @@ func runTestCsiFullSync_WorkloadCluster(t *testing.T) {
 		commonco.ContainerOrchestratorUtility = originalCO
 	}()
 
+	// Store the original K8sNewclient to restore later
+	origK8sClient := k8sNewClient
+	defer func() {
+		k8sNewClient = origK8sClient
+	}()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) {
+		return k8sclient, nil
+	}
+
 	// Create a WORKLOAD cluster metadataSyncer (note: volumeManagers map is NOT populated)
 	// This simulates the real WORKLOAD cluster setup where only volumeManager is set
 	workloadMetadataSyncer := &metadataSyncInformer{
