@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -562,7 +563,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 		// Validate topology compatibility if PVC exists and can be reused
 		if topologyMgr != nil {
-			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
+			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc, datastoreAccessibleTopology)
 			if err != nil {
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
 				log.Error(msg)
@@ -811,15 +812,31 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 // with the volume's actual placement zone.
 func validatePVCTopologyCompatibility(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	volumeDatastoreURL string, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter) error {
+	vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string) error {
 	log := logger.GetLogger(ctx)
 
 	// Check if PVC has topology annotation
 	topologyAnnotation, exists := pvc.Annotations[common.AnnVolumeAccessibleTopology]
 	if !exists || topologyAnnotation == "" {
-		// No topology annotation on PVC, skip validation
-		log.Debugf("PVC %s/%s has no topology annotation, skipping topology validation",
+		// No topology annotation on PVC, add topology annotation and skip validation
+		log.Debugf("PVC %s/%s has no topology annotation, adding topology annotation",
 			pvc.Namespace, pvc.Name)
+		var segmentsArray []string
+		for _, topologyTerm := range datastoreAccessibleTopology {
+			jsonSegment, err := json.Marshal(topologyTerm)
+			if err != nil {
+				return logger.LogNewErrorf(log,
+					"failed to marshal topology segment: %+v to json. Error: %+v", topologyTerm, err)
+			}
+			segmentsArray = append(segmentsArray, string(jsonSegment))
+		}
+		topologyAnnotation = "[" + strings.Join(segmentsArray, ",") + "]"
+
+		if pvc.Annotations == nil {
+			pvc.Annotations = make(map[string]string)
+		}
+		pvc.Annotations[common.AnnVolumeAccessibleTopology] = topologyAnnotation
+		// Return nil as we just added the topology annotation based on actual volume placement
 		return nil
 	}
 
