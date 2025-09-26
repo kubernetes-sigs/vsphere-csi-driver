@@ -1503,6 +1503,31 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 	attributes := make(map[string]string)
 	attributes[common.AttributeDiskType] = common.DiskTypeFileVolume
 
+	// Return NFSv3 and NFSv4.1 export paths in volume context attributes.
+	// CSI provisioner will add these export paths as PVC annotations.
+	// Make a QueryVolume call to fetch file share export paths.
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+		},
+	}
+	volume, err := common.QueryVolumeByID(ctx, c.manager.VolumeManager,
+		volumeInfo.VolumeID.Id, &querySelection)
+	if err != nil {
+		log.Errorf("error while performing QueryVolume on volume %s, error: %+v",
+			volumeInfo.VolumeID.Id, err)
+	}
+	vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+	for _, kv := range vSANFileBackingDetails.AccessPoints {
+		if kv.Key == common.Nfsv3AccessPointKey {
+			attributes[common.Nfsv3ExportPathAnnotationKey] = kv.Value
+		} else if kv.Key == common.Nfsv4AccessPointKey {
+			attributes[common.Nfsv4ExportPathAnnotationKey] = kv.Value
+		}
+	}
+	log.Debugf("Access point details for volume: %s, namespace: %s are %+v", req.Name,
+		req.Parameters[common.AttributePvcNamespace], attributes)
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeInfo.VolumeID.Id,
