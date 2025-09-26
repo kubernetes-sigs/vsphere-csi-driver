@@ -41,10 +41,12 @@ import (
 
 // govc login cmd
 func govcLoginCmd() string {
+	vcIp, portNum, err := getPortNumAndIP(e2eVSphere.Config.Global.VCenterHostname)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	loginCmd := "export GOVC_INSECURE=1;"
 	loginCmd += fmt.Sprintf("export GOVC_URL='https://%s:%s@%s:%s';",
 		e2eVSphere.Config.Global.User, e2eVSphere.Config.Global.Password,
-		vcAddress, defaultVcAdminPortNum)
+		vcIp, portNum)
 	return loginCmd
 }
 
