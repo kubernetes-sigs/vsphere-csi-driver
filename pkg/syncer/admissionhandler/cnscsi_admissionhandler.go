@@ -131,7 +131,7 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 
 	mgr, err := manager.New(crConfig.GetConfigOrDie(), mgrOpts)
 	if err != nil {
-		log.Fatal(err, "unable to set up overall controller manager")
+		log.Fatal(err, "unable to set up overall  manager")
 	}
 
 	k8sClient := mgr.GetClient()
