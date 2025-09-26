@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 12. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 13. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[ef-vanilla-block][cf-vks][cf-vks-f][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][cf-vks-f][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
 		"Verify offline volume expansion workflow with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, core,
 		vc70), func() {
 		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)

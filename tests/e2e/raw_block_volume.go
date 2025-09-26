@@ -711,7 +711,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
 		"[cf-vks-f] Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
 		block, vanilla, tkg,
 		vc70), func() {
