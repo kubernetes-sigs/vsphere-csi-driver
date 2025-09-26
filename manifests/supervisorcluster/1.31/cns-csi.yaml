@@ -737,6 +737,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsfileaccessconfigs"]
     verbs: ["get", "list", "update"]
+  - apiGroups: ["vmoperator.vmware.com"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
