@@ -99,7 +99,7 @@ func main() {
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Infof("Version : %s", syncer.Version)
+	log.Infof("Version : %s", syncer.Version, "something")
 
 	if *enableProfileServer {
 		go func() {
