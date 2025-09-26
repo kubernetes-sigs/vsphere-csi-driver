@@ -138,6 +138,7 @@ const (
 	StorageQuotaWebhookPrefix  = "storage-quota-webhook"
 	DevopsKubeConf             = "DEV_OPS_USER_KUBECONFIG"
 	QuotaSupportedVCVersion    = "9.0.0"
+	LinkedCloneAnnotationKey   = "csi.vsphere.volume/fast-provisioning"
 )
 
 // For busybox pod image
