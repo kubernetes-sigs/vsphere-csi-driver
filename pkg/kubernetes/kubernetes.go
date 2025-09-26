@@ -55,6 +55,7 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	storagev1 "k8s.io/api/storage/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	migrationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration/v1alpha1"
 	storagepoolAPIs "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool"
@@ -706,38 +707,6 @@ func PatchFinalizers(ctx context.Context, c client.Client, obj client.Object, fi
 	return c.Patch(ctx, obj, patch)
 }
 
-// RetainPersistentVolume updates the PersistentVolume's ReclaimPolicy to Retain.
-// This is useful to preserve the PersistentVolume even if the associated PersistentVolumeClaim is deleted.
-func RetainPersistentVolume(ctx context.Context, k8sClient clientset.Interface, pvName string) error {
-	log := logger.GetLogger(ctx)
-
-	if pvName == "" {
-		log.Debugf("PersistentVolume name is empty. Exiting...")
-		return nil
-	}
-
-	log.Debugf("Retaining PersistentVolume %q", pvName)
-	pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Debugf("PersistentVolume %q not found. Exiting...", pvName)
-			return nil
-		}
-
-		return logger.LogNewErrorf(log, "Failed to get PersistentVolume %q. Error: %s", pvName, err.Error())
-	}
-
-	pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-	_, err = k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
-	if err != nil {
-		return logger.LogNewErrorf(log, "Failed to update PersistentVolume %q to retain policy. Error: %s",
-			pvName, err.Error())
-	}
-
-	log.Debugf("Successfully retained PersistentVolume %q", pvName)
-	return nil
-}
-
 // DeletePersistentVolumeClaim deletes the PersistentVolumeClaim with the given name and namespace.
 func DeletePersistentVolumeClaim(ctx context.Context, k8sClient clientset.Interface,
 	pvcName, pvcNamespace string) error {
@@ -801,5 +770,87 @@ func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error
 
 	log.Infof("Successfully updated status for %s %s/%s", obj.GetObjectKind().GroupVersionKind().Kind,
 		obj.GetNamespace(), obj.GetName())
+	return nil
+}
+
+// AddFinalizerOnPVC adds the specified finalizer to the PersistentVolumeClaim (PVC)
+// if it is not already present.
+func AddFinalizerOnPVC(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace,
+	finalizer string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvcName == "" {
+		log.Debugf("PVC name is empty. Exiting...")
+		return nil
+	}
+
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PersistentVolumeClaim %q in namespace %q not found. Exiting...", pvcName, pvcNamespace)
+			return nil
+		}
+
+		return logger.LogNewErrorf(log, "Failed to get PersistentVolumeClaim %q in namespace %q. Error: %s",
+			pvcName, pvcNamespace, err.Error())
+	}
+
+	// If the finalizer is already present, no action is needed
+	if !controllerutil.AddFinalizer(pvc, finalizer) {
+		log.Debugf("Finalizer %q already present on PersistentVolumeClaim %q in namespace %q. No action needed.",
+			finalizer, pvcName, pvcNamespace)
+		return nil
+	}
+
+	// Update the PVC with the new finalizer
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to add finalizer %q to PersistentVolumeClaim %q in namespace %q. Error: %s",
+			finalizer, pvcName, pvcNamespace, err.Error())
+	}
+
+	log.Debugf("Successfully added finalizer %q to PersistentVolumeClaim %q in namespace %q",
+		finalizer, pvcName, pvcNamespace)
+	return nil
+}
+
+// RemoveFinalizerFromPVC removes the specified finalizer from the PersistentVolumeClaim (PVC)
+// if it is present.
+func RemoveFinalizerFromPVC(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace,
+	finalizer string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvcName == "" {
+		log.Debugf("PVC name is empty. Exiting...")
+		return nil
+	}
+
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("PersistentVolumeClaim %q in namespace %q not found. Exiting...", pvcName, pvcNamespace)
+			return nil
+		}
+
+		return logger.LogNewErrorf(log, "Failed to get PersistentVolumeClaim %q in namespace %q. Error: %s",
+			pvcName, pvcNamespace, err.Error())
+	}
+
+	// If the finalizer is not present, no action is needed
+	if !controllerutil.RemoveFinalizer(pvc, finalizer) {
+		log.Debugf("Finalizer %q not present on PersistentVolumeClaim %q in namespace %q. No action needed.",
+			finalizer, pvcName, pvcNamespace)
+		return nil
+	}
+
+	// Update the PVC to remove the finalizer
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to remove finalizer %q from PersistentVolumeClaim %q in namespace %q. Error: %s",
+			finalizer, pvcName, pvcNamespace, err.Error())
+	}
+
+	log.Debugf("Successfully removed finalizer %q from PersistentVolumeClaim %q in namespace %q",
+		finalizer, pvcName, pvcNamespace)
 	return nil
 }
