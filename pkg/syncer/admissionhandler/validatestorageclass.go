@@ -49,13 +49,6 @@ const (
 
 // validateStorageClass helps validate AdmissionReview requests for StroageClass.
 func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
-	if !featureGateCsiMigrationEnabled {
-		// If CSI migration is disabled and webhook is running,
-		// skip validation for StorageClass.
-		return &admissionv1.AdmissionResponse{
-			Allowed: true,
-		}
-	}
 	log := logger.GetLogger(ctx)
 	req := ar.Request
 	var result *metav1.Status
