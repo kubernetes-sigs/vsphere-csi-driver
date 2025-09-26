@@ -274,9 +274,14 @@ const (
 	envStoragePolicyNameForVsanNfsDatastores = "STORAGE_POLICY_FOR_VSAN_NFS_DATASTORES"
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
-	lateBinding                              = "-latebinding"
-	cnsVolumeDeleteTimeout                   = 5 * time.Minute
-	vscDeleteTimeout                         = 5 * time.Minute
+
+	lateBinding            = "-latebinding"
+	cnsVolumeDeleteTimeout = 5 * time.Minute
+	vscDeleteTimeout       = 5 * time.Minute
+
+	selectedNodeIsZone          = "cns.vmware.com/selected-node-is-zone"
+	selectedNodeAnnotationOnPVC = "volume.kubernetes.io/selected-node"
+	vmZoneLabel                 = "topology.kubernetes.io/zone"
 )
 
 /*

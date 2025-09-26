@@ -40,6 +40,8 @@ import (
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
+	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmopv4common "github.com/vmware-tanzu/vm-operator/api/v1alpha4/common"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -366,6 +368,7 @@ func waitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName
 		func(ctx context.Context) (bool, error) {
 			vmImagesList := &vmopv1.VirtualMachineImageList{}
 			err := c.List(ctx, vmImagesList)
+			defer ginkgo.GinkgoRecover()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, instance := range vmImagesList.Items {
 				if instance.Status.ImageName == imageName {
@@ -416,6 +419,7 @@ func createVmServiceVmV3(ctx context.Context, c ctlrclient.Client, opts CreateVm
 			},
 		})
 	}
+
 	vm := &vmopv3.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: opts.Namespace},
 		Spec: vmopv3.VirtualMachineSpec{
@@ -1448,11 +1452,11 @@ func verifyVmServiceVMNodeLocation(vm *vmopv1.VirtualMachine, nodeList *v1.NodeL
 
 // getVmsvcVmDetailedOutput  gets the detailed status output of the vm
 func getVmsvcVmDetailedOutput(ctx context.Context, c ctlrclient.Client, namespace string, name string) string {
-	vm, _ := getVmsvcVM(ctx, c, namespace, name)
+	vm, _ := getVmsvcVM4(ctx, c, namespace, name)
 	// Command to write data and sync it
 	cmd := []string{"get", "vm", vm.Name, "-o", "yaml"}
 	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-	framework.Logf("StatusCode of addContentLibToNamespace : %s", output)
+	framework.Logf("Describe vm : %s", output)
 
 	return output
 }
@@ -1510,4 +1514,350 @@ func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedIma
 	}
 	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
 
+}
+
+// get zone name on which vm is scheduled
+func getVMzone(ctx context.Context, vm *vmopv4.VirtualMachine) (string, error) {
+	vmlabel := vm.GetLabels()
+	val, labelOk := vmlabel[vmZoneLabel]
+	framework.Logf("val %v, labelOk: %v", val, labelOk)
+	if !labelOk {
+		fmt.Errorf("zone is not present on vm: %s", vm.Name)
+		return val, fmt.Errorf("zone is not present on vm: %s", vm.Name)
+	}
+	// Get labels and print them
+	framework.Logf("vm Labels")
+	vmlabel = vm.GetLabels()
+	for k, v := range vmlabel {
+		fmt.Printf("%s = %s\n", k, v)
+	}
+
+	return val, nil
+}
+
+type CreateVmOptionsV4 struct {
+	Namespace          string
+	VmClass            string
+	VMI                string
+	StorageClassName   string
+	PVCs               []*v1.PersistentVolumeClaim
+	SecretName         string
+	WaitForReadyStatus bool
+}
+
+// func createVmServiceVmV4(ctx context.Context, c ctlrclient.Client, opts CreateVmOptionsV4, namespace string,
+// 	vmClass string, pvcs []*v1.PersistentVolumeClaim, vmi string, storagepolicyName string,
+// 	secretName string, waitForReadyStatus bool) *vmopv4.VirtualMachine {
+
+// createVmServiceVmV3 creates VM v3 via VM service with given options
+func createVmServiceVmV4(ctx context.Context, c ctlrclient.Client, opts CreateVmOptionsV4) *vmopv4.VirtualMachine {
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	vols := []vmopv4.VirtualMachineVolume{}
+	vmName := fmt.Sprintf("csi-test-vm-%d", r.Intn(10000))
+
+	if opts.VmClass == "" {
+		opts.VmClass = vmClassBestEffortSmall
+	}
+
+	for _, pvc := range opts.PVCs {
+		vols = append(vols, vmopv4.VirtualMachineVolume{
+			Name: pvc.Name,
+			VirtualMachineVolumeSource: vmopv4.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmopv4.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
+				},
+			},
+		})
+	}
+
+	vm := &vmopv4.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: opts.Namespace},
+		Spec: vmopv4.VirtualMachineSpec{
+			PowerState:   vmopv4.VirtualMachinePowerStateOn,
+			ImageName:    opts.VMI,
+			ClassName:    opts.VmClass,
+			StorageClass: opts.StorageClassName,
+			Volumes:      vols,
+		},
+	}
+
+	if opts.SecretName != "" {
+		vm.Spec.Bootstrap = &vmopv4.VirtualMachineBootstrapSpec{
+			CloudInit: &vmopv4.VirtualMachineBootstrapCloudInitSpec{
+				RawCloudConfig: &vmopv4common.SecretKeySelector{
+					Name: opts.SecretName,
+					Key:  opts.SecretName,
+				},
+			},
+		}
+	}
+
+	err := c.Create(ctx, vm)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	vmKey := ctlrclient.ObjectKey{Name: vmName, Namespace: opts.Namespace}
+
+	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			err := c.Get(ctx, vmKey, vm)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+
+			if opts.WaitForReadyStatus &&
+				!slices.ContainsFunc(vm.GetConditions(), func(c metav1.Condition) bool {
+					return c.Type == vmopv4.VirtualMachineReconcileReady && c.Status == metav1.ConditionTrue
+				}) {
+				return false, nil
+			}
+
+			return true, nil
+		})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("Found VM %s in namespace %s", vmName, opts.Namespace)
+
+	r = rand.New(rand.NewSource(time.Now().UnixNano()))
+	svcName := fmt.Sprintf("%s-svc-%d", vmName, r.Intn(10000))
+	framework.Logf("Creating loadbalancer VM: %s for vm: %s", svcName, vmName)
+	vmService := vmopv4.VirtualMachineService{
+		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: opts.Namespace},
+		Spec: vmopv4.VirtualMachineServiceSpec{
+			Ports:    []vmopv4.VirtualMachineServicePort{{Name: "ssh", Port: 22, Protocol: "TCP", TargetPort: 22}},
+			Type:     "LoadBalancer",
+			Selector: map[string]string{"app": "vmName"},
+		},
+	}
+	err = c.Create(ctx, &vmService)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	vm, _ = getVmsvcVmV4(ctx, c, opts.Namespace, vmName)
+	framework.Logf("Found VM %s in namespace %s", vmName, opts.Namespace)
+
+	return vm
+}
+
+// getVmsvcVM fetches the vm from the specified ns
+func getVmsvcVmV4(
+	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) (*vmopv4.VirtualMachine, error) {
+	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}
+	vm := &vmopv4.VirtualMachine{}
+	err := c.Get(ctx, instanceKey, vm)
+	return vm, err
+}
+
+// get zone name on which vm is scheduled
+func getVMzoneV4(ctx context.Context, vm *vmopv4.VirtualMachine) (string, error) {
+	vmlabel := vm.GetLabels()
+	val, labelOk := vmlabel[vmZoneLabel]
+	framework.Logf("val %v, labelOk: %v", val, labelOk)
+	if !labelOk {
+		fmt.Errorf("zone is not present on vm: %s", vm.Name)
+		return val, fmt.Errorf("zone is not present on vm: %s", vm.Name)
+	}
+	// Get labels and print them
+	framework.Logf("vm Labels")
+	vmlabel = vm.GetLabels()
+	for k, v := range vmlabel {
+		fmt.Printf("%s = %s\n", k, v)
+	}
+
+	return val, nil
+}
+
+// waitNgetVmLbSvc wait and fetches the virtualmachineservice(loadbalancer) for given vm in the specified ns
+func waitNgetVmLbSvcV4(
+	ctx context.Context, c ctlrclient.Client, namespace string, name string) *vmopv4.VirtualMachineService {
+
+	vmLbSvc := &vmopv4.VirtualMachineService{}
+	var err error
+
+	err = wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vmLbSvc, err = getVmsvcVmLbSvcV4(ctx, c, namespace, name)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+			return true, nil
+		})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vmLbSvc
+}
+
+// getVmsvcVmLbSvc fetches the virtualmachineservice(loadbalancer) for given vm in the specified ns
+func getVmsvcVmLbSvcV4(ctx context.Context, c ctlrclient.Client, namespace string, name string) (
+	*vmopv4.VirtualMachineService, error) {
+	instanceKey := ctlrclient.ObjectKey{Name: name, Namespace: namespace}
+	svc := &vmopv4.VirtualMachineService{}
+	err := c.Get(ctx, instanceKey, svc)
+	return svc, err
+}
+
+// waitNgetVmsvcVmIp wait and fetch the primary IP of the vm in give ns
+func waitNgetVmsvcVmIpV4(ctx context.Context, c ctlrclient.Client, namespace string, name string) (string, error) {
+	ip := ""
+	err := wait.PollUntilContextTimeout(ctx, poll*10, pollTimeout*4, true,
+		func(ctx context.Context) (bool, error) {
+			vm, err := getVmsvcVmV4(ctx, c, namespace, name)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+			if vm.Status.Network.PrimaryIP4 == "" {
+				return false, nil
+			}
+			ip = vm.Status.Network.PrimaryIP4
+			return true, nil
+		})
+	framework.Logf("Found IP '%s' for VM '%s'", ip, name)
+	return ip, err
+}
+
+// getVmsvcVM fetches the vm from the specified ns
+func getVmsvcVM4(
+	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) (*vmopv4.VirtualMachine, error) {
+	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}
+	vm := &vmopv4.VirtualMachine{}
+	err := c.Get(ctx, instanceKey, vm)
+	return vm, err
+}
+
+// waitNGetVmiForImageName waits and fetches VM image CR for given image name in the specified namespace
+func waitNGetVmiForImageName4(ctx context.Context, c ctlrclient.Client, imageName string) string {
+	vmi := ""
+	err := wait.PollUntilContextTimeout(ctx, poll*5, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			vmImagesList := &vmopv4.VirtualMachineImageList{}
+			err := c.List(ctx, vmImagesList)
+			defer ginkgo.GinkgoRecover()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			for _, instance := range vmImagesList.Items {
+				if instance.Spec.ProviderRef.Name == imageName {
+					framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
+					vmi = instance.Name
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return vmi
+}
+
+// formatNVerifyPvcIsAccessible format the pvc inside vm and create a file system on it and returns a folder with 777
+// permissions under the mount point
+func formatNVerifyPvcIsAccessibleV4(diskUuid string, mountIndex int, vmIp string) string {
+	// Construct the disk path from the UUID
+	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
+	fmt.Println("Checking disk path:", p)
+
+	// List the available disks
+	results := execSshOnVmThroughGatewayVm(vmIp, []string{
+		"ls -l /dev/disk/by-uuid/",
+	})
+	fmt.Println("Disk list results:", results)
+
+	// Check if the desired disk exists
+	diskCheckResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+		"ls -l " + p,
+	})
+
+	// If the disk is not found, try rescanning SCSI devices
+	if strings.Contains(diskCheckResults[0].Stderr, "No such file or directory") {
+		fmt.Printf("Disk %s not found. Rescanning SCSI devices.\n", p)
+		rescanResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+			"echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan",
+			"ls -l /dev/disk/by-uuid/",
+			"ls -l " + p,
+		})
+		fmt.Println("Rescan results:", rescanResults)
+
+		// Check again if the disk is available after rescanning
+		diskCheckResults = execSshOnVmThroughGatewayVm(vmIp, []string{
+			"ls -l " + p,
+		})
+	}
+
+	// If the disk is still not found, fail the test
+	if strings.Contains(diskCheckResults[0].Stderr, "No such file or directory") {
+		framework.Failf("Disk %s not found on VM %s after rescanning.", p, vmIp)
+	}
+
+	// Extract the device name
+	parts := strings.Split(strings.TrimSpace(diskCheckResults[0].Stdout), "/")
+	if len(parts) < 7 {
+		framework.Failf("Unexpected ls output: %s", diskCheckResults[0].Stdout)
+	}
+	dev := "/dev/" + parts[6]
+	fmt.Println("Device:", dev)
+
+	gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
+	framework.Logf("Found device %s for disk with UUID %s", dev, diskUuid)
+
+	partitionDev := dev + "1"
+	fmt.Println("Partition Device:", partitionDev)
+
+	// Unmount any existing partitions on the device
+	unmountCommands := []string{
+		fmt.Sprintf("sudo umount %s* || true", dev),
+	}
+	res := execSshOnVmThroughGatewayVm(vmIp, unmountCommands)
+	fmt.Println("Unmount Results:", res)
+
+	// Partition and format the disk
+	partitionCommands := []string{
+		fmt.Sprintf("sudo parted --script %s mklabel gpt", dev),
+		fmt.Sprintf("sudo parted --script -a optimal %s mkpart primary 0%% 100%%", dev),
+		"lsblk -l",
+		fmt.Sprintf("sudo mkfs.ext4 %s", partitionDev),
+	}
+	res = execSshOnVmThroughGatewayVm(vmIp, partitionCommands)
+	fmt.Println("Partitioning Results:", res)
+
+	// Mount the new partition
+	volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
+	volFolder := volMountPath + "/data"
+	mountCommands := []string{
+		fmt.Sprintf("sudo mkdir -p %s", volMountPath),
+		fmt.Sprintf("sudo mount %s %s", partitionDev, volMountPath),
+		fmt.Sprintf("sudo mkdir -p %s", volFolder),
+		fmt.Sprintf("sudo chmod -R 777 %s", volFolder),
+		fmt.Sprintf("bash -c 'df -Th %s | tee %s/fstype'", partitionDev, volFolder),
+		fmt.Sprintf("grep -c ext4 %s/fstype", volFolder),
+		"sync",
+	}
+	results = execSshOnVmThroughGatewayVm(vmIp, mountCommands)
+	fmt.Println("Mounting Results:", results)
+
+	// Verify the filesystem type
+	gomega.Expect(strings.TrimSpace(results[5].Stdout)).To(gomega.Equal("1"), "Filesystem type is not ext4")
+
+	return volFolder
+}
+
+// get zone name on which vm is scheduled
+func getVMzonev1(ctx context.Context, vm *vmopv1.VirtualMachine) (string, error) {
+	vmlabel := vm.GetLabels()
+	val, labelOk := vmlabel[vmZoneLabel]
+	framework.Logf("val %v, labelOk: %v", val, labelOk)
+	if !labelOk {
+		fmt.Errorf("zone is not present on vm: %s", vm.Name)
+		return val, fmt.Errorf("zone is not present on vm: %s", vm.Name)
+	}
+	// Get labels and print them
+	framework.Logf("vm Labels")
+	vmlabel = vm.GetLabels()
+	for k, v := range vmlabel {
+		fmt.Printf("%s = %s\n", k, v)
+	}
+
+	return val, nil
 }
