@@ -18,6 +18,7 @@ package cnsregistervolume
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -793,11 +794,13 @@ var _ = Describe("checkExistingPVCDataSourceRef", func() {
 
 var _ = Describe("validatePVCTopologyCompatibility", func() {
 	var (
-		ctx                context.Context
-		pvc                *corev1.PersistentVolumeClaim
-		volumeDatastoreURL string
-		mockTopologyMgr    *mockTopologyService
-		mockVC             *cnsvsphere.VirtualCenter
+		ctx                         context.Context
+		pvc                         *corev1.PersistentVolumeClaim
+		volumeDatastoreURL          string
+		mockTopologyMgr             *mockTopologyService
+		mockVC                      *cnsvsphere.VirtualCenter
+		datastoreAccessibleTopology []map[string]string
+		mockK8sClient               *k8sfake.Clientset
 	)
 
 	BeforeEach(func() {
@@ -805,6 +808,9 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		volumeDatastoreURL = "dummy-datastore-url"
 		mockTopologyMgr = &mockTopologyService{}
 		mockVC = &cnsvsphere.VirtualCenter{}
+		datastoreAccessibleTopology = []map[string]string{
+			{"topology.kubernetes.io/zone": "zone-1"},
+		}
 
 		pvc = &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -812,11 +818,19 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 				Namespace: "test-namespace",
 			},
 		}
+
+		// Create a fake Kubernetes client
+		mockK8sClient = k8sfake.NewSimpleClientset()
 	})
 
 	Context("when PVC has no topology annotation", func() {
 		It("should return nil without error", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			// Add the PVC to the fake client so it can be updated
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).To(BeNil())
 		})
 	})
@@ -829,7 +843,12 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		})
 
 		It("should return nil without error", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			// Add the PVC to the fake client so it can be updated
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).To(BeNil())
 		})
 	})
@@ -842,7 +861,8 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		})
 
 		It("should return error for invalid JSON", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("failed to parse topology annotation"))
 		})
@@ -857,7 +877,8 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		})
 
 		It("should return error from topology manager", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("failed to get topology for volume datastore"))
 		})
@@ -874,7 +895,8 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		})
 
 		It("should return nil without error", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).To(BeNil())
 		})
 	})
@@ -890,10 +912,123 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		})
 
 		It("should return error for incompatible zones", func() {
-			err := validatePVCTopologyCompatibility(ctx, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC)
+			err := validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
 			Expect(err).ToNot(BeNil())
 			Expect(err.Error()).To(ContainSubstring("is not compatible with volume placement"))
 		})
+	})
+
+	Context("when PVC exists without topology annotation and annotation needs to be added", func() {
+		var originalPVC *corev1.PersistentVolumeClaim
+
+		BeforeEach(func() {
+			// Create a PVC with some existing annotations but no topology annotation
+			originalPVC = &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "existing-pvc",
+					Namespace: "test-namespace",
+					Annotations: map[string]string{
+						"some.other/annotation": "existing-value",
+						"another/annotation":    "another-value",
+					},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				},
+			}
+			pvc = originalPVC
+		})
+
+		It("should add topology annotation to existing PVC and return nil", func() {
+			// Verify PVC initially has no topology annotation
+			_, exists := pvc.Annotations["csi.vsphere.volume-accessible-topology"]
+			Expect(exists).To(BeFalse())
+
+			// Add the PVC to the fake client so it can be updated
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			// Call the function
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
+			Expect(err).To(BeNil())
+
+			// Verify topology annotation was added
+			topologyAnnotation, exists := pvc.Annotations["csi.vsphere.volume-accessible-topology"]
+			Expect(exists).To(BeTrue())
+			Expect(topologyAnnotation).ToNot(BeEmpty())
+
+			// Verify the annotation contains the expected topology data
+			expectedAnnotation := `[{"topology.kubernetes.io/zone":"zone-1"}]`
+			Expect(topologyAnnotation).To(Equal(expectedAnnotation))
+
+			// Verify existing annotations are preserved
+			Expect(pvc.Annotations["some.other/annotation"]).To(Equal("existing-value"))
+			Expect(pvc.Annotations["another/annotation"]).To(Equal("another-value"))
+		})
+
+		It("should handle PVC with nil annotations map", func() {
+			// Create PVC with nil annotations
+			pvcWithNilAnnotations := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "pvc-nil-annotations",
+					Namespace:   "test-namespace",
+					Annotations: nil,
+				},
+			}
+
+			// Add the PVC to the fake client so it can be updated
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvcWithNilAnnotations.Namespace).Create(ctx,
+				pvcWithNilAnnotations, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			// Call the function
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvcWithNilAnnotations, volumeDatastoreURL,
+				mockTopologyMgr, mockVC, datastoreAccessibleTopology)
+			Expect(err).To(BeNil())
+
+			// Verify annotations map was created and topology annotation was added
+			Expect(pvcWithNilAnnotations.Annotations).ToNot(BeNil())
+			topologyAnnotation, exists := pvcWithNilAnnotations.Annotations["csi.vsphere.volume-accessible-topology"]
+			Expect(exists).To(BeTrue())
+			Expect(topologyAnnotation).To(Equal(`[{"topology.kubernetes.io/zone":"zone-1"}]`))
+		})
+
+		It("should handle complex topology data with multiple zones", func() {
+			// Use more complex topology data
+			complexTopology := []map[string]string{
+				{"topology.kubernetes.io/zone": "zone-a", "topology.kubernetes.io/region": "us-west"},
+				{"topology.kubernetes.io/zone": "zone-b", "topology.kubernetes.io/region": "us-west"},
+			}
+
+			// Add the PVC to the fake client so it can be updated
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				complexTopology)
+			Expect(err).To(BeNil())
+
+			// Verify the complex topology was properly serialized
+			topologyAnnotation := pvc.Annotations["csi.vsphere.volume-accessible-topology"]
+			Expect(topologyAnnotation).ToNot(BeEmpty())
+
+			// Parse the annotation to verify it contains both topology segments
+			var parsedTopology []map[string]string
+			err = json.Unmarshal([]byte(topologyAnnotation), &parsedTopology)
+			Expect(err).To(BeNil())
+			Expect(len(parsedTopology)).To(Equal(2))
+			Expect(parsedTopology[0]).To(Equal(map[string]string{
+				"topology.kubernetes.io/zone":   "zone-a",
+				"topology.kubernetes.io/region": "us-west",
+			}))
+			Expect(parsedTopology[1]).To(Equal(map[string]string{
+				"topology.kubernetes.io/zone":   "zone-b",
+				"topology.kubernetes.io/region": "us-west",
+			}))
+		})
+
 	})
 })
 
