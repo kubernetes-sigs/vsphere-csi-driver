@@ -3670,13 +3670,15 @@ func RunCommandOnESX(vs *config.E2eTestConfig, username string, addr string, cmd
 }
 
 // StopHostDOnHost executes hostd stop service commands on the given ESX host
-func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
-	framework.Logf("Stopping hostd service on the host  %s ...", addr)
+func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) {
+	framework.Logf("Stopping hostd service on the host  %s ...", host)
 	stopHostCmd := fmt.Sprintf("%s %s", constants.HostdServiceCommand, constants.StopOperation)
-	_, err := RunCommandOnESX(vs, "root", addr, stopHostCmd)
+	// ctx context.Context, sshCmd string, e2eTestConfig *config.E2eTestConfig, host string
+
+	_, err := vcutil.RunSsh(ctx, stopHostCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	status := GetHostDStatusOnHost(vs, addr)
+	status := GetHostDStatusOnHost(ctx, vs, host)
 	gomega.Expect(status).NotTo(gomega.BeTrue())
 }
 
@@ -3695,23 +3697,24 @@ func StartHostd(ctx context.Context, vs *config.E2eTestConfig, addr string, wg *
 }
 
 // StartHostDOnHost executes hostd start service commands on the given ESX host
-func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
-	framework.Logf("Starting hostd service on the host  %s ...", addr)
+func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) {
+	framework.Logf("Starting hostd service on the host  %s ...", host)
 	startHostDCmd := fmt.Sprintf("%s %s", constants.HostdServiceCommand, constants.StartOperation)
-	_, err := RunCommandOnESX(vs, "root", addr, startHostDCmd)
+
+	_, err := vcutil.RunSsh(ctx, startHostDCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	status := GetHostDStatusOnHost(vs, addr)
+	status := GetHostDStatusOnHost(ctx, vs, host)
 	gomega.Expect(status).NotTo(gomega.BeFalse())
 
-	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "connected")
+	err = vcutil.WaitForHostConnectionState(ctx, vs, host, "connected")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 // GetHostDStatusOnHost executes hostd status service commands on the given ESX host
-func GetHostDStatusOnHost(vs *config.E2eTestConfig, addr string) bool {
-	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
-	return GetServiceStatus(vs, constants.HostdServiceCommand, addr)
+func GetHostDStatusOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) bool {
+	framework.Logf("Running status check on hostd service for the host  %s ...", host)
+	return GetServiceStatus(ctx, vs, constants.HostdServiceCommand, host)
 }
 
 // StopVpxa is a function for waitGroup to run stop vpxa parallelly
@@ -3722,42 +3725,58 @@ func StopVpxa(ctx context.Context, vs *config.E2eTestConfig, addr string, wg *sy
 }
 
 // StopVpxaOnHost executes vpxa stop service commands on the given ESX host
-func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
-	framework.Logf("Stopping vpxa service on the host  %s ...", addr)
+func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) {
+	framework.Logf("Stopping vpxa service on the host  %s ...", host)
 	stopVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StopOperation)
-	_, err := RunCommandOnESX(vs, constants.RootUser, addr, stopVpxaCmd)
+
+	_, err := vcutil.RunSsh(ctx, stopVpxaCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	status := GetVpxaStatusOnHost(vs, addr)
+	status := GetVpxaStatusOnHost(ctx, vs, host)
 	gomega.Expect(status).NotTo(gomega.BeTrue())
 }
 
 // GetVpxaStatusOnHost executes vpxa status service commands on the given ESX host
-func GetVpxaStatusOnHost(vs *config.E2eTestConfig, addr string) bool {
-	framework.Logf("Running status check on vpxa service for the host  %s ...", addr)
-	return GetServiceStatus(vs, constants.VpxaServiceCommand, addr)
+func GetVpxaStatusOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) bool {
+	framework.Logf("Running status check on vpxa service for the host  %s ...", host)
+	return GetServiceStatus(ctx, vs, constants.VpxaServiceCommand, host)
 }
 
 // StartVpxaOnHost executes vpxa start service commands on the given ESX host
-func StartVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
-	framework.Logf("Starting vpxa service on the host  %s ...", addr)
+func StartVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) {
+	framework.Logf("Starting vpxa service on the host  %s ...", host)
 	startVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StartOperation)
-	_, err := RunCommandOnESX(vs, constants.RootUser, addr, startVpxaCmd)
+	_, err := vcutil.RunSsh(ctx, startVpxaCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	var reTry int = 5
+	status := GetVpxaStatusOnHost(ctx, vs, host)
 
-	status := GetVpxaStatusOnHost(vs, addr)
+	for firstRun := true; !status && firstRun; firstRun = (reTry > 0) {
+		_, err = vcutil.RunSsh(ctx, startVpxaCmd, vs, host)
+
+		if err != nil {
+			time.Sleep(5 * time.Second)
+		} else {
+			break
+		}
+		status = GetVpxaStatusOnHost(ctx, vs, host)
+		reTry--
+	}
+
 	gomega.Expect(status).NotTo(gomega.BeFalse())
 }
 
 // GetServiceStatus executes the given service status commands on the given ESX host
-func GetServiceStatus(vs *config.E2eTestConfig, serviceName string, addr string) bool {
-	framework.Logf("Getting %s service status on the host  %s ...", serviceName, addr)
+func GetServiceStatus(ctx context.Context, vs *config.E2eTestConfig, serviceName string, host string) bool {
+	framework.Logf("Getting %s service status on the host  %s ...", serviceName, host)
 	statusCmd := fmt.Sprintf("%s %s", serviceName, constants.StatusOperation)
 	var reTry int = 5
 	var err error
-	var output string = ""
+	var output string
+
 	for firstRun := true; firstRun; firstRun = (reTry > 0) {
-		output, err = RunCommandOnESX(vs, constants.RootUser, addr, statusCmd)
+		output, err = RunCommandOnHost(ctx, statusCmd, vs, host)
+
 		if err != nil {
 			time.Sleep(5 * time.Second)
 		} else {
@@ -8205,7 +8224,7 @@ func ConvertInt64ToStrGbFormat(diskSize int64) string {
 	return result
 }
 
-func GetVmdkCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName string) int {
+func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
 	var vmdkCount int
 	framework.Logf("Getting the vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
@@ -8214,15 +8233,14 @@ func GetVmdkCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName str
 
 	findCmdVmdkList := fmt.Sprintf("%s -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* ", findCmdWithDsName)
 	framework.Logf("Get vmdk List Command : %s", findCmdVmdkList)
-
-	vmdkListCommandOutput, _ := RunCommandOnESX(vs, constants.RootUser, addr, findCmdVmdkList)
+	vmdkListCommandOutput, _ := RunCommandOnHost(ctx, findCmdVmdkList, vs, host)
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk List Command Output: %s", vmdkListCommandOutput)
 
 	vmdkCountCommand := fmt.Sprintf("%s -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
 	framework.Logf("Get vmdk Count Command : %s", vmdkCountCommand)
 
-	commandOutput, err := RunCommandOnESX(vs, constants.RootUser, addr, vmdkCountCommand)
+	commandOutput, err := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk Count Command Output: %s", commandOutput)
 
@@ -8232,7 +8250,7 @@ func GetVmdkCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName str
 	return vmdkCount
 }
 
-func GetSnapshotCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName string) int {
+func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
 	var snapshotCount int
 	framework.Logf("Getting the sesparse-vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
@@ -8241,15 +8259,13 @@ func GetSnapshotCountFromDatastore(vs *config.E2eTestConfig, addr string, dsName
 
 	findCmdVmdkList := fmt.Sprintf("%s -name *sesparse* ", findCmdWithDsName)
 	framework.Logf("Get sesparse-vmdk List Command : %s", findCmdVmdkList)
-
-	vmdkListCommandOutput, _ := RunCommandOnESX(vs, constants.RootUser, addr, findCmdVmdkList)
-	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	vmdkListCommandOutput, _ := RunCommandOnHost(ctx, findCmdVmdkList, vs, host)
 	framework.Logf("Sesparse-Vmdk List Command Output: %s", vmdkListCommandOutput)
 
 	vmdkCountCommand := fmt.Sprintf("%s -name *sesparse* | wc -l", findCmdWithDsName)
 	framework.Logf("Get sesparse-vmdk Count Command : %s", vmdkCountCommand)
 
-	commandOutput, err := RunCommandOnESX(vs, constants.RootUser, addr, vmdkCountCommand)
+	commandOutput, err := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Sesparse-Vmdk Count Command Output: %s", commandOutput)
 
@@ -8280,8 +8296,8 @@ func GetDatastoreFcdFootprint(ctx context.Context, e2eTestConfig *config.E2eTest
 	for dsName, freeSpace := range dsFreeSpaceMap {
 		dsPath := dsPathMap[dsName]
 
-		numVmdks := GetVmdkCountFromDatastore(e2eTestConfig, hostIP, dsName)
-		numSnapshots := GetSnapshotCountFromDatastore(e2eTestConfig, hostIP, dsName)
+		numVmdks := GetVmdkCountFromDatastore(ctx, e2eTestConfig, hostIP, dsName)
+		numSnapshots := GetSnapshotCountFromDatastore(ctx, e2eTestConfig, hostIP, dsName)
 
 		dsRef := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, dsPath)
 		fcdIdList, err = vcutil.ListFCD(ctx, e2eTestConfig, dsRef)
@@ -8519,4 +8535,10 @@ func RemoveVsanPartition(ctx context.Context, nicMgr *object.HostVirtualNicManag
 	ginkgo.By("Enable vsan network on the host's vmknic in cluster")
 	err := nicMgr.SelectVnic(ctx, "vsan", env.GetAndExpectStringEnvVar(constants.EnvVmknic4Vsan))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func RunCommandOnHost(ctx context.Context, sshCmd string, vs *config.E2eTestConfig, host string) (string, error) {
+
+	byteOutput, err := vcutil.RunSsh(ctx, sshCmd, vs, host)
+	return string(byteOutput), err
 }

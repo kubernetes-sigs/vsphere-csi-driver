@@ -423,7 +423,7 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
 		ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 		// TODO: Create Thick Storage Policy from Pre-setup
-		scParameters[constants.ScParamStoragePolicyName] = os.Getenv(constants.EnvStoragePolicyNameWithThickProvision)
+		scParameters[constants.ScParamStoragePolicyName] = os.Getenv("Management Storage Policy - Large")
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
 		val := strconv.FormatInt(int64(randomValue), 10)
