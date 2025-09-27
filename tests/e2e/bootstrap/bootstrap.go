@@ -139,6 +139,7 @@ func setSShdPort(testConfig *config.TestInputData) {
 	}
 
 	if testConfig.TestBedInfo.IsPrivateNetwork {
+		testConfig.TestBedInfo.IpPortMap = make(map[string]string)
 		if testConfig.TestBedInfo.Multivc {
 			testConfig.TestBedInfo.VcIp2SshPortNum = env.GetorIgnoreStringEnvVar(constants.EnvVc2SshdPortNum)
 			testConfig.TestBedInfo.VcIp3SshPortNum = env.GetorIgnoreStringEnvVar(constants.EnvVc3SshdPortNum)

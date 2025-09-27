@@ -94,7 +94,7 @@ func GetorIgnoreStringEnvVar(varName string) string {
 	if !exists {
 		ctx := context.Background()
 		log := logger.GetLogger(ctx)
-		log.Fatalf("Required environment variable not found: %s", varName)
+		log.Info("Required environment variable not found: %s", varName)
 	}
 	return varValue
 }
