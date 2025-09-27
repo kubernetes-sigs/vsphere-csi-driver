@@ -103,7 +103,7 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	diskSize := constants.DiskSize10GB
 	diskSizeInMb := constants.DiskSize10GBInMb //TODO modify these values as per datastore
 
-	ginkgo.By(fmt.Sprintf("Invoking Test for Linc volume when %v goes down", serviceNames))
+	ginkgo.By(fmt.Sprintf("Invoking Test for Linked Clone volume when %v goes down", serviceNames))
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 	pvcSnapshots = make([]*snapV1.VolumeSnapshot, volumeOpsScale)
 
