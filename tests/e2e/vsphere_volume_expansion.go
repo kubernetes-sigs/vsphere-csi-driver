@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 5. Modify PVC's size to trigger offline volume expansion.
 	// 6. Verify if the PVC expansion fails.
 
-	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-guest]  [csi-block-vanilla-parallelized] [csi-vcp-mig] "+
+	ginkgo.It("[cf-vks][csi-block-vanilla][csi-guest][csi-block-vanilla-parallelized][csi-vcp-mig][pq-vanilla-block] "+
 		"Verify volume expansion not allowed", ginkgo.Label(p2, block, vanilla, tkg, core, vc70), func() {
 		invokeTestForInvalidVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
 	})
@@ -643,9 +643,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 
-	ginkgo.It("[pq-wcp][csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] [csi-vcp-mig]"+
-		"Verify online volume expansion when VSAN-health is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core,
-		vc70), func() {
+	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][csi-vcp-mig]"+
+		"[pq-vanilla-block] Verify online volume expansion when VSAN-health is down", ginkgo.Label(p1, block, vanilla,
+		wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -770,8 +770,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[pq-wcp][csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] Verify online "+
-		"volume expansion when SPS-Service is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
+	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
+		" Verify online volume expansion when SPS-Service is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core,
+		vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -81,7 +81,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] [csi-block-vanilla-serialized] Nodes
 		11. Delete all PVCs from the tests namespace.
 		12. Delete the storage class.
 	*/
-	ginkgo.It("[pq-vanilla-file]Statefulset with Nodes Scale-up and Scale-down", ginkgo.Label(p1,
+	ginkgo.It("[pq-vanilla-file][pq-vanilla-block]Statefulset with Nodes Scale-up and Scale-down", ginkgo.Label(p1,
 		vanilla, block, file, vc70), func() {
 		curtime := time.Now().Unix()
 		randomValue := rand.Int()
