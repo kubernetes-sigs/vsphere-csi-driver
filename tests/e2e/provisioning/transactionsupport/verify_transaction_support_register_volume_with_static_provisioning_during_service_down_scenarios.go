@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Static", func() {
 			entries = append(entries, ginkgo.Entry(tc.Description, tc.Input))
 		}
 
-		ginkgo.DescribeTableSubtree("Transaction_Support_Create_Volume_Table_Tests",
+		ginkgo.DescribeTableSubtree("Transaction_Support_Register_Volume_Table_Tests",
 			func(serviceNames []string) {
 
 				ginkgo.BeforeEach(func() {
