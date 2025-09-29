@@ -71,7 +71,7 @@ func FetchNFSAccessPointFromCnsFileAccessConfigCRD(ctx context.Context, restConf
 
 // Helper function to run SSH and log result
 func RunSSHFromVmServiceVmAndLog(vmIP, cmd string) error {
-	output := execSshOnVmThroughGatewayVm(vmIP, []string{cmd})
+	output := ExecSshOnVmThroughGatewayVm(vmIP, []string{cmd})
 	if output[0].Stderr != "" {
 		return fmt.Errorf("command failed with error: %s", output[0].Stderr)
 	} else {
@@ -125,7 +125,7 @@ func MountRWXVolumeAndVerifyIO(vmIPs []string, nfsAccessPoint string, testDir st
 		for _, writerVM := range vmIPs {
 			fileName := fmt.Sprintf("%s-%s.txt", filePrefix, strings.ReplaceAll(writerVM, ".", "-"))
 			readCmd := fmt.Sprintf("cat /mnt/nfs/%s/%s", testDir, fileName)
-			output := execSshOnVmThroughGatewayVm(readerVM, []string{readCmd})
+			output := ExecSshOnVmThroughGatewayVm(readerVM, []string{readCmd})
 			if !strings.Contains(output[0].Stdout, writerVM) {
 				return fmt.Errorf("VM %s failed to read file written by VM %s", readerVM, writerVM)
 			} else {
