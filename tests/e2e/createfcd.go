@@ -73,6 +73,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		curtimestring := strconv.FormatInt(curtime, 10)
 		storagePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+		//diskSizeInMb := int64(2048)
+		diskSizeInMb := int64(10240)
 
 		ginkgo.By("Create FCD with valid storage policy.")
 		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx, "staticfcd"+curtimestring,
