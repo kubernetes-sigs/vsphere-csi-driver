@@ -682,8 +682,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-block-vanilla-destructive] Scale down driver deployment to zero replica and verify "+
-		"PV metadata is created in CNS", ginkgo.Label(p1, negative, block, vanilla, disruptive, core, vc70), func() {
+	ginkgo.It("[csi-block-vanilla-destructive][pq-vanilla-block] Scale down driver deployment to zero replica and "+
+		"verify PV metadata is created in CNS", ginkgo.Label(p1, negative, block, vanilla, disruptive, core,
+		vc70), func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -780,9 +781,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			8.	delete pod2
 			9.	delete pvc1
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized] Attach volume "+
-		"to a new pod when CNS is down and verify volume metadata in CNS post full sync", ginkgo.Label(p1, negative,
-		block, vanilla, wcp, tkg, core, vc70), func() {
+	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
+		"Attach volume to a new pod when CNS is down and verify volume metadata in CNS post full "+
+		"sync", ginkgo.Label(p1, negative, block, vanilla, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error

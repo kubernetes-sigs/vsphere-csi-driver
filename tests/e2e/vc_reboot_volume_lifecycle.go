@@ -97,9 +97,9 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 		9. Delete PVC, PV and Storage Class
 	*/
 
-	ginkgo.It("[ef-stretched-svc][pq-wcp][csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-serialized] "+
-		"[stretched-svc] verify volume operations on VC works fine after vc reboots", ginkgo.Label(p1, block, wcp, vanilla,
-		tkg, core, vc70), func() {
+	ginkgo.It("[ef-stretched-svc][pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized]"+
+		"[stretched-svc][pq-vanilla-block] verify volume operations on VC works fine after vc "+
+		"reboots", ginkgo.Label(p1, block, wcp, vanilla, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var storageclass *storagev1.StorageClass
