@@ -203,13 +203,14 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvcs
 	   9   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("[cf-wcp] verify vmservice vm creation with a pvc in its spec", ginkgo.Label(p0,
+	ginkgo.It("[cf-wcp-f] verify vmservice vm creation with a pvc in its spec", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		var pandoraSyncWaitTime int
 		var err error
+		var vmIp string
 		curtime := time.Now().Unix()
 		curtimestring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimestring
@@ -303,26 +304,26 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Wait for VM to come up and get an IP")
-		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Wait and verify PVCs are attached to the VM")
-		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc, staticPvc})).NotTo(gomega.HaveOccurred())
-
-		if latebinding {
-			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
-				"volume is attached to the VM using a late-binding storage policy")
-			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			pv := pvs[0]
-			volHandle = pv.Spec.CSI.VolumeHandle
-			gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-		}
-
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
 		if !isPrivateNetwork {
+			ginkgo.By("Wait for VM to come up and get an IP")
+			vmIp, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Wait and verify PVCs are attached to the VM")
+			gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
+				[]*v1.PersistentVolumeClaim{pvc, staticPvc})).NotTo(gomega.HaveOccurred())
+
+			if latebinding {
+				ginkgo.By("Validating that the PVC transitions to Bound state after the " +
+					"volume is attached to the VM using a late-binding storage policy")
+				pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc, staticPvc}, pollTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				pv := pvs[0]
+				volHandle = pv.Spec.CSI.VolumeHandle
+				gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+			}
+
 			ginkgo.By("Verify PVCs are accessible to the VM")
 			ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 			vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
@@ -349,7 +350,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvcs from step2
 	   9   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("hot detach and attach pvc to vmservice vms", ginkgo.Label(p0,
+	ginkgo.It("[ef-vmsvc] hot detach and attach pvc to vmservice vms", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -553,7 +554,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   9   Delete pvc1
 	   10   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("attach PVC used by one VM to another VM while in use", ginkgo.Label(p1,
+	ginkgo.It("[ef-vmsvc] attach PVC used by one VM to another VM while in use", ginkgo.Label(p1,
 		vmServiceVm, block, wcp, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -745,7 +746,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvc1, pvc2
 	   9   Remove spbm policy attached to test namespace in step1
 	*/
-	ginkgo.It("[vmsvc-stretched] VM and PVC both belong to same zone", ginkgo.Label(p0,
+	ginkgo.It("[ef-stretched-svc][stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -860,7 +861,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   9	delete pvc1
 	   10   Remove spbm policy attached to test namespace in step1
 	*/
-	ginkgo.It("[vmsvc-stretched] VM and PVC both belong to same zone", ginkgo.Label(p0,
+	ginkgo.It("[ef-stretched-svc][stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -997,7 +998,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   10	Delete pvc1 and pvc2
 	   11	Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("attach a PVC attached to a pod to VM", ginkgo.Label(p1,
+	ginkgo.It("[ef-vmsvc] attach a PVC attached to a pod to VM", ginkgo.Label(p1,
 		vmServiceVm, block, wcp, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1144,7 +1145,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		10	Delete pvc1 and pvc2
 		11	Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("Create VM or attach/detach PVC to VM when vsan-health is down", ginkgo.Label(p1,
+	ginkgo.It("[pq-wcp-snpt] Create VM or attach/detach PVC to VM when vsan-health is down", ginkgo.Label(p1,
 		vmServiceVm, block, wcp, negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1365,7 +1366,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		10	Delete pvc1
 		11	Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("create VM with pvc when sps is down", ginkgo.Label(p1,
+	ginkgo.It("[pq-wcp-snpt] create VM with pvc when sps is down", ginkgo.Label(p1,
 		vmServiceVm, block, wcp, negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1494,7 +1495,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvcs
 	   9   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("static-vm and verify vm creation and validate storagequota", ginkgo.Label(p0,
+	ginkgo.It("[ef-vmsvc] static-vm and verify vm creation and validate storagequota", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

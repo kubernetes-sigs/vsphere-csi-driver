@@ -285,7 +285,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Debugf("CNS Volume create spec is: %+v", createSpec)
 	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
-		msg := "failed to create CNS volume"
+		msg := fmt.Sprintf("failed to create CNS volume. Error: %v", err)
 		log.Errorf(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -535,6 +535,31 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Infof("PVC: %s already exists. Validate if there is topology annotation on PVC",
 			instance.Spec.PvcName)
 
+		// Validate that existing PVC's storage class matches the one found by storage policy mapping
+		if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != storageClassName {
+			msg := fmt.Sprintf("PVC %s has storage class %s, but volume maps to storage class %s",
+				instance.Spec.PvcName, *pvc.Spec.StorageClassName, storageClassName)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			// Untag the CNS volume which was created previously.
+			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if delErr != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		} else if pvc.Spec.StorageClassName == nil {
+			msg := fmt.Sprintf("PVC %s has no storage class specified, but requires storage class %s",
+				instance.Spec.PvcName, storageClassName)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			// Untag the CNS volume which was created previously.
+			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
+			if delErr != nil {
+				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+
 		// Validate topology compatibility if PVC exists and can be reused
 		if topologyMgr != nil {
 			err = validatePVCTopologyCompatibility(ctx, pvc, volume.DatastoreUrl, topologyMgr, vc)
@@ -644,15 +669,16 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			pvcSpec, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("Failed to create PVC with spec: %+v. Error: %+v", pvcSpec, err)
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err))
+			errMsg := fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err)
+			setInstanceError(ctx, r, instance, errMsg)
 			// Delete PV created above.
 			err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
 			if err != nil {
 				log.Errorf("Delete PV %s failed with error: %+v", pvName, err)
+				combinedErrMsg := fmt.Sprintf("%s. Additionally, cleanup failed: Delete PV %s failed with error: %+v",
+					errMsg, pvName, err)
+				setInstanceError(ctx, r, instance, combinedErrMsg)
 			}
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Delete PV %s failed with error: %+v", pvName, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		} else {
 			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)

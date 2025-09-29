@@ -179,8 +179,8 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volumes are detached from VMs.
 	// Delete PVCs in GC.
 
-	ginkgo.It("[cf-vks Verify CnsNodeVmAttachements crd existence when pods are created concurrently", ginkgo.Label(p0,
-		block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Verify CnsNodeVmAttachements crd existence when pods are created "+
+		"concurrently", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
