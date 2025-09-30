@@ -23,7 +23,7 @@ import (
 )
 
 // DeepCopyInto copies all properties from the source into the target.
-func (in *CnsNodeVmBatchAttachment) DeepCopyInto(out *CnsNodeVmBatchAttachment) {
+func (in *CnsNodeVMBatchAttachment) DeepCopyInto(out *CnsNodeVMBatchAttachment) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
@@ -31,18 +31,18 @@ func (in *CnsNodeVmBatchAttachment) DeepCopyInto(out *CnsNodeVmBatchAttachment) 
 	in.Status.DeepCopyInto(&out.Status)
 }
 
-// DeepCopy creates a new CnsNodeVmBatchAttachment.
-func (in *CnsNodeVmBatchAttachment) DeepCopy() *CnsNodeVmBatchAttachment {
+// DeepCopy creates a new CnsNodeVMBatchAttachment.
+func (in *CnsNodeVMBatchAttachment) DeepCopy() *CnsNodeVMBatchAttachment {
 	if in == nil {
 		return nil
 	}
-	out := new(CnsNodeVmBatchAttachment)
+	out := new(CnsNodeVMBatchAttachment)
 	in.DeepCopyInto(out)
 	return out
 }
 
-// DeepCopyObject creates a new runtime.Object from the CnsNodeVmBatchAttachment.
-func (in *CnsNodeVmBatchAttachment) DeepCopyObject() runtime.Object {
+// DeepCopyObject creates a new runtime.Object from the CnsNodeVMBatchAttachment.
+func (in *CnsNodeVMBatchAttachment) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}
@@ -50,31 +50,31 @@ func (in *CnsNodeVmBatchAttachment) DeepCopyObject() runtime.Object {
 }
 
 // DeepCopyInto copies all properties from the source into the target.
-func (in *CnsNodeVmBatchAttachmentList) DeepCopyInto(out *CnsNodeVmBatchAttachmentList) {
+func (in *CnsNodeVMBatchAttachmentList) DeepCopyInto(out *CnsNodeVMBatchAttachmentList) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	out.ListMeta = in.ListMeta
 	if in.Items != nil {
 		in, out := &in.Items, &out.Items
-		*out = make([]CnsNodeVmBatchAttachment, len(*in))
+		*out = make([]CnsNodeVMBatchAttachment, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 }
 
-// DeepCopy creates a new CnsNodeVmBatchAttachmentList.
-func (in *CnsNodeVmBatchAttachmentList) DeepCopy() *CnsNodeVmBatchAttachmentList {
+// DeepCopy creates a new CnsNodeVMBatchAttachmentList.
+func (in *CnsNodeVMBatchAttachmentList) DeepCopy() *CnsNodeVMBatchAttachmentList {
 	if in == nil {
 		return nil
 	}
-	out := new(CnsNodeVmBatchAttachmentList)
+	out := new(CnsNodeVMBatchAttachmentList)
 	in.DeepCopyInto(out)
 	return out
 }
 
-// DeepCopyObject creates a new runtime.Object from the CnsNodeVmBatchAttachmentList.
-func (in *CnsNodeVmBatchAttachmentList) DeepCopyObject() runtime.Object {
+// DeepCopyObject creates a new runtime.Object from the CnsNodeVMBatchAttachmentList.
+func (in *CnsNodeVMBatchAttachmentList) DeepCopyObject() runtime.Object {
 	if c := in.DeepCopy(); c != nil {
 		return c
 	}
@@ -82,7 +82,7 @@ func (in *CnsNodeVmBatchAttachmentList) DeepCopyObject() runtime.Object {
 }
 
 // DeepCopyInto copies all properties from the source into the target.
-func (in *CnsNodeVmBatchAttachmentSpec) DeepCopyInto(out *CnsNodeVmBatchAttachmentSpec) {
+func (in *CnsNodeVMBatchAttachmentSpec) DeepCopyInto(out *CnsNodeVMBatchAttachmentSpec) {
 	*out = *in
 	if in.Volumes != nil {
 		in, out := &in.Volumes, &out.Volumes
@@ -93,18 +93,18 @@ func (in *CnsNodeVmBatchAttachmentSpec) DeepCopyInto(out *CnsNodeVmBatchAttachme
 	}
 }
 
-// DeepCopy creates a new CnsNodeVmBatchAttachmentSpec.
-func (in *CnsNodeVmBatchAttachmentSpec) DeepCopy() *CnsNodeVmBatchAttachmentSpec {
+// DeepCopy creates a new CnsNodeVMBatchAttachmentSpec.
+func (in *CnsNodeVMBatchAttachmentSpec) DeepCopy() *CnsNodeVMBatchAttachmentSpec {
 	if in == nil {
 		return nil
 	}
-	out := new(CnsNodeVmBatchAttachmentSpec)
+	out := new(CnsNodeVMBatchAttachmentSpec)
 	in.DeepCopyInto(out)
 	return out
 }
 
 // DeepCopyInto copies all properties from the source into the target.
-func (in *CnsNodeVmBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVmBatchAttachmentStatus) {
+func (in *CnsNodeVMBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVMBatchAttachmentStatus) {
 	*out = *in
 	if in.VolumeStatus != nil {
 		in, out := &in.VolumeStatus, &out.VolumeStatus
@@ -115,12 +115,12 @@ func (in *CnsNodeVmBatchAttachmentStatus) DeepCopyInto(out *CnsNodeVmBatchAttach
 	}
 }
 
-// DeepCopy creates a new CnsNodeVmBatchAttachmentStatus.
-func (in *CnsNodeVmBatchAttachmentStatus) DeepCopy() *CnsNodeVmBatchAttachmentStatus {
+// DeepCopy creates a new CnsNodeVMBatchAttachmentStatus.
+func (in *CnsNodeVMBatchAttachmentStatus) DeepCopy() *CnsNodeVMBatchAttachmentStatus {
 	if in == nil {
 		return nil
 	}
-	out := new(CnsNodeVmBatchAttachmentStatus)
+	out := new(CnsNodeVMBatchAttachmentStatus)
 	in.DeepCopyInto(out)
 	return out
 }

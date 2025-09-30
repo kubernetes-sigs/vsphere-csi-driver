@@ -51,8 +51,8 @@ var (
 	CnsNodeVMAttachmentSingular = "cnsnodevmattachment"
 	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
 	CnsNodeVMAttachmentPlural = "cnsnodevmattachments"
-	// CnsNodeVmBatchAttachmentPlural is plural of CnsNodeVmBatchAttachment
-	CnsNodeVmBatchAttachmentPlural = "cnsnodevmbatchattachments"
+	// CnsNodeVMBatchAttachmentPlural is plural of CnsNodeVMBatchAttachment
+	CnsNodeVMBatchAttachmentPlural = "cnsnodevmbatchattachments"
 	// CnsVolumeMetadataSingular is Singular of CnsVolumeMetadata
 	CnsVolumeMetadataSingular = "cnsvolumemetadata"
 	// CnsVolumeMetadataPlural is plural of CnsVolumeMetadata
@@ -133,8 +133,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 
 	scheme.AddKnownTypes(
 		SchemeGroupVersion,
-		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachment{},
-		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVmBatchAttachmentList{},
+		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{},
+		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachmentList{},
 	)
 
 	scheme.AddKnownTypes(
