@@ -8456,13 +8456,13 @@ func PvcUsability(ctx context.Context, e2eTestConfig *config.E2eTestConfig, clie
 	}
 }
 
-func CreateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
+func CreateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) *corev1.PersistentVolumeClaim {
 
 	// create linked clone PVC
 	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName, diskSize)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 
-	return pvclaim, pv
+	return pvclaim
 }
 
 /*

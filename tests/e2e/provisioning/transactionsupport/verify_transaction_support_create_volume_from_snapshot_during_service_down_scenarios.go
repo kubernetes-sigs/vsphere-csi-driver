@@ -234,7 +234,7 @@ func createVolumeFromSnapshotWithServiceDown(serviceNames []string, namespace st
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(1 * time.Minute)
+	time.Sleep(5 * time.Minute)
 
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)

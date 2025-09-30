@@ -170,7 +170,7 @@ func createLinkedClone(ctx context.Context, client clientset.Interface, storagec
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
 	ginkgo.By("Create PVC from snapshot")
-	pvclaim, _ := k8testutil.CreateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
+	pvclaim := k8testutil.CreateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
 	pvcsCreatedWithLinkedClone[index] = pvclaim
 }
 
