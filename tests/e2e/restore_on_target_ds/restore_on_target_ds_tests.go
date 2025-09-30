@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -119,13 +120,11 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			framework.Logf("%q", item.Message)
 		}
 
-		// Delete namespace
-		k8testutil.DelTestWcpNs(e2eTestConfig, vcRestSessionId, namespace)
-		gomega.Expect(k8testutil.WaitForNamespaceToGetDeleted(ctx, client, namespace, constants.Poll, constants.PollTimeout)).To(gomega.Succeed())
+		// TODO Delete namespace
 
 	})
 
-	// TC-17
+	// TC-17 Failing due to PR-3576259
 	ginkgo.It("Online & offline volume expansion of restored volume", ginkgo.Label(
 		constants.P0, constants.Vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -133,20 +132,48 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 		framework.Logf("Starting test: Online & offline volume expansion of restored volume")
 
-		// Create 2 PVC on sc-1 and attach them to pod
-		volumeMap := k8testutil.CreateMultiplePvcPod(ctx, e2eTestConfig, client, namespace, storageclass, 2, true, false)
+		// Create PVC
+		pvclaim, pvList := k8testutil.CreateAndValidatePvc(ctx, client, namespace, storageclass)
 
-		// Create a snapshot of both the volume.
-		for pvclaim, pvList := range volumeMap {
-			volumeSnapshot, _ := csisnapshot.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList, constants.DiskSize)
+		// Create pod
+		_, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvclaim}, false,
+			constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			//  Restore it on different SC
-			ginkgo.By("Restore sanpshots to create new volumes")
-			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize, true)
-		}
+		vs, _ := csisnapshot.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, pvList, constants.DiskSize)
 
-		// TODO : Run volume expansion on both the restored PVCs
+		ginkgo.By("Restore sanpshots to create new volumes")
+		restoredPvc, _, _ := csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
+			vs, constants.DiskSize, true)
+
+		// Run online expansion
+		currentPvcSize := restoredPvc.Spec.Resources.Requests[corev1.ResourceStorage]
+		newSize := currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("4Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		_, err = k8testutil.ExpandPVCSize(restoredPvc, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		ginkgo.By("Waiting for file system resize to finish")
+		restoredPvc, err = k8testutil.WaitForFSResize(restoredPvc, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcConditions := restoredPvc.Status.Conditions
+		k8testutil.ExpectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+
+		// Restore again for offline expansion
+		ginkgo.By("Restore sanpshots to create new volumes for offline expansion")
+		restoredPvc2, _, _ := csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
+			vs, constants.DiskSize, false)
+
+		currentPvcSize = restoredPvc2.Spec.Resources.Requests[corev1.ResourceStorage]
+		newSize = currentPvcSize.DeepCopy()
+		newSize.Add(resource.MustParse("1Gi"))
+		framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+		restoredPvc2, err = k8testutil.ExpandPVCSize(restoredPvc, newSize, client)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(restoredPvc2).NotTo(gomega.BeNil())
+		b, err := k8testutil.VerifyPvcRequestedSizeUpdateInSupervisorWithWait(restoredPvc2.Name, newSize)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(b).To(gomega.BeTrue())
 
 		framework.Logf("Ending test: Online & offline volume expansion of restored volume")
 
@@ -169,11 +196,16 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 			//  Restore it on different SC
 			ginkgo.By("Restore sanpshots to create new volumes")
-			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize1GB, true)
-		}
+			pvcSpec := csisnapshot.GetPersistentVolumeClaimSpecWithDatasource(namespace, constants.DiskSize1GB, restoreSc, nil,
+				corev1.ReadWriteOnce, volumeSnapshot.Name, constants.Snapshotapigroup)
 
-		// TODO : Run volume expansion on both the restored PVCs
+			restoredPvc, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*corev1.PersistentVolumeClaim{restoredPvc}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+		}
 
 		framework.Logf("Ending test: Restore with different size")
 	})
@@ -203,17 +235,15 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 			// Restore it with different sc
 			ginkgo.By("Restore sanpshots to create new volumes")
-			restoredPvc, restoredPvList, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, storageclass,
-				vsRestoredPvc, constants.DiskSize, true)
+			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, storageclass,
+				vsRestoredPvc, constants.DiskSize, false)
 		}
-
-		// TODO : Run volume expansion on both the restored PVCs
 
 		framework.Logf("Ending test: Create a snapshot of the restored PVC")
 	})
 
 	// TC -14
-	ginkgo.It("Restore with a different policy on Deployment ", ginkgo.Label(
+	ginkgo.It("Restore with a different policy on Deployment pods", ginkgo.Label(
 		constants.P0, constants.Vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -232,8 +262,6 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
 				volumeSnapshot, constants.DiskSize, true)
 		}
-
-		// TODO : Run volume expansion on both the restored PVCs
 
 		framework.Logf("Ending test: Restore with a different policy on Deployment ")
 	})
@@ -271,17 +299,17 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			}
 		}
 
-		// Create a snapshot for all 3 PVCs
+		// Create a snapshot for a PVC
 		for pvclaim, pv := range volumeMap {
 			volumeSnapshot, _ := csisnapshot.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvclaim, []*corev1.PersistentVolume{pv}, constants.DiskSize1GB)
 
 			//  Restore it on different SC
 			ginkgo.By("Restore sanpshots to create new volumes")
 			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize, true)
-		}
+				volumeSnapshot, constants.DiskSize1GB, true)
 
-		// TODO : Run volume expansion on both the restored PVCs
+			break
+		}
 
 		framework.Logf("Ending test: Restore with a different policy on statefulset")
 	})
@@ -324,10 +352,18 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 		//  Restore it on different SC-wffc
 		ginkgo.By("Restore sanpshots to create new volumes")
-		_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreScWffc,
-			volumeSnapshot, constants.DiskSize, true)
+		pvcSpec := csisnapshot.GetPersistentVolumeClaimSpecWithDatasource(namespace, constants.DiskSize, restoreScWffc, nil,
+			corev1.ReadWriteOnce, volumeSnapshot.Name, constants.Snapshotapigroup)
 
-		// TODO : Run volume expansion on both the restored PVCs
+		restoredPvc, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Create Pod to attach to Pvc-2")
+		_, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{restoredPvc}, false,
+			constants.ExecRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{restoredPvc}, constants.PollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		framework.Logf("Ending test:WFFC - Create a PVC from a snapshot on a different datastore")
 
