@@ -141,7 +141,7 @@ func createSnapshot(ctx context.Context, namespace string, pvclaims []*v1.Persis
 	// }()
 }
 
-func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedFromSnapshot []*v1.PersistentVolumeClaim, pvsCreatedFromSnapshot []*v1.PersistentVolume, index int, diskSize string, wgMain *sync.WaitGroup) {
+func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedFromSnapshot []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
 	var err error
@@ -150,13 +150,6 @@ func createVolumeFromSnapshot(ctx context.Context, client clientset.Interface, s
 		v1.ReadWriteOnce, pvcSnapshots[index].Name, constants.Snapshotapigroup)
 	pvcFromSnapshot, err := k8testutil.CreatePvcWithSpec(ctx, client, namespace, pvcSpec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	pvsCreatedFromSnapshot, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
-		[]*v1.PersistentVolumeClaim{pvcFromSnapshot}, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	volHandle := pvsCreatedFromSnapshot[0].Spec.CSI.VolumeHandle
-	gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
-
 	pvcsCreatedFromSnapshot[index] = pvcFromSnapshot
 }
 

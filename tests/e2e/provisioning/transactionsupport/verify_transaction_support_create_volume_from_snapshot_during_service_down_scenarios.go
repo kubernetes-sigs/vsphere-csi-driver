@@ -59,8 +59,6 @@ var _ = ginkgo.Describe("Transaction_Support_CreateVolumeFromSnapshot", func() {
 
 				ginkgo.BeforeEach(func() {
 					testSetUp(f)
-					pvclaimsCreatedFromSnapshot = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
-					pvsCreatedFromSnapshot = make([]*v1.PersistentVolume, volumeOpsScale)
 				})
 
 				ginkgo.AfterEach(func() {
@@ -126,6 +124,8 @@ func createVolumeFromSnapshotWithServiceDown(serviceNames []string, namespace st
 	ginkgo.By(fmt.Sprintf("Invoking Test for create volume from snapshot when %v goes down", serviceNames))
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 	pvcSnapshots = make([]*snapV1.VolumeSnapshot, volumeOpsScale)
+	pvclaimsCreatedFromSnapshot = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+	pvsCreatedFromSnapshot = make([]*v1.PersistentVolume, volumeOpsScale)
 
 	storageclass := getStorageClass(ctx, scParameters, client, namespace, storagePolicyName)
 
@@ -200,7 +200,7 @@ func createVolumeFromSnapshotWithServiceDown(serviceNames []string, namespace st
 
 	for i := range volumeOpsScale {
 		framework.Logf("Creating volume from snapshot %v", i)
-		go createVolumeFromSnapshot(ctx, client, storageclass, namespace, pvcSnapshots, pvclaimsCreatedFromSnapshot, pvsCreatedFromSnapshot, i, diskSize, &wg)
+		go createVolumeFromSnapshot(ctx, client, storageclass, namespace, pvcSnapshots, pvclaimsCreatedFromSnapshot, i, diskSize, &wg)
 	}
 
 	for _, serviceName := range serviceNames {
@@ -210,6 +210,17 @@ func createVolumeFromSnapshotWithServiceDown(serviceNames []string, namespace st
 
 	//After service restart
 	e2eTestConfig = bootstrap.Bootstrap()
+
+	ginkgo.By("Waiting for all claims to be in bound state")
+	framework.Logf("Waiting for all claims : %d (volumeOpsScale : %d) to be in bound state ", len(pvclaimsCreatedFromSnapshot), volumeOpsScale)
+
+	pvsCreatedFromSnapshot, err = fpv.WaitForPVClaimBoundPhase(ctx, client, pvclaimsCreatedFromSnapshot, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, pvCreatedFromSnapshot := range pvsCreatedFromSnapshot {
+		volHandle := pvCreatedFromSnapshot.Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+	}
+
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
 	time.Sleep(1 * time.Minute)

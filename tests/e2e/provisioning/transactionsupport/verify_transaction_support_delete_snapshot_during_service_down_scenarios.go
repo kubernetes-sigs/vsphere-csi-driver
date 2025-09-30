@@ -171,7 +171,7 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
+				storageclass.Name, namespace, constants.SnapshotUsage, constants.VolExtensionName)
 	}
 
 	wg.Add(len(serviceNames) + volumeOpsScale)
