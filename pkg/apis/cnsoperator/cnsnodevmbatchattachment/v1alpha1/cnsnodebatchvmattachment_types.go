@@ -29,6 +29,9 @@ const (
 	IndependentPersistent DiskMode = "independent_persistent"
 	// Changes are immediately and permanently written to the virtual disk.
 	Persistent DiskMode = "persistent"
+	// Changes to virtual disk are made to a redo log and discarded at power off.
+	// It is not affected by snapshots.
+	IndependentNonPersistent = "independent_nonpersistent"
 )
 
 // The sharing mode of the virtual disk.
