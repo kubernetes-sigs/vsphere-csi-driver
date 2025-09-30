@@ -782,8 +782,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			9.	delete pvc1
 	*/
 	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
-		"Attach volume to a new pod when CNS is down and verify volume metadata in CNS post full "+
-		"sync", ginkgo.Label(p1, negative, block, vanilla, wcp, tkg, core, vc70), func() {
+		"[pq-vks][pq-vks-n1][pq-vks-n2] Attach volume to a new pod when CNS is down and verify volume metadata "+
+		"in CNS post full sync", ginkgo.Label(p1, negative, block, vanilla, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error
