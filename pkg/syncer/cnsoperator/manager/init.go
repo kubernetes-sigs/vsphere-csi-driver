@@ -127,12 +127,12 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx,
 			common.SharedDiskFss) {
-			// Create CnsNodeVmBatchAttachment CRD
+			// Create CnsNodeVMBatchAttachment CRD
 			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
-				cnsoperatorconfig.EmbedCnsNodeVmBatchAttachmentCRFile,
+				cnsoperatorconfig.EmbedCnsNodeVMBatchAttachmentCRFile,
 				cnsoperatorconfig.EmbedCnsNodeVmABatchttachmentCRFileName)
 			if err != nil {
-				crdNameNodeVmBatchAttachment := cnsoperatorv1alpha1.CnsNodeVmBatchAttachmentPlural +
+				crdNameNodeVmBatchAttachment := cnsoperatorv1alpha1.CnsNodeVMBatchAttachmentPlural +
 					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
 				log.Errorf("failed to create %q CRD. Err: %+v", crdNameNodeVmBatchAttachment, err)
 				return err

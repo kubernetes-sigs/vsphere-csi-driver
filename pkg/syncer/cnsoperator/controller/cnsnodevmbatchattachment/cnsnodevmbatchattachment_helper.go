@@ -56,13 +56,13 @@ const (
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmbatchattachment instance.
 func removeFinalizerFromCRDInstance(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	c client.Client) error {
 	log := logger.GetLogger(ctx)
 	finalizersOnInstance := instance.Finalizers
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoperatortypes.CNSFinalizer {
-			log.Infof("Removing %q finalizer from CnsNodeVmBatchAttachment instance with name: %q on namespace: %q",
+			log.Infof("Removing %q finalizer from CnsNodeVMBatchAttachment instance with name: %q on namespace: %q",
 				cnsoperatortypes.CNSFinalizer, instance.Name, instance.Namespace)
 			finalizersOnInstance = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 			break
@@ -79,7 +79,7 @@ func getNamespacedPvcName(namespace string, pvcName string) string {
 // getVolumesToDetachFromInstance finds out which are the volumes to detach by finding out which are
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	attachedFCDs map[string]bool,
 	volumeIdsInSpec map[string]string) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
@@ -136,7 +136,7 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 	client client.Client,
 	k8sClient kubernetes.Interface,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) error {
 	log := logger.GetLogger(ctx)
 
@@ -170,7 +170,7 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 // getVolumesToDetach returns list of volumes to detach by taking a diff of
 // volumes in spec and in attachedFCDs list.
 func getVolumesToDetachForVmFromVC(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	client client.Client,
 	k8sClient kubernetes.Interface,
 	attachedFCDs map[string]bool) (map[string]string, error) {
@@ -212,7 +212,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 // But they both have the same entry in the status which is wrong. By adding the suffix,
 // the volume name entry for the PVC getting detached becomes unique.
 func updatePvcStatusEntryName(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment, pvcsToDetach map[string]string) {
+	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcsToDetach map[string]string) {
 	log := logger.GetLogger(ctx)
 
 	for i, volume := range instance.Status.VolumeStatus {
@@ -229,11 +229,11 @@ func updatePvcStatusEntryName(ctx context.Context,
 
 // updateInstanceStatus updates the given nodevmbatchattachment instance's status.
 func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) error {
 	log := logger.GetLogger(ctx)
 	err := cnsoperatorclient.Status().Update(ctx, instance)
 	if err != nil {
-		log.Errorf("failed to update CnsNodeVmBatchAttachment instance: %q on namespace: %q. Error: %+v",
+		log.Errorf("failed to update CnsNodeVMBatchAttachment instance: %q on namespace: %q. Error: %+v",
 			instance.Name, instance.Namespace, err)
 		return err
 	}
@@ -243,7 +243,7 @@ func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
 // updateInstanceWithAttachVolumeResult finds the given's volumeName's status in the instance status
 // and updates it with error.
 // It will add a new status for the volume if it does not already exist.
-func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVmBatchAttachment,
+func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumeName string, pvc string, result volumes.BatchAttachResult) {
 
 	errMsg := ""
@@ -260,7 +260,7 @@ func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVmBatchAttac
 			Attached:    attached,
 			Error:       errMsg,
 			CnsVolumeID: result.VolumeID,
-			Diskuuid:    result.DiskUUID,
+			DiskUUID:    result.DiskUUID,
 		},
 	}
 
@@ -279,7 +279,7 @@ func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVmBatchAttac
 
 // updateInstanceWithErrorVolumeName finds the given's PVC's status in the instance status
 // and updates it with error.
-func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVmBatchAttachment,
+func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVMBatchAttachment,
 	pvc string, errMsg string) {
 	for i, volume := range instance.Status.VolumeStatus {
 		if volume.PersistentVolumeClaim.ClaimName != pvc {
@@ -291,7 +291,7 @@ func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVmBatchAttachment,
 }
 
 // deleteVolumeFromStatus finds the status of the given volumeName in an instance and deletes its entry.
-func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVmBatchAttachment) {
+func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVMBatchAttachment) {
 	instance.Status.VolumeStatus = slices.DeleteFunc(instance.Status.VolumeStatus,
 		func(e v1alpha1.VolumeStatus) bool {
 			return e.PersistentVolumeClaim.ClaimName == pvc
@@ -303,7 +303,7 @@ func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVmBatchAttachm
 // 1. volumeID to PVC name
 // 2. VolumeName to PVC name
 func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) (volumeIdsInSpec map[string]string,
+	instance *v1alpha1.CnsNodeVMBatchAttachment) (volumeIdsInSpec map[string]string,
 	volumeNamesInSpec map[string]string, err error) {
 	log := logger.GetLogger(ctx)
 
@@ -325,7 +325,7 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 }
 
 // getPvcsInSpec returns map of PVCs and their volumeIDs.
-func getPvcsInSpec(instance *v1alpha1.CnsNodeVmBatchAttachment) (map[string]string, error) {
+func getPvcsInSpec(instance *v1alpha1.CnsNodeVMBatchAttachment) (map[string]string, error) {
 	pvcsInSpec := make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
 		namespacedPvcName := getNamespacedPvcName(instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
@@ -379,7 +379,7 @@ func listAttachedFcdsForVM(ctx context.Context,
 // constructs the batchAttach request for each of them.
 // It also validates each of the requests to make sure user input is correct.
 func constructBatchAttachRequest(ctx context.Context,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) (pvcsInSpec map[string]string,
+	instance *v1alpha1.CnsNodeVMBatchAttachment) (pvcsInSpec map[string]string,
 	volumeIdsInSpec map[string]string,
 	batchAttachRequest []volumes.BatchAttachRequest, err error) {
 	log := logger.GetLogger(ctx)
@@ -427,7 +427,7 @@ func constructBatchAttachRequest(ctx context.Context,
 // If VM retrieval from vCenter fails with NotFound error,
 // then it is not considered an error because VM CR is probably being deleted.
 func getVmObject(ctx context.Context, client client.Client, configInfo config.ConfigurationInfo,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) (*cnsvsphere.VirtualMachine, error) {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) (*cnsvsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 
 	// Get vm from vCenter.
@@ -447,7 +447,7 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 // getVolumesToDetach checks if:
 // Instance is being deleted, then it adds all the volumes in the spec for detach.
 // If instance is not being deleted then finds the volumes to be detached by querying vCenter.
-func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAttachment,
+func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -476,7 +476,7 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAt
 // which have to be detached from the VM.
 func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 	k8sClient kubernetes.Interface,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 

@@ -95,12 +95,12 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
-		log.Debug("Not initializing the CnsNodeVmBatchAttachment Controller as its a non-WCP CSI deployment")
+		log.Debug("Not initializing the CnsNodeVMBatchAttachment Controller as its a non-WCP CSI deployment")
 		return nil
 	}
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
-		log.Debug("Not initializing the CnsNodeVmBatchAttachment Controller as SharedDisk FSS is not enabled")
+		log.Debug("Not initializing the CnsNodeVMBatchAttachment Controller as SharedDisk FSS is not enabled")
 		return nil
 	}
 
@@ -157,7 +157,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("cnsnodevmbatchattachment-controller").
-		For(&v1alpha1.CnsNodeVmBatchAttachment{}).
+		For(&v1alpha1.CnsNodeVMBatchAttachment{}).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxWorkerThreads,
@@ -173,7 +173,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// Reconciler reconciles a CnsNodeVmBatchAttachment object.
+// Reconciler reconciles a CnsNodeVMBatchAttachment object.
 type Reconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -188,13 +188,13 @@ type Reconciler struct {
 	instanceLock sync.Map
 }
 
-// Reconcile over CnsNodeVmBatchAttachment CR.
+// Reconcile over CnsNodeVMBatchAttachment CR.
 // Reconcile stops when all volumes have been attached or detached successfully.
 func (r *Reconciler) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	reconcileLog := logger.GetLogger(ctx)
-	reconcileLog.Infof("Received Reconcile for CnsNodeVmBatchAttachment request: %q", request.NamespacedName)
+	reconcileLog.Infof("Received Reconcile for CnsNodeVMBatchAttachment request: %q", request.NamespacedName)
 
 	// Creating new context as kubernetes supplied context can get canceled.
 	// This is required to ensure CNS operations won't get prematurely canceled by the controller runtime’s
@@ -229,20 +229,20 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		log.Infof("Released lock for instance %s", request.NamespacedName.String())
 	}()
 
-	instance := &v1alpha1.CnsNodeVmBatchAttachment{}
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{}
 	err := r.client.Get(batchAttachCtx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("CnsNodeVmBatchAttachment resource not found. Ignoring since object must be deleted.")
+			log.Info("CnsNodeVMBatchAttachment resource not found. Ignoring since object must be deleted.")
 			return reconcile.Result{}, nil
 		}
-		log.Errorf("Error reading the CnsNodeVmBatchAttachment with name: %q on namespace: %q. Err: %+v",
+		log.Errorf("Error reading the CnsNodeVMBatchAttachment with name: %q on namespace: %q. Err: %+v",
 			request.Name, request.Namespace, err)
 		// Error reading the object - return with err.
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	log.Debugf("Reconciling CnsNodeVmBatchAttachment with Request.Name: %q instance %q timeout %q seconds",
+	log.Debugf("Reconciling CnsNodeVMBatchAttachment with Request.Name: %q instance %q timeout %q seconds",
 		request.Name, instance.Name, timeout)
 
 	// Initialise volumeStatus if it is set to nil
@@ -267,13 +267,13 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if vm == nil {
 		// If VM is nil, it means it is deleted from the vCenter.
 		if instance.DeletionTimestamp == nil {
-			// If VM is deleted from the VC but CnsNodeVmBatchAttachment is not being deleted, it is an error.
+			// If VM is deleted from the VC but CnsNodeVMBatchAttachment is not being deleted, it is an error.
 			err := fmt.Errorf("virtual Machine with UUID %s on vCenter does not exist. "+
 				"Vm is CR is deleted or is being deleted but"+
-				"CnsNodeVmBatchAttachmentInstance %s is not being deleted", instance.Spec.NodeUUID, instance.Name)
+				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", instance.Spec.NodeUUID, instance.Name)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
-		// If CnsNodeVmBatchAttachment is also being deleted, then all volumes on the instance can be considered detached.
+		// If CnsNodeVMBatchAttachment is also being deleted, then all volumes on the instance can be considered detached.
 		log.Infof("VM is deleted from vCenter and instance %s deletion timestamp. Considering all volumes as detached.",
 			request.NamespacedName)
 	} else {
@@ -306,7 +306,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
 			recordEvent(batchAttachCtx, r, instance, v1.EventTypeWarning, patchErr.Error())
-			log.Errorf("failed to update CnsNodeVmBatchAttachment %s. Err: +%v", instance.Name, patchErr)
+			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", instance.Name, patchErr)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		log.Infof("Successfully removed finalizer %s from instance %s",
@@ -316,7 +316,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 
-		msg := fmt.Sprintf("ReconcileCnsNodeVmBatchAttachment: Successfully processed instance %s",
+		msg := fmt.Sprintf("ReconcileCnsNodeVMBatchAttachment: Successfully processed instance %s",
 			request.NamespacedName.String())
 		recordEvent(batchAttachCtx, r, instance, v1.EventTypeNormal, msg)
 		return reconcile.Result{}, nil
@@ -362,7 +362,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(batchAttachCtx, instance, request.NamespacedName, timeout)
 	}
 
-	reconcileLog.Infof("Reconcile for CnsNodeVmBatchAttachment request: %q completed.", request.NamespacedName)
+	reconcileLog.Infof("Reconcile for CnsNodeVMBatchAttachment request: %q completed.", request.NamespacedName)
 	return reconcile.Result{}, nil
 }
 
@@ -370,7 +370,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 // As the instance is being deleted, we do not need to attach anything.
 func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	k8sClient kubernetes.Interface,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumesToDetach map[string]string,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
@@ -389,7 +389,7 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 // and CNS detach for the volumes volumesToDetach.
 func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Context,
 	k8sClient kubernetes.Interface,
-	instance *v1alpha1.CnsNodeVmBatchAttachment,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumesToDetach map[string]string,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
@@ -418,7 +418,7 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 func (r *Reconciler) processDetach(ctx context.Context,
 	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
-	instance *v1alpha1.CnsNodeVmBatchAttachment, volumesToDetach map[string]string) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Calling detach volume for PVC %+v", volumesToDetach)
 
@@ -440,7 +440,7 @@ func (r *Reconciler) processDetach(ctx context.Context,
 func (r *Reconciler) detachVolumes(ctx context.Context,
 	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine, volumesToDetach map[string]string,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) []string {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) []string {
 	log := logger.GetLogger(ctx)
 
 	volumesThatFailedToDetach := make([]string, 0)
@@ -482,7 +482,7 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 // removes its entry from the instance status if it is successful.
 // If removing the finalizer fails, it adds the volume to volumesThatFailedToDetach list.
 func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8sClient kubernetes.Interface,
-	instance *v1alpha1.CnsNodeVmBatchAttachment, pvc string,
+	instance *v1alpha1.CnsNodeVMBatchAttachment, pvc string,
 	volumesThatFailedToDetach []string) []string {
 	log := logger.GetLogger(ctx)
 
@@ -503,7 +503,7 @@ func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8
 // and then calls CNS batch attach for them.
 func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
-	instance *v1alpha1.CnsNodeVmBatchAttachment) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment) error {
 	log := logger.GetLogger(ctx)
 
 	// Construct batch attach request
@@ -555,7 +555,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 // appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *Reconciler,
-	instance *v1alpha1.CnsNodeVmBatchAttachment, eventtype string, msg string) {
+	instance *v1alpha1.CnsNodeVMBatchAttachment, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	namespacedName := types.NamespacedName{
 		Name:      instance.Name,
@@ -581,7 +581,7 @@ func recordEvent(ctx context.Context, r *Reconciler,
 }
 
 // completeReconciliationWithSuccess updates the instance with success and records successful event as well.
-func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAttachment,
+func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	namespaceName types.NamespacedName, timeout time.Duration) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
@@ -589,7 +589,7 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
-		log.Errorf("failed to update CnsNodeVmBatchAttachment %s. Err: +%v", namespaceName, updateErr)
+		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -597,21 +597,21 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 	delete(backOffDuration, namespaceName)
 	backOffDurationMapMutex.Unlock()
 
-	msg := fmt.Sprintf("ReconcileCnsNodeVmBatchAttachment: Successfully processed instance %s "+
+	msg := fmt.Sprintf("ReconcileCnsNodeVMBatchAttachment: Successfully processed instance %s "+
 		"in namespace %q.", namespaceName, namespaceName)
 	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 	return reconcile.Result{}, nil
 }
 
 // completeReconciliationWithError updates the instance with failure and records failure event as well.
-func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instance *v1alpha1.CnsNodeVmBatchAttachment,
+func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	namespaceName types.NamespacedName, timeout time.Duration, err error) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 	instance.Status.Error = err.Error()
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
-		log.Errorf("failed to update CnsNodeVmBatchAttachment %s. Err: +%v", namespaceName, updateErr)
+		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, err.Error())

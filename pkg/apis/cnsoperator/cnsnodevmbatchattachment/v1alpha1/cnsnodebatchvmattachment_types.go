@@ -21,35 +21,40 @@ import (
 )
 
 // DiskMode describes the desired mode to use when attaching the volume.
+// +kubebuilder:validation:Enum=independent_persistent;persistent;independent_nonpersistent
 type DiskMode string
 
 const (
-	// By setting DiskMode to independent_persistent, a virtual machine's disk is not captured in snapshots and
+	// IndependentPersistent is the diskMode in which a virtual machine's disk is not captured in snapshots and
 	// changes are permanently written to the disk, regardless of snapshot operations.
 	IndependentPersistent DiskMode = "independent_persistent"
-	// Changes are immediately and permanently written to the virtual disk.
+	// Persistent diskMode changes are immediately and permanently written to the virtual disk.
 	Persistent DiskMode = "persistent"
-	// Changes to virtual disk are made to a redo log and discarded at power off.
+	// IndependentNonPersistent is the diskMode in which changes to virtual disk are made to a redo log
+	// and discarded at power off.
 	// It is not affected by snapshots.
 	IndependentNonPersistent = "independent_nonpersistent"
 )
 
-// The sharing mode of the virtual disk.
+// SharingMode is the sharing mode of the virtual disk.
+// +kubebuilder:validation:Enum=sharingMultiWriter;sharingNone
 type SharingMode string
 
 const (
-	// The virtual disk is shared between multiple virtual machines.
+	// SharingMultiWriter: The virtual disk is shared between multiple virtual machines.
 	SharingMultiWriter SharingMode = "sharingMultiWriter"
-	// The virtual disk is not shared.
+	// SharingNone: The virtual disk is not shared.
 	SharingNone SharingMode = "sharingNone"
 )
 
-// CnsNodeVmBatchAttachmentSpec defines the desired state of CnsNodeVmBatchAttachment
+// CnsNodeVMBatchAttachmentSpec defines the desired state of CnsNodeVMBatchAttachment
 // +k8s:openapi-gen=true
-type CnsNodeVmBatchAttachmentSpec struct {
+type CnsNodeVMBatchAttachmentSpec struct {
+	// +required
+
 	// NodeUUID indicates the UUID of the node where the volume needs to be attached to.
 	// Here NodeUUID is the instance UUID of the node.
-	NodeUUID string `json:"nodeuuid"`
+	NodeUUID string `json:"nodeUUID"`
 
 	// +listType=map
 	// +listMapKey=name
@@ -65,21 +70,31 @@ type VolumeSpec struct {
 }
 
 type PersistentVolumeClaimSpec struct {
+	// +required
+
 	// ClaimName is the PVC name.
 	ClaimName string `json:"claimName"`
+	// +optional
+
 	// DiskMode is the desired mode to use when attaching the volume
 	DiskMode DiskMode `json:"diskMode,omitempty"`
-	// SharingMode indicates the shraring mode if the virtual disk while attaching.
+	// +optional
+
+	// SharingMode indicates the sharing mode if the virtual disk while attaching.
 	SharingMode SharingMode `json:"sharingMode,omitempty"`
+	// +optional
+
 	// ControllerKey is the object key for the controller object for this device.
-	ControllerKey string `json:"controllerKey,omitempty"`
+	ControllerKey *int32 `json:"controllerKey,omitempty"`
+	// +optional
+
 	// UnitNumber of this device on its controller.
-	UnitNumber string `json:"unitNumber,omitempty"`
+	UnitNumber *int32 `json:"unitNumber,omitempty"`
 }
 
-// CnsNodeVmBatchAttachmentStatus defines the observed state of CnsNodeVmBatchAttachment
+// CnsNodeVMBatchAttachmentStatus defines the observed state of CnsNodeVMBatchAttachment
 // +k8s:openapi-gen=true
-type CnsNodeVmBatchAttachmentStatus struct {
+type CnsNodeVMBatchAttachmentStatus struct {
 	// Error is the overall error status for the instance.
 	Error string `json:"error,omitempty"`
 	// +listType=map
@@ -98,6 +113,7 @@ type VolumeStatus struct {
 type PersistentVolumeClaimStatus struct {
 	// ClaimName is the PVC name.
 	ClaimName string `json:"claimName"`
+	// Attached indicates the attach status of a PVC.
 	// If volume is not attached, Attached will be set to false.
 	// If volume is attached, Attached will be set to true.
 	// If volume is detached successfully, its entry will be removed from VolumeStatus.
@@ -106,8 +122,8 @@ type PersistentVolumeClaimStatus struct {
 	Error string `json:"error,omitempty"`
 	// CnsVolumeID is the volume ID for the PVC.
 	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
-	// Diskuuid is the ID obtained when volume is attached to a VM.
-	Diskuuid string `json:"diskuuid,omitempty"`
+	// DiskUUID is the ID obtained when volume is attached to a VM.
+	DiskUUID string `json:"DiskUUID,omitempty"`
 }
 
 // +genclient
@@ -115,21 +131,24 @@ type PersistentVolumeClaimStatus struct {
 
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:shortName=batchattach
+// +kubebuilder:printcolumn:name="NodeUUID",type="string",JSONPath=".spec.nodeUUID"
 
-// CnsNodeVmBatchAttachment is the Schema for the cnsnodevmbatchattachments API
-type CnsNodeVmBatchAttachment struct {
+// CnsNodeVMBatchAttachment is the Schema for the cnsnodevmbatchattachments API
+type CnsNodeVMBatchAttachment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CnsNodeVmBatchAttachmentSpec   `json:"spec,omitempty"`
-	Status CnsNodeVmBatchAttachmentStatus `json:"status,omitempty"`
+	Spec   CnsNodeVMBatchAttachmentSpec   `json:"spec,omitempty"`
+	Status CnsNodeVMBatchAttachmentStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// CnsNodeVmBatchAttachmentList contains a list of CnsNodeVmBatchAttachment
-type CnsNodeVmBatchAttachmentList struct {
+// CnsNodeVMBatchAttachmentList contains a list of CnsNodeVMBatchAttachment
+type CnsNodeVMBatchAttachmentList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []CnsNodeVmBatchAttachment `json:"items"`
+	Items           []CnsNodeVMBatchAttachment `json:"items"`
 }

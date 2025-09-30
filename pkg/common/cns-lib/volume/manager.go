@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -3532,23 +3531,11 @@ func constructBatchAttachSpecList(ctx context.Context, vm *cnsvsphere.VirtualMac
 		}
 
 		// Set controllerKey and unitNumber only if they are provided by the user.
-		if volume.ControllerKey != "" {
-			// Convert to int64
-			controllerKey, err := strconv.ParseInt(volume.ControllerKey, 10, 64)
-			if err != nil {
-				log.Errorf("failed to convert controllerKey %s to integer", controllerKey)
-				return cnsAttachSpecList, err
-			}
-			cnsAttachDetachSpec.ControllerKey = controllerKey
+		if volume.ControllerKey != nil {
+			cnsAttachDetachSpec.ControllerKey = volume.ControllerKey
 		}
-		if volume.UnitNumber != "" {
-			// Convert to int64
-			unitNumber, err := strconv.ParseInt(volume.UnitNumber, 10, 64)
-			if err != nil {
-				log.Errorf("failed to convert unitNumber %s to integer", unitNumber)
-				return cnsAttachSpecList, err
-			}
-			cnsAttachDetachSpec.UnitNumber = unitNumber
+		if volume.UnitNumber != nil {
+			cnsAttachDetachSpec.UnitNumber = volume.UnitNumber
 		}
 		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachDetachSpec)
 	}
