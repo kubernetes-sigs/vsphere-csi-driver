@@ -712,7 +712,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 	*/
 	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
-		"[cf-vks-f] Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
+		"Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
 		block, vanilla, tkg,
 		vc70), func() {
 		ginkgo.By("Invoking Test for online Volume Expansion on raw block volume")

@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 12. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 13. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[ef-vanilla-block][cf-vks][cf-vks-f][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
 		"Verify offline volume expansion workflow with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, core,
 		vc70), func() {
 		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
@@ -644,8 +644,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	*/
 
 	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][csi-vcp-mig]"+
-		"[pq-vanilla-block] Verify online volume expansion when VSAN-health is down", ginkgo.Label(p1, block, vanilla,
-		wcp, tkg, core, vc70), func() {
+		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when VSAN-health is "+
+		"down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -771,8 +771,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
-		" Verify online volume expansion when SPS-Service is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core,
-		vc70), func() {
+		"[pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when SPS-Service is down", ginkgo.Label(p1, block,
+		vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1583,8 +1583,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[pq-wcp][csi-supervisor] Verify in Offline volume expansion FileSystemResize works "+
-		"when SPS-Service is down", ginkgo.Label(p1, block, wcp, vc70), func() {
+	ginkgo.It("[pq-wcp][csi-supervisor][pq-vks][pq-vks-n1][pq-vks-n2] Verify in Offline volume expansion "+
+		"FileSystemResize works when SPS-Service is down", ginkgo.Label(p1, block, wcp, vc70), func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1733,8 +1733,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 
-	ginkgo.It("[pq-wcp][csi-supervisor] Verify Offline volume expansion when VSAN-health is "+
-		"down", ginkgo.Label(p1, block, wcp, vc70), func() {
+	ginkgo.It("[pq-wcp][csi-supervisor][pq-vks][pq-vks-n1][pq-vks-n2] Verify Offline volume expansion when "+
+		"VSAN-health is down", ginkgo.Label(p1, block, wcp, vc70), func() {
 
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2129,7 +2129,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.Make sure file system has increased
 	*/
-	ginkgo.It("[pq-wcp][csi-supervisor] Verify online volume expansion when CSI Pod is "+
+	ginkgo.It("[pq-wcp][csi-supervisor][pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when CSI Pod is "+
 		"down", ginkgo.Label(p1, block, wcp, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2253,7 +2253,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		13. Make sure file system has increased
 	*/
 	// TODO: Need to add test case for Vanilla
-	ginkgo.It("[pq-wcp][csi-supervisor] Verify Offline volume expansion when CSI Pod is "+
+	ginkgo.It("[pq-wcp][csi-supervisor][pq-vks][pq-vks-n1][pq-vks-n2] Verify Offline volume expansion when CSI Pod is "+
 		"down", ginkgo.Label(p1, block, wcp, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
