@@ -51,6 +51,9 @@ import (
 	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/go-logr/zapr"
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	storagev1 "k8s.io/api/storage/v1"
@@ -217,6 +220,9 @@ func NewSupervisorSnapshotClient(ctx context.Context, config *restclient.Config)
 func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName string) (client.Client, error) {
 	var err error
 	log := logger.GetLogger(ctx)
+
+	// Initialize controller-runtime logger to prevent log.SetLogger warning
+	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
 
 	scheme := runtime.NewScheme()
 	switch groupName {

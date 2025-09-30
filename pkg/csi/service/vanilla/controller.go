@@ -187,11 +187,13 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	log.Infof("Initializing CNS controller")
 	var err error
 	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
+
 	operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
 		config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 		func() bool {
 			return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		}, false)
+		}, false,
+		false)
 	if err != nil {
 		log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 		return err
@@ -202,7 +204,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.CnsMgrSuspendCreateVolume)
 	isTopologyAwareFileVolumeEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.TopologyAwareFileVolume)
-	isCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSITransactionSupport)
 
 	vcManager := cnsvsphere.GetVirtualCenterManager(ctx)
 	// Multi vCenter feature enabled
@@ -260,7 +261,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	for _, authMgr := range authMgrs {
 		go common.ComputeDatastoreMapForBlockVolumes(authMgr, config.Global.CSIAuthCheckIntervalInMin)
 	}
-	var vsanFileServiceNotSupported bool
+	allVCentersSupportvSANFileService := true
+	allVCentersSupportCnsTransaction := true
 	for _, vcconfig := range c.managers.VcenterConfigs {
 		isvSANFileServicesSupported, err := c.managers.VcenterManager.IsvSANFileServicesSupported(ctx,
 			vcconfig.Host)
@@ -269,13 +271,29 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				"Error:%+v", vcconfig.Host, err)
 		}
 		if !isvSANFileServicesSupported {
-			vsanFileServiceNotSupported = true
-			break
+			allVCentersSupportvSANFileService = false
+		}
+
+		isCnsTransactionSupported, err := c.managers.VcenterManager.IsCnsTransactionSupported(ctx,
+			vcconfig.Host)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to verify if CNS transaction is supported or not for vCenter: %s. "+
+				"Error:%+v", vcconfig.Host, err)
+		}
+		if !isCnsTransactionSupported {
+			allVCentersSupportCnsTransaction = false
 		}
 	}
-	if vsanFileServiceNotSupported {
+	if !allVCentersSupportvSANFileService {
 		return logger.LogNewErrorf(log, "vSAN file service is not supported in one or more vCenter(s)")
 	}
+
+	// CSI Transaction Support requires both FSS to be enabled AND all vCenters to support CNS transactions
+	fssTransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.CSITransactionSupport)
+	isCSITransactionSupportEnabled = fssTransactionSupportEnabled && allVCentersSupportCnsTransaction
+	cnsvolumeoperationrequest.SetCSITransactionSupport(isCSITransactionSupportEnabled)
+
 	for _, vcconfig := range c.managers.VcenterConfigs {
 		go common.ComputeFSEnabledClustersToDsMap(authMgrs[vcconfig.Host], config.Global.CSIAuthCheckIntervalInMin)
 	}

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -101,6 +102,12 @@ var (
 	// isSharedDiskEabled is true if shared disks are supported on the supervisor cluster
 	isSharedDiskEabled bool
 
+	// cnsvolumeoperationrequestInitialSyncComplete tracks whether the initial cache sync
+	// for CnsVolumeOperationRequest informer is complete. This prevents quota double-counting
+	// during syncer restarts when existing CRs trigger AddFunc events. int32 is used to avoid
+	// race conditions by enabling atomic operation to set the value to 1 when the informer cache is synced.
+	cnsvolumeoperationrequestInitialSyncComplete int32
+
 	//IsMigrationEnabled is true when in-tree to CSI Migration FSS is enabled for the driver, false otherwise.
 	IsMigrationEnabled bool
 	// nodeMgr stores the manager to interact with nodeVMs.
@@ -109,6 +116,8 @@ var (
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 	// IsLinkedCloneSupportFSSEnabled is true when linked-clone-support FSS is enabled.
 	IsLinkedCloneSupportFSSEnabled bool
+	// IsCSITransactionSupportEnabled is true when csi-transaction-support FSS is enabled.
+	IsCSITransactionSupportEnabled bool
 	// IsMultipleClustersPerVsphereZoneFSSEnabled is true when supports_multiple_clusters_per_zone FSS is enabled
 	IsMultipleClustersPerVsphereZoneFSSEnabled bool
 	// ResourceAPIgroupPVC is an empty string as PVC belongs to the core resource group denoted by `""`.
@@ -332,6 +341,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if !IsLinkedCloneSupportFSSEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.LinkedCloneSupport, "", "")
+		}
+		IsCSITransactionSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.FCDTransactionSupport)
+		if !IsCSITransactionSupportEnabled {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.FCDTransactionSupport, "", "")
 		}
 		IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.MultipleClustersPerVsphereZone)
@@ -1609,6 +1624,17 @@ func initCnsVolumeOperationRequestCRInformer(ctx context.Context, cfg *restclien
 		log.Infof("Informer to watch on %s CR starting..", cnsvolumeoperationrequest.CRDSingular)
 		cnsvolumeoperationrequestInformer.Run(make(chan struct{}))
 	}()
+
+	// Start cache sync monitoring to prevent quota double-counting during syncer restarts
+	go func() {
+		log.Infof("Waiting for %s informer cache to sync...", cnsvolumeoperationrequest.CRDSingular)
+		if !cache.WaitForCacheSync(ctx.Done(), cnsvolumeoperationrequestInformer.HasSynced) {
+			log.Errorf("Failed to sync %s informer cache", cnsvolumeoperationrequest.CRDSingular)
+			return
+		}
+		log.Infof("%s informer cache synced, enabling quota processing for new CRs", cnsvolumeoperationrequest.CRDSingular)
+		atomic.StoreInt32(&cnsvolumeoperationrequestInitialSyncComplete, 1)
+	}()
 	return nil
 }
 
@@ -1673,6 +1699,14 @@ func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 // and updates the reserved field for StoragePolicyUsage CR
 func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
+
+	// Skip quota processing during initial cache sync to prevent double-counting
+	// when syncer restarts and existing CRs trigger AddFunc events
+	if atomic.LoadInt32(&cnsvolumeoperationrequestInitialSyncComplete) == 0 {
+		log.Debugf("cnsvolumeoperationrequestCRAdded: Skipping quota processing during initial cache sync for CR")
+		return
+	}
+
 	// Verify objects received.
 	var (
 		cnsvolumeoperationrequestObj cnsvolumeoperationrequestv1alpha1.CnsVolumeOperationRequest
@@ -1701,6 +1735,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				cnsvolumeoperationrequestObj.Name)
 			return
 		}
+
 		cnsVolumeOperationRequestName := cnsvolumeoperationrequestObj.Name
 		isSnapshot := checkOperationRequestCRForSnapshot(ctx, cnsVolumeOperationRequestName)
 		storagePolicyUsageInstanceName := ""
