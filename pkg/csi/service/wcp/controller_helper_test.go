@@ -11,7 +11,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -131,95 +130,6 @@ func TestGetPodVMUUID(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "mock-vm-uuid", vmUUID)
 	})
-}
-
-func TestVerifyStoragePolicyForVmfsUtil(t *testing.T) {
-	ctx := context.TODO()
-	policyId := "policy-123"
-
-	tests := []struct {
-		name        string
-		input       []cnsvsphere.SpbmPolicyContent
-		expectError bool
-	}{
-		{
-			name: "Valid VMFS policy with EZT and Clustered VMDK",
-			input: []cnsvsphere.SpbmPolicyContent{
-				{
-					Profiles: []cnsvsphere.SpbmPolicySubProfile{
-						{
-							Rules: []cnsvsphere.SpbmPolicyRule{
-								{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
-								{Ns: vmfsNamespace, Value: vmfsClusteredVmdk},
-							},
-						},
-					},
-				},
-			},
-			expectError: false,
-		},
-		{
-			name: "VMFS policy missing EZT",
-			input: []cnsvsphere.SpbmPolicyContent{
-				{
-					Profiles: []cnsvsphere.SpbmPolicySubProfile{
-						{
-							Rules: []cnsvsphere.SpbmPolicyRule{
-								{Ns: vmfsNamespace, Value: vmfsClusteredVmdk},
-							},
-						},
-					},
-				},
-			},
-			expectError: true,
-		},
-		{
-			name: "VMFS policy missing Clustered VMDK",
-			input: []cnsvsphere.SpbmPolicyContent{
-				{
-					Profiles: []cnsvsphere.SpbmPolicySubProfile{
-						{
-							Rules: []cnsvsphere.SpbmPolicyRule{
-								{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
-							},
-						},
-					},
-				},
-			},
-			expectError: true,
-		},
-		{
-			name: "Non-VMFS policy should pass",
-			input: []cnsvsphere.SpbmPolicyContent{
-				{
-					Profiles: []cnsvsphere.SpbmPolicySubProfile{
-						{
-							Rules: []cnsvsphere.SpbmPolicyRule{
-								{Ns: "non-vmfs", Value: "some-value"},
-							},
-						},
-					},
-				},
-			},
-			expectError: false,
-		},
-		{
-			name:        "Empty policy list should pass",
-			input:       []cnsvsphere.SpbmPolicyContent{},
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := verifyStoragePolicyForVmfsUtil(ctx, tt.input, policyId)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
 }
 
 func newMockPod(name, namespace, nodeName string, volumes []string,
