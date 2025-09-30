@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
 var _ = ginkgo.Describe("Transaction_Support_LC", func() {
@@ -63,6 +64,33 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 				ginkgo.AfterEach(func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
+
+					//Deleting snapshots
+					framework.Logf("In TestCleanUp Deleting snapshots.........")
+					var wg sync.WaitGroup
+					wg.Add(+volumeOpsScale)
+					for i := range volumeOpsScale {
+						framework.Logf("Deleting snapshot-%v", i+1)
+						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
+					}
+					wg.Wait()
+
+					for _, claim := range linkedClonePvcs {
+						err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+
+					ginkgo.By("Verify PVs, volumes are deleted from CNS")
+					for _, pv := range linkedClonePvs {
+						err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+							framework.PodDeleteTimeout)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						volumeID := pv.Spec.CSI.VolumeHandle
+						err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+							fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+								"kubernetes", volumeID))
+					}
 					testCleanUp(ctx, serviceNames)
 				})
 
@@ -100,8 +128,8 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	diskSize := constants.DiskSize10GB
-	diskSizeInMb := constants.DiskSize10GBInMb //TODO modify these values as per datastore
+	diskSize := constants.DiskSize5GB
+	diskSizeInMb := constants.DiskSize5GBInMb //TODO modify these values as per datastore
 
 	ginkgo.By(fmt.Sprintf("Invoking Test for Linked Clone volume when %v goes down", serviceNames))
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
@@ -176,13 +204,13 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
 	}
 
-	var pvclaimsCreatedFromSnapshot []*v1.PersistentVolumeClaim = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
+	linkedClonePvcs = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
 
 	wg.Add(len(serviceNames) + volumeOpsScale)
 
 	for i := range volumeOpsScale {
 		framework.Logf("Creating linked clone %v", i)
-		go createLinkedClone(ctx, client, storageclass, namespace, pvcSnapshots, pvclaimsCreatedFromSnapshot, i, diskSize, &wg)
+		go createLinkedClone(ctx, client, storageclass, namespace, pvcSnapshots, linkedClonePvcs, i, diskSize, &wg)
 	}
 
 	for _, serviceName := range serviceNames {
@@ -192,6 +220,27 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 
 	//After service restart
 	e2eTestConfig = bootstrap.Bootstrap()
+
+	// Validate PVC is bound
+	linkedClonePvs, err = fpv.WaitForPVClaimBoundPhase(ctx,
+		client, linkedClonePvcs, framework.ClaimProvisionTimeout)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for _, linkedClonePvc := range linkedClonePvcs {
+		// Validate label and annotation
+		framework.Logf("Verify linked-clone lable on the LC-PVC")
+		pvcLable := linkedClonePvc.Labels
+		framework.Logf("Found linked-clone label: %s", pvcLable)
+		gomega.Expect(pvcLable).To(gomega.HaveKeyWithValue("linked-clone", "true"))
+		framework.Logf("Verify linked-clone annotation on the LC-PVC")
+		annotationsMap := linkedClonePvc.Annotations
+		gomega.Expect(annotationsMap).To(gomega.HaveKeyWithValue(constants.LinkedCloneAnnotationKey, "true"))
+	}
+
+	for _, linkedClonePv := range linkedClonePvs {
+		volHandle := linkedClonePv.Spec.CSI.VolumeHandle
+		gomega.Expect(volHandle).NotTo(gomega.BeEmpty())
+	}
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")

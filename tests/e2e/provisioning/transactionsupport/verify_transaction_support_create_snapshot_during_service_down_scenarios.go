@@ -64,6 +64,14 @@ var _ = ginkgo.Describe("Transaction_Support_CreateSnapshot", func() {
 				ginkgo.AfterEach(func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
+					framework.Logf("In TestCleanUp Deleting snapshots.........")
+					var wg sync.WaitGroup
+					wg.Add(+volumeOpsScale)
+					for i := range volumeOpsScale {
+						framework.Logf("Deleting snapshot %v", i)
+						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
+					}
+					wg.Wait()
 					testCleanUp(ctx, serviceNames)
 				})
 
@@ -226,11 +234,4 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// isTestPassed = true
-
-	wg.Add(+volumeOpsScale)
-	for i := range volumeOpsScale {
-		framework.Logf("Deleting snapshot %v", i)
-		go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
-	}
-	wg.Wait()
 }

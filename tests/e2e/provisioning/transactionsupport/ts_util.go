@@ -78,6 +78,8 @@ var (
 	deployment                                                               *appsv1.Deployment
 	pvclaimsCreatedFromSnapshot                                              []*v1.PersistentVolumeClaim
 	pvsCreatedFromSnapshot                                                   []*v1.PersistentVolume
+	linkedClonePvs                                                           []*v1.PersistentVolume
+	linkedClonePvcs                                                          []*v1.PersistentVolumeClaim
 )
 
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
@@ -168,7 +170,7 @@ func createLinkedClone(ctx context.Context, client clientset.Interface, storagec
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
 	ginkgo.By("Create PVC from snapshot")
-	pvclaim, _ := k8testutil.CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
+	pvclaim, _ := k8testutil.CreateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
 	pvcsCreatedWithLinkedClone[index] = pvclaim
 }
 

@@ -8456,25 +8456,11 @@ func PvcUsability(ctx context.Context, e2eTestConfig *config.E2eTestConfig, clie
 	}
 }
 
-func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
+func CreateLinkedClone(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, volumeSnapshotName string, diskSize string) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume) {
 
 	// create linked clone PVC
 	pvclaim, err := createLinkedClonePvc(ctx, client, namespace, storageclass, volumeSnapshotName, diskSize)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
-
-	// Validate PVC is bound
-	pv, err := fpv.WaitForPVClaimBoundPhase(ctx,
-		client, []*corev1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Validate label and annotation
-	framework.Logf("Verify linked-clone lable on the LC-PVC")
-	pvcLable := pvclaim.Labels
-	framework.Logf("Found linked-clone label: %s", pvcLable)
-	gomega.Expect(pvcLable).To(gomega.HaveKeyWithValue("linked-clone", "true"))
-	framework.Logf("Verify linked-clone annotation on the LC-PVC")
-	annotationsMap := pvclaim.Annotations
-	gomega.Expect(annotationsMap).To(gomega.HaveKeyWithValue(constants.LinkedCloneAnnotationKey, "true"))
 
 	return pvclaim, pv
 }
