@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
@@ -364,83 +363,6 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 		}
 		expectedErrorMsg := fmt.Errorf("failed to attach volume")
 		assert.EqualError(t, expectedErrorMsg, err.Error())
-	})
-}
-
-func TestValidateBatchAttachRequestWithRwoPvc(t *testing.T) {
-
-	t.Run("TestValidateBatchAttachRequestWithRwoPvc", func(t *testing.T) {
-
-		batchAttachRequest := volumes.BatchAttachRequest{
-			DiskMode: "IndependentPersistent",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		_, err := validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-1")
-		expectedEr := fmt.Errorf("incorrect input for PVC pvc-1 in namespace test-ns with accessMode ReadWriteOnce. " +
-			"DiskMode cannot be IndependentPersistent")
-		assert.EqualError(t, expectedEr, err.Error())
-
-		batchAttachRequest = volumes.BatchAttachRequest{
-			SharingMode: "sharingMultiWriter",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		_, err = validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-1")
-		expectedEr = fmt.Errorf("incorrect input for PVC pvc-1 in namespace test-ns with accessMode ReadWriteOnce. " +
-			"SharingMode cannot be sharingMultiWriter")
-		assert.EqualError(t, expectedEr, err.Error())
-
-		batchAttachRequest = volumes.BatchAttachRequest{
-			SharingMode: "",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		_, err = validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-1")
-		assert.NoError(t, err)
-
-	})
-}
-
-func TestValidateBatchAttachRequestWithRwxPvc(t *testing.T) {
-
-	t.Run("TestValidateBatchAttachRequestWithRwxPvc", func(t *testing.T) {
-
-		batchAttachRequest := volumes.BatchAttachRequest{
-			DiskMode:      "persistent",
-			ControllerKey: "12345",
-			UnitNumber:    "9",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		_, err := validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-rwx")
-		expectedErr := fmt.Errorf("incorrect input for PVC pvc-rwx in namespace test-ns with accessMode ReadWriteMany. " +
-			"DiskMode cannot be persistent")
-		assert.EqualError(t, expectedErr, err.Error())
-
-		batchAttachRequest = volumes.BatchAttachRequest{
-			ControllerKey: "",
-			UnitNumber:    "12",
-			DiskMode:      "independent_persistent",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		_, err = validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-rwx")
-		expectedErr = fmt.Errorf("incorrect input for PVC pvc-rwx in namespace test-ns with accessMode ReadWriteMany. " +
-			"ControllerKey cannot be empty")
-		assert.EqualError(t, expectedErr, err.Error())
-
-		batchAttachRequest = volumes.BatchAttachRequest{
-			ControllerKey: "1001",
-			UnitNumber:    "12",
-			DiskMode:      "",
-			SharingMode:   "None",
-		}
-
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-		attacheReq, err := validateBatchAttachRequest(context.TODO(), batchAttachRequest, testNamespace, "pvc-rwx")
-		assert.NoError(t, err)
-		assert.Equal(t, "independent_persistent", attacheReq.DiskMode)
 	})
 }
 

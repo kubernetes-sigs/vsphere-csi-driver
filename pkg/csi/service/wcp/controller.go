@@ -516,16 +516,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			"failed to get vCenter from Manager. Error: %v", err)
 	}
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.SharedDiskFss) && isSharedRawBlockRequest(ctx, req.VolumeCapabilities) {
-		log.Infof("Volume request is for shared RWX volume. Validatig if policy is compatible for VMFS datastores.")
-		err := validateStoragePolicyForVmfs(ctx, vc, storagePolicyID)
-		if err != nil {
-			log.Errorf("failed validation for policy %s", storagePolicyID)
-			return nil, csifault.CSIInternalFault, err
-		}
-	}
-
 	// Fetch the accessibility requirements from the request.
 	topologyRequirement = req.GetAccessibilityRequirements()
 	filterSuspendedDatastores := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsMgrSuspendCreateVolume)
