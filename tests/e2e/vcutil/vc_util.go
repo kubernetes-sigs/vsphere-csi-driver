@@ -1297,14 +1297,17 @@ func GetVsanClusterResource(ctx context.Context,
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			for _, cluster = range clusterComputeResource {
-				if strings.Contains(strings.ToLower(cluster.Name()), "edge") || strings.Contains(strings.ToLower(cluster.Name()), "infra") {
-					continue
-				} else {
+				if cluster.Name() == env.GetAndExpectStringEnvVar(constants.EnvComputeClusterName) {
 					break
 				}
+				// if strings.Contains(strings.ToLower(cluster.Name()), "edge") || strings.Contains(strings.ToLower(cluster.Name()), "infra") {
+				// 	continue
+				// } else {
+				// 	break
+				// }
 			}
 
-			framework.Logf("Looking for cluster with the default datastore passed into test in DC: %s", dc)
+			framework.Logf("Looking for cluster %s with the default datastore passed into test in DC: %s", cluster.Name(), dc)
 			datastoreURL := env.GetAndExpectStringEnvVar(constants.EnvSharedDatastoreURL)
 			vs.TestInput.TestBedInfo.DefaultDatastore, err = GetDatastoreByURL(ctx, vs, datastoreURL, defaultDatacenter)
 			if err == nil {

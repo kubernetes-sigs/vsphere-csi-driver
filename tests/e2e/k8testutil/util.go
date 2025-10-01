@@ -8244,22 +8244,25 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 	fcdFolderPath = "'" + fcdFolderPath + "'"
 	findCmdWithDsName := fmt.Sprintf("find %s", fcdFolderPath)
 
-	findCmdVmdkList := fmt.Sprintf("%s -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* ", findCmdWithDsName)
+	findCmdVmdkList := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* ", findCmdWithDsName)
 	framework.Logf("Get vmdk List Command : %s", findCmdVmdkList)
 	vmdkListCommandOutput, _ := RunCommandOnHost(ctx, findCmdVmdkList, vs, host)
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk List Command Output: %s", vmdkListCommandOutput)
 
-	vmdkCountCommand := fmt.Sprintf("%s -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
+	vmdkCountCommand := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
 	framework.Logf("Get vmdk Count Command : %s", vmdkCountCommand)
 
 	commandOutput, err := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk Count Command Output: %s", commandOutput)
 
-	vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	if strings.Contains(commandOutput, "No such file or directory") {
+		vmdkCount = 0
+	} else {
+		vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 	return vmdkCount
 }
 
@@ -8270,7 +8273,7 @@ func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig
 	fcdFolderPath = "'" + fcdFolderPath + "'"
 	findCmdWithDsName := fmt.Sprintf("find %s", fcdFolderPath)
 
-	findCmdVmdkList := fmt.Sprintf("%s -name *sesparse* ", findCmdWithDsName)
+	findCmdVmdkList := fmt.Sprintf("%s -type f -name *sesparse* ", findCmdWithDsName)
 	framework.Logf("Get sesparse-vmdk List Command : %s", findCmdVmdkList)
 	vmdkListCommandOutput, _ := RunCommandOnHost(ctx, findCmdVmdkList, vs, host)
 	framework.Logf("Sesparse-Vmdk List Command Output: %s", vmdkListCommandOutput)
@@ -8282,9 +8285,12 @@ func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Sesparse-Vmdk Count Command Output: %s", commandOutput)
 
-	snapshotCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	if strings.Contains(commandOutput, "No such file or directory") {
+		snapshotCount = 0
+	} else {
+		snapshotCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 	return snapshotCount
 }
 
