@@ -35,6 +35,10 @@ const (
 	TaskInvocationStatusSuccess = "Success"
 	// TaskInvocationStatusPartiallyFailed represents a task thats status is PartiallyFailed.
 	TaskInvocationStatusPartiallyFailed = "PartiallyFailed"
+	// TaskInvocationStatusTrackingAborted represents a task thats status is TrackingAborted.
+	// This status appears when CSI Transaction Support is enabled and the task was never seen to
+	// completion or error, and a retry was initiated.
+	TaskInvocationStatusTrackingAborted = "TrackingAborted"
 )
 
 // VolumeOperationRequestDetails stores details about a single operation
