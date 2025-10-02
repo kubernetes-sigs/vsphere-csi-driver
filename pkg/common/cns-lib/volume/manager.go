@@ -2910,6 +2910,14 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		faultType := ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 	}
+	// Persist the volume operation details.
+	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+		// Don't return if CreateSnapshot details can't be stored.
+		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
+	}
 
 	var createSnapshotsTaskInfo *vim25types.TaskInfo
 	var faultType string
