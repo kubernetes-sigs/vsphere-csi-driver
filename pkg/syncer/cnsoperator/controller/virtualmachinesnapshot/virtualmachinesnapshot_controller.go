@@ -29,6 +29,7 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"go.uber.org/zap"
+	syncgroup "golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -292,7 +293,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		// if found fetch vmsnapshot and pvcs and pvs
 		vmKey := apitypes.NamespacedName{
 			Namespace: vmsnapshot.Namespace,
-			Name:      vmsnapshot.Spec.VMRef.Name,
+			Name:      vmsnapshot.Spec.VMName,
 		}
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
@@ -426,6 +427,7 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 	var err error
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
+	syncgrp, sgctx := syncgroup.WithContext(ctx)
 	for _, vmVolume := range vm.Spec.Volumes {
 		if vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim == nil {
 			continue
@@ -461,15 +463,10 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 						SyncMode: syncMode,
 					},
 				}
-				// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
-				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: Trigger CNS VolumeSync API for volume %s",
-					cnsVolId)
-				syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
-				if err != nil {
-					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume %s "+
-						"cnsfault %s. error: %v", cnsVolId, syncVolumeFaultType, err)
-					return err
-				}
+				// parallelize sync volume api calls
+				syncgrp.Go(func() error {
+					return r.invokeSyncVolume(sgctx, log, syncVolumeSpecs)
+				})
 			}
 		} else {
 			err = fmt.Errorf("could not find the PV associated with PVC %s/%s",
@@ -478,10 +475,19 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			return err
 		}
 	}
+	// if syncvolume api is not invoked for any volume, no need to update CNSVolumeInfos
 	if len(cnsVolumeIds) == 0 {
-		log.Infof("syncVolumesAndUpdateCNSVolumeInfo: no volumes found to sync, skipping volume sync")
+		log.Info("syncVolumesAndUpdateCNSVolumeInfo: no volumes found to sync, skipped volume sync")
 		return nil
 	}
+	log.Info("syncVolumesAndUpdateCNSVolumeInfo: wait for syncvolume operation to be completed")
+	if err := syncgrp.Wait(); err != nil {
+		log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume "+
+			"error: %v", err)
+		return err
+	}
+	log.Info("syncVolumesAndUpdateCNSVolumeInfo: volumes are synced successfully. " +
+		"will update related CNSVolumeInfos")
 	// fetch updated cns volumes
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: cnsVolumeIds,
@@ -500,7 +506,7 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 
 				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
 				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb,
-					cnsvolume.VolumeId.Id) // TODO: UDPATE to value returned
+					cnsvolume.VolumeId.Id)
 				if err != nil {
 					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to get cnsvolumeinfo patch for "+
 						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
@@ -528,4 +534,25 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 		}
 	}
 	return nil
+}
+
+func (r *ReconcileVirtualMachineSnapshot) invokeSyncVolume(ctx context.Context, log *zap.SugaredLogger,
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) error {
+	select {
+	case <-ctx.Done():
+		log.Infof("invokeSyncVolume: Sync Volume Operation cancelled for volume %s",
+			syncVolumeSpecs[0])
+		return ctx.Err()
+	default:
+		// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
+		log.Infof("invokeSyncVolume: Trigger CNS SyncVolume API for volume %s",
+			syncVolumeSpecs[0])
+		syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
+		if err != nil {
+			log.Errorf("invokeSyncVolume: error while sync volume %s "+
+				"cnsfault %s. error: %v", syncVolumeSpecs[0], syncVolumeFaultType, err)
+			return err
+		}
+		return nil
+	}
 }
