@@ -535,10 +535,6 @@ func getMaxWorkerThreadsToReconcileCnsVolumeMetadata(ctx context.Context) int {
 			if value <= 0 {
 				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s is "+
 					"less than 1, will use the default value %d", v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
-			} else if value > defaultMaxWorkerThreadsToProcessCnsVolumeMetadata {
-				log.Warnf("Maximum number of worker threads to run set in env variable WORKER_THREADS_VOLUME_METADATA %s "+
-					"is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata, defaultMaxWorkerThreadsToProcessCnsVolumeMetadata)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run is set to %d", workerThreads)

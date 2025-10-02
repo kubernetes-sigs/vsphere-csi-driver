@@ -406,7 +406,7 @@ func getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx context.Context) i
 		return workerThreads
 	}
 	switch {
-	case value <= 0 || value > defaultMaxWorkerThreadsForVirtualMachineSnapshot:
+	case value <= 0:
 		log.Warnf("Value %s for WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is invalid. Using default value %d",
 			envVal, defaultMaxWorkerThreadsForVirtualMachineSnapshot)
 	default:

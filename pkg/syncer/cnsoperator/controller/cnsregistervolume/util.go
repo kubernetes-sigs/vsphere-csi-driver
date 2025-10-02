@@ -403,10 +403,6 @@ func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
 				log.Warnf("Maximum number of worker threads to run set in env variable "+
 					"WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d",
 					v, defaultMaxWorkerThreadsForRegisterVolume)
-			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d",
