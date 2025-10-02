@@ -278,6 +278,9 @@ const (
 	lateBinding                              = "-latebinding"
 	cnsVolumeDeleteTimeout                   = 5 * time.Minute
 	vscDeleteTimeout                         = 5 * time.Minute
+	selectedNodeIsZone                       = "cns.vmware.com/selected-node-is-zone"
+	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
+	vmZoneLabel                              = "topology.kubernetes.io/zone"
 )
 
 /*
