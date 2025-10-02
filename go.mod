@@ -1,6 +1,7 @@
 module sigs.k8s.io/vsphere-csi-driver/v3
 
-go 1.25.0
+go 1.25.1
+
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
@@ -164,7 +165,7 @@ require (
 	golang.org/x/term v0.32.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
-	golang.org/x/tools v0.37.0 // indirect
+	gx/toolsolang.org/ v0.37.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect
