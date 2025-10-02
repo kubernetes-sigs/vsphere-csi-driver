@@ -827,9 +827,9 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			return nil, err
 		}
 	}
-	ch := make(chan TaskResult)
+	ch := make(chan TaskResult, 1)
 	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
-	if errors.Unwrap(err) == ErrListViewTaskAddition {
+	if errors.Is(err, ErrListViewTaskAddition) {
 		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
 	} else if err != nil {
 		// in case the task is not found in VC, we are returning a ManagedObjectNotFound error wrapped as a soap fault
