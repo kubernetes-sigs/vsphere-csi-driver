@@ -39,6 +39,10 @@ var (
 	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
 )
 
+const (
+	detachSuffix = ":detaching"
+)
+
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmbatchattachment instance.
 func removeFinalizerFromCRDInstance(ctx context.Context,
@@ -164,9 +168,34 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	}
 	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 
+	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+
 	// Ensure that there are no extra entries in instance status from a previous detach call.
 	removeStaleEntriesFromInstanceStatus(ctx, instance, pvcsToDetach, volumeNamesInSpec)
 	return pvcsToDetach, nil
+}
+
+// updatePvcStatusEntryName goes through each of the PVCs to detach and updates their
+// status to have the suffix ":detaching".
+// This is required to avoid the case where disk-1 was associated with pvc-1 and got attached.
+// disk-1 is then associated with pvc-2.
+// This means, PVC-1 should get detached and PVC-2 should get attached to the VM.
+// But they both have the same entry in the status which is wrong. By adding the suffix,
+// the volume name entry for the PVC getting detached becomes unique.
+func updatePvcStatusEntryName(ctx context.Context,
+	instance *v1alpha1.CnsNodeVmBatchAttachment, pvcsToDetach map[string]string) {
+	log := logger.GetLogger(ctx)
+
+	for i, volume := range instance.Status.VolumeStatus {
+		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
+			continue
+		}
+		newVolumeName := instance.Status.VolumeStatus[i].Name + detachSuffix
+		instance.Status.VolumeStatus[i].Name = newVolumeName
+		log.Infof("Updating status name entry to %s for detaching PVC %s",
+			newVolumeName,
+			volume.PersistentVolumeClaim.ClaimName)
+	}
 }
 
 // updateInstanceStatus updates the given nodevmbatchattachment instance's status.
