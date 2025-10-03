@@ -30,14 +30,12 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
-
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -47,9 +45,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
+	workerThreadEnvVar      = "WORKER_THREADS_UNREGISTER_VOLUME"
 	defaultMaxWorkerThreads = 10
 )
 
@@ -114,29 +115,22 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	c, err := controller.New("cnsunregistervolume-controller", mgr,
-		controller.Options{
-			Reconciler:              r,
-			MaxConcurrentReconciles: getMaxWorkerThreads(ctx),
-		})
+	err := ctrl.NewControllerManagedBy(mgr).Named("cnsunregistervolume-controller").
+		For(&v1a1.CnsUnregisterVolume{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxWorkerThreads},
+		).
+		Complete(r)
 	if err != nil {
-		log.Errorf("Failed to create new CnsUnregisterVolume controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
 
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
-
-	// Watch for changes to primary resource CnsUnregisterVolume.
-	err = c.Watch(source.Kind(
-		mgr.GetCache(),
-		&v1a1.CnsUnregisterVolume{},
-		&handler.TypedEnqueueRequestForObject[*v1a1.CnsUnregisterVolume]{},
-	))
-	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsUnregisterVolume resource with error: %+v", err)
-		return err
-	}
 	return nil
 }
 

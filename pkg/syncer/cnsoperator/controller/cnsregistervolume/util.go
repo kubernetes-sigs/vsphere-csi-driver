@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -387,39 +386,4 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 	}
 	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
-}
-
-// getMaxWorkerThreadsToReconcileCnsRegisterVolume returns the maximum number
-// of worker threads which can be run to reconcile CnsRegisterVolume instances.
-// If environment variable WORKER_THREADS_REGISTER_VOLUME is set and valid,
-// return the value read from environment variable. Otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForRegisterVolume
-	if v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume)
-			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d",
-					workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_REGISTER_VOLUME %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForRegisterVolume)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForRegisterVolume)
-	}
-	return workerThreads
 }
