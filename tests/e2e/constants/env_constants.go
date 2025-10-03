@@ -225,3 +225,9 @@ const (
 	EnvIsDevopsUser     = "IS_DEVOPS_USER"
 	EnvDevopsUserName   = "DEVOPS_USERNAME"
 )
+
+// For creating disk on target datastore
+var (
+	EnvStoragePolicy        = "STORAGE_POLICY_NAME"
+	EnvRestoreStoragePolicy = "RESTORE_STORAGE_POLICY"
+)
