@@ -502,7 +502,7 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			val, ok := cnsvolume.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 			if ok {
 				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: fetched aggregated capacity for volume %s "+
-					"AggregatedSnapshotCapacityInMb %s", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
+					"AggregatedSnapshotCapacityInMb %d", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
 
 				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
 				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb,
