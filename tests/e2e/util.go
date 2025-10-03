@@ -4027,7 +4027,7 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		}
 	}
 
-	describeCNSRegisterVolume(ctx, namespace, cnsRegisterVolumeName)
+	describeCNSRegisterVolume(ctx, svcNamespace, cnsRegisterVolumeName)
 
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
 }
