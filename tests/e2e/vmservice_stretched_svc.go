@@ -229,7 +229,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 	8. Validate TotalQuota, StoragePolicyQuota, storageQuotaUsage of VmserviceVm's and PVc's
 
 	*/
-	ginkgo.It("vmserviceVM-WFFC-BasicCase", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
+	ginkgo.It("vmserviceVM-WFFC-stretched-SVC-zonal", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -333,7 +333,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 	   Quota should have the appropriate quota consumption details
 	   Clean up all the above data
 	*/
-	ginkgo.It("MultiplePVC-AttachedTo-SingleVM-ImmediateAndWFFC", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
+	ginkgo.It("vmservcice-crosszonal-stretched-SVC", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -451,7 +451,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 	    15. Clean up all the  above data
 	*/
 
-	ginkgo.It("Attach-restored-WFFC-PVC-to-ExistingVMServiceVM", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
+	ginkgo.It("PVC-Policy-VmPolicy-are-notsame", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -593,7 +593,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		14. Verify reading/writing data in the volume.
 		15. Clean up all the  above data
 	*/
-	ginkgo.It("Attach-restoredPVC-UsingImmediateBindingStorageclass-to-ExistingVMServiceVM", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
+	ginkgo.It("stop-wcp-duringVMcreation", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -696,7 +696,7 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 	8. Validate TotalQuota, StoragePolicyQuota, storageQuotaUsage of VmserviceVm's and PVc's
 
 	*/
-	ginkgo.It("vmserviceVM-With-VolumesFrom-AllDifferentDatastore", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
+	ginkgo.It("Bring-down-CSI-replica-to-0-during-VM-creation", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -778,278 +778,6 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		//expected_pvcQuotaInMbStr = convertInt64ToStrMbFormat(diskSizeInMb)
 		// expected_vmQuotaStr = vmQuotaUsed
 		// expectedTotalStorage = append(expectedTotalStorage, expected_pvcQuotaInMbStr, expected_vmQuotaStr)
-
-	})
-
-	/**
-	1. Consider a namespace with limited Quota, Where VMshould come up But PVC should not reach bound state
-	2. Using WFFC storage class , create PVC it will be in pending state
-	3. Create VM - wait for Vm to reach power ON state
-	4. Now, For PVC to reach bound state , The quota is not sufficient  - Verify the behaviour
-	*/
-	ginkgo.It("vmserviceVM-InsuffecientQuota", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		vmopScheme := runtime.NewScheme()
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		vmopC, err := ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, "3Gi")
-
-		cnsOpScheme := runtime.NewScheme()
-		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
-
-		ginkgo.By("Get WFFC stotage class")
-		wffcStorageclass, err := client.StorageV1().StorageClasses().Get(ctx, wffsStoragePolicyName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("wffsStoragePolicyName: %s wffcStorageclass: %s", wffsStoragePolicyName, wffcStorageclass)
-
-		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", wffcStorageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// ginkgo.By("Wait for VM images to get listed under namespace and create VM")
-		// err = pollWaitForVMImageToSync(ctx, namespace, vmImageName, poll, supervisorClusterOperationsTimeout)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Creating VM bootstrap data")
-		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-
-		vols := []vmopv1.VirtualMachineVolume{}
-
-		vols = append(vols, vmopv1.VirtualMachineVolume{
-			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
-			},
-		})
-
-		ginkgo.By("Create vm service vm")
-		vm1 := vmopv1.VirtualMachine{
-			ObjectMeta: metav1.ObjectMeta{Name: "vm1", Namespace: namespace},
-			Spec: vmopv1.VirtualMachineSpec{
-				PowerState:   vmopv1.VirtualMachinePoweredOn,
-				ImageName:    vmi,
-				ClassName:    vmClass,
-				StorageClass: wffsStoragePolicyName,
-				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
-			},
-		}
-		err = vmopC.Create(ctx, &vm1)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// vm1 := createVmServiceVmWithPvcs(
-		// 	ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, wffsStoragePolicyName, secretName)
-
-		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
-
-	})
-
-	/**
-	1. Consider a namespace with limited Quota, Where VMshould come up But PVC should not reach bound state
-	2. Using WFFC storage class , create PVC it will be in pending state
-	3. Create VM - wait for Vm to reach power ON state
-	4. Now, For PVC to reach bound state , The quota is not sufficient  - Verify the behaviour
-	*/
-	ginkgo.It("reuse-pvc-attched-to-vm-and-create-pod", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		vmopScheme := runtime.NewScheme()
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		vmopC, err := ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, "3Gi")
-
-		cnsOpScheme := runtime.NewScheme()
-		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
-
-		ginkgo.By("Get WFFC stotage class")
-		wffcStorageclass, err := client.StorageV1().StorageClasses().Get(ctx, wffsStoragePolicyName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("wffsStoragePolicyName: %s wffcStorageclass: %s", wffsStoragePolicyName, wffcStorageclass)
-
-		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", wffcStorageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// ginkgo.By("Wait for VM images to get listed under namespace and create VM")
-		// err = pollWaitForVMImageToSync(ctx, namespace, vmImageName, poll, supervisorClusterOperationsTimeout)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Creating VM bootstrap data")
-		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-
-		vols := []vmopv1.VirtualMachineVolume{}
-
-		vols = append(vols, vmopv1.VirtualMachineVolume{
-			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
-			},
-		})
-
-		ginkgo.By("Create vm service vm")
-		vm1 := vmopv1.VirtualMachine{
-			ObjectMeta: metav1.ObjectMeta{Name: "vm1", Namespace: namespace},
-			Spec: vmopv1.VirtualMachineSpec{
-				PowerState:   vmopv1.VirtualMachinePoweredOn,
-				ImageName:    vmi,
-				ClassName:    vmClass,
-				StorageClass: wffsStoragePolicyName,
-				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
-			},
-		}
-		err = vmopC.Create(ctx, &vm1)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// vm1 := createVmServiceVmWithPvcs(
-		// 	ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, wffsStoragePolicyName, secretName)
-
-		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
-
-	})
-
-	/**
-	1. Consider a namespace with limited Quota, Where VMshould come up But PVC should not reach bound state
-	2. Using WFFC storage class , create PVC it will be in pending state
-	3. Create VM - wait for Vm to reach power ON state
-	4. Now, For PVC to reach bound state , The quota is not sufficient  - Verify the behaviour
-	*/
-	ginkgo.It("Reuse-PVC-attachedToPod-to-create-VMserviceVM", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		vmopScheme := runtime.NewScheme()
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		vmopC, err := ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, "3Gi")
-
-		cnsOpScheme := runtime.NewScheme()
-		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
-
-		ginkgo.By("Get WFFC stotage class")
-		wffcStorageclass, err := client.StorageV1().StorageClasses().Get(ctx, wffsStoragePolicyName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("wffsStoragePolicyName: %s wffcStorageclass: %s", wffsStoragePolicyName, wffcStorageclass)
-
-		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", wffcStorageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// ginkgo.By("Wait for VM images to get listed under namespace and create VM")
-		// err = pollWaitForVMImageToSync(ctx, namespace, vmImageName, poll, supervisorClusterOperationsTimeout)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Creating VM bootstrap data")
-		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-
-		vols := []vmopv1.VirtualMachineVolume{}
-
-		vols = append(vols, vmopv1.VirtualMachineVolume{
-			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
-			},
-		})
-
-		ginkgo.By("Create vm service vm")
-		vm1 := vmopv1.VirtualMachine{
-			ObjectMeta: metav1.ObjectMeta{Name: "vm1", Namespace: namespace},
-			Spec: vmopv1.VirtualMachineSpec{
-				PowerState:   vmopv1.VirtualMachinePoweredOn,
-				ImageName:    vmi,
-				ClassName:    vmClass,
-				StorageClass: wffsStoragePolicyName,
-				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
-			},
-		}
-		err = vmopC.Create(ctx, &vm1)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// vm1 := createVmServiceVmWithPvcs(
-		// 	ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, wffsStoragePolicyName, secretName)
-
-		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
-
-	})
-
-	/**
-	1. Consider a namespace with limited Quota, Where VMshould come up But PVC should not reach bound state
-	2. Using WFFC storage class , create PVC it will be in pending state
-	3. Create VM - wait for Vm to reach power ON state
-	4. Now, For PVC to reach bound state , The quota is not sufficient  - Verify the behaviour
-	*/
-	ginkgo.It("Reuse-PVC-attachedToPod-to-create-VMserviceVM", ginkgo.Label(p0, block, wcp, vmsvc, vc901), func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		vmopScheme := runtime.NewScheme()
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		vmopC, err := ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, "3Gi")
-
-		cnsOpScheme := runtime.NewScheme()
-		gomega.Expect(cnsop.AddToScheme(cnsOpScheme)).Should(gomega.Succeed())
-
-		ginkgo.By("Get WFFC stotage class")
-		wffcStorageclass, err := client.StorageV1().StorageClasses().Get(ctx, wffsStoragePolicyName, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("wffsStoragePolicyName: %s wffcStorageclass: %s", wffsStoragePolicyName, wffcStorageclass)
-
-		ginkgo.By("Create a PVC")
-		pvc, err := createPVC(ctx, client, namespace, nil, "", wffcStorageclass, "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		// ginkgo.By("Wait for VM images to get listed under namespace and create VM")
-		// err = pollWaitForVMImageToSync(ctx, namespace, vmImageName, poll, supervisorClusterOperationsTimeout)
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By("Creating VM bootstrap data")
-		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
-
-		vols := []vmopv1.VirtualMachineVolume{}
-
-		vols = append(vols, vmopv1.VirtualMachineVolume{
-			Name: pvc.Name,
-			PersistentVolumeClaim: &vmopv1.PersistentVolumeClaimVolumeSource{
-				PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{ClaimName: pvc.Name},
-			},
-		})
-
-		ginkgo.By("Create vm service vm")
-		vm1 := vmopv1.VirtualMachine{
-			ObjectMeta: metav1.ObjectMeta{Name: "vm1", Namespace: namespace},
-			Spec: vmopv1.VirtualMachineSpec{
-				PowerState:   vmopv1.VirtualMachinePoweredOn,
-				ImageName:    vmi,
-				ClassName:    vmClass,
-				StorageClass: wffsStoragePolicyName,
-				Volumes:      vols,
-				VmMetadata:   &vmopv1.VirtualMachineMetadata{Transport: cloudInitLabel, SecretName: secretName},
-			},
-		}
-		err = vmopC.Create(ctx, &vm1)
-		gomega.Expect(err).To(gomega.HaveOccurred())
-
-		// gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		// vm1 := createVmServiceVmWithPvcs(
-		// 	ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi, wffsStoragePolicyName, secretName)
-
-		ginkgo.By("Creating loadbalancing service for ssh with the VM")
-		_ = createService4Vm(ctx, vmopC, namespace, vm1.Name)
 
 	})
 
