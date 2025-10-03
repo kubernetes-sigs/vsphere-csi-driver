@@ -216,6 +216,7 @@ const (
 	EnvAccessMode                              = "ACCESS_MODE"
 	EnvVpToCsi                                 = "VCPTOCSI"
 	EnvVsphereTKGSystemNamespace               = "VSPHERE_TKG_SYSTEM_NAMESPACE"
+	EnvDatastoreType                           = "DATASTORE_TYPE"
 )
 
 // for devops persona testing
