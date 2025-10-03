@@ -23,6 +23,7 @@ const (
 	DiskSize1GB             = "1Gi"
 	DiskSize                = "2Gi"
 	DiskSizeLarge           = "100Gi"
+	DiskSize10GB            = "10Gi"
 	DiskSizeInMb            = int64(2048)
 	DiskSizeInMinMb         = int64(200)
 	E2eTestPassword         = "E2E-test-password!23"
