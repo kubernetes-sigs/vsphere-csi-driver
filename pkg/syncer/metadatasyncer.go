@@ -479,13 +479,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 						cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
 					os.Exit(1)
 				}
-				// start periodic sync for storage quota
-				err := initStorageQuotaPeriodicSync(ctx, metadataSyncer)
-				if err != nil {
-					log.Errorf("initStorageQuotaPeriodicSync: Failed to initialize the storagequota "+
-						"periodic sync, with error Error: %v", err)
-					os.Exit(1)
-				}
 			}
 		}
 
@@ -871,6 +864,16 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					break
 				}
 			}()
+			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
+			if isStorageQuotaM2Enabled {
+				// start periodic sync for storage quota
+				err := initStorageQuotaPeriodicSync(ctx, metadataSyncer)
+				if err != nil {
+					log.Errorf("initStorageQuotaPeriodicSync: Failed to initialize the storagequota "+
+						"periodic sync, with error Error: %v", err)
+					os.Exit(1)
+				}
+			}
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
