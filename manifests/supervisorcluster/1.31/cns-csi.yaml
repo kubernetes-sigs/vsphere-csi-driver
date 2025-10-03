@@ -404,7 +404,7 @@ spec:
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
           args:
-            - "--enable-profile-server=false"
+            - "--enable-profile-server=true"
           ports:
             - containerPort: 2112
               name: prometheus
@@ -476,7 +476,7 @@ spec:
             - "--leader-election-retry-period=30s"
             - "--storagequota-sync-interval=10m"
             - "--webhook-client-cert-verification"
-            - "--enable-profile-server=false"
+            - "--enable-profile-server=true"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
