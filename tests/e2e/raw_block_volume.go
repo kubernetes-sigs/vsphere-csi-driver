@@ -739,6 +739,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
+		diskSize := resource.MustParse(diskSize4GB)
+		pvcspec.Spec.Resources.Requests[corev1.ResourceStorage] = diskSize
+
 		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 
