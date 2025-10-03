@@ -883,10 +883,6 @@ func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int 
 				log.Warnf("Maximum number of worker threads to run set in env variable "+
 					"WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d",
 					v, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else if value > defaultMaxWorkerThreadsForNodeVMAttach {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVMAttach, defaultMaxWorkerThreadsForNodeVMAttach)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment "+

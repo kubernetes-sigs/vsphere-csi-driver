@@ -61,7 +61,7 @@ func getMaxWorkerThreads(ctx context.Context) int {
 	}
 
 	switch {
-	case val <= 0 || val > defaultMaxWorkerThreads:
+	case val <= 0:
 		log.Warnf("Value %d for WORKER_THREADS_UNREGISTER_VOLUME is invalid. Using default value %d",
 			val, defaultMaxWorkerThreads)
 	default:

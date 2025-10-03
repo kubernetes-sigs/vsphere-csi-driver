@@ -192,7 +192,7 @@ func getMaxWorkerThreads(ctx context.Context) int {
 	}
 
 	switch {
-	case value <= 0 || value > defaultMaxWorkerThreads:
+	case value <= 0:
 		log.Warnf("Value %s for WORKER_THREADS_NODEVM_BATCH_ATTACH is invalid. Using default value %d",
 			envVal, defaultMaxWorkerThreads)
 	default:

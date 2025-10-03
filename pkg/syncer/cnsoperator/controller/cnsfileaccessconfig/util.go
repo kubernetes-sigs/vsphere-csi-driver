@@ -85,10 +85,6 @@ func getMaxWorkerThreadsToReconcileCnsFileAccessConfig(ctx context.Context) int 
 				log.Warnf("Maximum number of worker threads to run set in env variable "+
 					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is less than 1, will use the default value %d",
 					v, defaultMaxWorkerThreadsForFileAccessConfig)
-			} else if value > defaultMaxWorkerThreadsForFileAccessConfig {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForFileAccessConfig, defaultMaxWorkerThreadsForFileAccessConfig)
 			} else {
 				workerThreads = value
 				log.Debugf("Maximum number of worker threads to run to reconcile "+
