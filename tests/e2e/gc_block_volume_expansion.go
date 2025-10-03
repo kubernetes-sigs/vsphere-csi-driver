@@ -631,8 +631,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 6. Verify size of PVs in SVC and GC are 5Gi.
 	// 7. delete the PVC created in step 2.
 	// 8. delete SC created in step 1.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Verify pvc expanded concurrently with different sizes "+
-		"expands to largest size", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Verify pvc expanded concurrently with "+
+		"different sizes expands to largest size", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("Expanding current pvc")
@@ -1586,8 +1586,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 
 			_ = e2ekubectl.RunKubectlOrDie(namespace, cmdTestData...)
 		} else {
-			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp", testdataFile,
-				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name))
+			_ = e2ekubectl.RunKubectlOrDie(namespace, "cp",
+				fmt.Sprintf("%v/%v:/mnt/volume1/testdata", namespace, pod.Name), testdataFile+"_pod")
 		}
 
 		onlineVolumeResizeCheck(f, client, namespace, svcPVCName, volHandle, pvclaim, pod)
@@ -1663,8 +1663,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 4. Check using CNS query that size of the volume is 10Gi.
 	// 5. Verify size of PVs in SVC and GC are 10Gi.
 	// 6. delete the PVC, pod and SC.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2]Verify online volume resize on pvc expanded concurrently with different "+
-		"sizes", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f]Verify online volume resize on pvc expanded concurrently "+
+		"with different sizes", ginkgo.Label(p1, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -1901,8 +1901,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 9. Trigger online volume expansion on gc-pvc and make sure volume
 	//    expansion is successful.
 	// 10. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Online volume resize on statically created PVC on guest "+
-		"cluster svcPVC=gcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Online volume resize on statically created PVC "+
+		"on guest cluster svcPVC=gcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
