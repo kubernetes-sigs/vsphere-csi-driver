@@ -55,7 +55,7 @@ const (
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
 // state.
-func getPVsInBoundAvailableOrReleased(ctx context.Context,
+var getPVsInBoundAvailableOrReleased = func(ctx context.Context,
 	metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	var pvsInDesiredState []*v1.PersistentVolume
@@ -429,6 +429,16 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	log.Debugf("Getting VC from in-memory map for volume %s", volumeID)
 
+	// For WORKLOAD cluster type, return the single volumeManager since
+	// volumeManagers map is not populated
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if metadataSyncer.volumeManager == nil {
+			return "", nil, logger.LogNewErrorf(log,
+				"volume manager not initialized for WORKLOAD cluster")
+		}
+		return metadataSyncer.host, metadataSyncer.volumeManager, nil
+	}
+
 	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
 		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
 		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
@@ -530,6 +540,17 @@ func getVolManagerForVcHost(ctx context.Context, vc string,
 	metadataSyncer *metadataSyncInformer) (volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
+	// For WORKLOAD cluster type, return the single volumeManager since
+	// volumeManagers map is not populated
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if metadataSyncer.volumeManager == nil {
+			return nil, logger.LogNewErrorf(log,
+				"volume manager not initialized for WORKLOAD cluster")
+		}
+		return metadataSyncer.volumeManager, nil
+	}
+
+	// For other cluster types (Vanilla, Guest), use the volumeManagers map
 	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vc]
 	if !volMgrFound {
 		return nil, logger.LogNewErrorf(log,
@@ -940,10 +961,6 @@ func hasClusterDistributionSet(ctx context.Context, volume cnstypes.CnsVolume,
 func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
 	[]map[string]string, error) {
 	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
-	if volumeAccessibleTopology == "" {
-		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
-			common.AnnVolumeAccessibleTopology, claim.Name, claim.Namespace)
-	}
 	volumeAccessibleTopologyArray := make([]map[string]string, 0)
 	err := json.Unmarshal([]byte(volumeAccessibleTopology), &volumeAccessibleTopologyArray)
 	if err != nil {

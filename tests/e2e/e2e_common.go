@@ -63,6 +63,7 @@ const (
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize1GB                                = "1Gi"
 	diskSize                                   = "2Gi"
+	diskSize4GB                                = "4Gi"
 	diskSizeSmall                              = "100Mi"
 	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)

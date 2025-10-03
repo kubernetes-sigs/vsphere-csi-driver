@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -29,9 +30,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 
+	apitypes "k8s.io/apimachinery/pkg/types"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -40,8 +44,8 @@ const (
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
 	devopsUserLabelKey               = "cns.vmware.com/user-created"
-	vmNameLabelKey                   = "cns.vmware.com/vm-name"
-	pvcNameLabelKey                  = "cns.vmware.com/pvc-name"
+	vmUIDLabelKey                    = "cns.vmware.com/vm-uid"
+	pvcUIDLabelKey                   = "cns.vmware.com/pvc-uid"
 )
 
 var (
@@ -248,6 +252,71 @@ func (h *CSISupervisorMutationWebhook) Handle(ctx context.Context, req admission
 	return admission.Allowed("")
 }
 
+// getVmUID returns the VM UID for the given VM
+func getVmUID(ctx context.Context,
+	vmName string, namespace string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to initialize rest clientconfig. Error: %s", err)
+		return "", err
+	}
+
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	if err != nil {
+		log.Error("failed to initialize vmOperatorClient. Error: %s", err)
+		return "", err
+	}
+
+	vm, _, err := getVirtualMachine(ctx, vmOperatorClient, vmName, namespace)
+	if err != nil {
+		log.Error("failed to get virtualmachine. Error: %s", err)
+		return "", err
+	}
+
+	log.Infof("Found UID %s for VM %s", string(vm.ObjectMeta.UID), vm.Name)
+	return string(vm.ObjectMeta.UID), nil
+}
+
+// getVirtualMachine returns the VM object for the given vmName and namespace.
+func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
+	vmName string, namespace string) (*vmoperatortypes.VirtualMachine, string, error) {
+	log := logger.GetLogger(ctx)
+	vmKey := apitypes.NamespacedName{
+		Namespace: namespace,
+		Name:      vmName,
+	}
+	virtualMachine, apiVersion, err := utils.GetVirtualMachineAllApiVersions(ctx,
+		vmKey, vmOperatorClient)
+	if err != nil {
+		log.Error("failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
+		return nil, apiVersion, err
+	}
+	return virtualMachine, apiVersion, nil
+}
+
+// getPVCUID retrieves the UID of a PersistentVolumeClaim by name and namespace.
+func getPVCUID(ctx context.Context, pvcName, namespace string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("failed to create k8s client. Errror: %s", err)
+		return "", err
+	}
+
+	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName,
+		v1.GetOptions{})
+	if err != nil {
+		log.Errorf("failed to obtain PVC %s. Errror: %s", pvcName, err)
+		return "", err
+	}
+
+	log.Infof("Found UID %s for PVC %s", string(pvc.UID), pvcName)
+	return string(pvc.UID), nil
+}
+
 // mutateNewCnsFileAccessConfig adds devops label on a CnsFileAccessConfig CR
 // if it is being created by a devops user.
 func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.Context,
@@ -275,12 +344,26 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 		newCnsFileAccessConfig.Labels = make(map[string]string)
 	}
 
+	// Obtain VM's UID
+	vmUID, err := getVmUID(ctx, newCnsFileAccessConfig.Spec.VMName, newCnsFileAccessConfig.Namespace)
+	if err != nil {
+		log.Errorf("faield to get VM UID for VM %s. Err: %s", newCnsFileAccessConfig.Spec.VMName, err)
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	// Obtain PVC's UID
+	pvcUID, err := getPVCUID(ctx, newCnsFileAccessConfig.Spec.PvcName, newCnsFileAccessConfig.Namespace)
+	if err != nil {
+		log.Errorf("faield to get PVC UID for PVC %s. Err: %s", newCnsFileAccessConfig.Spec.PvcName, err)
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
 	// Add VM name and PVC name label.
 	// If someone created this CR with these labels already present, CSI will overrite on them
 	// with the correct values.
 	newCnsFileAccessConfig.Labels[devopsUserLabelKey] = "true"
-	newCnsFileAccessConfig.Labels[vmNameLabelKey] = newCnsFileAccessConfig.Spec.VMName
-	newCnsFileAccessConfig.Labels[pvcNameLabelKey] = newCnsFileAccessConfig.Spec.PvcName
+	newCnsFileAccessConfig.Labels[vmUIDLabelKey] = vmUID
+	newCnsFileAccessConfig.Labels[pvcUIDLabelKey] = pvcUID
 
 	newRawCnsFileAccessConfig, err := json.Marshal(newCnsFileAccessConfig)
 	if err != nil {

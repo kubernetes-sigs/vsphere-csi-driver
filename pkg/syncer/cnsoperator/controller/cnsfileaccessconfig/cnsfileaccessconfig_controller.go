@@ -62,10 +62,7 @@ import (
 
 const (
 	defaultMaxWorkerThreadsForFileAccessConfig = 10
-	vmNameLabelKey                             = "cns.vmware.com/vm-name"
-	pvcNameLabelKey                            = "cns.vmware.com/pvc-name"
 	capvVmLabelKey                             = "capv.vmware.com"
-	capvPvcLabelKey                            = "TKGService"
 	devopsUserLabelKey                         = "cns.vmware.com/user-created"
 )
 
@@ -822,12 +819,10 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 }
 
 // validateVmAndPvc validates if the VM and PVC combination given in the instance is correct or not.
-// CnsFileAccessConfig CRs created by devpos users will have "cns.vmware.com/user-created", "cns.vmware.com/vm-name"
-// and "cns.vmware.com/pvc-name" labels.
-// When these labels are present, the PVC and VM must not belong to TKG cluster.
+// CnsFileAccessConfig CRs created by devpos users will have "cns.vmware.com/user-created" label.
+// When this labels are present, the VM must not belong to TKG cluster.
 // This is verified by ensuring that:
 // The VM does not have a label applied by CAPV - example capv.vmware.com/cluster.name.
-// The PVC does not have a label applied by CAPV - example <TKG cluster namespace>/TKGService
 func validateVmAndPvc(ctx context.Context, instanceLabels map[string]string, instanceName string, pvcName string,
 	namespace string, client client.Client, vm *vmoperatortypes.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
@@ -854,23 +849,6 @@ func validateVmAndPvc(ctx context.Context, instanceLabels map[string]string, ins
 		if strings.Contains(key, capvVmLabelKey) {
 			msg := fmt.Sprintf("CnsFileAccessConfig is created by devops user and has TKG VM %s. "+
 				"Invalid combination.", vm.Name)
-			log.Errorf(msg)
-			err := errors.New(msg)
-			return err
-		}
-	}
-
-	pvc := &v1.PersistentVolumeClaim{}
-	err := client.Get(ctx, types.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
-	if err != nil {
-		log.Errorf("failed to get PVC with name %s in namespace %s", pvcName, namespace)
-		return err
-	}
-
-	for key := range pvc.Labels {
-		if strings.Contains(key, capvPvcLabelKey) {
-			msg := fmt.Sprintf("CnsFileAccessConfig is created by devops user and has "+
-				"TKG PVC %s. Invalid combination.", pvcName)
 			log.Errorf(msg)
 			err := errors.New(msg)
 			return err

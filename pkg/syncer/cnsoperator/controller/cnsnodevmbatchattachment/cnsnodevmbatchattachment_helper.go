@@ -23,7 +23,6 @@ import (
 	"slices"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
-	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -38,6 +37,10 @@ import (
 
 var (
 	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
+)
+
+const (
+	detachSuffix = ":detaching"
 )
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
@@ -165,9 +168,34 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	}
 	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 
+	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+
 	// Ensure that there are no extra entries in instance status from a previous detach call.
 	removeStaleEntriesFromInstanceStatus(ctx, instance, pvcsToDetach, volumeNamesInSpec)
 	return pvcsToDetach, nil
+}
+
+// updatePvcStatusEntryName goes through each of the PVCs to detach and updates their
+// status to have the suffix ":detaching".
+// This is required to avoid the case where disk-1 was associated with pvc-1 and got attached.
+// disk-1 is then associated with pvc-2.
+// This means, PVC-1 should get detached and PVC-2 should get attached to the VM.
+// But they both have the same entry in the status which is wrong. By adding the suffix,
+// the volume name entry for the PVC getting detached becomes unique.
+func updatePvcStatusEntryName(ctx context.Context,
+	instance *v1alpha1.CnsNodeVmBatchAttachment, pvcsToDetach map[string]string) {
+	log := logger.GetLogger(ctx)
+
+	for i, volume := range instance.Status.VolumeStatus {
+		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
+			continue
+		}
+		newVolumeName := instance.Status.VolumeStatus[i].Name + detachSuffix
+		instance.Status.VolumeStatus[i].Name = newVolumeName
+		log.Infof("Updating status name entry to %s for detaching PVC %s",
+			newVolumeName,
+			volume.PersistentVolumeClaim.ClaimName)
+	}
 }
 
 // updateInstanceStatus updates the given nodevmbatchattachment instance's status.
@@ -361,80 +389,9 @@ func constructBatchAttachRequest(ctx context.Context,
 			ControllerKey: volume.PersistentVolumeClaim.ControllerKey,
 			UnitNumber:    volume.PersistentVolumeClaim.UnitNumber,
 		}
-		// Validate each attach request before proceeding.
-		updateBatchAttachRequest, err := validateBatchAttachRequest(ctx,
-			currentBatchAttachRequest, instance.Namespace, pvcName)
-		if err != nil {
-			log.Errorf("failed to validate attach request for PVC %s in namespace %s. Err: %s",
-				pvcName, instance.Namespace, err)
-			return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err
-		}
-		batchAttachRequest = append(batchAttachRequest, updateBatchAttachRequest)
+		batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)
 	}
 	return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, nil
-}
-
-// validateBatchAttachRequest ensures that the right combination for the input request.
-// This is the validation criteria:
-// RWX accessMode -> ControllerKey and UnitNumber are required, DiskMode must be IndependentPersistent.
-// RWO accessMode -> DiskMode must not be IndependentPersistent, SharingMode must not be SharingMultiWriter.
-func validateBatchAttachRequest(ctx context.Context,
-	batchAttachRequest volumes.BatchAttachRequest, namespace string, pvcName string) (volumes.BatchAttachRequest, error) {
-	log := logger.GetLogger(ctx)
-
-	log.Infof("Verifying if PVC %s has correct input parameters for batch attach", pvcName)
-
-	// Get PVC object from informer cache
-	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
-	if err != nil {
-		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
-		return batchAttachRequest, err
-	}
-
-	for _, accessMode := range pvc.Spec.AccessModes {
-		// RWX accessMode -> ControllerKey and UnitNumber are required, DiskMode must be IndependentPersistent.
-		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
-			if batchAttachRequest.DiskMode == "" {
-				batchAttachRequest.DiskMode = string(v1alpha1.IndependentPersistent)
-			}
-			if batchAttachRequest.DiskMode != string(v1alpha1.IndependentPersistent) {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					"DiskMode cannot be %s", pvcName, namespace, accessMode, batchAttachRequest.DiskMode)
-			}
-			if batchAttachRequest.ControllerKey == "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					"ControllerKey cannot be empty", pvcName, namespace, accessMode)
-			}
-			if batchAttachRequest.UnitNumber == "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					" UnitNumber cannot be empty", pvcName, namespace, accessMode)
-			}
-			if batchAttachRequest.SharingMode == "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					" SharingMode cannot be empty", pvcName, namespace, accessMode)
-			}
-		}
-
-		// RWO accessMode -> DiskMode, SharingMode and ControllerNumber and Unit Number must be empty.
-		if accessMode == v1.ReadWriteOnce {
-			if batchAttachRequest.DiskMode != "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					"DiskMode cannot be %s", pvcName, namespace, accessMode, batchAttachRequest.DiskMode)
-			}
-			if batchAttachRequest.SharingMode != "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					"SharingMode cannot be %s", pvcName, namespace, accessMode, batchAttachRequest.SharingMode)
-			}
-			if batchAttachRequest.ControllerKey != "" || batchAttachRequest.UnitNumber != "" {
-				return batchAttachRequest, fmt.Errorf("incorrect input for PVC %s in namespace %s with accessMode %s. "+
-					"ControllerNumber and UnitNumber must not be provided with RWO accessMode", pvcName, namespace, accessMode)
-			}
-		}
-	}
-
-	log.Infof("Validated request for PVC %s in namespace %s", pvcName, namespace)
-
-	return batchAttachRequest, nil
 }
 
 // getVmObject find the VM object on vCenter.

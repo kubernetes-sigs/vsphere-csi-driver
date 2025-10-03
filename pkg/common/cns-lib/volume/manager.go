@@ -827,9 +827,9 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			return nil, err
 		}
 	}
-	ch := make(chan TaskResult)
+	ch := make(chan TaskResult, 1)
 	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
-	if errors.Unwrap(err) == ErrListViewTaskAddition {
+	if errors.Is(err, ErrListViewTaskAddition) {
 		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
 	} else if err != nil {
 		// in case the task is not found in VC, we are returning a ManagedObjectNotFound error wrapped as a soap fault
@@ -1119,7 +1119,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		}
 
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
-		if volumeOperationRes.Fault != nil {
+		if volumeOperationRes.Fault != nil && volumeOperationRes.Fault.Fault != nil {
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
 			_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 			if isResourceInUseFault {
@@ -1133,6 +1133,37 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 					return diskUUID, "", nil
 				}
 			}
+
+			// Check if this is a CnsFault with NotSupported fault cause
+			if cnsFault, isCnsFault := volumeOperationRes.Fault.Fault.(*cnstypes.CnsFault); isCnsFault {
+				if cnsFault.FaultCause != nil {
+					notSupportedFault, isNotSupportedFault := cnsFault.FaultCause.Fault.(*vim25types.NotSupported)
+					if isNotSupportedFault {
+						log.Infof("observed CnsFault with NotSupported fault cause while attaching volume: %q with vm: %q",
+							volumeID, vm.String())
+
+						// Extract the specific error message from NotSupported fault's FaultMessage array
+						var errorMessages []string
+						for _, faultMsg := range notSupportedFault.FaultMessage {
+							if faultMsg.Message != "" {
+								errorMessages = append(errorMessages, faultMsg.Message)
+							}
+						}
+
+						if len(errorMessages) > 0 {
+							extractedMessage := strings.Join(errorMessages, " - ")
+							log.Infof("NotSupported fault extracted message: %s", extractedMessage)
+							return "", faultType, logger.LogNewErrorf(log,
+								"%q Failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+								extractedMessage, volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+						}
+
+						// Fallback to detailed dump for debugging
+						log.Debugf("NotSupported fault details: %+v", spew.Sdump(cnsFault.FaultCause))
+					}
+				}
+			}
+
 			return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
 				volumeID, vm.String(), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
@@ -2795,13 +2826,13 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 // This function ensures that no orphaned snapshots are left behind on the vSphere backend
 // in case of failures during the snapshot creation process
 func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volumeID string,
-	snapshotID string, extraParams interface{}) (*CnsSnapshotInfo, string, error) {
+	snapshotName string, extraParams interface{}) (*CnsSnapshotInfo, string, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		// Reference to the CreateSnapshot task on CNS.
 		createSnapshotsTask *object.Task
 		// Name of the CnsVolumeOperationRequest instance.
-		instanceName = snapshotID + "-" + volumeID
+		instanceName = snapshotName + "-" + volumeID
 		// Local instance of CreateSnapshot details that needs to be persisted.
 		volumeOperationDetails *cnsvolumeoperationrequest.VolumeOperationRequestDetails
 		// error
@@ -2809,6 +2840,15 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		quotaInfo                  *cnsvolumeoperationrequest.QuotaDetails
 		isStorageQuotaM2FSSEnabled bool
 	)
+	// By default, external-snapshotter sets the snapshot name prefix to "snapshot-".
+	// This logic will break if the prefix configuration is changed.
+	// In Supervisor deployments, we assume this configuration remains unchanged by admin/DevOps.
+	// In Vanilla deployments, we publish the deployment manifest with the default configuration to ensure consistency.
+	if !strings.HasPrefix(snapshotName, "snapshot-") {
+		return nil, csifault.CSIInternalFault,
+			logger.LogNewErrorf(log, "invalid snapshotName %q: must start with 'snapshot-'", snapshotName)
+	}
+	snapshotID := strings.TrimPrefix(snapshotName, "snapshot-")
 	if extraParams != nil {
 		createSnapParams, ok := extraParams.(*CreateSnapshotExtraParams)
 		if !ok {
@@ -2870,6 +2910,14 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		faultType := ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 	}
+	// Persist the volume operation details.
+	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+		// Don't return if CreateSnapshot details can't be stored.
+		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
+	}
 
 	var createSnapshotsTaskInfo *vim25types.TaskInfo
 	var faultType string
@@ -2888,8 +2936,20 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 	}
 	log.Infof("CreateSnapshots: VolumeID: %q, opId: %q", volumeID, createSnapshotsTaskInfo.ActivationId)
-
-	snapshotCreateResult := interface{}(createSnapshotsTaskInfo).(*cnstypes.CnsSnapshotCreateResult)
+	createSnapshotsTaskResult, err := cns.GetTaskResult(ctx, createSnapshotsTaskInfo)
+	if err != nil || createSnapshotsTaskResult == nil {
+		return nil, "", logger.LogNewErrorf(log, "unable to find the task result for CreateSnapshots task: %q "+
+			"from vCenter %q with err: %v", createSnapshotsTaskInfo.Task.Value, m.virtualCenter.Config.Host, err)
+	}
+	snapshotCreateResult, ok := createSnapshotsTaskResult.(*cnstypes.CnsSnapshotCreateResult)
+	if !ok || snapshotCreateResult == nil {
+		return nil, "", logger.LogNewErrorf(log,
+			"invalid task result: got %T with value %+v", createSnapshotsTaskResult, createSnapshotsTaskResult)
+	}
+	if snapshotCreateResult.Fault != nil {
+		return nil, "", logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q with fault: %+v",
+			instanceName, volumeID, snapshotCreateResult.Fault)
+	}
 	cnsSnapshotInfo := &CnsSnapshotInfo{
 		SnapshotID:                          snapshotCreateResult.Snapshot.SnapshotId.Id,
 		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
@@ -2947,14 +3007,15 @@ func (m *defaultManager) CreateSnapshot(
 			}
 		}
 		if createSnapParams != nil && createSnapParams.IsCSITransactionSupportEnabled {
-			var snapcontentPrefix = "snapcontent-"
 			cnssnapshotInfo, fault, err := m.createSnapshotWithTransaction(ctx, volumeID,
-				strings.TrimPrefix(snapshotName, snapcontentPrefix), extraParams)
+				snapshotName, extraParams)
 			if err != nil {
 				if IsNotSupportedFaultType(ctx, fault) {
 					log.Infof("Creating Snapshot with Transaction is not supported. " +
 						"Re-creating Snapshot without setting Snapshot ID in the spec")
 					return m.createSnapshotWithImprovedIdempotencyCheck(ctx, volumeID, snapshotName, extraParams)
+				} else {
+					return nil, logger.LogNewErrorf(log, "failed to create snapshot. error :%+v", err)
 				}
 			}
 			return cnssnapshotInfo, nil
