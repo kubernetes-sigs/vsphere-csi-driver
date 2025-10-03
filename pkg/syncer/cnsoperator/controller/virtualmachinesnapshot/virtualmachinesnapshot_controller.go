@@ -20,8 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,13 +35,13 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -54,14 +52,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	MaxBackOffDurationForReconciler                  = 5 * time.Minute
-	defaultMaxWorkerThreadsForVirtualMachineSnapshot = 10
-	allowedRetriesToPatchCNSVolumeInfo               = 5
-	SyncVolumeFinalizer                              = "cns.vmware.com/syncvolume"
-	VMSnapshotFinalizer                              = "vmoperator.vmware.com/virtualmachinesnapshot"
+	MaxBackOffDurationForReconciler    = 5 * time.Minute
+	workerThreadsEnvVar                = "WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT"
+	defaultMaxWorkerThreads            = 10
+	allowedRetriesToPatchCNSVolumeInfo = 5
+	SyncVolumeFinalizer                = "cns.vmware.com/syncvolume"
+	VMSnapshotFinalizer                = "vmoperator.vmware.com/virtualmachinesnapshot"
 )
 
 var (
@@ -158,23 +158,19 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx)
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	c, err := controller.New("virtualmachinesnapshot-controller", mgr,
-		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
+	err := ctrl.NewControllerManagedBy(mgr).Named("virtualmachinesnapshot-controller").
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
+		Complete(r)
 	if err != nil {
-		log.Errorf("Failed to create new VirtualMachineSnapshot controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
+
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
-	// Watch for changes to primary resource VirtualMachineSnapshot.
-	err = c.Watch(source.Kind(mgr.GetCache(),
-		&vmoperatortypes.VirtualMachineSnapshot{},
-		&handler.TypedEnqueueRequestForObject[*vmoperatortypes.VirtualMachineSnapshot]{}))
-	if err != nil {
-		log.Errorf("Failed to watch for changes to VirtualMachineSnapshot resource with error: %+v", err)
-		return err
-	}
 	return nil
 }
 
@@ -384,38 +380,6 @@ func recordEvent(ctx context.Context, r *ReconcileVirtualMachineSnapshot,
 		r.recorder.Event(instance, corev1.EventTypeNormal, "VirtualMachineSnapshotSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}
-}
-
-// getMaxWorkerThreadsToReconcileVirtualMachineSnapshot returns the maximum number
-// of worker threads which can be run to reconcile VirtualMachineSnapshot instances.
-// If environment variable WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is set and valid,
-// return the value read from environment variable. Otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForVirtualMachineSnapshot
-	envVal := os.Getenv("WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT")
-	if envVal == "" {
-		log.Debugf("WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-		return workerThreads
-	}
-	value, err := strconv.Atoi(envVal)
-	if err != nil {
-		log.Warnf("Invalid value for WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT: %s. Using default value %d",
-			envVal, defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-		return workerThreads
-	}
-	switch {
-	case value <= 0 || value > defaultMaxWorkerThreadsForVirtualMachineSnapshot:
-		log.Warnf("Value %s for WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is invalid. Using default value %d",
-			envVal, defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-	default:
-		workerThreads = value
-		log.Debugf("Maximum number of worker threads to reconcile VirtualMachineSnapshot is set to %d",
-			workerThreads)
-	}
-	return workerThreads
 }
 
 // syncVolumesAndUpdateCNSVolumeInfo will fetch the volume-ids attached to virtualmachine
