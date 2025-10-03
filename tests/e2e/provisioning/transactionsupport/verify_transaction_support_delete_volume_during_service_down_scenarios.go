@@ -158,10 +158,14 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 		}
 	}()
 
+	// Wait for quota updation
+	framework.Logf("Waiting for qutoa updation")
+	time.Sleep(1 * time.Minute)
+
 	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
@@ -181,9 +185,23 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	//After service restart
 	e2eTestConfig = bootstrap.Bootstrap()
 
+	ginkgo.By("Verify PVs, volumes are deleted from CNS")
+	for _, pv := range persistentvolumes {
+		err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+			framework.PodDeleteTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		volumeID := pv.Spec.CSI.VolumeHandle
+		err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+				"kubernetes", volumeID))
+	}
+
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(1 * time.Minute)
+	time.Sleep(2 * time.Minute)
 
 	volumeOpsScale = volumeOpsScale * -1
 
@@ -191,7 +209,7 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName,
 			newdiskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,

@@ -161,11 +161,12 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(5 * time.Minute)
+	time.Sleep(1 * time.Minute)
+
 	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 				storageclass.Name, namespace, constants.SnapshotUsage, constants.VolExtensionName)
@@ -176,7 +177,7 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	wg.Add(len(serviceNames) + volumeOpsScale)
 
 	for i := range volumeOpsScale {
-		framework.Logf("Creating Snapshot : %v", i)
+		framework.Logf("Creating Snapshot : %v", i+1)
 		go createSnapshot(ctx, namespace, pvclaims, i, pvcSnapshots, &wg)
 	}
 
@@ -193,18 +194,15 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(5 * time.Minute)
+	time.Sleep(2 * time.Minute)
+
 	var snapshotSize int64 = 0
-
-	for _, pv := range persistentvolumes {
-		snapshotSize = snapshotSize + vcutil.GetAggregatedSnapshotCapacityInMb(e2eTestConfig, pv.Spec.CSI.VolumeHandle)
-	}
-
-	// snapshotSizeStr := k8testutil.ConvertInt64ToStrMbFormat(snapshotSize)
-
 	newdiskSizeInBytes := 1 * int64(volumeOpsScale) * int64(1024) * int64(1024) // Snapshot size 1Mb
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		for _, pv := range persistentvolumes {
+			snapshotSize = snapshotSize + vcutil.GetAggregatedSnapshotCapacityInMb(e2eTestConfig, pv.Spec.CSI.VolumeHandle)
+		}
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, constants.SnapshotUsage, constants.VolExtensionName,
 			snapshotSize, totalQuotaUsedBefore, storagePolicyQuotaBefore,

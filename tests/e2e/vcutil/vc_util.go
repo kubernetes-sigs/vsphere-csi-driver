@@ -1946,7 +1946,7 @@ func FindKeyProvier(ctx context.Context, vs *config.E2eTestConfig,
 func GetAggregatedSnapshotCapacityInMb(vs *config.E2eTestConfig, volHandle string) int64 {
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 	queryResult, err := QueryCNSVolumeWithResult(vs, volHandle)
-	ginkgo.By(fmt.Sprintf(" queryResult :%v", queryResult.Volumes[0]))
+	ginkgo.By(fmt.Sprintf("queryResult :%v", queryResult.Volumes[0]))
 
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(queryResult.Volumes).ShouldNot(gomega.BeEmpty())

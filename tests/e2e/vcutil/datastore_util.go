@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/govmomi/view"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"k8s.io/kubernetes/test/e2e/framework"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 )
 
@@ -39,9 +40,11 @@ func GetDatastoresByType(vcClient *govmomi.Client, dsType string) ([]mo.Datastor
 	}
 	var resultDatastores []mo.Datastore
 	// Filter datastores by type
+	framework.Logf("Searching for datastore(s) of type %s", dsType)
 	for _, ds := range datastores {
-		PrintDatastoreSummary(ds)
+		framework.Logf("Datastore Name : %s, isShared : %t", ds.Summary.Name, *ds.Summary.MultipleHostAccess)
 		if ds.Summary.Type == dsType && *ds.Summary.MultipleHostAccess { //Considering only shared datastores
+			PrintDatastoreSummary(ds)
 			resultDatastores = append(resultDatastores, ds)
 		}
 	}

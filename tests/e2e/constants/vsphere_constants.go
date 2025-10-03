@@ -56,7 +56,7 @@ const (
 
 	// Datastore Types
 	Vmfs = "VMFS"
-	Vsan = "VSAN"
+	Vsan = "vsan"
 	Nfs  = "NFS"
 
 	VmfsScsiLun = "vmhba64:C0:T0:L0"

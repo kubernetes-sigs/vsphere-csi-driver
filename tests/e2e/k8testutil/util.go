@@ -4716,8 +4716,17 @@ func GetRestConfigClient(vs *config.E2eTestConfig) *rest.Config {
 			}
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	}
+	return restConfig
+}
+
+// GetGCRestConfigClient returns  rest config client.
+func GetGcRestConfigClient(vs *config.E2eTestConfig) *rest.Config {
+	// Get restConfig.
+	var err error
+	k8senv := env.GetAndExpectStringEnvVar("KUBECONFIG")
+	restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return restConfig
 }
 
@@ -8546,4 +8555,12 @@ func RunCommandOnHost(ctx context.Context, sshCmd string, vs *config.E2eTestConf
 
 	byteOutput, err := vcutil.RunSsh(ctx, sshCmd, vs, host)
 	return string(byteOutput), err
+}
+
+func GetDatacenter(ctx context.Context, vs *config.E2eTestConfig, datacenter string) *object.Datacenter {
+	finder := find.NewFinder(vs.VcClient.Client, false)
+	framework.Logf("DC Name : %v", datacenter)
+	defaultDatacenter, err := finder.Datacenter(ctx, datacenter)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return defaultDatacenter
 }

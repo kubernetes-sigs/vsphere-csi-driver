@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"github.com/vmware/govmomi/vim25/mo"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -36,6 +35,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
@@ -95,7 +95,6 @@ var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Static", func() {
 func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, namespace string, client clientset.Interface, storagePolicyName string, scParameters map[string]string, volumeOpsScale int, c clientset.Interface) {
 	var err error
 	// var accessMode v1.PersistentVolumeAccessMode
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -110,26 +109,32 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName)
 	}
 
-	var resultDatastores []mo.Datastore
-	resultDatastores, _ = vcutil.GetDatastoresByType(e2eTestConfig.VcClient, dsType)
+	sharedDsUrl := env.GetAndExpectEnvVar(constants.EnvSharedDatastoreURL)
+	datacenters := k8testutil.GetDatacenters(ctx, e2eTestConfig)
+	dc := k8testutil.GetDatacenter(ctx, e2eTestConfig, datacenters[0])
 
-	dsPath := resultDatastores[0].Info.GetDatastoreInfo().Url
-	dsRef := vcutil.GetDsMoRefFromURL(ctx, e2eTestConfig, dsPath)
+	resultDatastore, err := k8testutil.GetDatastoreByURL(ctx, sharedDsUrl, dc)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// resultDatastores, _ = vcutil.GetDatastoresByType(e2eTestConfig.VcClient, dsType)
+	// gomega.Expect(len(resultDatastores) > 0).To(gomega.BeTrue(), "Not found required datastore of type %s", dsType)
+	// dsPath := resultDatastore.
+	dsRef := resultDatastore.Reference()
 	framework.Logf("VOLUME_OPS_SCALE is set to %v", volumeOpsScale)
 
 	var wg sync.WaitGroup
 	wg.Add(volumeOpsScale)
 	for i := range volumeOpsScale {
 		framework.Logf("Creating fcd %v", i)
-		go createFcd(ctx, fcdIDs, i, diskSizeInMb, dsRef, &wg)
+		go createFcd(ctx, fcdIDs, i, storagePolicyName, diskSizeInMb, dsRef, &wg)
 	}
 	wg.Wait()
+
 	deleteFCDRequired := true
 	ginkgo.By("Creating PVCs using the Fcds")
 	wg.Add(len(serviceNames) + volumeOpsScale)
@@ -190,12 +195,12 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(1 * time.Minute)
+	time.Sleep(2 * time.Minute)
 
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName,
 			newdiskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,

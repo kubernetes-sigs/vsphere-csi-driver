@@ -168,7 +168,7 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
 				storageclass.Name, namespace, constants.SnapshotUsage, constants.VolExtensionName)
@@ -191,13 +191,13 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(1 * time.Minute)
+	time.Sleep(2 * time.Minute)
 
 	volumeOpsScale = volumeOpsScale * -1
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
 	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		restConfig := k8testutil.GetRestConfigClient(e2eTestConfig)
+		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
 			storageclass.Name, namespace, constants.SnapshotUsage, constants.VolExtensionName,
 			newdiskSizeInMb, totalQuotaUsedBefore, storagePolicyQuotaBefore,
