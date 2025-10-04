@@ -44,25 +44,25 @@ import (
 
 var (
 	testBufferSize                   = 1024
-	testCnsNodeVmBatchAttachmentName = "test-cnsnodevmbatchattachemnt"
+	testCnsNodeVMBatchAttachmentName = "test-cnsnodevmbatchattachemnt"
 	testNamespace                    = "test-ns"
 )
 
-// setupTestCnsNodeVmBatchAttachment created CnsNodeVmBatchAttachment CR with volumes for testing.
-func setupTestCnsNodeVmBatchAttachment() v1alpha1.CnsNodeVmBatchAttachment {
+// setupTestCnsNodeVMBatchAttachment created CnsNodeVMBatchAttachment CR with volumes for testing.
+func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 	var (
 		testNodeUUID                 = "test-1"
 		disk1                        = "disk-1"
 		disk2                        = "disk-2"
 		pvc1                         = "pvc-1"
 		pvc2                         = "pvc-2"
-		testCnsNodeVmBatchAttachment = v1alpha1.CnsNodeVmBatchAttachment{
+		testCnsNodeVMBatchAttachment = v1alpha1.CnsNodeVMBatchAttachment{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:            testCnsNodeVmBatchAttachmentName,
+				Name:            testCnsNodeVMBatchAttachmentName,
 				Namespace:       testNamespace,
 				ResourceVersion: "1",
 			},
-			Spec: v1alpha1.CnsNodeVmBatchAttachmentSpec{
+			Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
 				NodeUUID: testNodeUUID,
 				Volumes: []v1alpha1.VolumeSpec{
 					{
@@ -79,13 +79,13 @@ func setupTestCnsNodeVmBatchAttachment() v1alpha1.CnsNodeVmBatchAttachment {
 					},
 				},
 			},
-			Status: v1alpha1.CnsNodeVmBatchAttachmentStatus{
+			Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
 				VolumeStatus: []v1alpha1.VolumeStatus{
 					{
 						Name: disk1,
 						PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
 							ClaimName:   pvc1,
-							Diskuuid:    "123456",
+							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
 							Attached:    true,
 						},
@@ -94,7 +94,7 @@ func setupTestCnsNodeVmBatchAttachment() v1alpha1.CnsNodeVmBatchAttachment {
 						Name: disk2,
 						PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
 							ClaimName:   pvc2,
-							Diskuuid:    "123456",
+							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
 							Attached:    true,
 						},
@@ -104,13 +104,13 @@ func setupTestCnsNodeVmBatchAttachment() v1alpha1.CnsNodeVmBatchAttachment {
 		}
 	)
 
-	return testCnsNodeVmBatchAttachment
+	return testCnsNodeVMBatchAttachment
 
 }
 
-func setTestEnvironment(testCnsNodeVmBatchAttachment *v1alpha1.CnsNodeVmBatchAttachment,
+func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAttachment,
 	setDeletionTimestamp bool) *Reconciler {
-	cnsNodeVmBatchAttachment := testCnsNodeVmBatchAttachment.DeepCopy()
+	cnsNodeVmBatchAttachment := testCnsNodeVMBatchAttachment.DeepCopy()
 	//objs := []runtime.Object{cnsNodeVmBatchAttachment}
 
 	if setDeletionTimestamp {
@@ -152,16 +152,16 @@ func setTestEnvironment(testCnsNodeVmBatchAttachment *v1alpha1.CnsNodeVmBatchAtt
 
 }
 
-func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
-	t.Run("TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsError", func(t *testing.T) {
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		testCnsNodeVmBatchAttachment.Spec.NodeUUID = "test-2"
+func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
+	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError", func(t *testing.T) {
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		testCnsNodeVMBatchAttachment.Spec.NodeUUID = "test-2"
 
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name:      testCnsNodeVmBatchAttachmentName,
+				Name:      testCnsNodeVMBatchAttachmentName,
 				Namespace: testNamespace,
 			},
 		}
@@ -175,27 +175,27 @@ func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 		expectedReconcileResult := reconcile.Result{RequeueAfter: time.Second}
 		assert.Equal(t, expectedReconcileResult, res)
 
-		updatedCnsNodeVmBatchAttachment := &v1alpha1.CnsNodeVmBatchAttachment{}
-		if err := r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVmBatchAttachment); err != nil {
+		updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
+		if err := r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment); err != nil {
 			t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
 		}
 
 		expectedReconcileError := fmt.Errorf("some error occurred while getting VM")
-		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVmBatchAttachment.Status.Error)
+		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Error)
 	})
 }
 
-func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
+func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
 
-	t.Run("TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		testCnsNodeVmBatchAttachment.Spec.NodeUUID = "test-3"
+	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		testCnsNodeVMBatchAttachment.Spec.NodeUUID = "test-3"
 
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, true)
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, true)
 
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name:      testCnsNodeVmBatchAttachmentName,
+				Name:      testCnsNodeVMBatchAttachmentName,
 				Namespace: testNamespace,
 			},
 		}
@@ -213,8 +213,8 @@ func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.
 		assert.Equal(t, expectedReconcileResult, res)
 		assert.Equal(t, expectedReconcileError, err)
 
-		updatedCnsNodeVmBatchAttachment := &v1alpha1.CnsNodeVmBatchAttachment{}
-		err = r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVmBatchAttachment)
+		updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
+		err = r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment)
 		if err == nil {
 			t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
 		}
@@ -223,23 +223,23 @@ func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.
 		if statusErr, ok := err.(*errors.StatusError); ok {
 			assert.Equal(t, metav1.StatusReasonNotFound, statusErr.Status().Reason)
 		} else {
-			t.Fatalf("Unable to verify CnsNodeVmBatchAttachment error")
+			t.Fatalf("Unable to verify CnsNodeVMBatchAttachment error")
 		}
 	})
 }
 
-func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted(t *testing.T) {
-	t.Run("TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted",
+func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted(t *testing.T) {
+	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted",
 		func(t *testing.T) {
-			testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
+			testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
 			nodeUUID := "test-3"
-			testCnsNodeVmBatchAttachment.Spec.NodeUUID = nodeUUID
+			testCnsNodeVMBatchAttachment.Spec.NodeUUID = nodeUUID
 
-			r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+			r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      testCnsNodeVmBatchAttachmentName,
+					Name:      testCnsNodeVMBatchAttachmentName,
 					Namespace: testNamespace,
 				},
 			}
@@ -253,24 +253,24 @@ func TestCnsNodeVmBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceI
 			expectedReconcileResult := reconcile.Result{RequeueAfter: time.Second}
 			assert.Equal(t, expectedReconcileResult, res)
 
-			updatedCnsNodeVmBatchAttachment := &v1alpha1.CnsNodeVmBatchAttachment{}
-			if err := r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVmBatchAttachment); err != nil {
+			updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
+			if err := r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment); err != nil {
 				t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
 			}
 
 			expectedReconcileError := fmt.Errorf("virtual Machine with UUID %s on vCenter does not exist. "+
 				"Vm is CR is deleted or is being deleted but"+
-				"CnsNodeVmBatchAttachmentInstance %s is not being deleted", nodeUUID, testCnsNodeVmBatchAttachmentName)
+				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", nodeUUID, testCnsNodeVMBatchAttachmentName)
 			expectedErrorMsg := expectedReconcileError.Error()
-			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVmBatchAttachment.Status.Error)
+			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Error)
 		})
 }
 
 func TestReconcileWithDeletionTimestamp(t *testing.T) {
 	t.Run("TestReconcileWithDeletionTimestamp", func(t *testing.T) {
 
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 
@@ -280,15 +280,15 @@ func TestReconcileWithDeletionTimestamp(t *testing.T) {
 		}
 		vm := &cnsvsphere.VirtualMachine{}
 		err := r.reconcileInstanceWithDeletionTimestamp(context.TODO(),
-			&testCnsNodeVmBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
 		assert.NoError(t, err)
 	})
 }
 
 func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 	t.Run("TestReconcileWithDeletionTimestampWhenDetachFails", func(t *testing.T) {
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 
@@ -303,7 +303,7 @@ func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 		}
 
 		err := r.reconcileInstanceWithDeletionTimestamp(context.TODO(),
-			&testCnsNodeVmBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
 		if err == nil {
 			t.Fatal("Expected reconcile error")
 		}
@@ -316,8 +316,8 @@ func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 
 	t.Run("TestReconcileWithoutDeletionTimestamp", func(t *testing.T) {
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
@@ -328,7 +328,7 @@ func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 
 		vm := &cnsvsphere.VirtualMachine{}
 		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
-			&testCnsNodeVmBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
 		assert.NoError(t, err)
 	})
 }
@@ -336,8 +336,8 @@ func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 
 	t.Run("TestReconcileWithoutDeletionTimestamp", func(t *testing.T) {
-		testCnsNodeVmBatchAttachment := setupTestCnsNodeVmBatchAttachment()
-		r := setTestEnvironment(&testCnsNodeVmBatchAttachment, false)
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 		mockVolumeManager := &unittestcommon.MockVolumeManager{}
 		r.volumeManager = mockVolumeManager
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
@@ -347,17 +347,17 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 		}
 
 		// Update PVC to fail-attach-pvc-3 to mock failure in attach
-		for i, volume := range testCnsNodeVmBatchAttachment.Spec.Volumes {
+		for i, volume := range testCnsNodeVMBatchAttachment.Spec.Volumes {
 			if volume.PersistentVolumeClaim.ClaimName == "pvc-2" {
 				volume.PersistentVolumeClaim.ClaimName = "fail-attach-pvc-3"
-				testCnsNodeVmBatchAttachment.Spec.Volumes[i] = volume
+				testCnsNodeVMBatchAttachment.Spec.Volumes[i] = volume
 				break
 			}
 		}
 
 		vm := &cnsvsphere.VirtualMachine{}
 		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
-			&testCnsNodeVmBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
 		if err == nil {
 			t.Fatal("Expected reconcile error")
 		}

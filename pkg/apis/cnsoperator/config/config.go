@@ -8,7 +8,7 @@ var EmbedCnsNodeVmAttachmentCRFile embed.FS
 const EmbedCnsNodeVmAttachmentCRFileName = "cns.vmware.com_cnsnodevmattachments.yaml"
 
 //go:embed cns.vmware.com_cnsnodevmbatchattachments.yaml
-var EmbedCnsNodeVmBatchAttachmentCRFile embed.FS
+var EmbedCnsNodeVMBatchAttachmentCRFile embed.FS
 
 const EmbedCnsNodeVmABatchttachmentCRFileName = "cns.vmware.com_cnsnodevmbatchattachments.yaml"
 

@@ -41,7 +41,7 @@ import (
 type BatchAttachRequest struct {
 	// The volume ID for the given PVC.
 	VolumeID string
-	// SharingMode indicates the shraring mode if the virtual disk while attaching.
+	// SharingMode indicates the sharing mode if the virtual disk while attaching.
 	SharingMode string
 	// DiskMode is the desired mode to use when attaching the volume
 	DiskMode string
