@@ -355,23 +355,24 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
 
-	// Call batch attach for volumes.
-	err := r.processBatchAttach(ctx, vm, instance)
-	if err != nil {
-		log.Errorf("failed to attach all volumes. Err: %+v", err)
-		return err
-	}
-
+	var detachErr error
 	// Call detach if there are some volumes which need to be detached.
 	if len(volumesToDetach) != 0 {
-		err := r.processDetach(ctx, vm, instance, volumesToDetach)
-		if err != nil {
-			log.Errorf("failed to detach all volumes. Err: +v", err)
-			return err
+		detachErr = r.processDetach(ctx, vm, instance, volumesToDetach)
+		if detachErr != nil {
+			log.Errorf("failed to detach all volumes. Err: %s", detachErr)
+		} else {
+			log.Infof("Successfully detached all volumes %+v", volumesToDetach)
 		}
-		log.Infof("Successfully detached all volumes %+v", volumesToDetach)
 	}
-	return nil
+
+	// Call batch attach for volumes.
+	attachErr := r.processBatchAttach(ctx, vm, instance)
+	if attachErr != nil {
+		log.Errorf("failed to attach all volumes. Err: %+v", attachErr)
+	}
+
+	return errors.Join(attachErr, detachErr)
 }
 
 // processDetach detaches each of the volumes in volumesToDetach by calling CNS DetachVolume API.
