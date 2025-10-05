@@ -8247,7 +8247,7 @@ func ConvertInt64ToStrGbFormat(diskSize int64) string {
 }
 
 func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
-	var vmdkCount int
+	var vmdkCount int = 0
 	var err error
 	framework.Logf("Getting the vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
@@ -8267,9 +8267,7 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk Count Command Output: %s", commandOutput)
 
-	if strings.Contains(commandOutput, "No such file or directory") {
-		vmdkCount = 0
-	} else {
+	if !strings.Contains(commandOutput, "No such file or directory") {
 		vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -8277,7 +8275,7 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 }
 
 func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
-	var snapshotCount int
+	var snapshotCount int = 0
 	var err error
 	framework.Logf("Getting the sesparse-vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
@@ -8296,9 +8294,7 @@ func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Sesparse-Vmdk Count Command Output: %s", commandOutput)
 
-	if strings.Contains(commandOutput, "No such file or directory") {
-		snapshotCount = 0
-	} else {
+	if !strings.Contains(commandOutput, "No such file or directory") {
 		snapshotCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
