@@ -51,6 +51,7 @@ import (
 	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	apiutils "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/go-logr/zapr"
@@ -798,14 +799,48 @@ func DeletePersistentVolume(ctx context.Context, k8sClient clientset.Interface, 
 // If the object is a Custom Resource, make sure that the `subresources` field in the
 // CustomResourceDefinition includes `status` to enable status subresource updates.
 func UpdateStatus(ctx context.Context, c client.Client, obj client.Object) error {
-	log := logger.GetLogger(ctx)
+	log := logger.GetLogger(ctx).
+		With("kind", obj.GetObjectKind().GroupVersionKind().Kind).
+		With("name", obj.GetNamespace()+"/"+obj.GetName())
 	if err := c.Status().Update(ctx, obj); err != nil {
-		log.Errorf("Failed to update status for %s %s/%s: %v", obj.GetObjectKind().GroupVersionKind().Kind,
-			obj.GetNamespace(), obj.GetName(), err)
+		log.Errorf("Failed to update status. err: %v", err)
 		return err
 	}
 
-	log.Infof("Successfully updated status for %s %s/%s", obj.GetObjectKind().GroupVersionKind().Kind,
-		obj.GetNamespace(), obj.GetName())
+	log.Debug("Successfully updated status.")
 	return nil
+}
+
+// AddFinalizer adds the specified finalizer to the given Kubernetes object if it is not already present.
+// It updates the object in the Kubernetes cluster to persist the change.
+func AddFinalizer(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
+	log := logger.GetLogger(ctx).
+		With("finalizer", finalizer).
+		With("kind", obj.GetObjectKind().GroupVersionKind().Kind).
+		With("name", obj.GetNamespace()+"/"+obj.GetName())
+
+	if !controllerutil.AddFinalizer(obj, finalizer) {
+		log.Debug("Finalizer already present. No update needed.")
+		return nil
+	}
+
+	log.Info("Adding finalizer to object.")
+	return c.Update(ctx, obj)
+}
+
+// RemoveFinalizer removes the specified finalizer from the given Kubernetes object if it is present.
+// It updates the object in the Kubernetes cluster to persist the change.
+func RemoveFinalizer(ctx context.Context, c client.Client, obj client.Object, finalizer string) error {
+	log := logger.GetLogger(ctx).
+		With("finalizer", finalizer).
+		With("kind", obj.GetObjectKind().GroupVersionKind().Kind).
+		With("name", obj.GetNamespace()+"/"+obj.GetName())
+
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		log.Debug("Finalizer not present. No update needed.")
+		return nil
+	}
+
+	log.Info("Removing finalizer from object.")
+	return c.Update(ctx, obj)
 }
