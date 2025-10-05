@@ -761,7 +761,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify PV is deleted automatically.
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning workflow on SVC - import "+
+	ginkgo.It("[cf-wcp][csi-supervisor] Verify static provisioning workflow on SVC - import "+
 		"CNS volume", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -781,8 +781,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		deleteFCDRequired = false
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
-			pandoraSyncWaitTime, fcdID))
-		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
+			defaultPandoraSyncWaitTime, fcdID))
+		time.Sleep(time.Duration(defaultPandoraSyncWaitTime) * time.Second)
 
 		ginkgo.By("Create CNS register volume with above created FCD ")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -846,7 +846,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 9. Verify PV is deleted automatically.
 	// 10. Verify Volume id deleted automatically.
 	// 11. Verify CRD deleted automatically.
-	ginkgo.It("[cf-wcp-f][ef-stretched-svc][csi-supervisor] [stretched-svc] Verify static provisioning workflow on "+
+	ginkgo.It("[ef-wcp][ef-stretched-svc][csi-supervisor] [stretched-svc] Verify static provisioning workflow on "+
 		"SVC import FCD", ginkgo.Label(p0, block, wcp, vc70), func() {
 		var err error
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
