@@ -1527,8 +1527,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 11. delete the pod created in step 10.
 	// 12. delete PVC created in step 2.
 	// 13. delete SC created in step 1.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Verify Online volume expansion on dynamic PVC and "+
-		"check FS resize", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Verify Online volume expansion on "+
+		"dynamic PVC and check FS resize", ginkgo.Label(p1, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -1901,8 +1901,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 9. Trigger online volume expansion on gc-pvc and make sure volume
 	//    expansion is successful.
 	// 10. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Online volume resize on statically created PVC "+
-		"on guest cluster svcPVC=gcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Online volume resize on statically "+
+		"created PVC on guest cluster svcPVC=gcPVC", ginkgo.Label(p1, block,
+		tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1996,8 +1997,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 9. Trigger online volume expansion on gc-pvc, Since  svc-PVC size is
 	//    already greater than the gcPVC , Online expansion on gcPVC should fail.
 	// 10. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Online volume resize on statically created PVC on guest "+
-		"cluster when gcPVC<svcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Online volume resize on statically "+
+		"created PVC on guest cluster when gcPVC<svcPVC", ginkgo.Label(p1,
+		block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2101,8 +2103,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 9. Trigger online volume expansion on gc-pvc, Online expansion on gcPVC
 	//    should be successful.
 	// 10. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Online volume resize on statically created PVC on guest "+
-		"cluster when svcPVC<gcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Online volume resize on statically created "+
+		"PVC on guest cluster when svcPVC<gcPVC", ginkgo.Label(p1, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
