@@ -135,7 +135,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	//    7.	Verify PV entry is deleted from CNS.
 	//    8.	Delete the SC.
 
-	ginkgo.It("[ef-wcp][cf-vks][csi-supervisor] [csi-guest] Verify health annotation added on the pvc is "+
+	ginkgo.It("[ef-vol-health-wcp][cf-vks][csi-supervisor] [csi-guest] Verify health annotation added on the pvc is "+
 		"accessible", ginkgo.Label(p0, block, wcp, tkg, vc70), func() {
 
 		var storageclass *storagev1.StorageClass
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 5.	Delete PVC.
 	// 7.	Delete the SC.
 
-	ginkgo.It("[ef-wcp][csi-supervisor][csi-guest][ef-vks][ef-vks-n1][ef-vks-n2] Verify health annotation "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor][csi-guest][ef-vks][ef-vks-n1][ef-vks-n2] Verify health annotation "+
 		"is not added on the pvc which is on pending state", ginkgo.Label(p1, block, wcp, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -463,8 +463,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 10. Verify PV entry is deleted from CNS.
 	// 11. Delete the SC.
 
-	ginkgo.It("[ef-wcp][csi-supervisor] [csi-guest][pq-vks][pq-vks-n1][pq-vks-n2] Verify health annotation is not "+
-		"updated to unknown status from accessible", ginkgo.Label(p1, block, wcp, tkg, disruptive,
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] [csi-guest][pq-vks][pq-vks-n1][pq-vks-n2] Verify health annotation "+
+		"is not updated to unknown status from accessible", ginkgo.Label(p1, block, wcp, tkg, disruptive,
 		negative, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
@@ -740,7 +740,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 7. Verify health annotation is added on the PVC is accessible.
 	// 8. Delete PVC, SC
 
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify changing the annotated values on the PVC to random "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] Verify changing the annotated values on the PVC to random "+
 		"value", ginkgo.Label(p2, block, wcp, negative, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
@@ -855,7 +855,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 7. Delete PVC from the tests namespace.
 	// 8. Delete the storage class.
 
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify Volume health on "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] Verify Volume health on "+
 		"Statefulset", ginkgo.Label(p0, block, wcp, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -945,7 +945,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 6. Verify PV entry is deleted from CNS.
 	// 7. Delete the SC.
 
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify health annotaiton is not added on the "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] Verify health annotaiton is not added on the "+
 		"PV", ginkgo.Label(p1, block, wcp, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
@@ -1028,7 +1028,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	//    annotation - it should not allowed to update the PVC annotation value
 	// 7. Verify health annotation is added on the PVC is accessible.
 	// 8. Delete PVC, SC
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify removing the health annotation on the "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] Verify removing the health annotation on the "+
 		"PVC", ginkgo.Label(p1, block, wcp, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var pvclaim *v1.PersistentVolumeClaim
@@ -2465,7 +2465,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// Verify PV entry is deleted from CNS.
 	// Delete the SC.
 
-	ginkgo.It("[ef-wcp][csi-supervisor] [csi-guest][pq-vks][pq-vks-n1][pq-vks-n2] Verify health annotation is "+
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] [csi-guest][pq-vks][pq-vks-n1][pq-vks-n2] Verify health annotation is "+
 		"not updated to unknown status from inaccessible", ginkgo.Label(p2, block, wcp, tkg, disruptive,
 		negative, vc70), func() {
 		var storageclass *storagev1.StorageClass
@@ -2773,8 +2773,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	//    7. Verify PV entry is deleted from CNS.
 	//    8. Delete the SC.
 
-	ginkgo.It("[ef-wcp][csi-supervisor] [csi-guest][ef-vks][ef-vks-n1][ef-vks-n2] Verify health timestamp annotation "+
-		"is added on the pvc", ginkgo.Label(p1, block, wcp, tkg, vc70), func() {
+	ginkgo.It("[ef-vol-health-wcp][csi-supervisor] [csi-guest][ef-vks][ef-vks-n1][ef-vks-n2] Verify health "+
+		"timestamp annotation is added on the pvc", ginkgo.Label(p1, block, wcp, tkg, vc70), func() {
 		var storageclass *storagev1.StorageClass
 		var err error
 		var svcPVCName string
