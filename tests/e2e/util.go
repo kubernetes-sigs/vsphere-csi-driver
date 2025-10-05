@@ -4027,7 +4027,9 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		}
 	}
 
-	describeCNSRegisterVolume(ctx, svcNamespace, cnsRegisterVolumeName)
+	if supervisorCluster {
+		describeCNSRegisterVolume(ctx, svcNamespace, cnsRegisterVolumeName)
+	}
 
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
 }

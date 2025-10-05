@@ -414,8 +414,8 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	// 16. delete SC created in step 1 and step 7.
 	// 17. delete GC2.
 	// Steps 6 and 17 need to run manually before and after this suite.
-	ginkgo.It("[ef-vks-f] PV with reclaim policy retain can be resized when used in a fresh GC", ginkgo.Label(p0,
-		block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f] [ef-vks-n1-f][ef-vks-n2-f] PV with reclaim policy retain can be resized "+
+		"when used in a fresh GC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		newGcKubconfigPath := os.Getenv("NEW_GUEST_CLUSTER_KUBE_CONFIG")
@@ -837,8 +837,9 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	//    16. delete SC created in step 1 and step 7.
 	//    17. delete GC1.
 
-	ginkgo.It("[ef-vks-f] online volume expansion-PV with reclaim policy retain can be "+
-		"resized when used in a fresh GC", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] online volume expansion-PV with reclaim "+
+		"policy retain can be resized when used in a fresh GC", ginkgo.Label(p0,
+		block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -998,9 +999,9 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	// 11. verify File system size
 	// 12. Delete POD, PVC, PV and SC
 
-	ginkgo.It("Offline resize of PVC in GC1, Delete PVC and PV in GC1. Statically "+
-		"prov same PVC and PV in GC1 and deploy a Pod and trigger online volume expansion", ginkgo.Label(p0,
-		block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Offline resize of PVC in GC1, Delete PVC "+
+		"and PV in GC1. Statically prov same PVC and PV in GC1 and deploy a Pod and "+
+		"trigger online volume expansion", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
