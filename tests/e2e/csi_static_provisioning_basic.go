@@ -1766,8 +1766,8 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 7. Wait for PV , PVC to get bound.
 	// 8. Create POD, verify the status.
 	// 9. Delete all the above created PV, PVC and resource quota.
-	ginkgo.It("[ef-vks] [ef-vks-n1][ef-vks-n2][csi-guest] static volume provisioning on guest "+
-		"cluster", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[ef-vks-f] [ef-vks-n1-f][ef-vks-n2-f][csi-guest] static volume provisioning "+
+		"on guest cluster", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
