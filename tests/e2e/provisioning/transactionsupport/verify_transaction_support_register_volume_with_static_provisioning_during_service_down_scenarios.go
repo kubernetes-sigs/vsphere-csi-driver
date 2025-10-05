@@ -151,9 +151,9 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 		go createPVCFromFcd(ctx, fcdIDs, namespace, pvclaims, i, &wg)
 	}
 
-	// for _, serviceName := range serviceNames {
-	// 	go restartService(ctx, c, serviceName, &wg)
-	// }
+	for _, serviceName := range serviceNames {
+		go restartService(ctx, c, serviceName, &wg)
+	}
 	wg.Wait()
 
 	//After service restart

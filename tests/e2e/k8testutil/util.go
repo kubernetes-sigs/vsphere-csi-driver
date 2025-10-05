@@ -8550,9 +8550,13 @@ func RemoveVsanPartition(ctx context.Context, nicMgr *object.HostVirtualNicManag
 }
 
 func RunCommandOnHost(ctx context.Context, sshCmd string, vs *config.E2eTestConfig, host string) (string, error) {
-
-	byteOutput, err := vcutil.RunSsh(ctx, sshCmd, vs, host)
-	return string(byteOutput), err
+	if vs.TestInput.ClusterFlavor.VanillaCluster {
+		output, err := RunCommandOnESX(vs, constants.RootUser, host, sshCmd)
+		return output, err
+	} else {
+		byteOutput, err := vcutil.RunSsh(ctx, sshCmd, vs, host)
+		return string(byteOutput), err
+	}
 }
 
 func GetDatacenter(ctx context.Context, vs *config.E2eTestConfig, datacenter string) *object.Datacenter {
