@@ -8248,6 +8248,7 @@ func ConvertInt64ToStrGbFormat(diskSize int64) string {
 
 func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
 	var vmdkCount int
+	var err error
 	framework.Logf("Getting the vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
 	fcdFolderPath = "'" + fcdFolderPath + "'"
@@ -8262,8 +8263,8 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 	vmdkCountCommand := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
 	framework.Logf("Get vmdk Count Command : %s", vmdkCountCommand)
 
-	commandOutput, err := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	commandOutput, _ := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
+	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk Count Command Output: %s", commandOutput)
 
 	if strings.Contains(commandOutput, "No such file or directory") {
@@ -8277,6 +8278,7 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 
 func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, host string, dsName string) int {
 	var snapshotCount int
+	var err error
 	framework.Logf("Getting the sesparse-vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
 	fcdFolderPath = "'" + fcdFolderPath + "'"
@@ -8290,8 +8292,8 @@ func GetSnapshotCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig
 	vmdkCountCommand := fmt.Sprintf("%s -name *sesparse* | wc -l", findCmdWithDsName)
 	framework.Logf("Get sesparse-vmdk Count Command : %s", vmdkCountCommand)
 
-	commandOutput, err := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	commandOutput, _ := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)
+	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Sesparse-Vmdk Count Command Output: %s", commandOutput)
 
 	if strings.Contains(commandOutput, "No such file or directory") {

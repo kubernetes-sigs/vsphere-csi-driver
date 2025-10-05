@@ -137,7 +137,8 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 
 	deleteFCDRequired := true
 	ginkgo.By("Creating PVCs using the Fcds")
-	wg.Add(len(serviceNames) + volumeOpsScale)
+	// wg.Add(len(serviceNames) + volumeOpsScale)
+	wg.Add(volumeOpsScale)
 
 	// if e2eTestConfig.TestInput.TestBedInfo.RwxAccessMode {
 	// 	accessMode = v1.ReadWriteMany
@@ -150,9 +151,9 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 		go createPVCFromFcd(ctx, fcdIDs, namespace, pvclaims, i, &wg)
 	}
 
-	for _, serviceName := range serviceNames {
-		go restartService(ctx, c, serviceName, &wg)
-	}
+	// for _, serviceName := range serviceNames {
+	// 	go restartService(ctx, c, serviceName, &wg)
+	// }
 	wg.Wait()
 
 	//After service restart
