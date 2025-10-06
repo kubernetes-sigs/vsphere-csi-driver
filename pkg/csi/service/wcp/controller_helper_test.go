@@ -13,11 +13,9 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 func TestGetPodVMUUID(t *testing.T) {
-	logger.SetLoggerLevel(logger.DevelopmentLogLevel)
 	containerOrchOriginal := commonco.ContainerOrchestratorUtility
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 	newK8sClientOriginal := newK8sClient
