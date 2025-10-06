@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -26,7 +27,11 @@ const (
 	LogCtxIDKey = "TraceId"
 )
 
-var defaultLogLevel LogLevel
+var (
+	defaultLogLevel LogLevel
+	logger          *zap.Logger
+	loggerMutex     sync.Mutex
+)
 
 // loggerKey holds the context key used for loggers.
 type loggerKey struct{}
@@ -76,9 +81,22 @@ func withFields(ctx context.Context, fields ...zapcore.Field) context.Context {
 	return context.WithValue(ctx, loggerKey{}, getLogger(ctx).With(fields...))
 }
 
-// newLogger creates and return a new logger depending logLevel set.
+// newLogger creates and returns a logger according to the logLevel set.
+// Uses singleton pattern to create only one instance of logger.
 func newLogger() *zap.Logger {
-	var logger *zap.Logger
+	if logger != nil {
+		// logger is already initialized
+		return logger
+	}
+
+	loggerMutex.Lock()
+	defer loggerMutex.Unlock()
+	// this check ensures that multiple threads don't override the logger
+	// created by the first thread acquiring the lock.
+	if logger != nil {
+		return logger
+	}
+
 	if defaultLogLevel == DevelopmentLogLevel {
 		logger, _ = zap.NewDevelopment()
 	} else {
@@ -87,6 +105,7 @@ func newLogger() *zap.Logger {
 		loggerConfig.EncoderConfig.EncodeTime = zapcore.RFC3339NanoTimeEncoder
 		logger, _ = loggerConfig.Build()
 	}
+
 	return logger
 }
 
