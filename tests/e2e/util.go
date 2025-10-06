@@ -8375,3 +8375,18 @@ func getSvcConfigSecretData(client clientset.Interface, ctx context.Context,
 
 	return vsphereCfg, nil
 }
+
+// validate Annotation on PVC
+func validateAnnotationOnPVC(pvc *v1.PersistentVolumeClaim, annotationKey string, expectedValue string) error {
+	val, exists := pvc.Annotations[annotationKey]
+	if !exists {
+		return fmt.Errorf("PVC %s does NOT have annotation %q", pvc.Name, annotationKey)
+	}
+	if val == expectedValue {
+		framework.Logf("PVC %s has annotation %q with correct value: %s", pvc.Name, annotationKey, val)
+	} else {
+		return fmt.Errorf("PVC %s has annotation %q but value is %q (expected %q)", pvc.Name,
+			annotationKey, val, expectedValue)
+	}
+	return nil
+}
