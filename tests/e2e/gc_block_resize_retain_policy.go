@@ -808,6 +808,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 
 		ginkgo.By("File system resize finished successfully in GC")
 		ginkgo.By("Checking for PVC resize completion on SVC PVC")
+		time.Sleep(pollTimeoutShort)
 		gomega.Expect(verifyResizeCompletedInSupervisor(svcPVCName)).To(gomega.BeTrue())
 
 	})
