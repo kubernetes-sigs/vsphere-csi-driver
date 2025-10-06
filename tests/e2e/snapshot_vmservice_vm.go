@@ -321,7 +321,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	   12. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[ef-vmsvc] Taking snapshot of a vm service vm attached to a static "+
+	ginkgo.It("[ef-f-vmsvc] Taking snapshot of a vm service vm attached to a static "+
 		"volume", ginkgo.Label(p0, block, wcp, snapshot, vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1392,7 +1392,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 	  Confirm that the Pod reaches the running state and that read and write operations can be performed on the volume.
 	  Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
-	ginkgo.It("[ef-vmsvc] Attaching same volume to a pod and vm service vm", ginkgo.Label(p1, block, wcp, snapshot,
+	ginkgo.It("[ef-f-vmsvc] Attaching same volume to a pod and vm service vm", ginkgo.Label(p1, block, wcp, snapshot,
 		vmServiceVm, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
