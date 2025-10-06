@@ -46,6 +46,7 @@ import (
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/apdutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
@@ -195,13 +196,13 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 		var wg sync.WaitGroup
 		wg.Add(len(hostIPs))
 		for _, hostIP := range hostIPs {
-			go vcutil.InjectAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP, &wg)
+			go apdutil.InjectAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP, &wg)
 		}
 		wg.Wait()
 
 		defer func() {
 			for _, hostIP := range hostIPs {
-				vcutil.ClearAPDToVMFS(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP)
+				apdutil.ClearAPDToVMFS(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP)
 			}
 		}()
 
@@ -211,7 +212,7 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 		ginkgo.By("Clearing the APD..........")
 
 		for _, hostIP := range hostIPs {
-			vcutil.ClearAPDToVMFS(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP)
+			apdutil.ClearAPDToVMFS(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP)
 		}
 
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
@@ -442,13 +443,13 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	defer func() {
-		if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
-				*metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-	}()
+	// defer func() {
+	// 	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+	// 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
+	// 			*metav1.NewDeleteOptions(0))
+	// 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	}
+	// }()
 	return storageclass
 }
 
@@ -479,7 +480,7 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 				var wg sync.WaitGroup
 				wg.Add(len(hostIPs))
 				for _, hostIP := range hostIPs {
-					go vcutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP, &wg)
+					go apdutil.ClearAPDToVMFSWithWaitGroup(ctx, e2eTestConfig, constants.VmfsScsiLun, hostIP, &wg)
 				}
 				wg.Wait()
 			}

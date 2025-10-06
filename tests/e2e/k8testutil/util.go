@@ -54,6 +54,7 @@ import (
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"golang.org/x/crypto/ssh"
+	cryptoSsh "golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -3675,7 +3676,7 @@ func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, host string)
 	stopHostCmd := fmt.Sprintf("%s %s", constants.HostdServiceCommand, constants.StopOperation)
 	// ctx context.Context, sshCmd string, e2eTestConfig *config.E2eTestConfig, host string
 
-	_, err := vcutil.RunSsh(ctx, stopHostCmd, vs, host)
+	_, err := RunCommandOnHost(ctx, stopHostCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	status := GetHostDStatusOnHost(ctx, vs, host)
@@ -3701,7 +3702,7 @@ func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, host string
 	framework.Logf("Starting hostd service on the host  %s ...", host)
 	startHostDCmd := fmt.Sprintf("%s %s", constants.HostdServiceCommand, constants.StartOperation)
 
-	_, err := vcutil.RunSsh(ctx, startHostDCmd, vs, host)
+	_, err := RunCommandOnHost(ctx, startHostDCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	status := GetHostDStatusOnHost(ctx, vs, host)
@@ -3729,7 +3730,7 @@ func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) 
 	framework.Logf("Stopping vpxa service on the host  %s ...", host)
 	stopVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StopOperation)
 
-	_, err := vcutil.RunSsh(ctx, stopVpxaCmd, vs, host)
+	_, err := RunCommandOnHost(ctx, stopVpxaCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	status := GetVpxaStatusOnHost(ctx, vs, host)
@@ -3746,13 +3747,13 @@ func GetVpxaStatusOnHost(ctx context.Context, vs *config.E2eTestConfig, host str
 func StartVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) {
 	framework.Logf("Starting vpxa service on the host  %s ...", host)
 	startVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StartOperation)
-	_, err := vcutil.RunSsh(ctx, startVpxaCmd, vs, host)
+	_, err := RunCommandOnHost(ctx, startVpxaCmd, vs, host)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	var reTry int = 5
 	status := GetVpxaStatusOnHost(ctx, vs, host)
 
 	for firstRun := true; !status && firstRun; firstRun = (reTry > 0) {
-		_, err = vcutil.RunSsh(ctx, startVpxaCmd, vs, host)
+		_, err = RunCommandOnHost(ctx, startVpxaCmd, vs, host)
 
 		if err != nil {
 			time.Sleep(5 * time.Second)
@@ -8554,7 +8555,7 @@ func RunCommandOnHost(ctx context.Context, sshCmd string, vs *config.E2eTestConf
 		output, err := RunCommandOnESX(vs, constants.RootUser, host, sshCmd)
 		return output, err
 	} else {
-		byteOutput, err := vcutil.RunSsh(ctx, sshCmd, vs, host)
+		byteOutput, err := RunSsh(ctx, sshCmd, vs, host)
 		return string(byteOutput), err
 	}
 }
@@ -8565,4 +8566,44 @@ func GetDatacenter(ctx context.Context, vs *config.E2eTestConfig, datacenter str
 	defaultDatacenter, err := finder.Datacenter(ctx, datacenter)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return defaultDatacenter
+}
+
+// This function invokes reboot command on the given host over SSH.
+func RunSsh(ctx context.Context, sshCmd string, e2eTestConfig *config.E2eTestConfig, host string) ([]byte, error) {
+	fmt.Printf("Running sshCmd %s on host %s\n", sshCmd, host)
+	config := &cryptoSsh.ClientConfig{
+		User: "root",
+		Auth: []cryptoSsh.AuthMethod{
+			cryptoSsh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
+				answers = make([]string, len(questions))
+				nimbusGeneratedEsxPwd := e2eTestConfig.TestInput.Global.Password
+				for n := range questions {
+					answers[n] = nimbusGeneratedEsxPwd
+				}
+				return answers, nil
+			}),
+		},
+		HostKeyCallback: cryptoSsh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+	addr := net.JoinHostPort(host, constants.DefaultSshPort)
+	client, err := cryptoSsh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+
+	// Create a new session
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+	// Execute a command on the remote server
+	output, err := session.CombinedOutput(sshCmd)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%s", output)
+	return output, err
 }
