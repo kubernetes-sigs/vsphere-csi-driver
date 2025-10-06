@@ -1009,7 +1009,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		5. Scale up replica to 5.
 		6. Exit MM and clean up all pods and PVs.
 	*/
-	ginkgo.It("[ef-wcp][csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(p1, block, wcp,
+	ginkgo.It("[ef-f-wcp][csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(p1, block, wcp,
 		disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

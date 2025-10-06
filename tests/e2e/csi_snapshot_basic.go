@@ -2278,7 +2278,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   10. Verify if the new pod attaches to the PV created in step-8
 	   11. Cleanup the sts and the snapshot + pv that was left behind in step-7
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot]"+
+	ginkgo.It("[ef-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot]"+
 		"[supervisor-snapshot][ef-vks-snapshot-f] Snapshot workflow for "+
 		"statefulsets", ginkgo.Label(p0, block, vanilla, snapshot, wcp,
 		tkg, vc80), func() {
@@ -3037,7 +3037,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		7. Cleanup dep-1 pv snapshots and pvs, delete dep-2
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][cf-vanilla-block][block-vanilla-snapshot] [tkg-snapshot]"+
+	ginkgo.It("[ef-f-wcp-snapshot][cf-vanilla-block][block-vanilla-snapshot] [tkg-snapshot]"+
 		"[supervisor-snapshot] [ef-vks-snapshot] Snapshot workflow for deployments", ginkgo.Label(p0, block,
 		vanilla, tkg, snapshot, wcp, stable, vc80), func() {
 
@@ -4259,7 +4259,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   8. Cleanup all the snapshots and the pvc.
 	*/
 
-	ginkgo.It("[ef-vanilla-block][ef-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[ef-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
 		"[ef-vks-snapshot] Multi-master and snapshot workflow", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, vc80), func() {
 
@@ -4926,7 +4926,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		2. Create Snapshot class and take a snapshot of the volume
 		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot] [supervisor-snapshot]"+
+	ginkgo.It("[ef-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot] [supervisor-snapshot]"+
 		"[ef-vks-snapshot-f] Volume provision and snapshot creation/restore on "+
 		"NFS Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -5715,7 +5715,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   9.  Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Perform online "+
+	ginkgo.It("[ef-f-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Perform online "+
 		"resize on restored volume", ginkgo.Label(p0, snapshot, tkg, stable, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -6345,8 +6345,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		Run cleanup: Delete snapshots, restored-volumes, pods.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Create restore volume snapshot "+
-		"in consistent order", ginkgo.Label(p0, snapshot, tkg, stable, vc90), func() {
+	ginkgo.It("[ef-f-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Create restore volume "+
+		"snapshot in consistent order", ginkgo.Label(p0, snapshot, tkg, stable, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -6520,7 +6520,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		8. Perform cleanup.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Detach volume with "+
+	ginkgo.It("[ef-f-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Detach volume with "+
 		"snapshot", ginkgo.Label(p1, snapshot, tkg, newTest, stable, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -6887,7 +6887,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			b) snapshot create/delete workflow
 			c) Restart services
 	*/
-	ginkgo.It("[ef-wcp-snapshot][tkg-snapshot][supervisor-snapshot][pq-vks-snapshot] Scale up snapshot creation by "+
+	ginkgo.It("[ef-f-wcp-snapshot][tkg-snapshot][supervisor-snapshot][pq-vks-snapshot] Scale up snapshot creation by "+
 		"increasing the volume counts and in between restart services", ginkgo.Label(p1, snapshot, tkg, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -7047,8 +7047,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		10. Run cleanup: Delete snapshots, restored-volumes, pods
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Max Snapshots per volume on wcp "+
-		"and gc", ginkgo.Label(p1, snapshot, tkg, vc90), func() {
+	ginkgo.It("[ef-f-wcp-snapshot][tkg-snapshot][supervisor-snapshot][ef-vks-snapshot] Max Snapshots per volume on "+
+		"wcp and gc", ginkgo.Label(p1, snapshot, tkg, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -7325,8 +7325,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		18. Perform cleanup: Delete Snapshot, Pod, PVC.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][supervisor-snapshot] Volume restore using a "+
-		"dynamic snapshot", ginkgo.Label(p0, wcp, snapshot, block, stable, vc90), func() {
+	ginkgo.It("[ef-f-wcp-snapshot][supervisor-snapshot] Volume restore using a dynamic "+
+		"snapshot", ginkgo.Label(p0, wcp, snapshot, block, stable, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -7475,7 +7475,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		11. Verify CRD deleted automatically.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][supervisor-snapshot] Verify static provisioning workflow "+
+	ginkgo.It("[ef-f-wcp-snapshot][supervisor-snapshot] Verify static provisioning workflow "+
 		"with snapshot", ginkgo.Label(p0, block, wcp, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -7606,7 +7606,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		18. Perform cleanup.
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][supervisor-snapshot] Snapshot restoration with delete vsc policy and with "+
+	ginkgo.It("[ef-f-wcp-snapshot][supervisor-snapshot] Snapshot restoration with delete vsc policy and with "+
 		"retain pv policy", ginkgo.Label(p0, block, tkg, vanilla, wcp, snapshot, stable, vc90), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -7829,7 +7829,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   13. Cleanup: Execute and verify the steps mentioned in the Delete snapshot mandatory checks
 	*/
 
-	ginkgo.It("[ef-wcp-snapshot][supervisor-snapshot] Supervisor password rotation during snapshot "+
+	ginkgo.It("[ef-f-wcp-snapshot][supervisor-snapshot] Supervisor password rotation during snapshot "+
 		"creation", ginkgo.Label(p1, block, wcp, snapshot, disruptive, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

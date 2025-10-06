@@ -2302,7 +2302,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		5.Wait for volume to be deleted from K8s.
 		6.Wait for Volume to be deleted on CNS
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][pq-vanilla-block] VMDK is deleted from datastore "+
+	ginkgo.It("[ef-f-wcp][csi-block-vanilla][csi-supervisor][pq-vanilla-block] VMDK is deleted from datastore "+
 		"but CNS volume is still present", ginkgo.Label(p1, block, wcp, vanilla, core, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
