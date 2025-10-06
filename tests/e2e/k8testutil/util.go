@@ -8253,15 +8253,19 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 	framework.Logf("Getting the vmdk(s) count from datastore  %s ...", dsName)
 	fcdFolderPath := fmt.Sprintf("/vmfs/volumes/%s/fcd", dsName)
 	fcdFolderPath = "'" + fcdFolderPath + "'"
-	findCmdWithDsName := fmt.Sprintf("find %s", fcdFolderPath)
+	// findCmdWithDsName := fmt.Sprintf("find %s", fcdFolderPath)
+	findCmdWithDsName := fmt.Sprintf("ls %s", fcdFolderPath)
 
-	findCmdVmdkList := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* ", findCmdWithDsName)
+	// findCmdVmdkList := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* ", findCmdWithDsName)
+	findCmdVmdkList := fmt.Sprintf("%s | grep vmdk | grep -v flat | grep  -v sesparse | grep -v ctk", findCmdWithDsName)
 	framework.Logf("Get vmdk List Command : %s", findCmdVmdkList)
 	vmdkListCommandOutput, _ := RunCommandOnHost(ctx, findCmdVmdkList, vs, host)
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk List Command Output: %s", vmdkListCommandOutput)
 
-	vmdkCountCommand := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
+	// vmdkCountCommand := fmt.Sprintf("%s -type f -name *.vmdk ! -name *flat* ! -name *sesparse* ! -name *ctk* | wc -l", findCmdWithDsName)
+	vmdkCountCommand := fmt.Sprintf("%s | grep vmdk | grep -v flat | grep  -v sesparse | grep -v ctk | wc -l", findCmdWithDsName)
+
 	framework.Logf("Get vmdk Count Command : %s", vmdkCountCommand)
 
 	commandOutput, _ := RunCommandOnHost(ctx, vmdkCountCommand, vs, host)

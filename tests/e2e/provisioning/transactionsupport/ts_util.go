@@ -413,7 +413,7 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 		val := strconv.FormatInt(int64(randomValue), 10)
 		val = string(val[1:3])
 		curtimestring := strconv.FormatInt(curtime, 10)
-		scName := "transactionsupport" + curtimestring + val
+		scName := "transactionsupport-sc-" + curtimestring + val
 		storageclass, err = k8testutil.CreateStorageClass(client, e2eTestConfig, scParameters, nil, "", "", false, scName)
 	} else if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 		ginkgo.By("CNS_TEST: Running for WCP setup")
@@ -442,7 +442,7 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 		}
 	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
+	framework.Logf("Storage Class......: %s", storageclass.Name)
 	// defer func() {
 	// 	if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
 	// 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name,
@@ -560,6 +560,7 @@ func testSetUp(fw *framework.Framework) {
 	client = fw.ClientSet
 	vcAddress = e2eTestConfig.TestInput.TestBedInfo.VcAddress
 	namespace = vcutil.GetNamespaceToRunTests(fw, e2eTestConfig)
+	framework.Logf("Name Space : %s", namespace)
 	scParameters = make(map[string]string)
 	storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
 	dsType = env.GetStringEnvVarOrDefault(constants.EnvDatastoreType, constants.Vmfs)

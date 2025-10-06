@@ -225,6 +225,6 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 	// gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
 
-	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
+	k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// isTestPassed = true
 }

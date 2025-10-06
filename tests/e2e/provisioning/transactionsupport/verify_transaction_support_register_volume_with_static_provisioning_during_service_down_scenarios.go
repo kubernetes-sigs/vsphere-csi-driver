@@ -98,7 +98,7 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// diskSize := constants.DiskSize5GB
+	diskSize := constants.DiskSize5GB
 	diskSizeInMb := constants.DiskSize5GBInMb //TODO modify these values as per datastore
 
 	ginkgo.By(fmt.Sprintf("`Invoking Test for register volume when` %v goes down", serviceNames))
@@ -227,6 +227,6 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 
-	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
+	k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// isTestPassed = true
 }

@@ -41,7 +41,7 @@ import (
 )
 
 var _ = ginkgo.Describe("Transaction_Support_CreateSnapshot", func() {
-	f := framework.NewDefaultFramework("transaction-support")
+	f := framework.NewDefaultFramework("transaction-support-ns")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	log := logger.GetLogger(context.Background())
 	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
@@ -230,6 +230,6 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 	// gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
 
-	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
+	k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// isTestPassed = true
 }
