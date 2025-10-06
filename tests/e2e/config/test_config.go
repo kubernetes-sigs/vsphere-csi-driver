@@ -134,6 +134,7 @@ type TestBedConfig struct {
 	Multivc             bool
 	StretchedSVC        bool
 	IsPrivateNetwork    bool
+	LinkedClone         bool
 	K8sMasterIp1PortNum string
 	K8sMasterIp2PortNum string
 	K8sMasterIp3PortNum string

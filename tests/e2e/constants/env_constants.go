@@ -225,3 +225,9 @@ const (
 	EnvIsDevopsUser     = "IS_DEVOPS_USER"
 	EnvDevopsUserName   = "DEVOPS_USERNAME"
 )
+
+// For linked clone
+var (
+	EnvStoragePolicy          = "STORAGE_POLICY_NAME-LC"
+	EnvTargetDSUrlForRelocate = "TARGET_DS_URL-LC"
+)
