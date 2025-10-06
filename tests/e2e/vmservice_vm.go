@@ -350,7 +350,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvcs from step2
 	   9   Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("[ef-vmsvc] hot detach and attach pvc to vmservice vms", ginkgo.Label(p0,
+	ginkgo.It("[ef-f-vmsvc] hot detach and attach pvc to vmservice vms", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
