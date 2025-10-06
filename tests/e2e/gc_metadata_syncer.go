@@ -670,8 +670,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
+		time.Sleep(pollTimeoutShort)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		time.Sleep(pollTimeoutShort)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
