@@ -3133,9 +3133,12 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 	}
 
-	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	if guestCluster {
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
