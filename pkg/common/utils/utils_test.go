@@ -15,6 +15,7 @@ import (
 	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnssim "github.com/vmware/govmomi/cns/simulator"
 	"github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
@@ -298,22 +299,22 @@ func TestListVirtualMachines(t *testing.T) {
 				vmoperatorv1alpha1.AddToScheme,
 			})
 			clientBuilder.WithRuntimeObjects(namespace, otherNamespace, vm1, vm2, vm3)
-			v1Alpha4VM1 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm1",
 					Namespace: namespace.Name,
 				},
 			}
-			v1Alpha4VM2 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm2",
 					Namespace: namespace.Name,
 				},
 			}
-			exp := vmoperatorv1alpha4.VirtualMachineList{
+			exp := vmoperatorv1alpha5.VirtualMachineList{
 				TypeMeta: metav1.TypeMeta{},
 				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha4.VirtualMachine{
+				Items: []vmoperatorv1alpha5.VirtualMachine{
 					v1Alpha4VM1,
 					v1Alpha4VM2,
 				},
@@ -394,22 +395,22 @@ func TestListVirtualMachines(t *testing.T) {
 				vmoperatorv1alpha2.AddToScheme,
 			})
 			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			v1Alpha4VM1 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm1",
 					Namespace: namespace.Name,
 				},
 			}
-			v1Alpha4VM2 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm2",
 					Namespace: namespace.Name,
 				},
 			}
-			exp := vmoperatorv1alpha4.VirtualMachineList{
+			exp := vmoperatorv1alpha5.VirtualMachineList{
 				TypeMeta: metav1.TypeMeta{},
 				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha4.VirtualMachine{
+				Items: []vmoperatorv1alpha5.VirtualMachine{
 					v1Alpha4VM1,
 					v1Alpha4VM2,
 				},
@@ -490,22 +491,22 @@ func TestListVirtualMachines(t *testing.T) {
 				vmoperatorv1alpha3.AddToScheme,
 			})
 			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			v1Alpha4VM1 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm1",
 					Namespace: namespace.Name,
 				},
 			}
-			v1Alpha4VM2 := vmoperatorv1alpha4.VirtualMachine{
+			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "vm2",
 					Namespace: namespace.Name,
 				},
 			}
-			exp := vmoperatorv1alpha4.VirtualMachineList{
+			exp := vmoperatorv1alpha5.VirtualMachineList{
 				TypeMeta: metav1.TypeMeta{},
 				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha4.VirtualMachine{
+				Items: []vmoperatorv1alpha5.VirtualMachine{
 					v1Alpha4VM1,
 					v1Alpha4VM2,
 				},
@@ -520,8 +521,7 @@ func TestListVirtualMachines(t *testing.T) {
 			assert.True(tt, compareVirtualMachineLists(exp, *actual))
 		})
 	})
-
-	t.Run("WhenLatestCRDVersionIsV1Alpha4OrAbove", func(tt *testing.T) {
+	t.Run("WhenLatestCRDVersionIsV1Alpha4", func(tt *testing.T) {
 		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
 			return "v1alpha4", nil
 		}
@@ -586,10 +586,105 @@ func TestListVirtualMachines(t *testing.T) {
 				vmoperatorv1alpha4.AddToScheme,
 			})
 			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			exp := vmoperatorv1alpha4.VirtualMachineList{
+			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			exp := vmoperatorv1alpha5.VirtualMachineList{
 				TypeMeta: metav1.TypeMeta{},
 				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha4.VirtualMachine{
+				Items: []vmoperatorv1alpha5.VirtualMachine{
+					v1Alpha4VM1,
+					v1Alpha4VM2,
+				},
+			}
+
+			// Execute
+			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
+
+			// Assert
+			assert.Nil(tt, err)
+			assert.NotNil(tt, actual)
+			assert.True(tt, compareVirtualMachineLists(exp, *actual))
+		})
+	})
+	t.Run("WhenLatestCRDVersionIsV1Alpha5OrAbove", func(tt *testing.T) {
+		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
+			return "v1alpha5", nil
+		}
+		tt.Run("WhenListFails", func(ttt *testing.T) {
+			// Setup
+			clientBuilder := fake.NewClientBuilder()
+			clientBuilder.WithInterceptorFuncs(
+				interceptor.Funcs{
+					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
+						opts ...client.ListOption) error {
+						return fmt.Errorf("failing list for testing purposes")
+					}})
+
+			// Execute
+			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
+
+			// Assert
+			assert.NotNil(ttt, err)
+		})
+		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
+			// Setup
+			namespace := &v1.Namespace{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Namespace",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "namespace",
+				},
+				Spec: v1.NamespaceSpec{
+					Finalizers: []v1.FinalizerName{
+						v1.FinalizerKubernetes,
+					},
+				},
+				Status: v1.NamespaceStatus{
+					Phase: v1.NamespaceActive,
+				},
+			}
+			vm1 := &vmoperatorv1alpha5.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha5",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm1",
+					Namespace: namespace.Name,
+				},
+			}
+			vm2 := &vmoperatorv1alpha5.VirtualMachine{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "VirtualMachine",
+					APIVersion: "vmoperator.vmware.com/v1alpha5",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm2",
+					Namespace: namespace.Name,
+				},
+			}
+			clientBuilder := fake.NewClientBuilder()
+			scheme := runtime.NewScheme()
+			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
+				v1.AddToScheme,
+				vmoperatorv1alpha5.AddToScheme,
+			})
+			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
+			exp := vmoperatorv1alpha5.VirtualMachineList{
+				TypeMeta: metav1.TypeMeta{},
+				ListMeta: metav1.ListMeta{},
+				Items: []vmoperatorv1alpha5.VirtualMachine{
 					*vm1,
 					*vm2,
 				},
@@ -617,7 +712,7 @@ func registerSchemes(ctx context.Context, clientBuilder *fake.ClientBuilder, sch
 	return clientBuilder
 }
 
-func compareVirtualMachineLists(exp, actual vmoperatorv1alpha4.VirtualMachineList) bool {
+func compareVirtualMachineLists(exp, actual vmoperatorv1alpha5.VirtualMachineList) bool {
 	// since the list output may not be in the same order, we will compare the items
 	// using brute force.
 	if len(exp.Items) != len(actual.Items) {

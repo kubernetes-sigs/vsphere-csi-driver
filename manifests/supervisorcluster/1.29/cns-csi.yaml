@@ -58,7 +58,7 @@ rules:
     resources: ["cnsfilevolumeclients"]
     verbs: ["get", "list", "update", "create", "delete"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsregistervolumes", "cnsunregistervolumes"]
+    resources: ["cnsregistervolumes", "cnsunregistervolumes", "cnsunregistervolumes/status"]
     verbs: ["get", "list", "watch", "update", "delete"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["triggercsifullsyncs"]
@@ -581,7 +581,6 @@ data:
   "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "sv-pvc-snapshot-protection-finalizer": "true"
-  "file-volume-with-vm-service": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
@@ -733,6 +732,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsfileaccessconfigs"]
     verbs: ["get", "list", "update"]
+  - apiGroups: ["vmoperator.vmware.com"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

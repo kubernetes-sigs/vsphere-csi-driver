@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -48,11 +48,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
-)
-
-var (
-	vmfsNamespace         = "com.vmware.storage.volumeallocation"
-	vmfsNamespaceEztValue = "Fully initialized"
 )
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
@@ -89,51 +84,6 @@ func validateCreateFileReqParam(paramName, value string) bool {
 		paramName == common.AttributePvcNamespace ||
 		paramName == common.AttributeStorageClassName ||
 		paramName == common.AttributeIsLinkedCloneKey
-}
-
-// verifyStoragePolicyForVmfsWithEageredZeroThick goes through each rule in the policy to
-// find out if it is fully intialized for VMFS datastores.
-// This check is required for RWX shared block volumes as for VMFS, the policy must be EZT.
-func verifyStoragePolicyForVmfsWithEageredZeroThick(ctx context.Context,
-	spbmPolicyContentList []vsphere.SpbmPolicyContent,
-	storagePolicyId string) error {
-	log := logger.GetLogger(ctx)
-
-	for _, polictContent := range spbmPolicyContentList {
-		for _, profile := range polictContent.Profiles {
-			for _, rule := range profile.Rules {
-				if rule.Ns == vmfsNamespace {
-					if rule.Value != vmfsNamespaceEztValue {
-						msg := fmt.Sprintf("Policy %s is for VMFS datastores. It must be fully initialized for "+
-							"RWX block volumes", storagePolicyId)
-						err := errors.New(msg)
-						log.Errorf(msg)
-						return err
-					}
-					log.Infof("Policy %s is for VMFS and is fully initialized", storagePolicyId)
-					return nil
-				}
-			}
-		}
-	}
-
-	log.Debugf("Policy %s validated correctly", storagePolicyId)
-	return nil
-}
-
-// validateStoragePolicyForVmfs checks whether the policy is compatible for VMFS datastores.
-// This function is only called for RWX shared block volumes.
-func validateStoragePolicyForVmfs(ctx context.Context,
-	vc *vsphere.VirtualCenter, storagePolicyId string) error {
-	log := logger.GetLogger(ctx)
-
-	spbmPolicyContentList, err := vc.PbmRetrieveContent(ctx, []string{storagePolicyId})
-	if err != nil {
-		log.Errorf("failed to retrieve policy %s", storagePolicyId)
-		return err
-	}
-
-	return verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, spbmPolicyContentList, storagePolicyId)
 }
 
 // validateWCPCreateVolumeRequest is the helper function to validate
@@ -215,10 +165,10 @@ func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.Cont
 			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get config with error: %+v", err)
 		}
-		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha4.GroupName)
+		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatorv1alpha5.GroupName)
 		if err != nil {
 			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get client for group %s with error: %+v", vmoperatorv1alpha4.GroupName, err)
+				"failed to get client for group %s with error: %+v", vmoperatorv1alpha5.GroupName, err)
 		}
 		vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, "")
 		if err != nil {

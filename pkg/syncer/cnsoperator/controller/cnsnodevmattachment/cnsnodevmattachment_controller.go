@@ -20,13 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -55,10 +53,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	defaultMaxWorkerThreadsForNodeVMAttach = 10
+	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_ATTACH"
+	defaultMaxWorkerThreads = 10
 )
 
 // backOffDuration is a map of cnsnodevmattachment name's to the time after
@@ -105,7 +105,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
@@ -135,7 +135,9 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
+
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).Named("cnsnodevmattachment-controller").
 		For(&v1a1.CnsNodeVmAttachment{}).
@@ -143,7 +145,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
-		log.Errorf("failed to create new CnsNodeVmAttachment controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
 
@@ -357,12 +359,15 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				volumeID, nodeVM, request.Name, request.Namespace)
-			diskUUID, faulttype, attachErr := r.volumeManager.AttachVolume(internalCtx, nodeVM, volumeID, false)
-
-			if attachErr != nil {
+			diskUUID, faulttype, err := r.volumeManager.AttachVolume(internalCtx, nodeVM, volumeID, false)
+			if err != nil {
 				log.Errorf("failed to attach disk: %q to nodevm: %+v for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
-					volumeID, nodeVM, request.Name, request.Namespace, attachErr)
+					volumeID, nodeVM, request.Name, request.Namespace, err)
+				instance.Status.Error = err.Error()
+				_ = k8s.UpdateStatus(internalCtx, r.client, instance)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
+				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
 			pvc := &v1.PersistentVolumeClaim{}
@@ -383,7 +388,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				faulttype, err = addFinalizerToPVC(internalCtx, r.client, pvc)
+				_, err = addFinalizerToPVC(internalCtx, r.client, pvc)
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
@@ -396,31 +401,27 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 				}
 			}
-			if attachErr != nil {
-				// Update CnsNodeVMAttachment instance with attach error message.
-				instance.Status.Error = attachErr.Error()
-			} else {
-				// Add the CNS volume ID in the attachment metadata. This is used later
-				// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
-				// Note that the supervisor PVC can be deleted due to following:
-				// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
-				//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
-				//    This causes supervisor PVC to be deleted.
-				// 2. Supervisor namespace user deletes PVC used by a guest cluster.
-				// 3. Supervisor namespace is deleted
-				// Basically, we cannot rely on the existence of PVC in supervisor
-				// cluster for detaching the volume from guest cluster VM. So, the
-				// logic stores the CNS volume ID in attachmentMetadata itself which
-				// is used during detach.
-				// Update CnsNodeVMAttachment instance with attached status set to true
-				// and attachment metadata.
-				instance.Status.AttachmentMetadata = make(map[string]string)
-				instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID] = volumeID
-				instance.Status.AttachmentMetadata[v1a1.AttributeFirstClassDiskUUID] = diskUUID
-				instance.Status.Attached = true
-				// Clear the error message.
-				instance.Status.Error = ""
-			}
+
+			// Add the CNS volume ID in the attachment metadata. This is used later
+			// to detach the CNS volume on deletion of CnsNodeVMAttachment instance.
+			// Note that the supervisor PVC can be deleted due to following:
+			// 1. Bug in external provisioner(https://github.com/kubernetes/kubernetes/issues/84226)
+			//    where DeleteVolume could be invoked in pvcsi before ControllerUnpublishVolume.
+			//    This causes supervisor PVC to be deleted.
+			// 2. Supervisor namespace user deletes PVC used by a guest cluster.
+			// 3. Supervisor namespace is deleted
+			// Basically, we cannot rely on the existence of PVC in supervisor
+			// cluster for detaching the volume from guest cluster VM. So, the
+			// logic stores the CNS volume ID in attachmentMetadata itself which
+			// is used during detach.
+			// Update CnsNodeVMAttachment instance with attached status set to true
+			// and attachment metadata.
+			instance.Status.AttachmentMetadata = make(map[string]string)
+			instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID] = volumeID
+			instance.Status.AttachmentMetadata[v1a1.AttributeFirstClassDiskUUID] = diskUUID
+			instance.Status.Attached = true
+			// Clear the error message.
+			instance.Status.Error = ""
 
 			err = k8s.UpdateStatus(internalCtx, r.client, instance)
 			if err != nil {
@@ -429,11 +430,6 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					request.Name, request.Namespace, err)
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
-			}
-
-			if attachErr != nil {
-				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, "")
-				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
 			msg := fmt.Sprintf("ReconcileCnsNodeVMAttachment: Successfully updated entry in CNS for instance "+
@@ -607,6 +603,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		log.Infof("Finished Reconcile for CnsNodeVMAttachment request: %q", request.NamespacedName)
 		return reconcile.Result{}, "", nil
 	}
+
 	// creating new context for reconcileCnsNodeVMAttachmentInternal, as kubernetes supplied context can get canceled
 	// This is required to ensure CNS operations won't get prematurely canceled by the controller runtime’s
 	// internal reconcile logic.
@@ -759,7 +756,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 // isVmCrPresent checks whether VM CR is present in SV namespace
 // with given vmuuid and returns the VirtualMachine CR object if it is found
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
-	vmuuid string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
+	vmuuid string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, namespace)
 	if err != nil {
@@ -872,41 +869,6 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client,
 		}
 	}
 	return err
-}
-
-// getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
-// number of worker threads which can be run to reconcile CnsNodeVmAttachment
-// instances. If environment variable WORKER_THREADS_NODEVM_ATTACH is set and
-// valid, return the value read from environment variable otherwise, use the
-// default value.
-func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach
-	if v := os.Getenv("WORKER_THREADS_NODEVM_ATTACH"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else if value > defaultMaxWorkerThreadsForNodeVMAttach {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVMAttach, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment "+
-					"instances is set to %d", workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForNodeVMAttach)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForNodeVMAttach)
-	}
-	return workerThreads
 }
 
 // recordEvent records the event, sets the backOffDuration for the instance

@@ -134,8 +134,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		7. Delete all PVCs from the tests namespace.
 		8. Delete the storage class.
 	*/
-	ginkgo.It("Power off the node where vsphere-csi-controller pod is running", ginkgo.Label(p0, block, vanilla,
-		vc70), func() {
+	ginkgo.It("[pq-vanilla-block]Power off the node where vsphere-csi-controller pod is running", ginkgo.Label(p0,
+		block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)
@@ -236,8 +236,8 @@ var _ = ginkgo.Describe("[csi-multi-master-block-e2e]", func() {
 		9. Delete the storage class.
 	*/
 
-	ginkgo.It("[csi-block-vanilla] [csi-supervisor] Stop kubelet on the node where vsphere-csi-controller "+
-		"pod is running", ginkgo.Label(p0, block, vanilla, vc70), func() {
+	ginkgo.It("[csi-block-vanilla][csi-supervisor][pq-vanilla-block] Stop kubelet on the node where "+
+		"vsphere-csi-controller pod is running", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		nodeList, podList := getControllerRuntimeDetails(client, controllerNamespace)

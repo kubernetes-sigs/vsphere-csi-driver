@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -55,7 +55,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
 
-const defaultMaxWorkerThreadsForCSINodeTopology = 1
+const defaultMaxWorkerThreads = 1
 
 // backOffDuration is a map of csinodetopology instance name to the time after
 // which a request for this instance will be requeued. Initialized to 1 second
@@ -98,7 +98,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Infof("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		restClientConfigForSupervisor :=
 			k8s.GetRestClientConfigForSupervisor(ctx, configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
-		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatorv1alpha4.GroupName)
+		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return err
@@ -151,7 +151,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	// Create a new controller.
 	c, err := controller.New("csinodetopology-controller", mgr, controller.Options{Reconciler: r,
-		MaxConcurrentReconciles: defaultMaxWorkerThreadsForCSINodeTopology})
+		MaxConcurrentReconciles: defaultMaxWorkerThreads})
 	if err != nil {
 		log.Errorf("failed to create new CSINodetopology controller with error: %+v", err)
 		return err

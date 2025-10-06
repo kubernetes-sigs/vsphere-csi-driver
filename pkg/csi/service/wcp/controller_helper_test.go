@@ -11,14 +11,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 func TestGetPodVMUUID(t *testing.T) {
-	logger.SetLoggerLevel(logger.DevelopmentLogLevel)
 	containerOrchOriginal := commonco.ContainerOrchestratorUtility
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 	newK8sClientOriginal := newK8sClient
@@ -130,68 +127,6 @@ func TestGetPodVMUUID(t *testing.T) {
 		// Verify
 		assert.Nil(t, err)
 		assert.Equal(t, "mock-vm-uuid", vmUUID)
-	})
-}
-
-func TestVerifyStoragePolicyForVmfsWithEageredZeroThick(t *testing.T) {
-	ctx := context.TODO()
-
-	t.Run("Valid VMFS EZT policy", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: vmfsNamespace, Value: vmfsNamespaceEztValue},
-						},
-					},
-				},
-			},
-		}
-
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "valid-policy-id")
-		assert.NoError(t, err)
-	})
-
-	t.Run("Invalid VMFS policy - not EZT", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: vmfsNamespace, Value: "Thin"},
-						},
-					},
-				},
-			},
-		}
-
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "invalid-policy-id")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "must be fully initialized")
-	})
-
-	t.Run("Policy with no VMFS rule", func(t *testing.T) {
-		policyList := []cnsvsphere.SpbmPolicyContent{
-			{
-				Profiles: []cnsvsphere.SpbmPolicySubProfile{
-					{
-						Rules: []cnsvsphere.SpbmPolicyRule{
-							{Ns: "VSAN", Value: "Whatever"},
-						},
-					},
-				},
-			},
-		}
-
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "no-vmfs-rule-policy")
-		assert.NoError(t, err)
-	})
-
-	t.Run("Empty policy list", func(t *testing.T) {
-		var policyList []cnsvsphere.SpbmPolicyContent
-		err := verifyStoragePolicyForVmfsWithEageredZeroThick(ctx, policyList, "empty-policy")
-		assert.NoError(t, err)
 	})
 }
 

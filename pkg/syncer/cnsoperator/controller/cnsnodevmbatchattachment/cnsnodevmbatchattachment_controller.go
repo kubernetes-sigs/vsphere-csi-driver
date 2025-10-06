@@ -20,19 +20,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,7 +50,7 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
-	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -75,6 +74,7 @@ var (
 )
 
 const (
+	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_BATCH_ATTACH"
 	defaultMaxWorkerThreads = 10
 )
 
@@ -114,7 +114,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
@@ -138,11 +138,11 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 // add adds this package's controller to the provided manager.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := getMaxWorkerThreads(ctx)
 
-	backOffDuration = make(map[types.NamespacedName]time.Duration)
 	VolumeLock = &sync.Map{}
-
+  
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("cnsnodevmbatchattachment-controller").
@@ -152,11 +152,12 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 			MaxConcurrentReconciles: maxWorkerThreads,
 		}).
 		Complete(r)
-
 	if err != nil {
-		log.Errorf("failed to watch for changes to CnsNodeVmBatchAttachment resource with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
+
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
 	return nil
 }
 
@@ -173,42 +174,6 @@ type Reconciler struct {
 	// instanceLock to ensure that for an instance we have only
 	// one reconciliation at a time.
 	instanceLock sync.Map
-}
-
-// getMaxWorkerThreads returns the maximum
-// number of worker threads which can be run to reconcile CnsNodeVmBatchAttachment
-// instances. If environment variable WORKER_THREADS_NODEVM_BATCH_ATTACH is set and
-// valid, return the value read from environment variable otherwise, use the
-// default value.
-func getMaxWorkerThreads(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-
-	workerThreads := defaultMaxWorkerThreads
-	envVal := os.Getenv("WORKER_THREADS_NODEVM_BATCH_ATTACH")
-	if envVal == "" {
-		log.Debugf("WORKER_THREADS_NODEVM_BATCH_ATTACH is not set. Picking the default value %d",
-			defaultMaxWorkerThreads)
-		return workerThreads
-	}
-
-	value, err := strconv.Atoi(envVal)
-	if err != nil {
-		log.Warnf("Invalid value for WORKER_THREADS_NODEVM_BATCH_ATTACH: %s. Using default value %d",
-			envVal, defaultMaxWorkerThreads)
-		return workerThreads
-	}
-
-	switch {
-	case value <= 0 || value > defaultMaxWorkerThreads:
-		log.Warnf("Value %s for WORKER_THREADS_NODEVM_BATCH_ATTACH is invalid. Using default value %d",
-			envVal, defaultMaxWorkerThreads)
-	default:
-		workerThreads = value
-		log.Debugf("Maximum number of worker threads to reconcile CnsNodeVmBatchAttachment is set to %d",
-			workerThreads)
-
-	}
-	return workerThreads
 }
 
 // Reconcile over CnsNodeVmBatchAttachment CR.

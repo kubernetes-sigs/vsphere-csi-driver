@@ -63,6 +63,7 @@ const (
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize1GB                                = "1Gi"
 	diskSize                                   = "2Gi"
+	diskSize4GB                                = "4Gi"
 	diskSizeSmall                              = "100Mi"
 	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
@@ -179,7 +180,7 @@ const (
 	regionKey                                 = "topology.csi.vmware.com/k8s-region"
 	resizePollInterval                        = 2 * time.Second
 	restartOperation                          = "restart"
-	rqLimit                                   = "200Gi"
+	rqLimit                                   = "500Gi"
 	rqLimitScaleTest                          = "900Gi"
 	rootUser                                  = "root"
 	defaultrqLimit                            = "20Gi"
@@ -275,6 +276,11 @@ const (
 	devopsKubeConf                           = "DEV_OPS_USER_KUBECONFIG"
 	quotaSupportedVCVersion                  = "9.0.0"
 	lateBinding                              = "-latebinding"
+	cnsVolumeDeleteTimeout                   = 5 * time.Minute
+	vscDeleteTimeout                         = 5 * time.Minute
+	selectedNodeIsZone                       = "cns.vmware.com/selected-node-is-zone"
+	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
+	vmZoneLabel                              = "topology.kubernetes.io/zone"
 )
 
 /*

@@ -108,8 +108,23 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		return "", err
 	}
 
+	// Obtain VM's UID.
+	vmUID, err := getVmUID(ctx, vm, namespace)
+	if err != nil {
+		log.Errorf("failed to get VM UID for VM %s. Err: %s", vm, err)
+		return "", err
+	}
+
+	// Obtain PVC's UID
+	pvcUID, err := getPVCUID(ctx, pvc, namespace)
+	if err != nil {
+		log.Errorf("failed to get PVC UID for PVC %s. Err: %s", pvc, err)
+		return "", err
+	}
+
 	// List only that CnsFileAccessConfig CRs which has the same VM name and PVC name labels.
-	labelSelector := labels.SelectorFromSet(labels.Set{vmNameLabelKey: vm, pvcNameLabelKey: pvc})
+	labelSelector := labels.SelectorFromSet(labels.Set{vmUIDLabelKey: vmUID, pvcUIDLabelKey: pvcUID})
+
 	// Get the list of all CnsFileAccessConfig CRs in the given namespace.
 	cnsFileAccessConfigList := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{}
 	err = cnsOperatorClient.List(ctx, cnsFileAccessConfigList, &client.ListOptions{

@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
 	clientConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -62,8 +63,9 @@ import (
 )
 
 const (
-	defaultMaxWorkerThreadsForRegisterVolume = 40
-	staticPvNamePrefix                       = "static-pv-"
+	workerThreadsEnvVar     = "WORKER_THREADS_REGISTER_VOLUME"
+	defaultMaxWorkerThreads = 40
+	staticPvNamePrefix      = "static-pv-"
 )
 
 var (
@@ -101,38 +103,36 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		common.MultipleClustersPerVsphereZone)
 
 	var volumeInfoService cnsvolumeinfo.VolumeInfoService
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			var err error
-			clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		var err error
+		clusterComputeResourceMoIds, _, err = common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return err
+		}
+		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+			topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 			if err != nil {
-				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+				log.Errorf("failed to init topology manager. err: %v", err)
 				return err
 			}
-			if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-				topologyMgr, err = commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
-				if err != nil {
-					log.Errorf("failed to init topology manager. err: %v", err)
-					return err
-				}
-				log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
-				volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
-				if err != nil {
-					return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
-				}
-				log.Infof("Successfully initialized VolumeInfoService")
-			} else {
-				if len(clusterComputeResourceMoIds) > 1 {
-					log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
-					return nil
-				}
+			log.Info("Creating CnsVolumeInfo Service to persist mapping for VolumeID to storage policy info")
+			volumeInfoService, err = cnsvolumeinfo.InitVolumeInfoService(ctx)
+			if err != nil {
+				return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
+			}
+			log.Infof("Successfully initialized VolumeInfoService")
+		} else {
+			if len(clusterComputeResourceMoIds) > 1 {
+				log.Infof("Not initializing the CnsRegisterVolume Controller as stretched supervisor is detected.")
+				return nil
 			}
 		}
-		if isMultipleClustersPerVsphereZoneEnabled {
-			err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, nil, metav1.NamespaceAll)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
-			}
+	}
+	if isMultipleClustersPerVsphereZoneEnabled {
+		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, nil, metav1.NamespaceAll)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
 		}
 	}
 	// Initializes kubernetes client.
@@ -166,7 +166,8 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx)
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	c, err := controller.New("cnsregistervolume-controller", mgr,
 		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
@@ -669,15 +670,16 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			pvcSpec, metav1.CreateOptions{})
 		if err != nil {
 			log.Errorf("Failed to create PVC with spec: %+v. Error: %+v", pvcSpec, err)
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err))
+			errMsg := fmt.Sprintf("Failed to create PVC: %s for volume with err: %+v", instance.Spec.PvcName, err)
+			setInstanceError(ctx, r, instance, errMsg)
 			// Delete PV created above.
 			err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
 			if err != nil {
 				log.Errorf("Delete PV %s failed with error: %+v", pvName, err)
+				combinedErrMsg := fmt.Sprintf("%s. Additionally, cleanup failed: Delete PV %s failed with error: %+v",
+					errMsg, pvName, err)
+				setInstanceError(ctx, r, instance, combinedErrMsg)
 			}
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("Delete PV %s failed with error: %+v", pvName, err))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		} else {
 			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)

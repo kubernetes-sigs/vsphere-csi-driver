@@ -1727,9 +1727,14 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 		}
 		// check if zone belong to namespace specified with targetNS and belong to
 		// volume requirement specified with requestedZones
-		if zoneObjUnstructured.GetNamespace() != targetNS && !slices.Contains(requestedZones, zoneObjUnstructured.GetName()) {
-			log.Debugf("skipping zone: %q as it does not match requested targetNS: %q and requestedZones: %v requirement",
-				zoneObjUnstructured.GetName(), targetNS, requestedZones)
+		if zoneObjUnstructured.GetNamespace() != targetNS {
+			log.Debugf("skipping zone:%q as it is not assgiend to namespace: %q",
+				zoneObjUnstructured.GetName(), targetNS)
+			continue
+		}
+		if !slices.Contains(requestedZones, zoneObjUnstructured.GetName()) {
+			log.Debugf("skipping zone:%q as it does not belong to requestedZones: %v",
+				zoneObjUnstructured.GetName(), requestedZones)
 			continue
 		}
 		// capture active cluster on the namespace from zone CR instance
@@ -1743,6 +1748,13 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 			return nil, logger.LogNewErrorf(log, "clusterMoIDs not found in zone instance :%q",
 				zoneObj.(*unstructured.Unstructured).GetName())
 		}
+		log.Infof("zone name=%q ns=%q uid=%q rv=%q active clusters: %v",
+			zoneObjUnstructured.GetName(),
+			zoneObjUnstructured.GetNamespace(),
+			zoneObjUnstructured.GetUID(),
+			zoneObjUnstructured.GetResourceVersion(),
+			clusters,
+		)
 		activeClusters = append(activeClusters, clusters...)
 	}
 	if len(activeClusters) == 0 {

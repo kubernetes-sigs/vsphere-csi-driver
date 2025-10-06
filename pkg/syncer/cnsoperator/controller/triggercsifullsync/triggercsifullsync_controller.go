@@ -19,8 +19,6 @@ package triggercsifullsync
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -38,7 +36,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -48,10 +45,12 @@ import (
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	defaultMaxWorkerThreadsForTriggerCsiFullSync = 1
+	workerThreadsEnvVar     = "WORKER_THREADS_TRIGGER_CSI_FULLSYNC"
+	defaultMaxWorkerThreads = 1
 )
 
 // backOffDuration is a map of triggercsifullsync name's to the time after which
@@ -119,7 +118,8 @@ func newReconciler(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileTriggerCsiFullSync(ctx)
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	c, err := controller.New("triggercsifullsync-controller", mgr,
 		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
@@ -340,37 +340,4 @@ func updateTriggerCsiFullSync(ctx context.Context, client client.Client,
 		return err
 	}
 	return nil
-}
-
-// getMaxWorkerThreadsToReconcileTriggerCsiFullSync returns the maximum number
-// of worker threads which can be run to reconcile TriggerCsiFullSync instances.
-// If environment variable WORKER_THREADS_TRIGGER_CSI_FULLSYNC is set and valid,
-// return the value read from environment variable. Otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileTriggerCsiFullSync(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForTriggerCsiFullSync
-	// Maximum number of worker threads to run.
-	if v := os.Getenv("WORKER_THREADS_TRIGGER_CSI_FULLSYNC"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Env variable WORKER_THREADS_TRIGGER_CSI_FULLSYNC %s is less than 1, use the default %d",
-					v, defaultMaxWorkerThreadsForTriggerCsiFullSync)
-			} else if value > defaultMaxWorkerThreadsForTriggerCsiFullSync {
-				log.Warnf("Env variable WORKER_THREADS_TRIGGER_CSI_FULLSYNC %s is greater than %d, use the default %d",
-					v, defaultMaxWorkerThreadsForTriggerCsiFullSync, defaultMaxWorkerThreadsForTriggerCsiFullSync)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum #worker to reconcile TriggerCsiFullSync instances is set to %d",
-					workerThreads)
-			}
-		} else {
-			log.Warnf("Env variable WORKER_THREADS_TRIGGER_CSI_FULLSYNC %s is invalid, use the default %d",
-				v, defaultMaxWorkerThreadsForTriggerCsiFullSync)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_TRIGGER_CSI_FULLSYNC is not set. Use the default value %d",
-			defaultMaxWorkerThreadsForTriggerCsiFullSync)
-	}
-	return workerThreads
 }

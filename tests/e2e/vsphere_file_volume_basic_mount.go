@@ -80,7 +80,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Two Pods can read the files written by each other, "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla] Verify Two Pods can read the files written by each other, "+
 		"when both have same pvc mounted", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		invokeTestForCreateFileVolumeAndMount(f, client,
 			namespace, accessMode, filePath1, filePath2, false, false, false)
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify Pod can read the files written by other Pod, "+
 		"which is deleted, when both have same pvc mounted", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2,
 			true, false, false)
@@ -129,8 +129,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod created as root user, "+
-		"when both have same pvc mounted", ginkgo.Label(p0, file, vanilla, vc70), func() {
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify Pod can read the files written by other Pod"+
+		" created as root user, when both have same pvc mounted", ginkgo.Label(p0, file, vanilla, vc70), func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, false, true, false)
 	})
 
@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 			1. Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify Pod can read the files written by other Pod, "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify Pod can read the files written by other Pod, "+
 		"which is deleted, when the Pod has pvc statically provisoned on same vsan file share", ginkgo.Label(p0,
 		file, vanilla, vc70), func() {
 		invokeTestForCreateFileVolumeAndMount(f, client, namespace, accessMode, filePath1, filePath2, true, false, true)
@@ -167,8 +167,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 		    1.Delete all the pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify provisioning of PVC fails for RWX PVC with xfs fstype", ginkgo.Label(p1,
-		negative, file, vanilla, vc70), func() {
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify provisioning of PVC fails for RWX PVC with"+
+		" xfs fstype", ginkgo.Label(p1, negative, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -216,7 +216,8 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 		    1.Delete all the Pods, pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] Verify mounting of volume for RWX PVC with ext4 fstype passes", ginkgo.Label(p0,
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify mounting of volume for RWX PVC with ext4 fstype"+
+		" passes", ginkgo.Label(p0,
 		file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

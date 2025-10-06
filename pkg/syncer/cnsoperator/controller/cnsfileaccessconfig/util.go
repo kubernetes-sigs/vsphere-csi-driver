@@ -19,11 +19,9 @@ package cnsfileaccessconfig
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
-	"strconv"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 
@@ -36,7 +34,7 @@ import (
 // getVirtualMachine gets the virtual machine instance with a name on a SV
 // namespace.
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmName string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, string, error) {
+	vmName string, namespace string) (*vmoperatortypes.VirtualMachine, string, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
@@ -58,7 +56,7 @@ func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConf
 	vmUID apitypes.UID, apiVersion string) {
 	bController := true
 	bOwnerDeletion := true
-	kind := reflect.TypeOf(vmoperatorv1alpha4.VirtualMachine{}).Name()
+	kind := reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
 		{
 			APIVersion:         apiVersion,
@@ -69,39 +67,4 @@ func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConf
 			UID:                vmUID,
 		},
 	}
-}
-
-// getMaxWorkerThreadsToReconcileCnsFileAccessConfig returns the maximum number
-// of worker threads which can be run to reconcile CnsFileAccessConfig instances.
-// If environment variable WORKER_THREADS_FILE_ACCESS_CONFIG is set and valid,
-// return the value read from environment variable otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileCnsFileAccessConfig(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForFileAccessConfig
-	if v := os.Getenv("WORKER_THREADS_FILE_ACCESS_CONFIG"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForFileAccessConfig)
-			} else if value > defaultMaxWorkerThreadsForFileAccessConfig {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_FILE_ACCESS_CONFIG %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForFileAccessConfig, defaultMaxWorkerThreadsForFileAccessConfig)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile "+
-					"CnsFileAccessConfig instances is set to %d", workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_FILE_ACCESS_CONFIG %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForFileAccessConfig)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_FILE_ACCESS_CONFIG is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForFileAccessConfig)
-	}
-	return workerThreads
 }

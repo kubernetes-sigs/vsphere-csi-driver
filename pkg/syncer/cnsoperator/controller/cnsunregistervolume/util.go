@@ -19,12 +19,10 @@ package cnsunregistervolume
 import (
 	"context"
 	"errors"
-	"os"
-	"strconv"
 	"strings"
 
 	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	vmv1a4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,40 +35,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
-
-// getMaxWorkerThreads returns the maximum number
-// of worker threads which can be run to reconcile CnsUnregisterVolume instances.
-// If environment variable WORKER_THREADS_UNREGISTER_VOLUME is set and valid,
-// return the value read from environment variable. Otherwise, use the default value.
-func getMaxWorkerThreads(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-
-	workerThreads := defaultMaxWorkerThreads
-	env := os.Getenv("WORKER_THREADS_UNREGISTER_VOLUME")
-	if env == "" {
-		log.Debugf("WORKER_THREADS_UNREGISTER_VOLUME is not set. Picking the default value %d",
-			defaultMaxWorkerThreads)
-		return workerThreads
-	}
-
-	val, err := strconv.Atoi(env)
-	if err != nil {
-		log.Warnf("Invalid value for WORKER_THREADS_UNREGISTER_VOLUME: %q. Using default value %d",
-			env, defaultMaxWorkerThreads)
-		return workerThreads
-	}
-
-	switch {
-	case val <= 0 || val > defaultMaxWorkerThreads:
-		log.Warnf("Value %d for WORKER_THREADS_UNREGISTER_VOLUME is invalid. Using default value %d",
-			val, defaultMaxWorkerThreads)
-	default:
-		workerThreads = val
-		log.Debugf("Maximum number of worker threads to reconcile CnsUnregisterVolume instances is set to %d",
-			workerThreads)
-	}
-	return workerThreads
-}
 
 type volumeUsageInfo struct {
 	isInUse         bool
@@ -298,7 +262,7 @@ func getGuestClustersForPVC(ctx context.Context, pvcName, pvcNamespace string,
 // getVMsForPVC returns a list of virtual machines that are using the specified PVC.
 func getVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) ([]string, bool, error) {
-	c, err := k8s.NewClientForGroup(ctx, &cfg, vmv1a4.GroupName)
+	c, err := k8s.NewClientForGroup(ctx, &cfg, vmoperatortypes.GroupName)
 	if err != nil {
 		return nil, false, err
 	}

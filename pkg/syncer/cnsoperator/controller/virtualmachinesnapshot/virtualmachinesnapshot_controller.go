@@ -20,15 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"go.uber.org/zap"
+	syncgroup "golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,13 +35,13 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -53,14 +52,16 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	MaxBackOffDurationForReconciler                  = 5 * time.Minute
-	defaultMaxWorkerThreadsForVirtualMachineSnapshot = 10
-	allowedRetriesToPatchCNSVolumeInfo               = 5
-	SyncVolumeFinalizer                              = "cns.vmware.com/syncvolume"
-	VMSnapshotFinalizer                              = "vmoperator.vmware.com/virtualmachinesnapshot"
+	MaxBackOffDurationForReconciler    = 5 * time.Minute
+	workerThreadsEnvVar                = "WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT"
+	defaultMaxWorkerThreads            = 10
+	allowedRetriesToPatchCNSVolumeInfo = 5
+	SyncVolumeFinalizer                = "cns.vmware.com/syncvolume"
+	VMSnapshotFinalizer                = "vmoperator.vmware.com/virtualmachinesnapshot"
 )
 
 var (
@@ -119,7 +120,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Error(msg)
 		return err
 	}
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. error: %+v", err)
 		log.Error(msg)
@@ -157,23 +158,19 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx)
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	c, err := controller.New("virtualmachinesnapshot-controller", mgr,
-		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
+	err := ctrl.NewControllerManagedBy(mgr).Named("virtualmachinesnapshot-controller").
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
+		Complete(r)
 	if err != nil {
-		log.Errorf("Failed to create new VirtualMachineSnapshot controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
+
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
-	// Watch for changes to primary resource VirtualMachineSnapshot.
-	err = c.Watch(source.Kind(mgr.GetCache(),
-		&vmoperatorv1alpha4.VirtualMachineSnapshot{},
-		&handler.TypedEnqueueRequestForObject[*vmoperatorv1alpha4.VirtualMachineSnapshot]{}))
-	if err != nil {
-		log.Errorf("Failed to watch for changes to VirtualMachineSnapshot resource with error: %+v", err)
-		return err
-	}
 	return nil
 }
 
@@ -210,7 +207,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 			request.Namespace, request.Name, time.Since(now))
 	}()
 	// Fetch the VirtualMachineSnapshot instance.
-	vmSnapshot := &vmoperatorv1alpha4.VirtualMachineSnapshot{}
+	vmSnapshot := &vmoperatortypes.VirtualMachineSnapshot{}
 	err := r.client.Get(ctx, request.NamespacedName, vmSnapshot)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -254,7 +251,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	return reconcile.Result{}, nil
 }
 func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, log *zap.SugaredLogger,
-	vmsnapshot *vmoperatorv1alpha4.VirtualMachineSnapshot) error {
+	vmsnapshot *vmoperatortypes.VirtualMachineSnapshot) error {
 	deleteVMSnapshot := false
 	if vmsnapshot.DeletionTimestamp.IsZero() {
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
@@ -292,7 +289,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		// if found fetch vmsnapshot and pvcs and pvs
 		vmKey := apitypes.NamespacedName{
 			Namespace: vmsnapshot.Namespace,
-			Name:      vmsnapshot.Spec.VMRef.Name,
+			Name:      vmsnapshot.Spec.VMName,
 		}
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
 		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
@@ -361,7 +358,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 // appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *ReconcileVirtualMachineSnapshot,
-	instance *vmoperatorv1alpha4.VirtualMachineSnapshot, eventtype string, msg string) {
+	instance *vmoperatortypes.VirtualMachineSnapshot, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
 	namespacedName := apitypes.NamespacedName{
@@ -385,47 +382,16 @@ func recordEvent(ctx context.Context, r *ReconcileVirtualMachineSnapshot,
 	}
 }
 
-// getMaxWorkerThreadsToReconcileVirtualMachineSnapshot returns the maximum number
-// of worker threads which can be run to reconcile VirtualMachineSnapshot instances.
-// If environment variable WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is set and valid,
-// return the value read from environment variable. Otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileVirtualMachineSnapshot(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForVirtualMachineSnapshot
-	envVal := os.Getenv("WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT")
-	if envVal == "" {
-		log.Debugf("WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-		return workerThreads
-	}
-	value, err := strconv.Atoi(envVal)
-	if err != nil {
-		log.Warnf("Invalid value for WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT: %s. Using default value %d",
-			envVal, defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-		return workerThreads
-	}
-	switch {
-	case value <= 0 || value > defaultMaxWorkerThreadsForVirtualMachineSnapshot:
-		log.Warnf("Value %s for WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT is invalid. Using default value %d",
-			envVal, defaultMaxWorkerThreadsForVirtualMachineSnapshot)
-	default:
-		workerThreads = value
-		log.Debugf("Maximum number of worker threads to reconcile VirtualMachineSnapshot is set to %d",
-			workerThreads)
-	}
-	return workerThreads
-}
-
 // syncVolumesAndUpdateCNSVolumeInfo will fetch the volume-ids attached to virtualmachine
 // will call SyncVolume API with sync mode SPACE_USAGE and volume-id list
 // after volume sync is successful it will fetch the aggregated size of all related volumes
 // will update the relevant CNSVolumeInfo for each volume which will update the storage policy usage.
 func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx context.Context,
-	log *zap.SugaredLogger, vm *vmoperatorv1alpha4.VirtualMachine) error {
+	log *zap.SugaredLogger, vm *vmoperatortypes.VirtualMachine) error {
 	var err error
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
+	syncgrp, sgctx := syncgroup.WithContext(ctx)
 	for _, vmVolume := range vm.Spec.Volumes {
 		if vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim == nil {
 			continue
@@ -461,15 +427,10 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 						SyncMode: syncMode,
 					},
 				}
-				// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
-				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: Trigger CNS VolumeSync API for volume %s",
-					cnsVolId)
-				syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
-				if err != nil {
-					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume %s "+
-						"cnsfault %s. error: %v", cnsVolId, syncVolumeFaultType, err)
-					return err
-				}
+				// parallelize sync volume api calls
+				syncgrp.Go(func() error {
+					return r.invokeSyncVolume(sgctx, log, syncVolumeSpecs)
+				})
 			}
 		} else {
 			err = fmt.Errorf("could not find the PV associated with PVC %s/%s",
@@ -478,10 +439,19 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			return err
 		}
 	}
+	// if syncvolume api is not invoked for any volume, no need to update CNSVolumeInfos
 	if len(cnsVolumeIds) == 0 {
-		log.Infof("syncVolumesAndUpdateCNSVolumeInfo: no volumes found to sync, skipping volume sync")
+		log.Info("syncVolumesAndUpdateCNSVolumeInfo: no volumes found to sync, skipped volume sync")
 		return nil
 	}
+	log.Info("syncVolumesAndUpdateCNSVolumeInfo: wait for syncvolume operation to be completed")
+	if err := syncgrp.Wait(); err != nil {
+		log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume "+
+			"error: %v", err)
+		return err
+	}
+	log.Info("syncVolumesAndUpdateCNSVolumeInfo: volumes are synced successfully. " +
+		"will update related CNSVolumeInfos")
 	// fetch updated cns volumes
 	queryFilter := cnstypes.CnsQueryFilter{
 		VolumeIds: cnsVolumeIds,
@@ -496,11 +466,11 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			val, ok := cnsvolume.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 			if ok {
 				log.Infof("syncVolumesAndUpdateCNSVolumeInfo: fetched aggregated capacity for volume %s "+
-					"AggregatedSnapshotCapacityInMb %s", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
+					"AggregatedSnapshotCapacityInMb %d", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
 
 				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
 				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb,
-					cnsvolume.VolumeId.Id) // TODO: UDPATE to value returned
+					cnsvolume.VolumeId.Id)
 				if err != nil {
 					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to get cnsvolumeinfo patch for "+
 						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
@@ -528,4 +498,25 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 		}
 	}
 	return nil
+}
+
+func (r *ReconcileVirtualMachineSnapshot) invokeSyncVolume(ctx context.Context, log *zap.SugaredLogger,
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) error {
+	select {
+	case <-ctx.Done():
+		log.Infof("invokeSyncVolume: Sync Volume Operation cancelled for volume %s",
+			syncVolumeSpecs[0])
+		return ctx.Err()
+	default:
+		// Trigger CNS VolumeSync API for identified volume-lds and Fetch Latest Aggregated snapshot size
+		log.Infof("invokeSyncVolume: Trigger CNS SyncVolume API for volume %s",
+			syncVolumeSpecs[0])
+		syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
+		if err != nil {
+			log.Errorf("invokeSyncVolume: error while sync volume %s "+
+				"cnsfault %s. error: %v", syncVolumeSpecs[0], syncVolumeFaultType, err)
+			return err
+		}
+		return nil
+	}
 }

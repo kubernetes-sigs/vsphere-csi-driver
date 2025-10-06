@@ -28,14 +28,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
 
 // Tests to verify SPBM based dynamic volume provisioning using CSI Driver in
@@ -90,8 +89,8 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		}
 	})
 
-	ginkgo.It("[cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
-		"[csi-guest][ef-vks] Verify dynamic volume provisioning works when storage policy specified "+
+	ginkgo.It("[ef-vanilla-block][ef-wcp][cf-vks][csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor]"+
+		"[csi-guest] Verify dynamic volume provisioning works when storage policy specified "+
 		"in the storageclass is compliant for shared datastores", func() {
 		storagePolicyNameForSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForSharedDatastores))
@@ -115,9 +114,9 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			namespace, scParameters, storagePolicyNameForSharedDatastores)
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] [csi-supervisor] [csi-guest] [ef-vks] Verify "+
-		"dynamic volume provisioning fails when storage policy specified in the storageclass is compliant "+
-		"for non-shared datastores", func() {
+	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-block-vanilla-parallelized][csi-supervisor][csi-guest]"+
+		"[ef-vks][ef-vks-n1][ef-vks-n2] Verify dynamic volume provisioning fails when storage policy specified "+
+		"in the storageclass is compliant for non-shared datastores", func() {
 		storagePolicyNameForNonSharedDatastores := GetAndExpectStringEnvVar(envStoragePolicyNameForNonSharedDatastores)
 		ginkgo.By(fmt.Sprintf("Invoking test for storage policy: %s", storagePolicyNameForNonSharedDatastores))
 		scParameters := make(map[string]string)
@@ -164,8 +163,8 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 
 	})
 
-	ginkgo.It("[csi-block-vanilla] [csi-block-vanilla-parallelized] Verify non-existing SPBM policy is not honored "+
-		"for dynamic volume provisioning using storageclass", func() {
+	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Verify non-existing SPBM policy "+
+		"is not honored for dynamic volume provisioning using storageclass", func() {
 		ginkgo.By(fmt.Sprintf("Invoking test for SPBM policy: %s", f.Namespace.Name))
 		scParameters := make(map[string]string)
 		scParameters[scParamStoragePolicyName] = f.Namespace.Name
@@ -182,7 +181,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
 
-	ginkgo.It("[stretched-svc] Provisioning-volume-exceeding-quota", func() {
+	ginkgo.It("[ef-stretched-svc][stretched-svc] Provisioning-volume-exceeding-quota", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

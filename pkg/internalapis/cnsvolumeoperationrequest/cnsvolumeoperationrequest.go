@@ -78,6 +78,7 @@ var (
 	operationRequestStoreInstance        *operationRequestStore
 	operationStoreInitLock               = &sync.Mutex{}
 	isPodVMOnStretchSupervisorFSSEnabled bool
+	isCSITransactionSupportEnabled       bool
 )
 
 // InitVolumeOperationRequestInterface creates the CnsVolumeOperationRequest
@@ -85,7 +86,8 @@ var (
 // VolumeOperationRequest interface. Clients are unaware of the implementation
 // details to read and persist volume operation details.
 func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval int,
-	isBlockVolumeSnapshotEnabled func() bool, isPodVMOnStretchSupervisorEnabled bool) (
+	isBlockVolumeSnapshotEnabled func() bool, isPodVMOnStretchSupervisorEnabled bool,
+	csiTransactionSupportEnabled bool) (
 	VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
 	csiNamespace = getCSINamespace()
@@ -130,6 +132,8 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 	}
 	// Store PodVMOnStretchedSupervisor FSS value for later use.
 	isPodVMOnStretchSupervisorFSSEnabled = isPodVMOnStretchSupervisorEnabled
+	// Store CSI Transaction Support FSS value for later use.
+	isCSITransactionSupportEnabled = csiTransactionSupportEnabled
 
 	return operationRequestStoreInstance, nil
 }
@@ -260,6 +264,32 @@ func (or *operationRequestStore) StoreRequestDetails(
 
 	// Create a deep copy since we modify the object.
 	updatedInstance := instance.DeepCopy()
+
+	// If CSI Transaction Support is enabled and we're storing a new InProgress operation with empty TaskID,
+	// mark any existing InProgress entries as TrackingAborted since this indicates a retry scenario.
+	if isCSITransactionSupportEnabled && operationDetailsToStore.TaskStatus == TaskInvocationStatusInProgress &&
+		operationDetailsToStore.TaskID == "" {
+		// This is a new operation attempt (Phase 1: Intent Registration)
+		// Mark any existing InProgress entries as TrackingAborted since this is clearly a retry
+		for index := range updatedInstance.Status.LatestOperationDetails {
+			existingOp := &updatedInstance.Status.LatestOperationDetails[index]
+			if existingOp.TaskStatus == TaskInvocationStatusInProgress {
+				// This is a retry - mark the previous attempt as aborted
+				existingOp.TaskStatus = TaskInvocationStatusTrackingAborted
+				existingOp.Error = "Operation tracking aborted due to retry attempt"
+				log.Infof("Marked previous InProgress operation as TrackingAborted due to retry detection. Instance: %s",
+					operationToStore.Name)
+			}
+		}
+
+		// Also check FirstOperationDetails
+		if updatedInstance.Status.FirstOperationDetails.TaskStatus == TaskInvocationStatusInProgress {
+			updatedInstance.Status.FirstOperationDetails.TaskStatus = TaskInvocationStatusTrackingAborted
+			updatedInstance.Status.FirstOperationDetails.Error = "Operation tracking aborted due to retry attempt"
+			log.Infof("Marked FirstOperationDetails as TrackingAborted due to retry detection. Instance: %s",
+				operationToStore.Name)
+		}
+	}
 
 	// Modify VolumeID, SnapshotID and Capacity
 	updatedInstance.Status.VolumeID = operationToStore.VolumeID
@@ -407,6 +437,12 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		}
 		log.Infof("Clean up of stale CnsVolumeOperationRequest complete.")
 	}
+}
+
+// SetCSITransactionSupport sets the CSI Transaction Support feature flag.
+// This function allows runtime modification of the isCSITransactionSupportEnabled variable.
+func SetCSITransactionSupport(enabled bool) {
+	isCSITransactionSupportEnabled = enabled
 }
 
 func getCSINamespace() string {
