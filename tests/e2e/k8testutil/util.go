@@ -858,45 +858,9 @@ func PsodHostWithPv(ctx context.Context, vs *config.E2eTestConfig, pvName string
 	framework.Logf("hostIP %v", hostIP)
 	gomega.Expect(hostIP).NotTo(gomega.BeEmpty())
 
-	err := PsodHost(vs, hostIP, "")
+	err := vcutil.PsodHost(vs, hostIP, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return hostIP
-}
-
-/* This util will perform psod operation on a host */
-func PsodHost(vs *config.E2eTestConfig, hostIP string, psodTimeOut string) error {
-	ginkgo.By("PSOD")
-	var timeout string
-	if psodTimeOut != "" {
-		timeout = psodTimeOut
-	} else {
-		timeout = constants.PsodTime
-	}
-	sshCmd := fmt.Sprintf("vsish -e set /config/Misc/intOpts/BlueScreenTimeout %s", timeout)
-	op, err := RunCommandOnESX(vs, constants.RootUser, hostIP, sshCmd)
-	framework.Logf("%q", op)
-	if err != nil {
-		return fmt.Errorf("failed to set BlueScreenTimeout: %w", err)
-	}
-
-	ginkgo.By("Injecting PSOD")
-	psodCmd := "vsish -e set /reliability/crashMe/Panic 1; exit"
-	op, err = RunCommandOnESX(vs, constants.RootUser, hostIP, psodCmd)
-	framework.Logf("%q", op)
-	if err != nil {
-		return fmt.Errorf("failed to inject PSOD: %w", err)
-	}
-	return nil
-}
-
-// hostLogin methods sets the ESX host password.
-func HostLogin(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
-	answers = make([]string, len(questions))
-	nimbusGeneratedEsxPwd := env.GetAndExpectStringEnvVar(constants.NimbusEsxPwd)
-	for n := range questions {
-		answers[n] = nimbusGeneratedEsxPwd
-	}
-	return answers, nil
 }
 
 // createStorageClass helps creates a storage class with specified name,
@@ -3582,75 +3546,11 @@ func VsanObjIndentities(ctx context.Context, vs *config.E2eTestConfig, pvName st
 	return vsanObjUUID
 }
 
-// runCommandOnESX executes ssh commands on the give ESX host and returns the bash
-// result.
-func RunCommandOnESX(vs *config.E2eTestConfig, username string, addr string, cmd string) (string, error) {
-	// Authentication.
-	config := &ssh.ClientConfig{
-		User:            username,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Auth: []ssh.AuthMethod{
-			ssh.KeyboardInteractive(HostLogin),
-		},
-	}
-
-	// Read hosts sshd port number
-	ip, portNum, err := env.GetPortNumAndIP(&vs.TestInput.TestBedInfo, addr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	result := fssh.Result{Host: ip, Cmd: cmd}
-	// Connect.
-	client, err := ssh.Dial("tcp", net.JoinHostPort(ip, portNum), config)
-	if err != nil {
-		framework.Logf("connection failed due to %v", err)
-		return "", err
-	}
-	// Create a session. It is one session per command.
-	session, err := client.NewSession()
-	if err != nil {
-		framework.Logf("session creation failed due to %v", err)
-		return "", err
-	}
-	defer session.Close()
-
-	// Run the command.
-	code := 0
-	var bytesStdout, bytesStderr bytes.Buffer
-	session.Stdout, session.Stderr = &bytesStdout, &bytesStderr
-	if err = session.Run(cmd); err != nil {
-		if exiterr, ok := err.(*ssh.ExitError); ok {
-			// If we got an ExitError and the exit code is nonzero, we'll
-			// consider the SSH itself successful but cmd failed on the host.
-			if code = exiterr.ExitStatus(); code != 0 {
-				err = nil
-			}
-		}
-		if exiterr, ok := err.(*ssh.ExitMissingError); ok {
-			/* If we got an  ExitMissingError and the exit code is zero, we'll
-			consider the SSH itself successful and cmd executed successfully on the host.
-			If  exit code is non zero we'll consider the SSH is successful but
-			cmd failed on the host. */
-			framework.Logf("%q", exiterr.Error())
-			if code == 0 {
-				err = nil
-			} else {
-				err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
-			}
-		} else {
-			err = fmt.Errorf("failed running `%s` on %s@%s: '%v'", cmd, config.User, addr, err)
-		}
-	}
-	result.Stdout = bytesStdout.String()
-	result.Stderr = bytesStderr.String()
-	result.Code = code
-	return result.Stdout, err
-}
-
 // StopHostDOnHost executes hostd stop service commands on the given ESX host
 func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
 	framework.Logf("Stopping hostd service on the host  %s ...", addr)
 	stopHostCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StopOperation)
-	_, err := RunCommandOnESX(vs, "root", addr, stopHostCmd)
+	_, err := vcutil.RunCommandOnESX(vs, "root", addr, stopHostCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "notResponding")
@@ -3661,7 +3561,7 @@ func StopHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string)
 func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string) {
 	framework.Logf("Starting hostd service on the host  %s ...", addr)
 	startHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StartOperation)
-	_, err := RunCommandOnESX(vs, "root", addr, startHostDCmd)
+	_, err := vcutil.RunCommandOnESX(vs, "root", addr, startHostDCmd)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = vcutil.WaitForHostConnectionState(ctx, vs, addr, "connected")
@@ -3675,7 +3575,7 @@ func StartHostDOnHost(ctx context.Context, vs *config.E2eTestConfig, addr string
 func GetHostDStatusOnHost(vs *config.E2eTestConfig, addr string) string {
 	framework.Logf("Running status check on hostd service for the host  %s ...", addr)
 	statusHostDCmd := fmt.Sprintf("/etc/init.d/hostd %s", constants.StatusOperation)
-	output, err := RunCommandOnESX(vs, "root", addr, statusHostDCmd)
+	output, err := vcutil.RunCommandOnESX(vs, "root", addr, statusHostDCmd)
 	framework.Logf("hostd status command output is %q:", output)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return output
@@ -7719,4 +7619,75 @@ func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface)
 	_, err := c.AppsV1().StatefulSets(ns).Create(ctx, ss, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
+}
+
+/*
+The CreateStorageClassWithMultiplePVCs utility function facilitates the creation of a storage class
+along with multiple PVCs. The decision to skip or create PVCs or the storage class
+is controlled by the user through a boolean parameter.
+Additionally, the user can specify the scale of PVC creation using an iterator variable.
+This function returns a list containing the PVCs and storage class created,
+along with an error message in case of any failures.
+*/
+func CreateStorageClassWithMultiplePVCs(client clientset.Interface, vs *config.E2eTestConfig, namespace string,
+	pvclaimlabels map[string]string, scParameters map[string]string, ds string,
+	allowedTopologies []v1.TopologySelectorLabelRequirement, bindingMode storagev1.VolumeBindingMode,
+	allowVolumeExpansion bool, accessMode v1.PersistentVolumeAccessMode, storageClassName string,
+	storageClass *storagev1.StorageClass, pvcItr int, skipStorageClassCreation bool,
+	skipPvcCreation bool) (*storagev1.StorageClass, []*v1.PersistentVolumeClaim, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var sc *storagev1.StorageClass
+	var err error
+	var pvclaims []*v1.PersistentVolumeClaim
+
+	if !skipStorageClassCreation {
+		// creating storage class if skipStorageClassCreation is set to false
+		scName := ""
+		if len(storageClassName) > 0 {
+			scName = storageClassName
+		}
+		sc, err = CreateStorageClass(client, vs, scParameters,
+			allowedTopologies, "", bindingMode, allowVolumeExpansion, scName)
+		if err != nil {
+			return sc, nil, err
+		}
+	}
+
+	if !skipPvcCreation {
+		// we need storage class name in case we are only creating pvcs and skipping sc creation
+		if skipStorageClassCreation {
+			sc = storageClass
+		}
+		// creating pvc if skipPvcCreation is set to false
+		for i := 0; i < pvcItr; i++ {
+			pvclaim, err := CreatePVC(ctx, client, namespace, pvclaimlabels, ds, sc, accessMode)
+			pvclaims = append(pvclaims, pvclaim)
+			if err != nil {
+				return sc, pvclaims, err
+			}
+		}
+	}
+	return sc, pvclaims, nil
+}
+
+func CleanupPVCsAndCNSVolumes(ctx context.Context, client clientset.Interface, namespace string,
+	pvcList []*v1.PersistentVolumeClaim, volHandles []string, testConfig *config.E2eTestConfig) {
+
+	for i := range pvcList {
+		pvcName := pvcList[i].Name
+		volHandle := volHandles[i]
+
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, pvcName, namespace)
+		if err != nil {
+			fmt.Printf("error deleting PVC %s: %v\n", pvcName, err)
+		}
+
+		err = vcutil.WaitForCNSVolumeToBeDeleted(testConfig, volHandle)
+		if err != nil {
+			fmt.Printf("error waiting for CNS volume deletion %s: %v\n", volHandle, err)
+		}
+	}
 }
