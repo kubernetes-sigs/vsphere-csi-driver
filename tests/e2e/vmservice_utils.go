@@ -1486,28 +1486,32 @@ func getVmImages(ctx context.Context, namespace string) string {
 }
 
 // Waits for vm images to get listed in namespace
-func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, Poll,
-	timeout time.Duration) error {
-
-	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+func pollWaitForVMImageToSync(ctx context.Context, namespace string, expectedImage string, poll, timeout time.Duration) error {
+	start := time.Now()
+	for time.Since(start) < timeout {
 		listOfVmImages := getVmImages(ctx, namespace)
-		// Split output into lines and search for the expected image
 		lines := strings.Split(listOfVmImages, "\n")
 		found := false
+
 		for _, line := range lines {
+			// Skip header or empty lines
+			if strings.HasPrefix(line, "NAME") || strings.TrimSpace(line) == "" {
+				continue
+			}
+
 			if strings.Contains(line, expectedImage) {
 				found = true
-				framework.Logf("Found : %t, Image: %s\n", found, expectedImage)
+				framework.Logf("Found VM Image in namespace [%s]:\n%s", namespace, line)
 				break
 			}
 		}
-		if !found {
-			continue
-		} else {
+
+		if found {
 			return nil
 		}
 
+		time.Sleep(poll)
 	}
-	return fmt.Errorf("failed to load vm-image timed out after %v", timeout)
 
+	return fmt.Errorf("failed to find VM image %q in namespace %q after timeout %v", expectedImage, namespace, timeout)
 }

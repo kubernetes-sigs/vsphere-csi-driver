@@ -518,6 +518,11 @@ var (
 	serviceAccountKeyword     = "ServiceAccount"
 )
 
+// blueprint pvc
+var (
+	envDatastoreUrlZone2 = "DATASTORE_URL_ZONE2"
+)
+
 // storage policy usages for storage quota validation
 var usageSuffixes = []string{
 	"-pvc-usage",
