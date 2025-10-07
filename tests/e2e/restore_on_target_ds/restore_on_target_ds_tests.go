@@ -87,11 +87,12 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 		}
 
 		storagePolicyId := vcutil.GetSpbmPolicyID(storagePolicy, e2eTestConfig)
+		targetPolicyId := vcutil.GetSpbmPolicyID(restoreSp, e2eTestConfig)
 
 		// creating namespace with storagePolicy
 		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 			namespace, statuscode, err = k8testutil.CreatetWcpNsWithZonesAndPolicies(e2eTestConfig, vcRestSessionId,
-				[]string{storagePolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfig),
+				[]string{storagePolicyId, targetPolicyId}, k8testutil.GetSvcId(vcRestSessionId, e2eTestConfig),
 				[]string{}, "", "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(statuscode).To(gomega.Equal(204))
