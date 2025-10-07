@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,4 +133,72 @@ func TestGetSnatIpFromNamespaceNetworkInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetMaxWorkerThreads(t *testing.T) {
+	envVar := "MAX_WORKER_THREADS"
+
+	t.Run("WhenEnvVarNotSet", func(t *testing.T) {
+		// Setup
+		err := os.Unsetenv(envVar)
+		if err != nil {
+			t.Fatalf("Failed to unset env var: %v", err)
+		}
+
+		defVal, expVal := 10, 10
+
+		// Execute
+		val := GetMaxWorkerThreads(context.Background(), envVar, defVal)
+
+		// Assert
+		assert.Equal(t, expVal, val)
+	})
+
+	t.Run("WhenEnvNotInteger", func(t *testing.T) {
+		// Setup
+		err := os.Setenv(envVar, "non-integer")
+		if err != nil {
+			t.Fatalf("Failed to set env var: %v", err)
+		}
+
+		defVal, expVal := 10, 10
+
+		// Execute
+		val := GetMaxWorkerThreads(context.Background(), envVar, defVal)
+
+		// Assert
+		assert.Equal(t, expVal, val)
+	})
+
+	t.Run("WhenEnvNotInExpRange", func(t *testing.T) {
+		// Setup
+		err := os.Setenv(envVar, "-10000")
+		if err != nil {
+			t.Fatalf("Failed to set env var: %v", err)
+		}
+
+		defVal, expVal := 10, 10
+
+		// Execute
+		val := GetMaxWorkerThreads(context.Background(), envVar, defVal)
+
+		// Assert
+		assert.Equal(t, expVal, val)
+	})
+
+	t.Run("WhenEnvValid", func(t *testing.T) {
+		// Setup
+		err := os.Setenv(envVar, "10")
+		if err != nil {
+			t.Fatalf("Failed to set env var: %v", err)
+		}
+
+		defVal, expVal := 50, 10
+
+		// Execute
+		val := GetMaxWorkerThreads(context.Background(), envVar, defVal)
+
+		// Assert
+		assert.Equal(t, expVal, val)
+	})
 }

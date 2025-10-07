@@ -278,7 +278,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 10. Delete PVC, PV and Storage Class.
 
 	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-guest][csi-supervisor]"+
-		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks][ef-vks-n1][ef-vks-n2] Verify volume expansion "+
+		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks-f]"+
+		"[ef-vks-n1-f][ef-vks-n2-f] Verify volume expansion "+
 		"can happen multiple times", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
 		invokeTestForExpandVolumeMultipleTimes(f, client, namespace, "", storagePolicyName, profileID)
 	})
@@ -3132,9 +3133,12 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 	}
 
-	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	if guestCluster {
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")

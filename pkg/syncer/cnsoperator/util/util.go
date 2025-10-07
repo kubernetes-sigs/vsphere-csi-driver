@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/vmware/govmomi/object"
@@ -360,4 +362,39 @@ func GetDatacenterObjectList(ctx context.Context,
 		datacenterList = append(datacenterList, *dc)
 	}
 	return datacenterList, nil
+}
+
+// GetMaxWorkerThreads returns the maximum number of worker threads to be
+// spawned by a controller to reconciler instances of a CRD. It reads the
+// value from an environment variable identified by 'key'. If the environment
+// variable is not set or has an invalid value, it returns the 'defaultVal'.
+// The value of the environment variable should be a positive integer less
+// than or equal to 'defaultVal'.
+func GetMaxWorkerThreads(ctx context.Context, key string, defaultVal int) int {
+	log := logger.GetLogger(ctx).With("field", key)
+	workerThreads := defaultVal
+	env := os.Getenv(key)
+	if env == "" {
+		log.Debugf("Environment variable is not set. Picking the default value %d",
+			defaultVal)
+		return workerThreads
+	}
+
+	val, err := strconv.Atoi(env)
+	if err != nil {
+		log.Warnf("Invalid value for environment variable: %q. Using default value %d",
+			env, defaultVal)
+		return workerThreads
+	}
+
+	switch {
+	case val <= 0 || val > defaultVal:
+		log.Warnf("Value %d for environment variable is invalid. Using default value %d",
+			val, defaultVal)
+	default:
+		workerThreads = val
+		log.Debugf("Maximum number of worker threads to reconcile is set to %d",
+			workerThreads)
+	}
+	return workerThreads
 }

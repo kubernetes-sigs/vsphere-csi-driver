@@ -4027,7 +4027,9 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		}
 	}
 
-	describeCNSRegisterVolume(ctx, namespace, cnsRegisterVolumeName)
+	if supervisorCluster {
+		describeCNSRegisterVolume(ctx, svcNamespace, cnsRegisterVolumeName)
+	}
 
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
 }
@@ -6930,7 +6932,7 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 
 	//list of default stopped services in VC
 	var defaultStoppedServicesList = []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper",
-		"vmware-perfcharts", "vmware-rbd-watchdog", "vmware-vcha"}
+		"vmware-rbd-watchdog", "vmware-vcha"}
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string
@@ -8372,4 +8374,19 @@ func getSvcConfigSecretData(client clientset.Interface, ctx context.Context,
 	}
 
 	return vsphereCfg, nil
+}
+
+// validate Annotation on PVC
+func validateAnnotationOnPVC(pvc *v1.PersistentVolumeClaim, annotationKey string, expectedValue string) error {
+	val, exists := pvc.Annotations[annotationKey]
+	if !exists {
+		return fmt.Errorf("PVC %s does NOT have annotation %q", pvc.Name, annotationKey)
+	}
+	if val == expectedValue {
+		framework.Logf("PVC %s has annotation %q with correct value: %s", pvc.Name, annotationKey, val)
+	} else {
+		return fmt.Errorf("PVC %s has annotation %q but value is %q (expected %q)", pvc.Name,
+			annotationKey, val, expectedValue)
+	}
+	return nil
 }

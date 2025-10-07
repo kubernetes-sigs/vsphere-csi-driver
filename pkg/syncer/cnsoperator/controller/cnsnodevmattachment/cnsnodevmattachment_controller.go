@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,10 +53,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	defaultMaxWorkerThreadsForNodeVMAttach = 10
+	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_ATTACH"
+	defaultMaxWorkerThreads = 10
 )
 
 // backOffDuration is a map of cnsnodevmattachment name's to the time after
@@ -135,7 +135,9 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx)
+
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).Named("cnsnodevmattachment-controller").
 		For(&v1a1.CnsNodeVmAttachment{}).
@@ -143,7 +145,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
-		log.Errorf("failed to create new CnsNodeVmAttachment controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
 
@@ -867,41 +869,6 @@ func updateCnsNodeVMAttachment(ctx context.Context, client client.Client,
 		}
 	}
 	return err
-}
-
-// getMaxWorkerThreadsToReconcileCnsNodeVmAttachment returns the maximum
-// number of worker threads which can be run to reconcile CnsNodeVmAttachment
-// instances. If environment variable WORKER_THREADS_NODEVM_ATTACH is set and
-// valid, return the value read from environment variable otherwise, use the
-// default value.
-func getMaxWorkerThreadsToReconcileCnsNodeVmAttachment(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForNodeVMAttach
-	if v := os.Getenv("WORKER_THREADS_NODEVM_ATTACH"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_NODEVM_ATTACH %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else if value > defaultMaxWorkerThreadsForNodeVMAttach {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_NODEVM_ATTACH %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForNodeVMAttach, defaultMaxWorkerThreadsForNodeVMAttach)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsNodeVmAttachment "+
-					"instances is set to %d", workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_NODEVM_ATTACH %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForNodeVMAttach)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_NODEVM_ATTACH is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForNodeVMAttach)
-	}
-	return workerThreads
 }
 
 // recordEvent records the event, sets the backOffDuration for the instance

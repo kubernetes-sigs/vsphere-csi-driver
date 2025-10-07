@@ -27,6 +27,7 @@ import (
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,13 +40,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -57,13 +55,14 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
-	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
-	defaultMaxWorkerThreadsForFileAccessConfig = 10
-	capvVmLabelKey                             = "capv.vmware.com"
-	devopsUserLabelKey                         = "cns.vmware.com/user-created"
+	workerThreadsEnvVar     = "WORKER_THREADS_CNS_FILE_ACCESS_CONFIG"
+	defaultMaxWorkerThreads = 10
+	capvVmLabelKey          = "capv.vmware.com"
+	devopsUserLabelKey      = "cns.vmware.com/user-created"
 )
 
 // backOffDuration is a map of cnsfileaccessconfig name's to the time after
@@ -87,18 +86,16 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
-			clusterComputeResourceMoIds, _, err := common.GetClusterComputeResourceMoIds(ctx)
-			if err != nil {
-				log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
-				return err
-			}
-			if len(clusterComputeResourceMoIds) > 1 &&
-				!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
-				log.Infof("Not initializing the CnsFileAccessConfig Controller as stretched supervisor is detected.")
-				return nil
-			}
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
+		clusterComputeResourceMoIds, _, err := common.GetClusterComputeResourceMoIds(ctx)
+		if err != nil {
+			log.Errorf("failed to get clusterComputeResourceMoIds. err: %v", err)
+			return err
+		}
+		if len(clusterComputeResourceMoIds) > 1 &&
+			!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolation) {
+			log.Infof("Not initializing the CnsFileAccessConfig Controller as stretched supervisor is detected.")
+			return nil
 		}
 	}
 	volumePermissionLockMap = &sync.Map{}
@@ -164,17 +161,23 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client, dynamicClient dynamic.Interface,
 	recorder record.EventRecorder) reconcile.Reconciler {
-	return &ReconcileCnsFileAccessConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, volumeManager: volumeManager, vmOperatorClient: vmOperatorClient,
-		dynamicClient: dynamicClient, recorder: recorder}
+	return &ReconcileCnsFileAccessConfig{
+		client:           mgr.GetClient(),
+		scheme:           mgr.GetScheme(),
+		configInfo:       configInfo,
+		volumeManager:    volumeManager,
+		vmOperatorClient: vmOperatorClient,
+		dynamicClient:    dynamicClient,
+		recorder:         recorder,
+	}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
-	maxWorkerThreads := getMaxWorkerThreadsToReconcileCnsFileAccessConfig(ctx)
-
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
+		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	c, err := controller.New("cnsfileaccessconfig-controller", mgr,
 		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
@@ -261,7 +264,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 				instance.Name, instance.Spec.VMName)
 			// Fetch the PVC and PV instance and get volume ID
 			skipConfigureVolumeACL := false
-			volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+			volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					// If PVC instance is NotFound (deleted), then there is no need to configure ACL on file volume.
@@ -330,7 +333,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil {
 		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
 		volumeExists := true
-		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			if ifFileVolumesWithVmserviceVmsSupported &&
 				apierrors.IsNotFound(err) {
@@ -447,7 +450,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, instance.Namespace, timeout)
 	if !instance.Status.Done {
-		volumeID, err := cnsoperatorutil.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
 			log.Error(msg)
@@ -780,7 +783,7 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	vm *vmoperatortypes.VirtualMachine) (string, error) {
 	log := logger.GetLogger(ctx)
-	networkProvider, err := cnsoperatorutil.GetNetworkProvider(ctx)
+	networkProvider, err := util.GetNetworkProvider(ctx)
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to identify the network provider. Error: %+v", err)
 	}
@@ -789,11 +792,11 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 		return "", logger.LogNewError(log, "unable to find network provider information")
 	}
 
-	networkTypes := []string{cnsoperatorutil.NSXTNetworkProvider, cnsoperatorutil.
+	networkTypes := []string{util.NSXTNetworkProvider, util.
 		VDSNetworkProvider}
 
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VPCCapabilitySupervisor) {
-		networkTypes = append(networkTypes, cnsoperatorutil.VPCNetworkProvider)
+		networkTypes = append(networkTypes, util.VPCNetworkProvider)
 	}
 
 	supported_found := false
@@ -808,7 +811,7 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 		return "", logger.LogNewErrorf(log, "Unknown network provider. Error: %+v", err)
 	}
 
-	tkgVMIP, err := cnsoperatorutil.GetTKGVMIP(ctx, r.vmOperatorClient,
+	tkgVMIP, err := util.GetTKGVMIP(ctx, r.vmOperatorClient,
 		r.dynamicClient, vm.Namespace, vm.Name, networkProvider)
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
