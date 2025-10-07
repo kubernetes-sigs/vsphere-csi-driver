@@ -87,4 +87,5 @@ const (
 	VcptocsiTest          = "vcptocsiTest"
 	StretchedSvc          = "stretchedSvc"
 	Devops                = "devops"
+	LinkedClone           = "lc"
 )

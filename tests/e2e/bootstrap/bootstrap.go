@@ -26,6 +26,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/testfiles"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/cns"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vc"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
@@ -52,6 +53,8 @@ func Bootstrap(optionArgs ...bool) *config.E2eTestConfig {
 	e2eTestConfig.VcClient = vc.NewClient(ctx, e2eTestConfig.TestInput.Global.VCenterHostname,
 		e2eTestConfig.TestInput.Global.VCenterPort, e2eTestConfig.TestInput.Global.User,
 		e2eTestConfig.TestInput.Global.Password)
+
+	e2eTestConfig.CnsClient, _ = cns.NewCnsClient(ctx, e2eTestConfig.VcClient.Client)
 
 	if framework.TestContext.RepoRoot != "" {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: framework.TestContext.RepoRoot})
