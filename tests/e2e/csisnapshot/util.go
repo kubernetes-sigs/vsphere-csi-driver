@@ -370,6 +370,21 @@ func DeleteVolumeSnapshotWithPandoraWait(ctx context.Context, snapc *snapclient.
 	time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 }
 
+/* deleteVolumeSnapshotContent deletes volume snapshot content explicitly  on Guest cluster */
+func deleteVolumeSnapshotContent(ctx context.Context, updatedSnapshotContent *snapV1.VolumeSnapshotContent,
+	snapc *snapclient.Clientset, pandoraSyncWaitTime int) error {
+
+	framework.Logf("Delete volume snapshot content")
+	DeleteVolumeSnapshotContentWithPandoraWait(ctx, snapc, updatedSnapshotContent.Name, pandoraSyncWaitTime)
+
+	framework.Logf("Wait till the volume snapshot content is deleted")
+	err := WaitForVolumeSnapshotContentToBeDeleted(*snapc, ctx, updatedSnapshotContent.Name)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // waitForVolumeSnapshotContentToBeDeleted wait till the volume snapshot content is deleted
 func WaitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx context.Context,
 	name string) error {

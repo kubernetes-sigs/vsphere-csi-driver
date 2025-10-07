@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -27,11 +28,13 @@ import (
 
 	vsantypes "github.com/vmware/govmomi/vsan/types"
 	pkgtypes "k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
 // CreateCnsFileAccessConfigCRD creates CnsFileAccessConfigCRD using pvc and VMservice VM name
@@ -104,7 +107,7 @@ func MountRWXVolumeAndVerifyIO(vmIPs []string, nfsAccessPoint string, testDir st
 
 		for _, cmd := range setupCmds {
 			err = RunSSHFromVmServiceVmAndLog(vmIP, cmd)
-			if err != nil && !strings.Contains(err.Error(), "does not have a Release file") {
+			if err != nil && !strings.Contains(err.Error(), "no longer has a Release file") {
 				return err
 			}
 
@@ -192,4 +195,42 @@ func GetCnsFileAccessConfigCRD(ctx context.Context, restConfig *rest.Config,
 		return cfc, err
 	}
 	return cfc, nil
+}
+
+func CreateCnsFileAccessConfigCRDInParallel(ctx context.Context, restConfig *rest.Config, pvcName string,
+	vmsvcVmName string, namespace string, crdName string, wg *sync.WaitGroup) error {
+	defer wg.Done()
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return err
+	}
+	spec := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      crdName,
+			Namespace: namespace},
+		Spec: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigSpec{
+			VMName:  vmsvcVmName,
+			PvcName: pvcName,
+		},
+	}
+
+	if err := cnsOperatorClient.Create(ctx, spec); err != nil {
+		return fmt.Errorf("failed to create CNSFileAccessConfig CRD: %s with err: %v", crdName, err)
+	}
+	return nil
+}
+
+func ListCnsFileAccessConfig(ctx context.Context, restConfig *rest.Config,
+	namespace string) (*cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList, error) {
+	cfcList := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{}
+	cnsOperatorClient, err := vcutil.GetCnsOperatorClient(ctx, restConfig)
+	if err != nil {
+		return cfcList, err
+	}
+
+	err = cnsOperatorClient.List(ctx, cfcList, client.InNamespace(namespace))
+	if err != nil {
+		return cfcList, err
+	}
+	return cfcList, nil
 }

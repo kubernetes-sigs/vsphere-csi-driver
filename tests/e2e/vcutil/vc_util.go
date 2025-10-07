@@ -47,7 +47,6 @@ import (
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-
 	vsanpackage "github.com/vmware/govmomi/vsan"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
@@ -59,6 +58,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsclient "sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/cns"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vc"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vsan"
@@ -2534,9 +2536,16 @@ func ExitHostMM(ctx context.Context, host *object.HostSystem, timeout int32) {
 	framework.Logf("Host: %v exited from maintenance mode", host)
 }
 
+func GetCnsOperatorClient(ctx context.Context, restConfig *rest.Config) (client.Client, error) {
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		return nil, err
+	}
+	return cnsOperatorClient, nil
+}
+
 // GetClusterRefFromClusterName gets cluster Moid from given vsphere cluster name
-func GetClusterRefFromClusterName(ctx context.Context, vs *config.E2eTestConfig,
-	clusterName string) (vim25types.ManagedObjectReference, error) {
+func GetClusterRefFromClusterName(ctx context.Context, vs *config.E2eTestConfig, clusterName string) (vim25types.ManagedObjectReference, error) {
 
 	clusterComputeResource, _, err := GetClusterName(ctx, vs)
 	if err != nil {

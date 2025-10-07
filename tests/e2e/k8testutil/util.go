@@ -7720,3 +7720,34 @@ func CreateStatefulSet(ns string, ss *appsv1.StatefulSet, c clientset.Interface)
 	framework.ExpectNoError(err)
 	fss.WaitForRunningAndReady(ctx, c, *ss.Spec.Replicas, ss)
 }
+
+func StopCSIPodsInParallel(ctx context.Context, client clientset.Interface, namespace string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	CollectPodLogs(ctx, client, constants.CsiSystemNamespace)
+	err := UpdateDeploymentReplicawithWait(client, 0, constants.VSphereCSIControllerPodNamePrefix,
+		namespace)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+}
+
+// checkForEventWithMessage fetches events list of the given object name and checkes for
+// specified message and returns true if expected error message found
+func CheckForEventWithMessage(client clientset.Interface, namespace string,
+	name string, expectedMsg string) bool {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eventFound := false
+	framework.Logf("Checking for error in events related to %q", name)
+	eventList, _ := client.CoreV1().Events(namespace).List(ctx,
+		metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", name)})
+	for _, item := range eventList.Items {
+		framework.Logf("message: %v", item.Message)
+		if strings.Contains(item.Message, expectedMsg) {
+			framework.Logf("Expected event found. EventList Reason: "+
+				"%q"+" EventList item: %q", item.Reason, item.Message)
+			eventFound = true
+			break
+		}
+	}
+	return eventFound
+}
