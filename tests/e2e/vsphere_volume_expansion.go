@@ -891,7 +891,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure file system has increased
 	*/
 
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][ef-f-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
 		"[csi-vcp-mig] Verify online volume expansion by updating PVC with different sizes "+
 		"concurrently", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
 

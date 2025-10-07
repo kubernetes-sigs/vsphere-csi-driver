@@ -1078,7 +1078,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 5. Create CNS register volume with above created FCD, AccessMode as "ReadOnlyMany".
 	// 6. verify  the error message.
 	// 7. Delete Resource quota.
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or "+
+	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or "+
 		"ReadOnlyMany", ginkgo.Label(p1, block, wcp, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1137,7 +1137,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 8. Verify PV is deleted automatically.
 	// 9. Verify Volume id deleted automatically.
 	// 10. Verify CRD deleted automatically.
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning workflow - when "+
+	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning workflow - when "+
 		"DuplicateFCD is used", ginkgo.Label(p2, block, wcp, vc70), func() {
 
 		var err error
@@ -1614,7 +1614,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create a storage policy.
 	// 3. Create FCD with the above created storage policy.
 	// 4. Import the volume created in step 3 to namespace created in step 1.
-	ginkgo.It("[ef-wcp][csi-supervisor] static provisioning workflow - when tried to import volume with a storage "+
+	ginkgo.It("[ef-f-wcp][csi-supervisor] static provisioning workflow - when tried to import volume with a storage "+
 		"policy that doesn't belong to the namespace", ginkgo.Label(p2, block, wcp, negative, vc70), func() {
 
 		var err error
