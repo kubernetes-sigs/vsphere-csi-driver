@@ -337,6 +337,7 @@ func ParseMi(value string) (int, error) {
 	} else if strings.HasSuffix(value, "Gi") {
 		numeric = strings.TrimSuffix(value, "Gi")
 	}
+	framework.Logf("Converting %s to int", numeric)
 	return strconv.Atoi(numeric)
 }
 

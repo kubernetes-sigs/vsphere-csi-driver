@@ -443,8 +443,10 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// create linked clone PVC and verify its bound
 		lcPvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
 
-		//create pod attaching to src-pvc and lc
-		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{srcPvc, lcPvc}, true, false)
+		//create pod attaching to src-pvc and lc, expect it to fail
+		_, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{srcPvc, lcPvc}, false,
+			constants.ExecRWXCommandPod1)
+		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		framework.Logf("Ending test: Attach LC PVC to parent pod")
 
