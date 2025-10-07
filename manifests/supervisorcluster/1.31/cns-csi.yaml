@@ -488,6 +488,10 @@ spec:
               value: "30"
             - name: VOLUME_HEALTH_INTERVAL_MINUTES
               value: "5"
+            - name: WORKER_THREADS_NODEVM_ATTACH
+              value: "20"
+            - name: WORKER_THREADS_NODEVM_BATCH_ATTACH
+              value: "20"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT

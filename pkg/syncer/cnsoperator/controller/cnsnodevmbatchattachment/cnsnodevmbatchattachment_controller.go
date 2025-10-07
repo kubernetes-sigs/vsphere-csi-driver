@@ -75,7 +75,7 @@ var (
 
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_BATCH_ATTACH"
-	defaultMaxWorkerThreads = 10
+	defaultMaxWorkerThreads = 20
 )
 
 var newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {

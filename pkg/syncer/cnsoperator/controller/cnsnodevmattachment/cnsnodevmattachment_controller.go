@@ -58,7 +58,7 @@ import (
 
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_ATTACH"
-	defaultMaxWorkerThreads = 10
+	defaultMaxWorkerThreads = 20
 )
 
 // backOffDuration is a map of cnsnodevmattachment name's to the time after
