@@ -545,6 +545,7 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 	if err != nil {
 		log.Fatal(err)
 	}
+	model.Service.RegisterEndpoints = true
 
 	model.Service.RegisterEndpoints = true
 	model.Service.TLS = tlsConfig
