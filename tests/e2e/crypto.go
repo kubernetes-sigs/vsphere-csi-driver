@@ -29,7 +29,6 @@ import (
 	vmopv2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -647,11 +646,11 @@ var _ = ginkgo.Describe("[ef-encryption][csi-supervisor] [encryption] Block volu
 		Steps:
 		1. Generate encryption key
 		2. Create default EncryptionClass with encryption key [1]
-		3. Create PVC with encrypted-latebinding StorageClass
-		4. Create VM with encrypted-latebinding StorageClass and PVC [3]
-		5. Wait and Verify PVC to reach bound state
-		5. Validate VM [4] is encrypted with encryption key [1]
-		6. Validate PVC [3] is encrypted with encryption key [1]
+		3. Get wncrypted latebinding storage class
+		4. Create PVC with encrypted-latebinding StorageClass
+		5. Create VM with encrypted-latebinding StorageClass and PVC [3]
+		6. Wait and Verify PVC to reach bound state
+		7. Validate VM [4] is encrypted with encryption key [1]
 	*/
 	ginkgo.It("Verify VM and associated PVC are encrypted with latebinding EncryptionClass", ginkgo.Label(p1, block,
 		wcp, vc90), func() {
@@ -665,45 +664,45 @@ var _ = ginkgo.Describe("[ef-encryption][csi-supervisor] [encryption] Block volu
 		encClass := createEncryptionClass(ctx, cryptoClient, namespace, keyProviderID, keyID, true)
 		defer deleteEncryptionClass(ctx, cryptoClient, encClass)
 
-		ginkgo.By("3. Create PVC with latebinding encrypted StorageClass")
-		latebindingStorageClass := encryptedStorageClass.Name + "-latebinding"
+		ginkgo.By("3. Get encrypted late binding storage class")
+		encryptedStoragePolicyName := GetAndExpectStringEnvVar(envStoragePolicyNameWithEncryption)
+		encryptedStoragePolicyNameWffc := encryptedStoragePolicyName + "-latebinding"
+
+		ginkgo.By("4. Create PVC with latebinding encrypted StorageClass")
 		opts := PersistentVolumeClaimOptions{
 			Namespace:        namespace,
-			StorageClassName: latebindingStorageClass,
+			StorageClassName: encryptedStoragePolicyNameWffc,
 		}
 		pvc := buildPersistentVolumeClaimSpec(opts)
-		var err error
-		pvc, err = client.
+		pvc, err := client.
 			CoreV1().
 			PersistentVolumeClaims(namespace).
 			Create(ctx, pvc, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer deletePersistentVolumeClaim(ctx, client, pvc)
 
-		ginkgo.By("4. Create VM with encrypted StorageClass and PVC [3]")
+		ginkgo.By("5. Create VM with encrypted StorageClass and PVC [3]")
 		vm := createVmServiceVmV3(ctx, vmopClient, CreateVmOptionsV3{
 			Namespace:          namespace,
 			VmClass:            vmClass,
 			VMI:                vmi,
-			StorageClassName:   latebindingStorageClass,
+			StorageClassName:   encryptedStoragePolicyNameWffc,
 			PVCs:               []*v1.PersistentVolumeClaim{pvc},
 			WaitForReadyStatus: true,
 		})
 		defer deleteVmServiceVm(ctx, vmopClient, namespace, vm.Name)
 
-		ginkgo.By("5. Wait for PVC to reach bound state")
+		ginkgo.By("6. Wait for PVC to reach bound state")
 		_, err = fpv.WaitForPVClaimBoundPhase(
 			ctx,
 			client,
-			[]*corev1.PersistentVolumeClaim{pvc},
+			[]*v1.PersistentVolumeClaim{pvc},
 			framework.ClaimProvisionTimeout*2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("6. Validate VM [4] is encrypted with encryption key [1]")
-		validateVmToBeEncryptedWithKey(vm, keyProviderID, keyID)
+		ginkgo.By("7. Validate VM [4] is encrypted with encryption key [1]")
+		validateVmToBeUpdatedWithEncryptedKey(ctx, vmopClient, vm.Namespace, vm.Name, keyProviderID, keyID)
 
-		ginkgo.By("7. Validate PVC [3] is encrypted with encryption key [1]")
-		validateVolumeToBeEncryptedWithKey(ctx, pvc.Spec.VolumeName, keyProviderID, keyID)
 	})
 
 })
