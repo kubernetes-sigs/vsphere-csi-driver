@@ -37,6 +37,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,12 +66,30 @@ import (
 var (
 	backOffDuration         map[types.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+	// Per volume lock for concurrent access to PVCs.
+	// Keys are strings representing namespace + PVC name.
+	// Values are individual sync.Mutex locks that need to be held
+	// to make updates to the PVC on the API server.
+	VolumeLock *sync.Map
 )
 
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_BATCH_ATTACH"
 	defaultMaxWorkerThreads = 10
 )
+
+var newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {
+	log := logger.GetLogger(ctx)
+
+	// Initializes kubernetes client.
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return nil, err
+	}
+
+	return k8sclient, nil
+}
 
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *config.ConfigurationInfo, volumeManager volumes.Manager) error {
@@ -149,6 +168,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
+	VolumeLock = &sync.Map{}
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
 	return nil
 }
@@ -236,6 +256,13 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 	}
 
+	// Initializes kubernetes client.
+	k8sClient, err := newClientFunc(ctx)
+	if err != nil {
+		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+	}
+
 	volumesToDetach := make(map[string]string)
 	if vm == nil {
 		// If VM is nil, it means it is deleted from the vCenter.
@@ -251,7 +278,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			request.NamespacedName)
 	} else {
 		// If VM was found on vCenter, find the volumes to be detached from it.
-		volumesToDetach, err = getVolumesToDetach(batchAttachCtx, instance, vm, r.client)
+		volumesToDetach, err = getVolumesToDetach(batchAttachCtx, instance, vm, r.client, k8sClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)
@@ -264,7 +291,17 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	// This means all volumes can be considered detached. So remove finalizer from CR instance.
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
-		// TODO: remove PVC finalizer
+
+		// For every PVC mentioned in instance.Spec, remove finalizer from its PVC.
+		for _, volume := range instance.Spec.Volumes {
+			err := removePvcFinalizer(ctx, r.client, k8sClient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
+				instance.Spec.NodeUUID)
+			if err != nil {
+				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
+					err)
+				return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+			}
+		}
 
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
@@ -304,7 +341,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		}
 
 		// Call reconcile when deletion timestamp is not set on the instance.
-		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, instance, volumesToDetach, vm)
+		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach, vm)
 		if err != nil {
 			log.Errorf("failed to reconile instance %s. Err: %s", request.NamespacedName.String(), err)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
@@ -317,7 +354,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		log.Infof("Deletion timestamp observed on instance %s. Detaching all volumes.", request.NamespacedName.String())
 
 		// Call reconcile when deletion timestamp is set on the instance.
-		err := r.reconcileInstanceWithDeletionTimestamp(batchAttachCtx, instance, volumesToDetach, vm)
+		err := r.reconcileInstanceWithDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach, vm)
 		if err != nil {
 			log.Errorf("failed to reconcile instance %s. Err: %s", request.NamespacedName.String(), err)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
@@ -332,12 +369,13 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 // reconcileInstanceWithDeletionTimestamp calls detach volume for all volumes present in volumesToDetach.
 // As the instance is being deleted, we do not need to attach anything.
 func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
+	k8sClient kubernetes.Interface,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
 	volumesToDetach map[string]string,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
 
-	err := r.processDetach(ctx, vm, instance, volumesToDetach)
+	err := r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 	if err != nil {
 		log.Errorf("failed to detach all volumes. Err: %s", err)
 		return err
@@ -350,6 +388,7 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 // reconcileInstanceWithoutDeletionTimestamp calls CNS batch attach for all volumes in instance spec
 // and CNS detach for the volumes volumesToDetach.
 func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Context,
+	k8sClient kubernetes.Interface,
 	instance *v1alpha1.CnsNodeVmBatchAttachment,
 	volumesToDetach map[string]string,
 	vm *cnsvsphere.VirtualMachine) error {
@@ -358,7 +397,7 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	var detachErr error
 	// Call detach if there are some volumes which need to be detached.
 	if len(volumesToDetach) != 0 {
-		detachErr = r.processDetach(ctx, vm, instance, volumesToDetach)
+		detachErr = r.processDetach(ctx, k8sClient, vm, instance, volumesToDetach)
 		if detachErr != nil {
 			log.Errorf("failed to detach all volumes. Err: %s", detachErr)
 		} else {
@@ -367,7 +406,7 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	}
 
 	// Call batch attach for volumes.
-	attachErr := r.processBatchAttach(ctx, vm, instance)
+	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance)
 	if attachErr != nil {
 		log.Errorf("failed to attach all volumes. Err: %+v", attachErr)
 	}
@@ -377,12 +416,13 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 
 // processDetach detaches each of the volumes in volumesToDetach by calling CNS DetachVolume API.
 func (r *Reconciler) processDetach(ctx context.Context,
+	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
 	instance *v1alpha1.CnsNodeVmBatchAttachment, volumesToDetach map[string]string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Calling detach volume for PVC %+v", volumesToDetach)
 
-	volumesThatFailedToDetach := r.detachVolumes(ctx, vm, volumesToDetach, instance)
+	volumesThatFailedToDetach := r.detachVolumes(ctx, k8sClient, vm, volumesToDetach, instance)
 
 	var overallErr error
 	if len(volumesThatFailedToDetach) != 0 {
@@ -398,6 +438,7 @@ func (r *Reconciler) processDetach(ctx context.Context,
 
 // detachVolumes calls Cns DetachVolume for every PVC in volumesToDetach.
 func (r *Reconciler) detachVolumes(ctx context.Context,
+	k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine, volumesToDetach map[string]string,
 	instance *v1alpha1.CnsNodeVmBatchAttachment) []string {
 	log := logger.GetLogger(ctx)
@@ -414,11 +455,9 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			// If VM was not found, can assume that the detach is successful.
 			if cnsvsphere.IsManagedObjectNotFound(detachErr, vm.VirtualMachine.Reference()) {
 				log.Infof("Found a managed object not found fault for vm: %+v", vm)
-				// TODO: remove PVC finalizer
-
-				// Remove entry of this volume from the instance's status.
-				deleteVolumeFromStatus(pvc, instance)
-				log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+				// VM not found, so marking detach as Success and removing finalizer from PVC
+				volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient,
+					instance, pvc, volumesThatFailedToDetach)
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.NodeUUID, faulttype, detachErr)
@@ -427,10 +466,9 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 			}
 		} else {
-			// TODO: remove PVC finalizer
-			// Remove entry of this volume from the instance's status.
-			deleteVolumeFromStatus(pvc, instance)
-			log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+			// Remove finalizer from the PVC as the detach was successful.
+			volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient,
+				instance, pvc, volumesThatFailedToDetach)
 		}
 		log.Infof("Detach call ended for PVC %s in namespace %s for instance %s",
 			pvc, instance.Namespace, instance.Name)
@@ -440,9 +478,31 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 	return volumesThatFailedToDetach
 }
 
+// removeFinalizerAndStatusEntry removes finalizer from the given PVC and
+// removes its entry from the instance status if it is successful.
+// If removing the finalizer fails, it adds the volume to volumesThatFailedToDetach list.
+func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8sClient kubernetes.Interface,
+	instance *v1alpha1.CnsNodeVmBatchAttachment, pvc string,
+	volumesThatFailedToDetach []string) []string {
+	log := logger.GetLogger(ctx)
+
+	err := removePvcFinalizer(ctx, client, k8sClient, pvc, instance.Namespace, instance.Spec.NodeUUID)
+	if err != nil {
+		log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvc, err)
+		updateInstanceWithErrorForPvc(instance, pvc, err.Error())
+		volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
+	} else {
+		// Remove entry of this volume from the instance's status.
+		deleteVolumeFromStatus(pvc, instance)
+		log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+	}
+	return volumesThatFailedToDetach
+}
+
 // processBatchAttach first constructs the batch attach volume request for all volumes in instance spec
 // and then calls CNS batch attach for them.
-func (r *Reconciler) processBatchAttach(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernetes.Interface,
+	vm *cnsvsphere.VirtualMachine,
 	instance *v1alpha1.CnsNodeVmBatchAttachment) error {
 	log := logger.GetLogger(ctx)
 
@@ -473,6 +533,17 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, vm *cnsvsphere.Virt
 			log.Errorf("failed to get volumeName for pvc %s", pvcName)
 			return fmt.Errorf("failed to get volumeName for pvc %s", pvcName)
 
+		}
+
+		// If attach was successful, add finalizer to the PVC.
+		if result.Error == nil {
+			// Add finalizer on PVC as attach was successful.
+			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.NodeUUID)
+			if err != nil {
+				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
+				result.Error = err
+				attachErr = err
+			}
 		}
 		// Update instance with attach result
 		updateInstanceWithAttachVolumeResult(instance, volumeName, pvcName, result)
