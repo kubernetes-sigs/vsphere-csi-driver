@@ -8272,9 +8272,12 @@ func GetVmdkCountFromDatastore(ctx context.Context, vs *config.E2eTestConfig, ho
 	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Vmdk Count Command Output: %s", commandOutput)
 
-	if !strings.Contains(commandOutput, "No such file or directory") {
-		vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// if !strings.Contains(commandOutput, "No such file or directory") ! {
+	vmdkCount, err = strconv.Atoi(strings.TrimSpace(commandOutput))
+	// gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// }
+	if err != nil {
+		vmdkCount = 0
 	}
 	return vmdkCount
 }

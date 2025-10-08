@@ -399,10 +399,13 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 		isServiceStopped = false
 		err = vcutil.WaitVCenterServiceToBeInState(ctx, e2eTestConfig, serviceName, vcAddress, constants.SvcRunningMessage)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Sleeping for full sync interval")
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 	}
+
+	ginkgo.By(fmt.Sprintf("Sleeping for %s service to comeup", serviceName))
+	time.Sleep(time.Duration(5) * time.Minute)
+
+	ginkgo.By("Sleeping for full sync interval")
+	time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 }
 
 func getStorageClass(ctx context.Context, scParameters map[string]string, client clientset.Interface, namespace string, storagePolicyName string) *storagev1.StorageClass {
