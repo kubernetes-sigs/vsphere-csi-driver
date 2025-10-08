@@ -36,16 +36,16 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
-	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
+	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -179,25 +179,17 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
 		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	c, err := controller.New("cnsfileaccessconfig-controller", mgr,
-		controller.Options{Reconciler: r, MaxConcurrentReconciles: maxWorkerThreads})
+	err := ctrl.NewControllerManagedBy(mgr).Named("cnsfileaccessconfig-controller").
+		For(&v1a1.CnsFileAccessConfig{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
+		Complete(r)
 	if err != nil {
-		log.Errorf("Failed to create new CnsFileAccessConfig controller with error: %+v", err)
+		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
 
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
-
-	// Watch for changes to primary resource CnsFileAccessConfig.
-	err = c.Watch(source.Kind(
-		mgr.GetCache(),
-		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{},
-		&handler.TypedEnqueueRequestForObject[*cnsfileaccessconfigv1alpha1.CnsFileAccessConfig]{},
-	))
-	if err != nil {
-		log.Errorf("Failed to watch for changes to CnsFileAccessConfig resource with error: %+v", err)
-		return err
-	}
 	return nil
 }
 
@@ -228,7 +220,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 	// Fetch the CnsFileAccessConfig instance.
-	instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	instance := &v1a1.CnsFileAccessConfig{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -297,11 +289,10 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			}
 
 			// Remove finalizer from CnsFileAccessConfig CRD
-			removeFinalizerFromCRDInstance(ctx, instance)
-			err = updateCnsFileAccessConfig(ctx, r.client, instance)
+			err = k8s.RemoveFinalizer(ctx, r.client, instance, cnsoperatortypes.CNSFinalizer)
 			if err != nil {
-				msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
-					instance.Name, instance.Namespace, err)
+				msg := fmt.Sprintf("failed to remove finalizer from CnsFileAccessConfig "+
+					"instance: %q on namespace: %q. Error: %+v", instance.Name, instance.Namespace, err)
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
@@ -370,8 +361,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
 		}
-		removeFinalizerFromCRDInstance(ctx, instance)
-		err = updateCnsFileAccessConfig(ctx, r.client, instance)
+		err = k8s.RemoveFinalizer(ctx, r.client, instance, cnsoperatortypes.CNSFinalizer)
 		if err != nil {
 			msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
 				instance.Name, instance.Namespace, err)
@@ -396,24 +386,14 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
 	}
-	cnsFinalizerExists := false
-	// Check if finalizer already exists.
-	for _, finalizer := range instance.Finalizers {
-		if finalizer == cnsoperatortypes.CNSFinalizer {
-			cnsFinalizerExists = true
-			break
-		}
-	}
-	if !cnsFinalizerExists {
-		// Add finalizer.
-		instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
-		err = updateCnsFileAccessConfig(ctx, r.client, instance)
-		if err != nil {
-			msg := fmt.Sprintf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
-				instance.Name, instance.Namespace, err)
-			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
+
+	// Add finalizer to CnsFileAccessConfig instance if it does not already exist.
+	err = k8s.AddFinalizer(ctx, r.client, instance, cnsoperatortypes.CNSFinalizer)
+	if err != nil {
+		msg := fmt.Sprintf("failed to add finalizer on CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
+			instance.Name, instance.Namespace, err)
+		recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	vmOwnerRefExists := false
@@ -528,7 +508,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 // addPvcFinalizer checks if CnsPvcFinalizer exists on PVC.
 // If it does not exist, it updates the PVC with it.
 func addPvcFinalizer(ctx context.Context,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, client client.Client) error {
+	instance *v1a1.CnsFileAccessConfig, client client.Client) error {
 	log := logger.GetLogger(ctx)
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) {
@@ -566,7 +546,7 @@ func addPvcFinalizer(ctx context.Context,
 
 // isPvcInUse returns true if there is at least 1 VM which is using the given PVC.
 func isPvcInUse(ctx context.Context, pvcName string,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) (bool, error) {
+	instance *v1a1.CnsFileAccessConfig) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
@@ -581,7 +561,7 @@ func isPvcInUse(ctx context.Context, pvcName string,
 // removeFinalizerFromPVC will remove the CNS Finalizer, cns.vmware.com/pvc-protection,
 // from a given PersistentVolumeClaim.
 func removeFinalizerFromPVC(ctx context.Context, client client.Client,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+	instance *v1a1.CnsFileAccessConfig) error {
 	log := logger.GetLogger(ctx)
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolumesWithVmService) {
@@ -640,7 +620,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 // This method is used when we don't have VM instance. It fetches the VM IP from CNSFileVolumeClient
 // instance for the VM name associated with CnsFileAccessConfig.
 func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx context.Context, volumeID string,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, skipConfigureVolumeACL bool) error {
+	instance *v1a1.CnsFileAccessConfig, skipConfigureVolumeACL bool) error {
 	log := logger.GetLogger(ctx)
 	volumePermissionLock, _ := volumePermissionLockMap.LoadOrStore(volumeID, &sync.Mutex{})
 	instanceLock, _ := volumePermissionLock.(*sync.Mutex)
@@ -685,7 +665,7 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 // permissions by setting the parameter removePermission to true or false
 // respectively. Returns error if any operation fails.
 func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx context.Context,
-	volumeID string, vm *vmoperatortypes.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig,
+	volumeID string, vm *vmoperatortypes.VirtualMachine, instance *v1a1.CnsFileAccessConfig,
 	removePermission bool) error {
 	log := logger.GetLogger(ctx)
 	volumePermissionLock, _ := volumePermissionLockMap.LoadOrStore(volumeID, &sync.Mutex{})
@@ -865,10 +845,10 @@ func validateVmAndPvc(ctx context.Context, instanceLabels map[string]string, ins
 // setInstanceSuccess sets instance to success and records an event on the
 // CnsFileAccessConfig instance.
 func setInstanceSuccess(ctx context.Context, r *ReconcileCnsFileAccessConfig,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, msg string) error {
+	instance *v1a1.CnsFileAccessConfig, msg string) error {
 	instance.Status.Done = true
 	instance.Status.Error = ""
-	err := updateCnsFileAccessConfig(ctx, r.client, instance)
+	err := k8s.UpdateStatus(ctx, r.client, instance)
 	if err != nil {
 		return err
 	}
@@ -879,10 +859,10 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 // setInstanceError sets error and records an event on the CnsFileAccessConfig
 // instance.
 func setInstanceError(ctx context.Context, r *ReconcileCnsFileAccessConfig,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, errMsg string) {
+	instance *v1a1.CnsFileAccessConfig, errMsg string) {
 	log := logger.GetLogger(ctx)
 	instance.Status.Error = errMsg
-	err := updateCnsFileAccessConfig(ctx, r.client, instance)
+	err := k8s.UpdateStatus(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("updateCnsFileAccessConfig failed. err: %v", err)
 	}
@@ -890,7 +870,7 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 }
 
 func updateCnsFileAccessConfig(ctx context.Context, client client.Client,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) error {
+	instance *v1a1.CnsFileAccessConfig) error {
 	log := logger.GetLogger(ctx)
 	err := client.Update(ctx, instance)
 	if err != nil {
@@ -904,7 +884,7 @@ func updateCnsFileAccessConfig(ctx context.Context, client client.Client,
 // appropriately and logs the message.
 // backOffDuration is reset to 1 second on success and doubled on failure.
 func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig,
-	instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig, eventtype string, msg string) {
+	instance *v1a1.CnsFileAccessConfig, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
 	namespacedName := types.NamespacedName{
@@ -925,19 +905,5 @@ func recordEvent(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsFileAccessConfigSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
-	}
-}
-
-// removeFinalizerFromCRDInstance will remove the CNS Finalizer = cns.vmware.com,
-// from a given CnsFileAccessConfig instance.
-func removeFinalizerFromCRDInstance(ctx context.Context, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig) {
-	log := logger.GetLogger(ctx)
-	for i, finalizer := range instance.Finalizers {
-		if finalizer == cnsoperatortypes.CNSFinalizer {
-			log.Debugf("Removing %q finalizer from CnsFileAccessConfig instance with name: %q on namespace: %q",
-				cnsoperatortypes.CNSFinalizer, instance.Name, instance.Namespace)
-			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
-			break
-		}
 	}
 }

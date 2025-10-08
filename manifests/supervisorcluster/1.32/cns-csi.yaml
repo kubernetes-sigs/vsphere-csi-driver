@@ -46,7 +46,7 @@ rules:
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs"]
+    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs", "cnsfileaccessconfigs/status"]
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsnodevmattachments", "cnsnodevmbatchattachments", "cnsnodevmbatchattachments/status", "cnsnodevmattachments/status"]
