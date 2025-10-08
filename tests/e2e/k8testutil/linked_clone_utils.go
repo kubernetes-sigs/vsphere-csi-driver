@@ -187,6 +187,7 @@ func CreateAndValidateLinkedClone(ctx context.Context, client clientset.Interfac
 		client, []*corev1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	time.Sleep(constants.HealthStatusPollInterval)
 	// Validate label and annotation
 	framework.Logf("Verify linked-clone lable on the LC-PVC")
 	pvcLable := pvclaim.Labels
