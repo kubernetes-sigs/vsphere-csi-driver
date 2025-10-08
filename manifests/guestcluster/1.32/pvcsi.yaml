@@ -688,7 +688,7 @@ data:
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
   "sv-pvc-snapshot-protection-finalizer": "true"
-  "linked-clone-support": "false"
+  "linked-clone-support": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
