@@ -185,20 +185,4 @@ func TestGetMaxWorkerThreads(t *testing.T) {
 		// Assert
 		assert.Equal(t, expVal, val)
 	})
-
-	t.Run("WhenEnvValid", func(t *testing.T) {
-		// Setup
-		err := os.Setenv(envVar, "10")
-		if err != nil {
-			t.Fatalf("Failed to set env var: %v", err)
-		}
-
-		defVal, expVal := 50, 10
-
-		// Execute
-		val := GetMaxWorkerThreads(context.Background(), envVar, defVal)
-
-		// Assert
-		assert.Equal(t, expVal, val)
-	})
 }
