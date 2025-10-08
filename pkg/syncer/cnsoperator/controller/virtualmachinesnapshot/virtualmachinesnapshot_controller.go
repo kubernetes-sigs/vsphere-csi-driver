@@ -161,7 +161,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
 		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	err := ctrl.NewControllerManagedBy(mgr).Named("virtualmachinesnapshot-controller").
+	err := ctrl.NewControllerManagedBy(mgr).
+		For(&vmoperatortypes.VirtualMachineSnapshot{}).
+		Named("virtualmachinesnapshot-controller").
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
@@ -169,7 +171,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
 	}
-
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 	return nil
 }
