@@ -241,8 +241,13 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 
 	case constants.CsiServiceName:
 		// Get CSI Controller's replica count from the setup
+		//Adding retry with delay
+		// maxReTry := 5
+		// reTry := 1
+
 		deployment, err := client.AppsV1().Deployments(constants.CsiSystemNamespace).Get(ctx,
 			constants.VSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicaCount = *deployment.Spec.Replicas
 
@@ -548,6 +553,7 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 		k8testutil.DeleteResourceQuota(client, namespace)
 		k8testutil.DumpSvcNsEventsOnTestFailure(client, namespace)
 	} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		k8testutil.DeleteResourceQuota(client, namespace)
 		svcClient, svNamespace := k8testutil.GetSvcClientAndNamespace()
 		k8testutil.SetResourceQuota(svcClient, svNamespace, constants.RqLimit)
 		k8testutil.DumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
@@ -562,7 +568,7 @@ func testSetUp(fw *framework.Framework) {
 	namespace = vcutil.GetNamespaceToRunTests(fw, e2eTestConfig)
 	framework.Logf("Name Space : %s", namespace)
 	scParameters = make(map[string]string)
-	storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
+	storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameWithThickProvision)
 	dsType = env.GetStringEnvVarOrDefault(constants.EnvDatastoreType, constants.Vmfs)
 	framework.Logf("Datastore Type: %s", dsType)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -633,12 +639,6 @@ func loadTestCases(fileName string) []TestCase {
 
 	return testCases
 }
-
-// func zoneRemoval() {
-// 	vcRestSessionId := k8testutil.CreateVcSession4RestApis(ctx, e2eTestConfig)
-// 		zone1 = topologyAffinityDetails[topologyCategories[0]][0]
-// 		zone2 = topologyAffinityDetails[topologyCategories[0]][1
-// }
 
 func createFcd(ctx context.Context, fcdIDs []string, index int, policyName string, size int64, dsRef types.ManagedObjectReference, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()

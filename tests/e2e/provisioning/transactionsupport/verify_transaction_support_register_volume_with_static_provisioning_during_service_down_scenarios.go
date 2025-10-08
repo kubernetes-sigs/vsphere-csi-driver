@@ -44,6 +44,7 @@ var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Static", func() {
 
 	f := framework.NewDefaultFramework("transaction-support")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	framework.TestContext.DeleteNamespace = true
 	log := logger.GetLogger(context.Background())
 	cr_log.SetLogger(zapr.NewLogger(log.Desugar()))
 
@@ -63,6 +64,9 @@ var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Static", func() {
 				})
 
 				ginkgo.AfterEach(func() {
+					if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster || e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+						ginkgo.Skip("Currently Register volume skipping for GC/Vanilla")
+					}
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					testCleanUp(ctx, serviceNames)
@@ -71,6 +75,10 @@ var _ = ginkgo.Describe("Transaction_Support_Register_Volume_Static", func() {
 				ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
 					"Veify Register Volume (Static Provisiong) With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
 					constants.Windows, constants.Wcp, constants.Tkg, constants.Vanilla, constants.Vc91), func() {
+					if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster || e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+						ginkgo.Skip("Currently Register volume skipping for GC/Vanilla")
+					}
+
 					if slices.Contains(serviceNames, constants.ApdName) {
 						if dsType != constants.Vmfs {
 							framework.Logf("Currently APD test(s) are only covered for VMFS datastore")
@@ -137,20 +145,13 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 
 	deleteFCDRequired := true
 	ginkgo.By("Creating PVCs using the Fcds")
-	// wg.Add(len(serviceNames) + volumeOpsScale)
-	wg.Add(volumeOpsScale)
 
-	// if e2eTestConfig.TestInput.TestBedInfo.RwxAccessMode {
-	// 	accessMode = v1.ReadWriteMany
-	// } else {
-	// 	accessMode = v1.ReadWriteOnce
-	// }
+	wg.Add(len(serviceNames) + volumeOpsScale)
 
 	for i := range volumeOpsScale {
 		framework.Logf("Creating pvc from fcd %v", i)
 		go createPVCFromFcd(ctx, fcdIDs, namespace, pvclaims, i, &wg)
 	}
-
 	for _, serviceName := range serviceNames {
 		go restartService(ctx, c, serviceName, &wg)
 	}
