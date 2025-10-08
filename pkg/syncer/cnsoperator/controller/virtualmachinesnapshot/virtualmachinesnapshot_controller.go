@@ -162,6 +162,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).Named("virtualmachinesnapshot-controller").
+		For(&vmoperatortypes.VirtualMachineSnapshot{}).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
