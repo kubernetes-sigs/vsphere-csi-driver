@@ -54,6 +54,10 @@ type CnsRegisterVolumeSpec struct {
 	// This is for a 34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk
 	// file under datacenter "Datacenter-1" and datastore "vsanDatastore".
 	DiskURLPath string `json:"diskURLPath,omitempty"`
+
+	// VolumeMode can either be Block (for raw block volume) or
+	// Filesystem. Default values is Filesystem.
+	VolumeMode v1.PersistentVolumeMode `json:"volumeMode,omitempty"`
 }
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
