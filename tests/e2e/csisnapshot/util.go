@@ -396,6 +396,82 @@ func WaitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 	return waitErr
 }
 
+// getPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+// spec with specified storage class.
+func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
+	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
+	datasourceName string, snapshotapigroup string) *v1.PersistentVolumeClaim {
+	disksize := constants.DiskSize
+	if ds != "" {
+		disksize = ds
+	}
+	if accessMode == "" {
+		// If accessMode is not specified, set the default accessMode.
+		accessMode = v1.ReadWriteOnce
+	}
+	claim := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "pvc-",
+			Namespace:    namespace,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				accessMode,
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(disksize),
+				},
+			},
+			StorageClassName: &(storageclass.Name),
+			DataSource: &v1.TypedLocalObjectReference{
+				APIGroup: &snapshotapigroup,
+				Kind:     "VolumeSnapshot",
+				Name:     datasourceName,
+			},
+		},
+	}
+
+	if pvclaimlabels != nil {
+		claim.Labels = pvclaimlabels
+	}
+
+	return claim
+}
+
+// DeleteVolumeSnapshotWithPollWait request deletion of Volume Snapshot and waits until it is deleted
+func DeleteVolumeSnapshotWithPollWait(ctx context.Context, snapc *snapclient.Clientset,
+	namespace string, name string) {
+
+	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if !apierrors.IsNotFound(err) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	err = WaitForVolumeSnapshotToBeDeleted(ctx, snapc, namespace, name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+// WaitForVolumeSnapshotToBeDeleted wait till the volume snapshot is deleted
+func WaitForVolumeSnapshotToBeDeleted(ctx context.Context, client *snapclient.Clientset,
+	namespace string, name string) error {
+
+	waitErr := wait.PollUntilContextTimeout(ctx, constants.Poll, 2*constants.PollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err := client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					framework.Logf("VolumeSnapshot: %s is deleted", name)
+					return true, nil
+				} else {
+					return false, fmt.Errorf("error fetching volumesnapshot details : %v", err)
+				}
+			}
+			return false, nil
+		})
+	return waitErr
+}
+
 // GetRestConfigClientForGuestCluster can be used to get the KUBECONFIG
 func GetRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *rest.Config {
 	var err error
