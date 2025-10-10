@@ -22,14 +22,14 @@ require (
 	github.com/onsi/gomega v1.36.0
 	github.com/pkg/sftp v1.13.6
 	github.com/prometheus/client_golang v1.22.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20250923172217-bf5a74e51c65
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20250509154507-b93e51fc90fa
-	github.com/vmware/govmomi v0.52.0-alpha.0.0.20250807230438-0eee109f1f2c
+	github.com/vmware/govmomi v0.53.0-alpha.0.0.20251008032440-5ef2d64275e2
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.38.0
-	golang.org/x/sync v0.15.0
-	golang.org/x/sys v0.33.0
+	golang.org/x/crypto v0.40.0
+	golang.org/x/sync v0.16.0
+	golang.org/x/sys v0.34.0
 	google.golang.org/grpc v1.72.1
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/gcfg.v1 v1.2.3
@@ -161,12 +161,12 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
-	golang.org/x/term v0.32.0 // indirect
-	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/term v0.33.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
-	golang.org/x/tools v0.33.0 // indirect
+	golang.org/x/tools v0.35.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect

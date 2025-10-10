@@ -8,16 +8,22 @@ metadata:
 spec:
   group: cns.vmware.com
   names:
-    kind: CnsNodeVmBatchAttachment
-    listKind: CnsNodeVmBatchAttachmentList
+    kind: CnsNodeVMBatchAttachment
+    listKind: CnsNodeVMBatchAttachmentList
     plural: cnsnodevmbatchattachments
+    shortNames:
+    - batchattach
     singular: cnsnodevmbatchattachment
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.nodeUUID
+      name: NodeUUID
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: CnsNodeVmBatchAttachment is the Schema for the cnsnodevmbatchattachments
+        description: CnsNodeVMBatchAttachment is the Schema for the cnsnodevmbatchattachments
           API
         properties:
           apiVersion:
@@ -38,13 +44,13 @@ spec:
           metadata:
             type: object
           spec:
-            description: CnsNodeVmBatchAttachmentSpec defines the desired state of
-              CnsNodeVmBatchAttachment
+            description: CnsNodeVMBatchAttachmentSpec defines the desired state of
+              CnsNodeVMBatchAttachment
             properties:
-              nodeuuid:
+              nodeUUID:
                 description: |-
                   NodeUUID indicates the UUID of the node where the volume needs to be attached to.
-                  Here NodeUUID is the bios UUID of the node.
+                  Here NodeUUID is the instance UUID of the node.
                 type: string
               volumes:
                 description: VolumeSpec reflects the desired state for each volume.
@@ -63,18 +69,27 @@ spec:
                         controllerKey:
                           description: ControllerKey is the object key for the controller
                             object for this device.
-                          type: string
+                          format: int32
+                          type: integer
                         diskMode:
                           description: DiskMode is the desired mode to use when attaching
                             the volume
+                          enum:
+                          - independent_persistent
+                          - persistent
+                          - independent_nonpersistent
                           type: string
                         sharingMode:
-                          description: SharingMode indicates the shraring mode if
-                            the virtual disk while attaching.
+                          description: SharingMode indicates the sharing mode if the
+                            virtual disk while attaching.
+                          enum:
+                          - sharingMultiWriter
+                          - sharingNone
                           type: string
                         unitNumber:
                           description: UnitNumber of this device on its controller.
-                          type: string
+                          format: int32
+                          type: integer
                       required:
                       - claimName
                       type: object
@@ -87,12 +102,12 @@ spec:
                 - name
                 x-kubernetes-list-type: map
             required:
-            - nodeuuid
+            - nodeUUID
             - volumes
             type: object
           status:
-            description: CnsNodeVmBatchAttachmentStatus defines the observed state
-              of CnsNodeVmBatchAttachment
+            description: CnsNodeVMBatchAttachmentStatus defines the observed state
+              of CnsNodeVMBatchAttachment
             properties:
               error:
                 description: Error is the overall error status for the instance.
@@ -108,8 +123,13 @@ spec:
                       description: PersistentVolumeClaim contains details about the
                         volume's current state.
                       properties:
+                        DiskUUID:
+                          description: DiskUUID is the ID obtained when volume is
+                            attached to a VM.
+                          type: string
                         attached:
                           description: |-
+                            Attached indicates the attach status of a PVC.
                             If volume is not attached, Attached will be set to false.
                             If volume is attached, Attached will be set to true.
                             If volume is detached successfully, its entry will be removed from VolumeStatus.
@@ -119,10 +139,6 @@ spec:
                           type: string
                         cnsVolumeId:
                           description: CnsVolumeID is the volume ID for the PVC.
-                          type: string
-                        diskuuid:
-                          description: Diskuuid is the ID obtained when volume is
-                            attached to a VM.
                           type: string
                         error:
                           description: Error indicates the error which may have occurred
