@@ -233,6 +233,6 @@ var (
 
 // For linked clone
 var (
-	EnvStoragePolicy          = "STORAGE_POLICY_NAME-LC"
-	EnvTargetDSUrlForRelocate = "TARGET_DS_URL-LC"
+	EnvStoragePolicy          = "STORAGE_POLICY_NAME_LC"
+	EnvTargetDSUrlForRelocate = "TARGET_DS_URL_LC"
 )
