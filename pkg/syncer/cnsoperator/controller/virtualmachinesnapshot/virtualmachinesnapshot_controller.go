@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -163,7 +162,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller.
 	err := ctrl.NewControllerManagedBy(mgr).Named("virtualmachinesnapshot-controller").
 		For(&vmoperatortypes.VirtualMachineSnapshot{}).
-		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
@@ -277,7 +275,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 			deleteVMSnapshot = true
 		} else {
 			log.Infof("reconcileNormal: virtualmachinesnapshot %s/%s is set to delete, "+
-				"expecting to remove %s first", vmsnapshot.Namespace, vmsnapshot.Name,
+				"expecting to remove finalizer %s first", vmsnapshot.Namespace, vmsnapshot.Name,
 				VMSnapshotFinalizer)
 			return nil
 		}
