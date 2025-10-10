@@ -46,7 +46,7 @@ rules:
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs"]
+    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs", "cnsfileaccessconfigs/status"]
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsnodevmattachments", "cnsnodevmbatchattachments", "cnsnodevmbatchattachments/status", "cnsnodevmattachments/status"]
@@ -401,7 +401,7 @@ spec:
         - name: vsphere-csi-controller
           image: localhost:5000/vmware/vsphere-csi:<vsphere_csi_ver>
           args:
-            - "--enable-profile-server=false"
+            - "--enable-profile-server=true"
           ports:
             - containerPort: 2112
               name: prometheus
@@ -473,7 +473,7 @@ spec:
             - "--leader-election-retry-period=30s"
             - "--storagequota-sync-interval=10m"
             - "--webhook-client-cert-verification"
-            - "--enable-profile-server=false"
+            - "--enable-profile-server=true"
           env:
             - name: CLUSTER_FLAVOR
               value: "WORKLOAD"
@@ -485,6 +485,10 @@ spec:
               value: "30"
             - name: VOLUME_HEALTH_INTERVAL_MINUTES
               value: "5"
+            - name: WORKER_THREADS_NODEVM_ATTACH
+              value: "20"
+            - name: WORKER_THREADS_NODEVM_BATCH_ATTACH
+              value: "20"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT
@@ -605,7 +609,7 @@ spec:
       protocol: TCP
   selector:
     app: vsphere-csi-controller
-  type: ClusterIP
+  type: LoadBalancer
 ---
 apiVersion: v1
 kind: Service
@@ -732,6 +736,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsfileaccessconfigs"]
     verbs: ["get", "list", "update"]
+  - apiGroups: ["vmoperator.vmware.com"]
+    resources: ["virtualmachines"]
+    verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

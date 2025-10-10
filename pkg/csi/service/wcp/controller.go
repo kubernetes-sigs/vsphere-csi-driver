@@ -160,6 +160,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.PodVMOnStretchedSupervisor)
 	idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.CSIVolumeManagerIdempotency)
+	isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.FCDTransactionSupport)
 	IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultipleClustersPerVsphereZone)
 	if !IsMultipleClustersPerVsphereZoneFSSEnabled {
@@ -177,7 +179,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			config.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 			func() bool {
 				return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-			}, isPodVMOnStretchSupervisorFSSEnabled)
+			}, isPodVMOnStretchSupervisorFSSEnabled,
+			isCSITransactionSupportEnabled)
 		if err != nil {
 			log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 			return err
@@ -403,13 +406,16 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		}
 		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.CSIVolumeManagerIdempotency)
+		isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.FCDTransactionSupport)
 		if idempotencyHandlingEnabled {
 			log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 			operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
 				c.manager.CnsConfig.Global.CnsVolumeOperationRequestCleanupIntervalInMin,
 				func() bool {
 					return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-				}, isPodVMOnStretchSupervisorFSSEnabled)
+				}, isPodVMOnStretchSupervisorFSSEnabled,
+				isCSITransactionSupportEnabled)
 			if err != nil {
 				log.Errorf("failed to initialize VolumeOperationRequestInterface with error: %v", err)
 				return err
@@ -514,16 +520,6 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get vCenter from Manager. Error: %v", err)
-	}
-
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.SharedDiskFss) && isSharedRawBlockRequest(ctx, req.VolumeCapabilities) {
-		log.Infof("Volume request is for shared RWX volume. Validatig if policy is compatible for VMFS datastores.")
-		err := validateStoragePolicyForVmfs(ctx, vc, storagePolicyID)
-		if err != nil {
-			log.Errorf("failed validation for policy %s", storagePolicyID)
-			return nil, csifault.CSIInternalFault, err
-		}
 	}
 
 	// Fetch the accessibility requirements from the request.
@@ -2561,7 +2557,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 					StorageClassName:           cnsVolumeInfo.Spec.StorageClassName,
 					StoragePolicyID:            cnsVolumeInfo.Spec.StoragePolicyID,
 					Capacity:                   resource.NewQuantity(0, resource.BinarySI),
-					Namespace:                  cnsVolumeInfo.Namespace,
+					Namespace:                  cnsVolumeInfo.Spec.Namespace,
 					IsStorageQuotaM2FSSEnabled: isStorageQuotaM2FSSEnabled,
 				})
 			if err != nil {

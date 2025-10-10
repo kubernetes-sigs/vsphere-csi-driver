@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -396,45 +396,7 @@ func WaitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 	return waitErr
 }
 
-/*
-Create volume snapshot
-*/
-func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *v1.PersistentVolumeClaim, pv []*v1.PersistentVolume, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent) {
-	// Create or get volume snapshot class
-	ginkgo.By("Get or create volume snapshot class")
-	snapc := GetSnashotClientSet(e2eTestConfig)
-	volumeSnapshotClass, err := CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Create volume snapshot
-	ginkgo.By("Create a volume snapshot")
-	performCnsQueryVolumeSnapshot := false
-	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
-		performCnsQueryVolumeSnapshot = true
-	}
-	volumeSnapshot, snapshotContent, _,
-		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
-		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, performCnsQueryVolumeSnapshot)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	return volumeSnapshot, snapshotContent
-}
-
-/*
-Get snashot client set
-*/
-func GetSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Clientset {
-	var restConfig *rest.Config
-	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
-		restConfig = GetRestConfigClientForGuestCluster(nil)
-	} else {
-		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
-	}
-	snapc, err := snapclient.NewForConfig(restConfig)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return snapc
-}
-
+// GetRestConfigClientForGuestCluster can be used to get the KUBECONFIG
 func GetRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *rest.Config {
 	var err error
 	if guestClusterRestConfig == nil {
@@ -449,7 +411,7 @@ func GetRestConfigClientForGuestCluster(guestClusterRestConfig *rest.Config) *re
 
 // verifyVolumeRestoreOperation verifies if volume(PVC) restore from given snapshot
 // and creates pod and checks attach volume operation if verifyPodCreation is set to true
-func VerifyVolumeRestoreOperation(ctx context.Context, vs *config.E2eTestConfig, client kubernetes.Interface,
+func VerifyVolumeRestoreOperation(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface,
 	namespace string, storageclass *storagev1.StorageClass,
 	volumeSnapshot *snapV1.VolumeSnapshot, diskSize string,
 	verifyPodCreation bool) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume, *v1.Pod) {
@@ -465,7 +427,7 @@ func VerifyVolumeRestoreOperation(ctx context.Context, vs *config.E2eTestConfig,
 		[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	volHandle2 := persistentvolumes2[0].Spec.CSI.VolumeHandle
-	if vs.TestInput.ClusterFlavor.GuestCluster {
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
 		volHandle2 = k8testutil.GetVolumeIDFromSupervisorCluster(volHandle2)
 	}
 	gomega.Expect(volHandle2).NotTo(gomega.BeEmpty())
@@ -474,7 +436,7 @@ func VerifyVolumeRestoreOperation(ctx context.Context, vs *config.E2eTestConfig,
 	if verifyPodCreation {
 		// Create a Pod to use this PVC, and verify volume has been attached
 		ginkgo.By("Creating pod to attach PV to the node")
-		pod, err = k8testutil.CreatePod(ctx, vs, client, namespace, nil,
+		pod, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil,
 			[]*v1.PersistentVolumeClaim{pvclaim2}, false, constants.ExecRWXCommandPod1)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -482,37 +444,37 @@ func VerifyVolumeRestoreOperation(ctx context.Context, vs *config.E2eTestConfig,
 		var exists bool
 		nodeName := pod.Spec.NodeName
 
-		if vs.TestInput.ClusterFlavor.VanillaCluster {
+		if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
 			vmUUID = k8testutil.GetNodeUUID(ctx, client, pod.Spec.NodeName)
-		} else if vs.TestInput.ClusterFlavor.GuestCluster {
-			vmUUID, err = vcutil.GetVMUUIDFromNodeName(vs, pod.Spec.NodeName)
+		} else if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+			vmUUID, err = vcutil.GetVMUUIDFromNodeName(e2eTestConfig, pod.Spec.NodeName)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		} else if vs.TestInput.ClusterFlavor.SupervisorCluster {
+		} else if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 			annotations := pod.Annotations
 			vmUUID, exists = annotations[constants.VmUUIDLabel]
 			gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", constants.VmUUIDLabel))
-			_, err := vcutil.GetVMByUUID(ctx, vs, vmUUID)
+			_, err := vcutil.GetVMByUUID(ctx, e2eTestConfig, vmUUID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volHandle2, nodeName))
-		isDiskAttached, err := vcutil.IsVolumeAttachedToVM(client, vs, volHandle2, vmUUID)
+		isDiskAttached, err := vcutil.IsVolumeAttachedToVM(client, e2eTestConfig, volHandle2, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
 		ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		var cmd []string
-		if vs.TestInput.TestBedInfo.WindowsEnv {
+		if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
 			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", constants.FilePathPod1}
 		} else {
 			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 				"cat ", constants.FilePathPod1}
 		}
-		_ = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		//gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
 
 		var wrtiecmd []string
-		if vs.TestInput.TestBedInfo.WindowsEnv {
+		if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
 			wrtiecmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe",
 				"Add-Content /mnt/volume1/Pod1.html 'Hello message from test into Pod1'"}
 		} else {
@@ -520,14 +482,158 @@ func VerifyVolumeRestoreOperation(ctx context.Context, vs *config.E2eTestConfig,
 				"echo 'Hello message from test into Pod1' >> /mnt/volume1/Pod1.html"}
 		}
 		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
-		_ = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		//gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
 		return pvclaim2, persistentvolumes2, pod
 	}
 	return pvclaim2, persistentvolumes2, pod
 }
 
-// getPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
+/* createPreProvisionedSnapshotInGuestCluster created pre-provisioned snaphot  on Guest cluster */
+func CreatePreProvisionedSnapshotInGuestCluster(ctx context.Context, volumeSnapshot *snapV1.VolumeSnapshot,
+	updatedSnapshotContent *snapV1.VolumeSnapshotContent,
+	snapc *snapclient.Clientset, namespace string, pandoraSyncWaitTime int,
+	svcVolumeSnapshotName string, diskSize string) (*snapV1.VolumeSnapshotContent,
+	*snapV1.VolumeSnapshot, bool, bool, error) {
+
+	framework.Logf("Change the deletion policy of VolumeSnapshotContent from Delete to Retain " +
+		"in Guest Cluster")
+
+	updatedSnapshotContent, err := ChangeDeletionPolicyOfVolumeSnapshotContent(ctx, updatedSnapshotContent,
+		snapc, snapV1.VolumeSnapshotContentRetain)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to change deletion policy of VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Delete dynamic volume snapshot from Guest Cluster")
+	DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
+
+	framework.Logf("Delete VolumeSnapshotContent from Guest Cluster explicitly")
+	err = DeleteVolumeSnapshotContent(ctx, updatedSnapshotContent, snapc, pandoraSyncWaitTime)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to delete VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Creating static VolumeSnapshotContent in Guest Cluster using "+
+		"supervisor VolumeSnapshotName %s", svcVolumeSnapshotName)
+	staticSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Create(ctx,
+		GetVolumeSnapshotContentSpec(snapV1.DeletionPolicy("Delete"), svcVolumeSnapshotName,
+			"static-vs", namespace), metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to create static VolumeSnapshotContent: %v", err)
+	}
+
+	framework.Logf("Verify VolumeSnapshotContent is created or not in Guest Cluster")
+	staticSnapshotContent, err = snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+		staticSnapshotContent.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to get static VolumeSnapshotContent: %v", err)
+	}
+	framework.Logf("Snapshotcontent name is  %s", staticSnapshotContent.ObjectMeta.Name)
+
+	staticSnapshotContent, err = WaitForVolumeSnapshotContentReadyToUse(*snapc, ctx, staticSnapshotContent.Name)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("volume snapshot content is not ready to use")
+	}
+	staticSnapshotContentCreated := true
+
+	ginkgo.By("Create a static volume snapshot by static snapshotcontent")
+	staticVolumeSnapshot, err := snapc.SnapshotV1().VolumeSnapshots(namespace).Create(ctx,
+		GetVolumeSnapshotSpecByName(namespace, "static-vs",
+			staticSnapshotContent.ObjectMeta.Name), metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("failed to create static volume snapshot: %v", err)
+	}
+	framework.Logf("Volume snapshot name is : %s", staticVolumeSnapshot.Name)
+
+	ginkgo.By("Verify static volume snapshot is created")
+	staticSnapshot, err := WaitForVolumeSnapshotReadyToUse(*snapc, ctx, namespace, staticVolumeSnapshot.Name)
+	if err != nil {
+		return nil, nil, false, false, fmt.Errorf("volumeSnapshot is still not ready to use: %v", err)
+	}
+	if staticSnapshot.Status.RestoreSize.Cmp(resource.MustParse(diskSize)) != 0 {
+		return nil, nil, false, false, fmt.Errorf("expected RestoreSize does not match")
+	}
+	framework.Logf("Snapshot details is %+v", staticSnapshot)
+	staticSnapshotCreated := true
+
+	return staticSnapshotContent, staticSnapshot, staticSnapshotContentCreated, staticSnapshotCreated, nil
+}
+
+/*
+changeDeletionPolicyOfVolumeSnapshotContentOnGuest changes the deletion policy
+of volume snapshot content from delete to retain in Guest Cluster
+*/
+func ChangeDeletionPolicyOfVolumeSnapshotContent(ctx context.Context,
+	snapshotContent *snapV1.VolumeSnapshotContent, snapc *snapclient.Clientset,
+	policyName snapV1.DeletionPolicy) (*snapV1.VolumeSnapshotContent, error) {
+
+	// Retrieve the latest version of the object
+	latestSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Get(ctx, snapshotContent.Name,
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply changes to the latest version
+	latestSnapshotContent.Spec.DeletionPolicy = policyName
+
+	// Update the object
+	updatedSnapshotContent, err := snapc.SnapshotV1().VolumeSnapshotContents().Update(ctx,
+		latestSnapshotContent, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedSnapshotContent, nil
+}
+
+// getVolumeSnapshotContentSpec returns a spec for the volume snapshot content
+func GetVolumeSnapshotContentSpec(deletionPolicy snapV1.DeletionPolicy, snapshotHandle string,
+	futureSnapshotName string, namespace string) *snapV1.VolumeSnapshotContent {
+	var volumesnapshotContentSpec = &snapV1.VolumeSnapshotContent{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshotContent",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "snapshotcontent-",
+		},
+		Spec: snapV1.VolumeSnapshotContentSpec{
+			DeletionPolicy: deletionPolicy,
+			Driver:         constants.E2evSphereCSIDriverName,
+			Source: snapV1.VolumeSnapshotContentSource{
+				SnapshotHandle: &snapshotHandle,
+			},
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name:      futureSnapshotName,
+				Namespace: namespace,
+			},
+		},
+	}
+	return volumesnapshotContentSpec
+}
+
+// getVolumeSnapshotSpecByName returns a spec for the volume snapshot by name
+func GetVolumeSnapshotSpecByName(namespace string, snapshotName string,
+	snapshotcontentname string) *snapV1.VolumeSnapshot {
+	var volumesnapshotSpec = &snapV1.VolumeSnapshot{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "VolumeSnapshot",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      snapshotName,
+			Namespace: namespace,
+		},
+		Spec: snapV1.VolumeSnapshotSpec{
+			Source: snapV1.VolumeSnapshotSource{
+				VolumeSnapshotContentName: &snapshotcontentname,
+			},
+		},
+	}
+	return volumesnapshotSpec
+}
+
+// GetPersistentVolumeClaimSpecWithDatasource return the PersistentVolumeClaim
 // spec with specified storage class.
 func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, storageclass *storagev1.StorageClass,
 	pvclaimlabels map[string]string, accessMode v1.PersistentVolumeAccessMode,
@@ -568,4 +674,43 @@ func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 	}
 
 	return claim
+}
+
+/*
+Create volume snapshot
+*/
+func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *v1.PersistentVolumeClaim, pv []*v1.PersistentVolume, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent) {
+	// Create or get volume snapshot class
+	ginkgo.By("Get or create volume snapshot class")
+	snapc := GetSnashotClientSet(e2eTestConfig)
+	volumeSnapshotClass, err := CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create volume snapshot
+	ginkgo.By("Create a volume snapshot")
+	performCnsQueryVolumeSnapshot := false
+	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		performCnsQueryVolumeSnapshot = true
+	}
+	volumeSnapshot, snapshotContent, _,
+		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
+		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, performCnsQueryVolumeSnapshot)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return volumeSnapshot, snapshotContent
+}
+
+/*
+Get snashot client set
+*/
+func GetSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Clientset {
+	var restConfig *rest.Config
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		restConfig = GetRestConfigClientForGuestCluster(nil)
+	} else {
+		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
+	}
+	snapc, err := snapclient.NewForConfig(restConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return snapc
 }

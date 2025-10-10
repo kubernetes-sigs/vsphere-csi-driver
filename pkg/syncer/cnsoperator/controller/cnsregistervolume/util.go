@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -114,7 +113,7 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 }
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
-func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
+func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	host string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
 	var volumeName string
@@ -149,11 +148,9 @@ func constructCreateSpecForInstance(r *ReconcileCnsRegisterVolume,
 			BackingDiskUrlPath: instance.Spec.DiskURLPath,
 		}
 	}
-	if instance.Spec.AccessMode == v1.ReadWriteOnce || instance.Spec.AccessMode == "" {
-		createSpec.VolumeType = common.BlockVolumeType
-	} else {
-		createSpec.VolumeType = common.FileVolumeType
-	}
+
+	createSpec.VolumeType = common.BlockVolumeType
+
 	return createSpec
 }
 
@@ -252,7 +249,8 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
 func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
-	accessMode v1.PersistentVolumeAccessMode, scName string, claimRef *v1.ObjectReference) *v1.PersistentVolume {
+	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string,
+	claimRef *v1.ObjectReference) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
 	pv := &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
@@ -280,6 +278,15 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		},
 		Status: v1.PersistentVolumeStatus{},
 	}
+
+	if isSharedDiskEnabled {
+		if volumeMode == "" {
+			// For both RWO and RWX volumes, default volumeMode is Filesystem.
+			volumeMode = v1.PersistentVolumeFilesystem
+		}
+		pv.Spec.VolumeMode = &volumeMode
+	}
+
 	annotations := make(map[string]string)
 	annotations["pv.kubernetes.io/provisioned-by"] = cnsoperatortypes.VSphereCSIDriverName
 	pv.Annotations = annotations
@@ -289,7 +296,8 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 // getPersistentVolumeClaimSpec return the PersistentVolumeClaim spec with
 // specified storage class.
 func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace string, capacity int64,
-	storageClassName string, accessMode v1.PersistentVolumeAccessMode, pvName string,
+	storageClassName string, accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode,
+	pvName string,
 	datastoreAccessibleTopology []map[string]string,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume) (*v1.PersistentVolumeClaim, error) {
 
@@ -345,6 +353,11 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 			VolumeName:       pvName,
 		},
 	}
+
+	if isSharedDiskEnabled {
+		claim.Spec.VolumeMode = &volumeMode
+	}
+
 	return claim, nil
 }
 
@@ -387,39 +400,4 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 	}
 	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
-}
-
-// getMaxWorkerThreadsToReconcileCnsRegisterVolume returns the maximum number
-// of worker threads which can be run to reconcile CnsRegisterVolume instances.
-// If environment variable WORKER_THREADS_REGISTER_VOLUME is set and valid,
-// return the value read from environment variable. Otherwise, use the default
-// value.
-func getMaxWorkerThreadsToReconcileCnsRegisterVolume(ctx context.Context) int {
-	log := logger.GetLogger(ctx)
-	workerThreads := defaultMaxWorkerThreadsForRegisterVolume
-	if v := os.Getenv("WORKER_THREADS_REGISTER_VOLUME"); v != "" {
-		if value, err := strconv.Atoi(v); err == nil {
-			if value <= 0 {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is less than 1, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume)
-			} else if value > defaultMaxWorkerThreadsForRegisterVolume {
-				log.Warnf("Maximum number of worker threads to run set in env variable "+
-					"WORKER_THREADS_REGISTER_VOLUME %s is greater than %d, will use the default value %d",
-					v, defaultMaxWorkerThreadsForRegisterVolume, defaultMaxWorkerThreadsForRegisterVolume)
-			} else {
-				workerThreads = value
-				log.Debugf("Maximum number of worker threads to run to reconcile CnsRegisterVolume instances is set to %d",
-					workerThreads)
-			}
-		} else {
-			log.Warnf("Maximum number of worker threads to run set in env variable "+
-				"WORKER_THREADS_REGISTER_VOLUME %s is invalid, will use the default value %d",
-				v, defaultMaxWorkerThreadsForRegisterVolume)
-		}
-	} else {
-		log.Debugf("WORKER_THREADS_REGISTER_VOLUME is not set. Picking the default value %d",
-			defaultMaxWorkerThreadsForRegisterVolume)
-	}
-	return workerThreads
 }

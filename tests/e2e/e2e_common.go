@@ -63,6 +63,7 @@ const (
 	disklibUnlinkErr                           = "DiskLib_Unlink"
 	diskSize1GB                                = "1Gi"
 	diskSize                                   = "2Gi"
+	diskSize4GB                                = "4Gi"
 	diskSizeSmall                              = "100Mi"
 	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
@@ -277,6 +278,9 @@ const (
 	lateBinding                              = "-latebinding"
 	cnsVolumeDeleteTimeout                   = 5 * time.Minute
 	vscDeleteTimeout                         = 5 * time.Minute
+	selectedNodeIsZone                       = "cns.vmware.com/selected-node-is-zone"
+	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
+	vmZoneLabel                              = "topology.kubernetes.io/zone"
 )
 
 /*

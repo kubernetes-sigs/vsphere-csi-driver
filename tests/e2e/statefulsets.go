@@ -827,7 +827,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	  12. Inncrease the CSI driver  replica to 3
 
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla] [csi-supervisor] ListVolumeResponse "+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][pq-vanilla-block] ListVolumeResponse "+
 		"Validation", ginkgo.Label(p1, listVolume, block, vanilla, wcp, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1009,7 +1009,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 		5. Scale up replica to 5.
 		6. Exit MM and clean up all pods and PVs.
 	*/
-	ginkgo.It("[ef-wcp][csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(p1, block, wcp,
+	ginkgo.It("[ef-f-wcp][csi-supervisor] Test MM workflow on statefulset", ginkgo.Label(p1, block, wcp,
 		disruptive, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

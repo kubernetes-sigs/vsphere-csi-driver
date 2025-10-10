@@ -55,7 +55,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
 
-const defaultMaxWorkerThreadsForCSINodeTopology = 1
+const defaultMaxWorkerThreads = 1
 
 // backOffDuration is a map of csinodetopology instance name to the time after
 // which a request for this instance will be requeued. Initialized to 1 second
@@ -151,7 +151,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	// Create a new controller.
 	c, err := controller.New("csinodetopology-controller", mgr, controller.Options{Reconciler: r,
-		MaxConcurrentReconciles: defaultMaxWorkerThreadsForCSINodeTopology})
+		MaxConcurrentReconciles: defaultMaxWorkerThreads})
 	if err != nil {
 		log.Errorf("failed to create new CSINodetopology controller with error: %+v", err)
 		return err

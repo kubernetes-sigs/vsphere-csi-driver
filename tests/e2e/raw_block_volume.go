@@ -712,7 +712,7 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 
 	*/
 	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest]"+
-		"[cf-vks-f] Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
+		"Verify online volume expansion on dynamic raw block volume", ginkgo.Label(p0,
 		block, vanilla, tkg,
 		vc70), func() {
 		ginkgo.By("Invoking Test for online Volume Expansion on raw block volume")
@@ -739,6 +739,9 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 		ginkgo.By("Creating raw block PVC")
 		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
 		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
+		diskSize := resource.MustParse(diskSize4GB)
+		pvcspec.Spec.Resources.Requests[corev1.ResourceStorage] = diskSize
+
 		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create pvc with err: %v", err))
 

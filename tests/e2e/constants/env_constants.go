@@ -228,6 +228,11 @@ const (
 
 // For creating disk on target datastore
 var (
-	EnvStoragePolicy        = "STORAGE_POLICY_NAME"
 	EnvRestoreStoragePolicy = "RESTORE_STORAGE_POLICY"
+)
+
+// For linked clone
+var (
+	EnvStoragePolicy          = "STORAGE_POLICY_NAME-LC"
+	EnvTargetDSUrlForRelocate = "TARGET_DS_URL-LC"
 )

@@ -55,7 +55,7 @@ const (
 
 // getPVsInBoundAvailableOrReleased return PVs in Bound, Available or Released
 // state.
-func getPVsInBoundAvailableOrReleased(ctx context.Context,
+var getPVsInBoundAvailableOrReleased = func(ctx context.Context,
 	metadataSyncer *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 	var pvsInDesiredState []*v1.PersistentVolume
@@ -961,10 +961,6 @@ func hasClusterDistributionSet(ctx context.Context, volume cnstypes.CnsVolume,
 func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
 	[]map[string]string, error) {
 	volumeAccessibleTopology := claim.Annotations[common.AnnVolumeAccessibleTopology]
-	if volumeAccessibleTopology == "" {
-		return nil, fmt.Errorf("annotation %q is not set for the claim: %q, namespace: %q",
-			common.AnnVolumeAccessibleTopology, claim.Name, claim.Namespace)
-	}
 	volumeAccessibleTopologyArray := make([]map[string]string, 0)
 	err := json.Unmarshal([]byte(volumeAccessibleTopology), &volumeAccessibleTopologyArray)
 	if err != nil {

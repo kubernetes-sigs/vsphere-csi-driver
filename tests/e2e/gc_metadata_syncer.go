@@ -670,8 +670,10 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvUID := string(pv.UID)
 		gcClusterID := strings.Replace(svcPVCName, pvcUID, "", -1)
 
+		time.Sleep(pollTimeoutShort)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, pv.Spec.CSI.VolumeHandle,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
+		time.Sleep(pollTimeoutShort)
 		verifyEntityReferenceInCRDInSupervisor(ctx, f, gcClusterID+pvUID,
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, false, nil, false)
 
@@ -921,7 +923,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 6. Start vsan-health.
 	// 7. Verify labels are updated on CNS.
 	// 8. Delete PVC in GC.
-	ginkgo.It("Verify CnsVolumeMetadata updated after vsan health restart", ginkgo.Label(p1,
+	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsVolumeMetadata updated after vsan health restart", ginkgo.Label(p1,
 		block, tkg, negative, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -995,7 +997,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 9. Make datastore accessible.
 	// 10. Verify labels are updated on CNS.
 	// 11. Delete PVC.
-	ginkgo.It("Verify labels are not updated on inaccessible datastore", ginkgo.Label(p1,
+	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] Verify labels are not updated on inaccessible datastore", ginkgo.Label(p1,
 		block, tkg, negative, vc70), func() {
 		var err error
 		var sc *storagev1.StorageClass

@@ -67,6 +67,10 @@ spec:
                   together.
                 type: string
                 pattern: '^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$'
+              volumeMode:
+                description: VolumeMode can either be Block (for raw block volume) or
+                  Filesystem. Default value is Filesystem.
+                type: string
             required:
             - pvcName
             type: object

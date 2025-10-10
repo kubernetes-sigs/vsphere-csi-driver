@@ -26,6 +26,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/assert"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -517,6 +518,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		})
 
 		patches.ApplyFunc(constructCreateSpecForInstance, func(
+			ctx context.Context,
 			r *ReconcileCnsRegisterVolume,
 			instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 			host string,
@@ -568,7 +570,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 
 		// Test getPersistentVolumeClaimSpec function directly
 		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
-			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+			"test-storage-class", corev1.ReadWriteOnce, corev1.PersistentVolumeFilesystem, "test-pv", nil, instance)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pvcSpec).NotTo(BeNil())
@@ -594,7 +596,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 
 		// Test getPersistentVolumeClaimSpec function directly
 		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
-			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+			"test-storage-class", corev1.ReadWriteOnce, corev1.PersistentVolumeFilesystem, "test-pv", nil, instance)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pvcSpec).NotTo(BeNil())
@@ -622,7 +624,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 
 		// Test getPersistentVolumeClaimSpec function directly
 		pvcSpec, err := getPersistentVolumeClaimSpec(ctx, "test-pvc", "test-ns", 1024,
-			"test-storage-class", corev1.ReadWriteOnce, "test-pv", nil, instance)
+			"test-storage-class", corev1.ReadWriteOnce, corev1.PersistentVolumeFilesystem, "test-pv", nil, instance)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(pvcSpec).NotTo(BeNil())
@@ -1088,4 +1090,132 @@ func TestCnsRegisterVolumeController(t *testing.T) {
 
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CnsRegisterVolumeController Suite")
+}
+
+func TestValidateCnsRegisterVolumeSpecWithDiskUrlPath(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			DiskURLPath: "som-url",
+			AccessMode:  corev1.ReadWriteMany,
+			VolumeMode:  corev1.PersistentVolumeFilesystem,
+		},
+	}
+
+	isSharedDiskEnabled = true
+	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
+	assert.Error(t, err)
+	assert.Equal(t, "DiskURLPath cannot be used with accessMode: ReadWriteMany and volumeMode: Filesystem", err.Error())
+}
+
+func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndNoAccessMode(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   "123456",
+			VolumeMode: corev1.PersistentVolumeFilesystem,
+		},
+	}
+
+	isSharedDiskEnabled = true
+	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
+	assert.Error(t, err)
+	assert.Equal(t, "AccessMode cannot be empty when volumeID is specified", err.Error())
+}
+
+func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndAccessMode(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteMany,
+			VolumeMode: corev1.PersistentVolumeFilesystem,
+		},
+	}
+
+	isSharedDiskEnabled = true
+	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
+	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
+	assert.NoError(t, err)
+}
+
+func TestIsBlockVolumeRegisterRequestWithSharedBlockVolume(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   "123456",
+			VolumeMode: corev1.PersistentVolumeBlock,
+			AccessMode: corev1.ReadWriteMany,
+		},
+	}
+
+	isSharedDiskEnabled = true
+	isBlockVolume := isBlockVolumeRegisterRequest(t.Context(), instance)
+	assert.Equal(t, true, isBlockVolume)
+}
+
+func TestIsBlockVolumeRegisterRequestWithFileVolume(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteMany,
+			VolumeMode: corev1.PersistentVolumeFilesystem,
+		},
+	}
+
+	isSharedDiskEnabled = true
+	isBlockVolume := isBlockVolumeRegisterRequest(t.Context(), instance)
+	assert.Equal(t, false, isBlockVolume)
+}
+
+func TestGetPersistentVolumeSpecWhenVolumeModeIsEmpty(t *testing.T) {
+	var (
+		volumeName = "vol-1"
+		volumeID   = "123456"
+		capacity   = 256
+		accessMode = corev1.ReadWriteMany
+		scName     = "testsc"
+	)
+
+	isSharedDiskEnabled = true
+	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
+	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil)
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
+}
+
+func TestGetPersistentVolumeSpecWithVolumeMode(t *testing.T) {
+	var (
+		volumeName = "vol-1"
+		volumeID   = "123456"
+		capacity   = 256
+		accessMode = corev1.ReadWriteMany
+		scName     = "testsc"
+		volumeMode = corev1.PersistentVolumeBlock
+	)
+
+	isSharedDiskEnabled = true
+	pv := getPersistentVolumeSpec(volumeName, volumeID,
+		int64(capacity), accessMode, volumeMode, scName, nil)
+	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
 }

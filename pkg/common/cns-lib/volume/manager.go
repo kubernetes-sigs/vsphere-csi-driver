@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -827,9 +826,9 @@ func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 			return nil, err
 		}
 	}
-	ch := make(chan TaskResult)
+	ch := make(chan TaskResult, 1)
 	err := m.listViewIf.AddTask(csiOpContext, taskMoRef, ch)
-	if errors.Unwrap(err) == ErrListViewTaskAddition {
+	if errors.Is(err, ErrListViewTaskAddition) {
 		return nil, logger.LogNewErrorf(log, "%s. err: %v", listviewAdditionError, err)
 	} else if err != nil {
 		// in case the task is not found in VC, we are returning a ManagedObjectNotFound error wrapped as a soap fault
@@ -2910,6 +2909,14 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		faultType := ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 	}
+	// Persist the volume operation details.
+	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
+		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
+		// Don't return if CreateSnapshot details can't be stored.
+		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
+	}
 
 	var createSnapshotsTaskInfo *vim25types.TaskInfo
 	var faultType string
@@ -3524,23 +3531,11 @@ func constructBatchAttachSpecList(ctx context.Context, vm *cnsvsphere.VirtualMac
 		}
 
 		// Set controllerKey and unitNumber only if they are provided by the user.
-		if volume.ControllerKey != "" {
-			// Convert to int64
-			controllerKey, err := strconv.ParseInt(volume.ControllerKey, 10, 64)
-			if err != nil {
-				log.Errorf("failed to convert controllerKey %s to integer", controllerKey)
-				return cnsAttachSpecList, err
-			}
-			cnsAttachDetachSpec.ControllerKey = controllerKey
+		if volume.ControllerKey != nil {
+			cnsAttachDetachSpec.ControllerKey = volume.ControllerKey
 		}
-		if volume.UnitNumber != "" {
-			// Convert to int64
-			unitNumber, err := strconv.ParseInt(volume.UnitNumber, 10, 64)
-			if err != nil {
-				log.Errorf("failed to convert unitNumber %s to integer", unitNumber)
-				return cnsAttachSpecList, err
-			}
-			cnsAttachDetachSpec.UnitNumber = unitNumber
+		if volume.UnitNumber != nil {
+			cnsAttachDetachSpec.UnitNumber = volume.UnitNumber
 		}
 		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachDetachSpec)
 	}
