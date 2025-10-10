@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -35,6 +36,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -239,6 +241,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			common.TopologyAwareFileVolume)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
+		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS)
 
 		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
@@ -266,6 +269,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			// Define http server and server handler.
 			mux := http.NewServeMux()
 			mux.HandleFunc("/validate", validationHandler)
+			mux.HandleFunc("/mutate", mutationHandler)
 			server.Handler = mux
 
 			// Start webhook server.
@@ -354,6 +358,8 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 				admissionResponse = validatePVC(ctx, ar.Request)
 			case "PersistentVolume":
 				admissionResponse = validatePv(ctx, ar.Request)
+			case "VolumeSnapshot":
+				admissionResponse = validateVolumeSnapshot(ctx, ar.Request)
 			default:
 				log.Infof("Skipping validation for resource type: %q", ar.Request.Kind.Kind)
 				admissionResponse = &admissionv1.AdmissionResponse{
@@ -382,4 +388,152 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("Can't write response: %v", err)
 		http.Error(w, fmt.Sprintf("could not write response: %v", err), http.StatusInternalServerError)
 	}
+}
+
+// mutationHandler is the handler for webhook http multiplexer to help
+// mutate resources. Depending on the URL mutation of AdmissionReview
+// will be redirected to appropriate mutation function.
+func mutationHandler(w http.ResponseWriter, r *http.Request) {
+	var body []byte
+	ctx, log := logger.GetNewContextWithLogger()
+	if r.Body != nil {
+		if data, err := io.ReadAll(r.Body); err == nil {
+			body = data
+		}
+	}
+	if len(body) == 0 {
+		log.Error("received empty request body")
+		http.Error(w, "received empty request body", http.StatusBadRequest)
+		return
+	}
+	log.Debugf("Received mutation request")
+	// Verify the content type is accurate.
+	contentType := r.Header.Get("Content-Type")
+	if contentType != "application/json" {
+		log.Errorf("content-Type=%s, expect application/json", contentType)
+		http.Error(w, "invalid Content-Type, expect `application/json`", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	var admissionResponse *admissionv1.AdmissionResponse
+	ar := admissionv1.AdmissionReview{}
+	codecs := serializer.NewCodecFactory(runtime.NewScheme())
+	deserializer := codecs.UniversalDeserializer()
+	if _, _, err := deserializer.Decode(body, nil, &ar); err != nil {
+		log.Errorf("Can't decode body: %v", err)
+		admissionResponse = &admissionv1.AdmissionResponse{
+			Result: &metav1.Status{
+				Message: err.Error(),
+			},
+		}
+	} else {
+		if r.URL.Path == "/mutate" {
+			log.Debugf("request URL path is /mutate")
+			log.Debugf("admissionReview: %+v", ar)
+			switch ar.Request.Kind.Kind {
+			case "PersistentVolumeClaim":
+				admissionResponse = mutatePVC(ctx, ar.Request)
+			default:
+				log.Infof("Skipping mutation for resource type: %q", ar.Request.Kind.Kind)
+				admissionResponse = &admissionv1.AdmissionResponse{
+					Allowed: true,
+				}
+			}
+			log.Debugf("admissionResponse: %+v", admissionResponse)
+		}
+	}
+	admissionReview := admissionv1.AdmissionReview{}
+	admissionReview.APIVersion = "admission.k8s.io/v1"
+	admissionReview.Kind = "AdmissionReview"
+	if admissionResponse != nil {
+		admissionReview.Response = admissionResponse
+		if ar.Request != nil {
+			admissionReview.Response.UID = ar.Request.UID
+		}
+	}
+	resp, err := json.Marshal(admissionReview)
+	if err != nil {
+		log.Errorf("Can't encode response: %v", err)
+		http.Error(w, fmt.Sprintf("could not encode response: %v", err), http.StatusInternalServerError)
+	}
+	log.Debugf("Ready to write mutation response")
+	if _, err := w.Write(resp); err != nil {
+		log.Errorf("Can't write response: %v", err)
+		http.Error(w, fmt.Sprintf("could not write response: %v", err), http.StatusInternalServerError)
+	}
+}
+
+// validateVolumeSnapshot validates VolumeSnapshot deletion requests for vanilla flavor.
+// This is an empty implementation that allows all requests by default.
+func validateVolumeSnapshot(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	log := logger.GetLogger(ctx)
+	log.Debugf("VolumeSnapshot validation called for operation: %v", req.Operation)
+
+	// Empty implementation - allow all VolumeSnapshot operations by default
+	return &admissionv1.AdmissionResponse{
+		Allowed: true,
+	}
+}
+
+// mutateNewPVC mutates PersistentVolumeClaim creation requests for vanilla flavor.
+// This follows the exact same pattern as cnscsi_admissionhandler.go mutateNewPVC.
+func mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
+	newPVC := &corev1.PersistentVolumeClaim{}
+	if err := json.Unmarshal(req.Object.Raw, newPVC); err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	var wasMutated bool
+
+	if featureIsLinkedCloneSupportEnabled &&
+		metav1.HasAnnotation(newPVC.ObjectMeta, common.AnnKeyLinkedClone) &&
+		newPVC.Annotations[common.AnnKeyLinkedClone] == "true" {
+		// Set the same label
+		if newPVC.Labels == nil {
+			newPVC.Labels = make(map[string]string)
+		}
+		if _, ok := newPVC.Labels[common.AnnKeyLinkedClone]; !ok {
+			newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AnnKeyLinkedClone]
+			wasMutated = true
+		}
+	}
+
+	if !wasMutated {
+		return admission.Allowed("")
+	}
+
+	newRawPVC, err := json.Marshal(newPVC)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	return admission.PatchResponseFromRaw(req.Object.Raw, newRawPVC)
+}
+
+// mutatePVC is a wrapper that converts between vanilla HTTP handler types and controller-runtime types
+func mutatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	// Convert admissionv1.AdmissionRequest to admission.Request
+	admissionReq := admission.Request{AdmissionRequest: *req}
+
+	// Call the controller-runtime style function
+	resp := mutateNewPVC(ctx, admissionReq)
+
+	// Convert patches back to raw JSON for admissionv1.AdmissionResponse
+	admissionResp := resp.AdmissionResponse
+	if len(resp.Patches) > 0 {
+		patchBytes, err := json.Marshal(resp.Patches)
+		if err != nil {
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: fmt.Sprintf("Failed to marshal patches: %v", err),
+				},
+			}
+		}
+		admissionResp.Patch = patchBytes
+		patchType := admissionv1.PatchTypeJSONPatch
+		admissionResp.PatchType = &patchType
+	}
+
+	return &admissionResp
 }
