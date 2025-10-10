@@ -693,20 +693,20 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 	fmt.Println("Checking disk path:", p)
 
 	// List the available disks
-	results := execSshOnVmThroughGatewayVm(vmIp, []string{
+	results := ExecSshOnVmThroughGatewayVm(vmIp, []string{
 		"ls -l /dev/disk/by-id/",
 	})
 	fmt.Println("Disk list results:", results)
 
 	// Check if the desired disk exists
-	diskCheckResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+	diskCheckResults := ExecSshOnVmThroughGatewayVm(vmIp, []string{
 		"ls -l " + p,
 	})
 
 	// If the disk is not found, try rescanning SCSI devices
 	if strings.Contains(diskCheckResults[0].Stderr, "No such file or directory") {
 		fmt.Printf("Disk %s not found. Rescanning SCSI devices.\n", p)
-		rescanResults := execSshOnVmThroughGatewayVm(vmIp, []string{
+		rescanResults := ExecSshOnVmThroughGatewayVm(vmIp, []string{
 			"echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan",
 			"ls -l /dev/disk/by-id/",
 			"ls -l " + p,
@@ -714,7 +714,7 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 		fmt.Println("Rescan results:", rescanResults)
 
 		// Check again if the disk is available after rescanning
-		diskCheckResults = execSshOnVmThroughGatewayVm(vmIp, []string{
+		diskCheckResults = ExecSshOnVmThroughGatewayVm(vmIp, []string{
 			"ls -l " + p,
 		})
 	}
@@ -742,7 +742,7 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 	unmountCommands := []string{
 		fmt.Sprintf("sudo umount %s* || true", dev),
 	}
-	res := execSshOnVmThroughGatewayVm(vmIp, unmountCommands)
+	res := ExecSshOnVmThroughGatewayVm(vmIp, unmountCommands)
 	fmt.Println("Unmount Results:", res)
 
 	// Partition and format the disk
@@ -752,7 +752,7 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 		"lsblk -l",
 		fmt.Sprintf("sudo mkfs.ext4 %s", partitionDev),
 	}
-	res = execSshOnVmThroughGatewayVm(vmIp, partitionCommands)
+	res = ExecSshOnVmThroughGatewayVm(vmIp, partitionCommands)
 	fmt.Println("Partitioning Results:", res)
 
 	// Mount the new partition
@@ -767,7 +767,7 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 		fmt.Sprintf("grep -c ext4 %s/fstype", volFolder),
 		"sync",
 	}
-	results = execSshOnVmThroughGatewayVm(vmIp, mountCommands)
+	results = ExecSshOnVmThroughGatewayVm(vmIp, mountCommands)
 	fmt.Println("Mounting Results:", results)
 
 	// Verify the filesystem type
@@ -778,7 +778,7 @@ func FormatNVerifyPvcIsAccessible(diskUuid string, mountIndex int, vmIp string) 
 
 // verifyDataIntegrityOnVmDisk verifies data integrity with 100m random data on given FS path inside a vm
 func VerifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
-	results := execSshOnVmThroughGatewayVm(vmIp, []string{"dd count=100 bs=1M if=/dev/urandom of=/tmp/file1",
+	results := ExecSshOnVmThroughGatewayVm(vmIp, []string{"dd count=100 bs=1M if=/dev/urandom of=/tmp/file1",
 		"dd count=100 bs=1M if=/tmp/file1 of=" + volFolder + "/vmfile",
 		"dd count=100 bs=1M if=" + volFolder + "/vmfile of=/tmp/file2", "md5sum /tmp/file1 /tmp/file2",
 	})
@@ -786,8 +786,8 @@ func VerifyDataIntegrityOnVmDisk(vmIp, volFolder string) {
 	gomega.Expect(strings.Fields(lines[0])[0]).To(gomega.Equal(strings.Fields(lines[1])[0]))
 }
 
-// execSshOnVmThroughGatewayVm executes cmd(s) on VM via gateway(bastion) host and returns the result(s)
-func execSshOnVmThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
+// ExecSshOnVmThroughGatewayVm executes cmd(s) on VM via gateway(bastion) host and returns the result(s)
+func ExecSshOnVmThroughGatewayVm(vmIp string, cmds []string) []fssh.Result {
 	results := []fssh.Result{}
 
 	gatewayClient, sshClient := GetSshClientForVmThroughGatewayVm(vmIp)
@@ -928,7 +928,7 @@ func Wait4PvcAttachmentFailure(
 // mountFormattedVol2Vm mounts a preformatted volume inside the VM
 func MountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
 	p := "/dev/disk/by-id/wwn-0x" + strings.ReplaceAll(strings.ToLower(diskUuid), "-", "")
-	results := execSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
+	results := ExecSshOnVmThroughGatewayVm(vmIp, []string{"ls -l /dev/disk/by-id/", "ls -l " + p})
 	dev := "/dev/" + strings.TrimSpace(strings.Split(results[1].Stdout, "/")[6])
 	gomega.Expect(dev).ShouldNot(gomega.Equal("/dev/"))
 	framework.Logf("Found %s dev for disk with uuid %s", dev, diskUuid)
@@ -937,7 +937,7 @@ func MountFormattedVol2Vm(diskUuid string, mountIndex int, vmIp string) string {
 
 	volMountPath := "/mnt/volume" + strconv.Itoa(mountIndex)
 	volFolder := volMountPath + "/data"
-	results = execSshOnVmThroughGatewayVm(vmIp, []string{
+	results = ExecSshOnVmThroughGatewayVm(vmIp, []string{
 		"sudo mkdir -p " + volMountPath,
 		"sudo mount " + partitionDev + " " + volMountPath,
 		"sudo chmod -R 777 " + volFolder,
