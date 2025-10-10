@@ -252,7 +252,7 @@ func verifyOnlineVolumeExpansionOnGc(client clientset.Interface, namespace strin
 	var err error
 	if !windowsEnv {
 		rand.New(rand.NewSource(time.Now().Unix()))
-		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		testdataFile = fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
 		ginkgo.By(fmt.Sprintf("Creating a 512mb test data file %v", testdataFile))
 		op, err = exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
 			"bs=64k", "count=8000").Output()
