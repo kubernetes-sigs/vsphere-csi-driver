@@ -96,8 +96,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, framework.PollShortTimeout, pollTimeoutShort)
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
+			pvclaim.Namespace, pvclaim.Name, framework.PollShortTimeout, pollTimeoutShort)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		// Get the event list and verify if it contains expected error message
@@ -141,8 +141,8 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound,
-			client, pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout)
+		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		// Get the event list and verify if it contains expected error message
@@ -186,7 +186,7 @@ var _ = ginkgo.Describe("[csi-topology-vanilla] Topology-Aware-Provisioning-With
 		}()
 		ginkgo.By("Expect claim to fail provisioning volume within the topology")
 		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimBound, client,
-			pvclaim.Namespace, pvclaim.Name, pollTimeoutShort, framework.PollShortTimeout)
+			pvclaim.Namespace, pvclaim.Name, framework.Poll, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 		// Get the event list and verify if it contains expected error message
 		eventList, _ := client.CoreV1().Events(pvclaim.Namespace).List(ctx, metav1.ListOptions{})
