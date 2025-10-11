@@ -222,6 +222,11 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 
 type mockCOCommon struct{}
 
+func (m *mockCOCommon) GetPVCNamespacedNameByUID(uid string) (types.NamespacedName, bool) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockCOCommon) EnableFSS(ctx context.Context, featureName string) error {
 	//TODO implement me
 	panic("implement me")

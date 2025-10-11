@@ -26,20 +26,16 @@ import (
 	"sync"
 	"time"
 
-	versioned "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
-	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	versioned "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -47,6 +43,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
+	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -1514,6 +1513,14 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 				log.Debugf("FullSync for VC %s: Volume with id %s added to delete list", vc, vol.VolumeId.Id)
 				volToBeDeleted = append(volToBeDeleted, vol.VolumeId)
 			} else {
+				if nsNameStr, ok := metadataSyncer.coCommonInterface.GetPVCNamespacedNameByUID(vol.VolumeId.Id); ok {
+					log.Infof(
+						"Skipping volume %q during full sync: corresponding PVC found in cache at %s, not adding to deletion map",
+						vol.VolumeId.Id,
+						nsNameStr,
+					)
+					continue
+				}
 				// Add to cnsDeletionMap.
 				if migrationFeatureStateForFullSync {
 					// If migration is ON, verify if the volume is present in inlineVolumeMap.

@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -44,6 +45,11 @@ import (
 // MockCOCommonInterface is a mock implementation of COCommonInterface
 type MockCOCommonInterface struct {
 	mock.Mock
+}
+
+func (m *MockCOCommonInterface) GetPVCNamespacedNameByUID(uid string) (apitypes.NamespacedName, bool) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (m *MockCOCommonInterface) GetVolumeSnapshotPVCSource(ctx context.Context, volumeSnapshotNamespace,
