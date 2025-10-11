@@ -65,6 +65,12 @@ var _ = ginkgo.Describe("Transaction_Support_CreateVolumeFromSnapshot", func() {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 
+					//Deleting pvcs created from snapshot
+					for _, claim := range pvclaimsCreatedFromSnapshot {
+						err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					}
+
 					//Deleting snapshots
 					framework.Logf("In TestCleanUp Deleting snapshots.........")
 					var wg sync.WaitGroup
@@ -74,11 +80,6 @@ var _ = ginkgo.Describe("Transaction_Support_CreateVolumeFromSnapshot", func() {
 						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
 					}
 					wg.Wait()
-
-					for _, claim := range pvclaimsCreatedFromSnapshot {
-						err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					}
 
 					ginkgo.By("Verify PVs, volumes are deleted from CNS")
 					for _, pv := range pvsCreatedFromSnapshot {
