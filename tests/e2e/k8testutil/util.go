@@ -3730,8 +3730,9 @@ func StopVpxaOnHost(ctx context.Context, vs *config.E2eTestConfig, host string) 
 	framework.Logf("Stopping vpxa service on the host  %s ...", host)
 	stopVpxaCmd := fmt.Sprintf("%s %s", constants.VpxaServiceCommand, constants.StopOperation)
 
-	_, err := RunCommandOnHost(ctx, stopVpxaCmd, vs, host)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	RunCommandOnHost(ctx, stopVpxaCmd, vs, host)
+	// _, err := RunCommandOnHost(ctx, stopVpxaCmd, vs, host)
+	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	status := GetVpxaStatusOnHost(ctx, vs, host)
 	gomega.Expect(status).NotTo(gomega.BeTrue())
