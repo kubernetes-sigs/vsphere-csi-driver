@@ -92,16 +92,43 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 	// instance spec.
 	for attachedFcdId := range attachedFCDs {
 		if _, ok := volumeIdsInSpec[attachedFcdId]; !ok {
-			pvc, _, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
+			// Get PVC name for the given FCD.
+			pvcName, pvcNs, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
 			if !exists {
 				msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
 				return pvcsToDetach, errors.New(msg)
 			}
-			pvcsToDetach[pvc] = attachedFcdId
+
+			// Get PVC object for the given PVC name.
+			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
+			if err != nil {
+				msg := fmt.Sprintf("failed to find PVC obj for PVC name %s in namespace %s", pvcName, pvcNs)
+				return pvcsToDetach, errors.New(msg)
+			}
+
+			// This check is required only for RWO volumes because before 9.1 we never supported RWX block volumes.
+			// If an RWO PVC does not have usedby-vm annotation,
+			// it means that it wasn't attached via the CnsNodeVMBatchAttachment CR.
+			// So this PVC should not be detached by CnsNodeVMNBatchAttach CR either.
+			if !isSharedPvc(*pvcObj) && !pvcHasUsedByAnnotaion(ctx, pvcObj) {
+				log.Infof("PVC %s does not have usedby-vm annotation. PVC not attached via CnsNodeVMBatchAttachment.", pvcName)
+				continue
+			}
+			pvcsToDetach[pvcName] = attachedFcdId
 		}
 	}
 	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 	return pvcsToDetach, nil
+}
+
+// isSharedPvc returns true for PVCs which allow multi attach.
+func isSharedPvc(pvcObj v1.PersistentVolumeClaim) bool {
+	for _, accessMode := range pvcObj.Spec.AccessModes {
+		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
+			return true
+		}
+	}
+	return false
 }
 
 // removeStaleEntriesFromInstanceStatus removes the entries in instance status for which there is
