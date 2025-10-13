@@ -186,7 +186,7 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 			hostInfo := host.Common.InventoryPath
 			hostIpInfo := strings.Split(hostInfo, "/")
 			hostCluster := hostIpInfo[len(hostIpInfo)-2]
-			if !strings.Contains(hostCluster, "EdgeMgmtCluster") {
+			if !strings.Contains(hostCluster, "EdgeMgmtCluster") || !strings.Contains(hostCluster, "mgmt") {
 				hostsInVsanStretchCluster = append(hostsInVsanStretchCluster, host)
 			}
 
