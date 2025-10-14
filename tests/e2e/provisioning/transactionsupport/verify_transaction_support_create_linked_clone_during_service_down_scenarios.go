@@ -272,7 +272,7 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	framework.Logf("Is Num of Volumes Matched : %t", numberOfVolumesRetVal)
 	framework.Logf("Is Num of Snapshots Matched : %t", numberOfSnapshotsRetVal)
 
-	// gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
+	gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
 	// gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
