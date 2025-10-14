@@ -1290,6 +1290,16 @@ func GetVsanClusterResource(ctx context.Context,
 
 		for _, dc := range datacenters {
 			defaultDatacenter, err := finder.Datacenter(ctx, dc)
+			if err != nil {
+				maxReTry := 10
+				//Re-try after every 1 min for 10 mins
+				for reTry := 0; err != nil && reTry < maxReTry; reTry++ {
+					framework.Logf("Error occured : %v, retrying for %d of %d", err, reTry+1, maxReTry)
+					time.Sleep(1 * time.Minute)
+					defaultDatacenter, err = finder.Datacenter(ctx, dc)
+				}
+			}
+
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			finder.SetDatacenter(defaultDatacenter)
 
