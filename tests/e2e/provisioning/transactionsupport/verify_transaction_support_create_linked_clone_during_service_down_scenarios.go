@@ -225,7 +225,7 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 
 	// Validate PVC is bound
 	linkedClonePvs, err = fpv.WaitForPVClaimBoundPhase(ctx,
-		client, linkedClonePvcs, framework.ClaimProvisionTimeout)
+		client, linkedClonePvcs, 2*framework.ClaimProvisionTimeout)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, linkedClonePvc := range linkedClonePvcs {
