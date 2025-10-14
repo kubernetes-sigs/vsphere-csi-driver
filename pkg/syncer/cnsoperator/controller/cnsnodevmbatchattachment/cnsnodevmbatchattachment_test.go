@@ -666,6 +666,60 @@ func TestPvcHasUsedByAnnotation(t *testing.T) {
 	}
 }
 
+func TestIsSharedPvc(t *testing.T) {
+	tests := []struct {
+		name     string
+		accesses []v1.PersistentVolumeAccessMode
+		expected bool
+	}{
+		{
+			name:     "ReadWriteOnce - not shared",
+			accesses: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+			expected: false,
+		},
+		{
+			name:     "ReadOnlyMany - shared",
+			accesses: []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany},
+			expected: true,
+		},
+		{
+			name:     "ReadWriteMany - shared",
+			accesses: []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			expected: true,
+		},
+		{
+			name:     "Multiple modes including ReadWriteMany",
+			accesses: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce, v1.ReadWriteMany},
+			expected: true,
+		},
+		{
+			name:     "Multiple modes including ReadOnlyMany",
+			accesses: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce, v1.ReadOnlyMany},
+			expected: true,
+		},
+		{
+			name:     "Empty access modes - not shared",
+			accesses: []v1.PersistentVolumeAccessMode{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := v1.PersistentVolumeClaim{
+				Spec: v1.PersistentVolumeClaimSpec{
+					AccessModes: tt.accesses,
+				},
+			}
+
+			result := isSharedPvc(pvc)
+			if result != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
