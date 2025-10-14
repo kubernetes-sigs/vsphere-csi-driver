@@ -26,8 +26,10 @@ import (
 	"strings"
 	"sync"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/simulator/vpx"
@@ -193,6 +195,16 @@ func (c *FakeK8SOrchestrator) ClearFakeAttached(ctx context.Context, volumeID st
 	log := logger.GetLogger(ctx)
 	return logger.LogNewErrorCode(log, codes.Unimplemented,
 		"ClearFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+}
+
+func (c *FakeK8SOrchestrator) GetPVCNamespacedNameByUID(uid string) (k8stypes.NamespacedName, bool) {
+	return k8stypes.NamespacedName{}, false
+}
+
+func (c *FakeK8SOrchestrator) HandleLateEnablementOfCapability(
+	ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability, gcPort, gcEndpoint string) {
+	//TODO implement me
+	panic("implement me")
 }
 
 // GetNodeTopologyLabels fetches the topology information of a node from the CSINodeTopology CR.

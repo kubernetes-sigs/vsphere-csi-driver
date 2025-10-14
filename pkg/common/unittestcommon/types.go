@@ -49,12 +49,6 @@ type FakeK8SOrchestrator struct {
 	csiNodeTopologyInstances []interface{}
 }
 
-func (c *FakeK8SOrchestrator) HandleLateEnablementOfCapability(
-	ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability, gcPort, gcEndpoint string) {
-	//TODO implement me
-	panic("implement me")
-}
-
 // volumeMigration holds mocked migrated volume information
 type mockVolumeMigration struct {
 	// volumePath to volumeId map
