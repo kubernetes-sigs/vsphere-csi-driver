@@ -54,7 +54,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -69,6 +71,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -83,6 +86,7 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"k8s.io/pod-security-admission/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -96,10 +100,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
-
-	authenticationv1 "k8s.io/api/authentication/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 var (
@@ -6724,10 +6724,13 @@ func SetStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 
 	spq.Spec.Limit.Reset()
 	spq.Spec.Limit.Add(resource.MustParse(quota))
-	framework.Logf("set quota %s", quota)
 
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	time.Sleep(3 * constants.StoragePolicyUsagePollInterval)
+	quotaValue := spq.Spec.Limit.String()
+	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
 }
 
 // Remove storagePolicy Quota

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -340,9 +341,14 @@ func WaitNGetVmiForImageName(ctx context.Context, c ctlrclient.Client, imageName
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, instance := range vmImagesList.Items {
 				if instance.Status.ImageName == imageName {
-					framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
 					vmi = instance.Name
-					return true, nil
+					if instance.Status.ContentVersion == "" {
+						framework.Logf("Found vmi %v, but waiting for ContentVersion %v", instance.Name,
+							instance.Status.ContentVersion)
+					} else {
+						framework.Logf("Found vmi %v for image name %v", instance.Name, imageName)
+						return true, nil
+					}
 				}
 			}
 			return false, nil
@@ -892,10 +898,26 @@ func GetSshClientForVmThroughGatewayVm(vmIp string) (*ssh.Client, *ssh.Client) {
 	gatewayClient, err := ssh.Dial("tcp", env.GetAndExpectStringEnvVar(constants.EnvGatewayVmIp)+":22", gatewayConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	framework.Logf("VM IP: %s", vmIp)
-	conn, err := gatewayClient.Dial("tcp", vmIp+":22")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Try connecting to the target VM via the gateway up to 3 times
+	var conn net.Conn
+	var maxRetries = 3
+	var retryInterval = 30 * time.Second
 
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		framework.Logf("Attempt %d: Connecting to VM IP: %s", attempt, vmIp)
+		conn, err = gatewayClient.Dial("tcp", vmIp+":22")
+		if err == nil {
+			framework.Logf("Successfully connected to VM %s on attempt %d", vmIp, attempt)
+			break
+		}
+
+		framework.Logf("Failed to connect to VM %s on attempt %d: %v", vmIp, attempt, err)
+		if attempt < maxRetries {
+			framework.Logf("Retrying in %v...", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to connect to VM after retries")
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, vmIp, vmConfig)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

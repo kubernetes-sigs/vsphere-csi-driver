@@ -1518,6 +1518,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		ginkgo.By("Delete existing resource quota")
 		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, "2Gi")
 		defer func() {
+			ginkgo.By("In defer block, Setting quota back to 500Gi")
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, namespace, rqLimit)
 		}()
 

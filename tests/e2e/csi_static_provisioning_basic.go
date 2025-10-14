@@ -1995,7 +1995,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create Resource quota.
 	// 3. Create CNS register volume with above created VMDK.
 	// 4. verify PV, PVC got created , check the bidirectional reference.
-	ginkgo.It("[pq-wcp][csi-supervisor] Verify static provisioning - import VMDK", ginkgo.Label(p1,
+	ginkgo.It("[pq-f-wcp][csi-supervisor] Verify static provisioning - import VMDK", ginkgo.Label(p1,
 		block, wcp, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2076,7 +2076,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 3. Create CNS register volume with above created VMDK and FCDID.
 	// 4. Verify the error message "VolumeID and DiskURLPath cannot be specified
 	//    together".
-	ginkgo.It("[pq-wcp]csi-supervisor] Specify VolumeID and DiskURL together and "+
+	ginkgo.It("[pq-f-wcp]csi-supervisor] Specify VolumeID and DiskURL together and "+
 		"verify the error message", ginkgo.Label(p2, block, wcp, negative, vc70), func() {
 
 		var err error
