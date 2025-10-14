@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 	9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down few esx on VC2 availability zones in a multi-vc setup", ginkgo.Label(p1,
+	ginkgo.It("[pq-multivc] Bring down few esx on VC2 availability zones in a multi-vc setup", ginkgo.Label(p1,
 		block, vanilla, multiVc, vc70, flaky, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 	    13. Clean up the data
 	*/
 
-	ginkgo.It("Bring down few esx on VC1 availability zones in a multi-vc setup", ginkgo.Label(p1,
+	ginkgo.It("[pq-multivc] Bring down few esx on VC1 availability zones in a multi-vc setup", ginkgo.Label(p1,
 		block, vanilla, multiVc, vc70, flaky, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 	    9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down full site VC2 in a multi setup", ginkgo.Label(p1,
+	ginkgo.It("[pq-multivc] Bring down full site VC2 in a multi setup", ginkgo.Label(p1,
 		block, vanilla, multiVc, vc70, flaky, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -560,7 +560,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 	    9. Clean up the data
 	*/
 
-	ginkgo.It("Bring down full site VC1 in a multi setup", ginkgo.Label(p1,
+	ginkgo.It("[pq-multivc] Bring down full site VC1 in a multi setup", ginkgo.Label(p1,
 		block, vanilla, multiVc, vc70, flaky, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -699,7 +699,7 @@ var _ = ginkgo.Describe("[multivc-sitedown] MultiVc-SiteDown", func() {
 	    8. Clean up the data
 	*/
 
-	ginkgo.It("Bring down datastores in a multi vc setup", ginkgo.Label(p2,
+	ginkgo.It("[pq-multivc] Bring down datastores in a multi vc setup", ginkgo.Label(p2,
 		block, vanilla, multiVc, vc70, flaky, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

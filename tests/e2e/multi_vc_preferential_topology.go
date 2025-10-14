@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 	    9. The volumes should get provision on the datastores which has the preference
 	    10. Clear the data
 	*/
-	ginkgo.It("Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", ginkgo.Label(p0,
+	ginkgo.It("[pq-multivc] Tag one datastore as preferred each in VC1 and VC2 and verify it is honored", ginkgo.Label(p0,
 		block, vanilla, multiVc, vc70, preferential), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -359,7 +359,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 	11. Clean up the data
 	*/
 
-	ginkgo.It("Create SC with storage policy available in VC1 and VC2 and set the "+
+	ginkgo.It("[pq-multivc] Create SC with storage policy available in VC1 and VC2 and set the "+
 		"preference in VC1 datastore only", ginkgo.Label(p0, block, vanilla, multiVc, vc70,
 		preferential), func() {
 
@@ -505,7 +505,8 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 	18. Remove datastore preference tags as part of cleanup.
 	*/
 
-	ginkgo.It("Assign preferred datatsore to any one VC and verify create restore snapshot", ginkgo.Label(p0,
+	ginkgo.It("[pq-multivc] Assign preferred datatsore to any one VC and verify create restore "+
+		"snapshot", ginkgo.Label(p0,
 		block, vanilla, multiVc, vc70, snapshot, preferential), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -651,7 +652,7 @@ var _ = ginkgo.Describe("[multivc-preferential] MultiVc-Preferential", func() {
 	    14. Remove datastore preference tags as part of cleanup.
 	*/
 
-	ginkgo.It("Assign preferred datatsore to any one VC and verify create restore snapshot "+
+	ginkgo.It("[pq-multivc] Assign preferred datatsore to any one VC and verify create restore snapshot "+
 		"and later change datastore preference", ginkgo.Label(p1, block, vanilla, multiVc,
 		vc70, snapshot, negative, preferential), func() {
 

@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] File Volume Attach Test", func() {
 	// 20.Check if the VolumeID is deleted from CNS by using CNSQuery API.
 	// 21.Delete Storage Class.
 	// 22.Delete storage policy.
-	ginkgo.It("[cf-vanilla-file][csi-file-vanilla] Verify Pod can be created with PVC (dynamically provisioned) "+
+	ginkgo.It("[cf-vanilla-file-f][csi-file-vanilla] Verify Pod can be created with PVC (dynamically provisioned) "+
 		"with access mode ReadWriteMany", ginkgo.Label(p0, vanilla, file, core, vc70), func() {
 		createFileVolumeAndMount(f, client, namespace)
 	})

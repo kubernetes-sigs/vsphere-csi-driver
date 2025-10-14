@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("[multivc-multireplica] MultiVc-MultiReplica", func() {
 		10. Clean up the data
 	*/
 
-	ginkgo.It("Verify behaviour when CSI-Provisioner, CSI-Attacher, Vsphere-Syncer is "+
+	ginkgo.It("[pq-multivc] Verify behaviour when CSI-Provisioner, CSI-Attacher, Vsphere-Syncer is "+
 		"deleted repeatedly during workload creation in multivc", ginkgo.Label(p1,
 		block, vanilla, multiVc, vc70), func() {
 

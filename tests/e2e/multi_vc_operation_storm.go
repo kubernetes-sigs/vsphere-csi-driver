@@ -185,7 +185,7 @@ var _ = ginkgo.Describe("[multivc-operationstorm] MultiVc-OperationStorm", func(
 	   17. Clean up  the data
 	*/
 
-	ginkgo.It("Create statefulset pods in scale and in between bring down datatsore, esxi hosts "+
+	ginkgo.It("[pq-multivc] Create statefulset pods in scale and in between bring down datatsore, esxi hosts "+
 		"and kill containers", ginkgo.Label(p1, block, vanilla, multiVc, vc70, flaky,
 		disruptive), func() {
 
