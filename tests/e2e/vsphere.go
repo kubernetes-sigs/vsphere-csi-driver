@@ -340,7 +340,7 @@ func (vs *vSphere) VerifySpbmPolicyOfVolume(volumeID string, storagePolicyName s
 	framework.Logf("Verifying volume: %s is created using storage policy: %s", volumeID, storagePolicyName)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
+	connect(ctx, &e2eVSphere)
 	// Get PBM Client
 	pbmClient, err := pbm.NewClient(ctx, vs.Client.Client)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

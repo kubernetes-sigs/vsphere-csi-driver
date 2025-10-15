@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 		gomega.Expect(isFailureFound).To(gomega.BeTrue(), expectedErrorMsg)
 	})
 
-	ginkgo.It("[ef-stretched-svc][stretched-svc] Provisioning-volume-exceeding-quota", func() {
+	ginkgo.It("[ef-f-stretched-svc][stretched-svc] Provisioning-volume-exceeding-quota", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

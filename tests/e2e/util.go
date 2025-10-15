@@ -1547,8 +1547,8 @@ func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
 	bodyBytes, err := io.ReadAll(resp.Body)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("API Response status %d", resp.StatusCode)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return bodyBytes, resp.StatusCode
 
