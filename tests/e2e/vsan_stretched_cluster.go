@@ -831,7 +831,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   6.  Bring primary site up and wait for testbed to be back to normal
 	   7.  Delete PVCs created in step 2
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] PVC creation while primary site goes "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] PVC creation while primary site goes "+
 		"down", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg,
 		primaryCentric, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -984,7 +984,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		6.	Re-establish primary site network and wait for testbed to be back to normal
 		7.	Delete all objects created in step 2
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Primary site network "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Primary site network "+
 		"isolation", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric,
 		controlPlaneOnPrimary, distributed, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1153,7 +1153,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		6.	Verify PVs and CNS volumes associated with PVCs created in step 2 are also deleted successfully
 		7.	Bring primary site up and wait for testbed to be back to normal
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] PVC deletion while primary site "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] PVC deletion while primary site "+
 		"goes down", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric,
 		vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1422,7 +1422,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   8.  Delete the PVCs created in step 2
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Label updates to PV, PVC, pod while primary "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Label updates to PV, PVC, pod while primary "+
 		"site goes down", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg,
 		primaryCentric, vc70), func() {
 
@@ -2107,7 +2107,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		6.	Bring secondary site up and wait for testbed to be back to normal
 		7.	Delete all objects created in step 2 and 5
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Secondary site down", ginkgo.Label(p0,
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Secondary site down", ginkgo.Label(p0,
 		vsanStretch, file, block, vanilla, wcp, tkg, controlPlaneOnPrimary, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2289,7 +2289,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			volume and application lifecycle actions work fine
 		11.	Cleanup all objects created so far in the test
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Network failure between "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Network failure between "+
 		"sites", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, controlPlaneOnPrimary,
 		distributed, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2527,7 +2527,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		5.	Run volume and application lifecycle actions
 		6.	Cleanup all objects created in step 3 and 5
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Witness failure", ginkgo.Label(p0,
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Witness failure", ginkgo.Label(p0,
 		vsanStretch, file, block, vanilla, wcp, tkg, distributed, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -4120,7 +4120,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		19. Bring primary site up and wait for testbed to be back to normal
 
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] Primary site failover during "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] Primary site failover during "+
 		"full sync", ginkgo.Label(p0, vsanStretch, file, block, vanilla, wcp, tkg, primaryCentric,
 		distributed, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -4832,7 +4832,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 	   8.  Delete statefulsets and its pvcs created in step 2
 	   9.  Bring primary site up and wait for testbed to be back to normal
 	*/
-	ginkgo.It("[pq-wcp-vsanstretch][pq-vks-vsanstretch] PSOD hosts on secondary "+
+	ginkgo.It("[pq-f-wcp-vsanstretch][pq-vks-vsanstretch] PSOD hosts on secondary "+
 		"site", ginkgo.Label(p0, vsanStretch, block, wcp, tkg, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

@@ -7063,10 +7063,12 @@ func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 
 	spq.Spec.Limit.Reset()
 	spq.Spec.Limit.Add(resource.MustParse(quota))
-	framework.Logf("set quota %s", quota)
-
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	time.Sleep(3 * storagePolicyUsagePollInterval)
+	quotaValue := spq.Spec.Limit.String()
+	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
 }
 
 // Remove storagePolicy Quota
