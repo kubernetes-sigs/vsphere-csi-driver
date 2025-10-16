@@ -519,7 +519,7 @@ spec:
               readOnly: true
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
-            - mountPath: /tmp/k8s-webhook-server/serving-certs/client-ca
+            - mountPath: /etc/vmware/wcp/webhook-certs/client-ca
               name: client-ca
               readOnly: true
         - name: csi-snapshotter
@@ -819,6 +819,8 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
       terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 65533
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
@@ -861,11 +863,11 @@ spec:
             runAsUser: 65534
             runAsGroup: 65533
           volumeMounts:
-            - mountPath: /tmp/k8s-webhook-server/serving-certs
+            - mountPath: /etc/vmware/wcp/webhook-certs
               name: webhook-certs
               readOnly: true
       volumes:
         - name: webhook-certs
           secret:
-            defaultMode: 420
+            defaultMode: 0440
             secretName: vmware-system-csi-webhook-service-cert
