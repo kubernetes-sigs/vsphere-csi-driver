@@ -681,6 +681,7 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 	if err != nil {
 		log.Errorf("setFileShareAnnotationsOnPVC: Error while performing QueryVolume on volume %s, Err: %+v",
 			pv.Spec.CSI.VolumeHandle, err)
+		return err
 	}
 	vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 	accessPoints := make(map[string]string)
