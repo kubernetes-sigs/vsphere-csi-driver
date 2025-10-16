@@ -644,9 +644,9 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Make sure file system has increased
 	*/
 
-	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][csi-vcp-mig]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when VSAN-health is "+
-		"down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized]"+
+		"[csi-vcp-mig][pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when VSAN-health "+
+		"is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

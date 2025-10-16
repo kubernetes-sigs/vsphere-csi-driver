@@ -442,8 +442,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 16. delete SC created in step 1.
 
 	// TODO: need to add this test under destuctive test [csi-guest-destructive]
-	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] verify offline block volume expansion triggered when SVC "+
-		"CSI pod is down succeeds once SVC CSI pod comes up", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] verify offline block volume expansion "+
+		"triggered when SVC CSI pod is down succeeds once SVC CSI pod comes up", ginkgo.Label(p1, block, tkg,
+		negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		// Create a Pod to use this PVC, and verify volume has been attached.
@@ -713,8 +714,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	// 10. delete PVC created in step 2.
 	// 11. delete SC created in step 1.
 	// TODO: need to add this test under destuctive test [csi-guest-destructive]
-	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] Verify volume expansion eventually succeeds when CNS is "+
-		"unavailable during initial expansion", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify volume expansion eventually succeeds "+
+		"when CNS is unavailable during initial expansion", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -812,8 +813,9 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 	//       resize is in progress. This test needs to be re-evaluated in the
 	//       future when the upstream happens.
 	// TODO: need to add this test under destuctive test [csi-guest-destructive]
-	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] Verify while CNS is down the volume expansion can be triggered and "+
-		"the volume can deleted with pending resize operation", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify while CNS is down the volume expansion can "+
+		"be triggered and the volume can deleted with pending resize operation", ginkgo.Label(p1, block, tkg,
+		negative, vc70), func() {
 		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

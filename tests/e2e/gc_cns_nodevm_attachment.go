@@ -254,8 +254,8 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("[pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsNodeVmAttachements crd and Pod is created after CSI controller "+
-		"comes up", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsNodeVmAttachements crd and Pod is created "+
+		"after CSI controller comes up", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
