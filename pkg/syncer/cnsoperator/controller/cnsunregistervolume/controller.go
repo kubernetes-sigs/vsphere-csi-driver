@@ -293,8 +293,7 @@ func (r *Reconciler) reconcile(ctx context.Context,
 		return err
 	}
 
-	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params, false)
-	err = handleUnregError(faultType, err)
+	err = handleUnregError(unregisterVolume(ctx, r.volumeManager, request, params))
 	if err != nil {
 		log.Error("failed to unregister volume with error ", err)
 		return err
@@ -355,8 +354,7 @@ func (r *Reconciler) reconcileDelete(ctx context.Context,
 	// consistent and the volume is not left in an unusable state.
 	// If unregistration fails, the instance will be re-queued for
 	// reconciliation.
-	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params, true)
-	err = handleUnregError(faultType, err)
+	err = handleUnregError(unregisterVolume(ctx, r.volumeManager, request, params))
 	if err != nil {
 		log.Error("failed to unregister volume with error ", err)
 		return err
@@ -392,8 +390,8 @@ var unregisterVolume = _unregisterVolume
 //	| false      | false     | true        | Unregister FCD                                |
 //	| false      | false     | false       | Mark success (no-op)                          |
 //	+------------+-----------+-------------+-----------------------------------------------+
-func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reconcile.Request, params params,
-	ignoreNonTransientError bool) (string, error) {
+func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reconcile.Request,
+	params params) (string, error) {
 	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
 
 	k8sClient, err := newK8sClient(ctx)
@@ -453,9 +451,10 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reco
 
 	if params.volumeID != "" {
 		unregDisk := !params.retainFCD // If retainFCD is false, unregister the FCD too.
-		err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
+		faultType, err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
 		if err != nil {
-			return err.FaultType, fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
+			log.Error("failed to unregister CNS volume with error ", err)
+			return faultType, fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
 		}
 	}
 

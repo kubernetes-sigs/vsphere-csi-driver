@@ -109,9 +109,9 @@ type MockVolumeManager struct {
 }
 
 func (m *MockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
-	unregisterDisk bool) *cnsvolume.Error {
+	unregisterDisk bool) (string, error) {
 	//TODO implement me
-	return nil
+	return "", nil
 }
 
 func (m *MockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,

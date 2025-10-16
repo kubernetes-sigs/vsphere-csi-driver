@@ -226,7 +226,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", errors.New(errMsg)
 			}
 			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
@@ -248,7 +248,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
@@ -279,7 +279,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
@@ -385,7 +385,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", errors.New(errMsg)
 			}
 			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
@@ -407,7 +407,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
@@ -436,7 +436,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) (string, error) {
+				params params) (string, error) {
 				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
@@ -485,7 +485,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := "failed to init K8s client for volume unregistration"
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), nil, request, params{}, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params{})
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -507,7 +507,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -525,7 +525,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -550,7 +550,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -571,7 +571,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to delete associated PV %s", params.pvName)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -582,12 +582,12 @@ func TestUnregisterVolume(t *testing.T) {
 		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
 			return &clientset.Clientset{}, nil
 		}
-		mockMgr := volume.NewMockManager(true, errors.New(errMsg), false, fault.VimFaultCNSFault)
+		mockMgr := volume.NewMockManager(true, errors.New(errMsg), fault.VimFaultCNSFault)
 		params := params{volumeID: "mock-volume-id"}
 		expErr := fmt.Sprintf("failed to unregister associated volume %s", params.volumeID)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -609,13 +609,13 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName, pvcNamespace, finalizer string) error {
 			return errors.New(errMsg)
 		}
-		mockMgr := volume.NewMockManager(true, nil, false, "")
+		mockMgr := volume.NewMockManager(true, nil, "")
 
 		params := params{pvcName: "mock-pvc", namespace: "mock-namespace"}
 		expErr := fmt.Sprintf("failed to remove finalizer from associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -642,7 +642,7 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName, pvcNamespace, finalizer string) error {
 			return nil
 		}
-		mockMgr := volume.NewMockManager(false, nil, false, "")
+		mockMgr := volume.NewMockManager(false, nil, "")
 		params := params{
 			pvcName:   "mock-pvc",
 			pvName:    "mock-pv",
@@ -651,7 +651,7 @@ func TestUnregisterVolume(t *testing.T) {
 		}
 
 		// Execute
-		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params)
 
 		// Assert
 		assert.Nil(tt, err, "Expected no error")
