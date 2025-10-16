@@ -156,7 +156,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 			assertUtil(tt, reconciler, request, res, err, false, time.Second, false, "other error", "", "")
 		})
 	})
-
 	t.Run("WhenInstanceIsBeingDeleted", func(tt *testing.T) {
 		tt.Run("WhenVolumeIsAlreadyUnregistered", func(tt *testing.T) {
 			// Setup
@@ -214,28 +213,54 @@ func TestReconciler_Reconcile(t *testing.T) {
 			assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
 		})
 		tt.Run("WhenUnregisteringVolumeFails", func(tt *testing.T) {
-			// Setup
-			errMsg := "internal server error"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
-			}
-			getVolumeUsageInfo = func(ctx context.Context,
-				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
-				return &volumeUsageInfo{}, nil
-			}
-			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
-				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
-			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params) (string, error) {
-				return "", errors.New(errMsg)
-			}
-			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+			tt.Run("WhenVolumeNotFoundOrOperationNotSupported", func(tt *testing.T) {
+				// Setup
+				errMsg := "internal server error"
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
+					return params{}
+				}
+				getVolumeUsageInfo = func(ctx context.Context,
+					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
+					return &volumeUsageInfo{}, nil
+				}
+				instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+					[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
+				unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+					params params) (string, error) {
+					return fault.VimFaultNotSupported, errors.New(errMsg)
+				}
+				reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
 
-			// Execute
-			res, err := reconciler.Reconcile(context.Background(), request)
+				// Execute
+				res, err := reconciler.Reconcile(context.Background(), request)
 
-			// Assert
-			assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", errMsg, errMsg)
+				// Assert
+				assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
+			})
+			tt.Run("WhenOtherError", func(tt *testing.T) {
+				// Setup
+				errMsg := "internal server error"
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
+					return params{}
+				}
+				getVolumeUsageInfo = func(ctx context.Context,
+					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
+					return &volumeUsageInfo{}, nil
+				}
+				instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+					[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
+				unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+					params params) (string, error) {
+					return "", errors.New(errMsg)
+				}
+				reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+
+				// Execute
+				res, err := reconciler.Reconcile(context.Background(), request)
+
+				// Assert
+				assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", errMsg, errMsg)
+			})
 		})
 		tt.Run("WhenRemovingFinalizerFails", func(tt *testing.T) {
 			// Setup
@@ -293,7 +318,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 			assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
 		})
 	})
-
 	t.Run("WhenInstanceIsUnregistered", func(tt *testing.T) {
 		// Setup
 		instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
@@ -306,7 +330,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 		// Assert
 		assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
 	})
-
 	t.Run("WhenNormalReconcile", func(tt *testing.T) {
 		tt.Run("WhenProtectingInstanceFails", func(tt *testing.T) {
 			// Setup
@@ -373,28 +396,55 @@ func TestReconciler_Reconcile(t *testing.T) {
 			assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", expErr, expErr)
 		})
 		tt.Run("WhenUnregisteringVolumeFails", func(tt *testing.T) {
-			// Setup
-			errMsg := "internal server error"
-			getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
-				return params{}
-			}
-			getVolumeUsageInfo = func(ctx context.Context,
-				pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
-				return &volumeUsageInfo{}, nil
-			}
-			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
-				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
-			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params) (string, error) {
-				return "", errors.New(errMsg)
-			}
-			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+			tt.Run("WhenVolumeNotFound", func(tt *testing.T) {
+				// Setup
+				errMsg := "internal server error"
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
+					return params{}
+				}
+				getVolumeUsageInfo = func(ctx context.Context,
+					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
+					return &volumeUsageInfo{}, nil
+				}
+				instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+					[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
+				unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+					params params) (string, error) {
+					return fault.VimFaultNotFound, errors.New(errMsg)
+				}
+				reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
 
-			// Execute
-			res, err := reconciler.Reconcile(context.Background(), request)
+				// Execute
+				res, err := reconciler.Reconcile(context.Background(), request)
 
-			// Assert
-			assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", errMsg, errMsg)
+				// Assert
+				assertUtil(tt, reconciler, request, res, err, false, 0, false, "", "", "")
+			})
+			tt.Run("WhenOtherError", func(tt *testing.T) {
+
+				// Setup
+				errMsg := "internal server error"
+				getParams = func(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
+					return params{}
+				}
+				getVolumeUsageInfo = func(ctx context.Context,
+					pvcName, pvcNamespace string, ignoreVMUsage bool) (*volumeUsageInfo, error) {
+					return &volumeUsageInfo{}, nil
+				}
+				instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
+					[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
+				unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
+					params params) (string, error) {
+					return "", errors.New(errMsg)
+				}
+				reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
+
+				// Execute
+				res, err := reconciler.Reconcile(context.Background(), request)
+
+				// Assert
+				assertUtil(tt, reconciler, request, res, err, true, time.Second, true, "", errMsg, errMsg)
+			})
 		})
 		tt.Run("WhenUpdatingStatusFails", func(tt *testing.T) {
 			// Setup
