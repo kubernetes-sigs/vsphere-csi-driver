@@ -1117,7 +1117,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 	7. clean up the data
 	*/
 
-	ginkgo.It("[ef-stretched-svc][stretched-svc] Statefulset-parallel-podManagementPolicy-wffc",
+	ginkgo.It("[ef-f-stretched-svc][stretched-svc] Statefulset-parallel-podManagementPolicy-wffc",
 		ginkgo.Label(p0, block, stretchedSvc, vc70), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
