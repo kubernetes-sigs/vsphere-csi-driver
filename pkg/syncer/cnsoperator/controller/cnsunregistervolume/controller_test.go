@@ -708,7 +708,7 @@ func TestUnregisterVolume(t *testing.T) {
 	})
 }
 
-func TestGetValidatedParams(t *testing.T) {
+func TestGetParams(t *testing.T) {
 	// function overrides
 	getPVCNameOriginal := getPVCName
 	getPVNameOriginal := getPVName

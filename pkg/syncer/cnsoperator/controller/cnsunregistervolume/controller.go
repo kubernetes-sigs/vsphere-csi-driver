@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,8 +200,14 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	log.Info("backoff duration is ", backoff)
 
 	// Handle deletion of the instance.
-	// The finalizer will be removed only if the volume is unregistered
-	// or if the input parameters are invalid or if the volume is in use.
+	// The finalizer will only be removed in the following cases:
+	// 1. The volume is already unregistered.
+	// 2. The volume is in use and cannot be unregistered.
+	// 3. The volume is successfully unregistered.
+	// 4. The volume does not exist or the operation is not supported.
+	// In all other cases, the instance will be re-queued for reconciliation.
+	// This ensures that the system remains in a consistent state.
+	// See reconcileDelete for more details.
 	if instance.DeletionTimestamp != nil {
 		log.Info("instance is marked for deletion")
 		err = r.reconcileDelete(ctx, instance, request)
@@ -275,27 +282,17 @@ func (r *Reconciler) reconcile(ctx context.Context,
 		return errors.New(msg)
 	}
 
-	handleUnregError := func(faultType string, err error) error {
-		if err == nil {
-			return nil
-		}
-
+	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params)
+	if err != nil {
+		log.Error("failed to unregister volume with error ", err)
 		if faultType == fault.VimFaultNotFound {
 			// By design, NotFound error is ignored and the instance is marked
 			// as successfully unregistered.
-			log.With("fault", faultType).
-				Warn("ignoring error and marking instance as successfully unregistered. Error: ", err)
+			log.With("fault", faultType).With("error", err).
+				Warn("ignoring error and marking instance as successfully unregistered")
 			return nil
 		}
 
-		// For all other errors, return the error and requeue the instance
-		// as it's likely that the error is transient.
-		return err
-	}
-
-	err = handleUnregError(unregisterVolume(ctx, r.volumeManager, request, params))
-	if err != nil {
-		log.Error("failed to unregister volume with error ", err)
 		return err
 	}
 
@@ -305,8 +302,9 @@ func (r *Reconciler) reconcile(ctx context.Context,
 
 // reconcileDelete handles deletion of a CnsUnregisterVolume instance.
 // The reconciler tries to keep the system consistent by carefully deciding
-// when to continue with volume unregistration.
-// The finalizer on the instance will only be removed if the result will keep the system in a consistent state.
+// when to continue with volume unregistration or when to allow deletion of the instance
+// without unregistering the volume.
+// See the comments below and in unregisterVolume for more details.
 func (r *Reconciler) reconcileDelete(ctx context.Context,
 	instance *v1a1.CnsUnregisterVolume, request reconcile.Request) error {
 	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
@@ -331,32 +329,25 @@ func (r *Reconciler) reconcileDelete(ctx context.Context,
 		return nil
 	}
 
-	handleUnregError := func(faultType string, err error) error {
-		if err == nil {
-			return nil
-		}
-
+	// Try to unregister the volume. This ensures that the system remains
+	// consistent and the volume is not left in an unusable state.
+	// If unregistration fails, the instance will be re-queued for
+	// reconciliation.
+	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params)
+	if err != nil {
 		if faultType == fault.VimFaultNotFound ||
 			faultType == fault.VimFaultNotSupported {
 			// Since the state of the system won't change by retrying,
 			// the instance can be deleted.
-			log.With("fault", faultType).
-				Warn("ignoring error and proceeding with deletion of the instance. Error: ", err)
+			log.With("fault", faultType).With("error", err).
+				Warn("ignoring error and proceeding with deletion of the instance")
 			return nil
 		}
 
 		// For all other errors, return the error and requeue the instance
 		// as it's likely that the error is transient.
-		return err
-	}
-
-	// Try to unregister the volume. This ensures that the system remains
-	// consistent and the volume is not left in an unusable state.
-	// If unregistration fails, the instance will be re-queued for
-	// reconciliation.
-	err = handleUnregError(unregisterVolume(ctx, r.volumeManager, request, params))
-	if err != nil {
-		log.Error("failed to unregister volume with error ", err)
+		log.With("fault", faultType).With("error", err).
+			Error("failed to unregister volume with error")
 		return err
 	}
 
@@ -533,9 +524,27 @@ type params struct {
 	pvName    string
 }
 
-func (p *params) String() string {
-	return fmt.Sprintf("retainFCD: %t, force: %t, namespace: %s, volumeID: %s, pvcName: %s, pvName: %s",
-		p.retainFCD, p.force, p.namespace, p.volumeID, p.pvcName, p.pvName)
+func (p params) String() string {
+	parts := []string{}
+	if p.retainFCD {
+		parts = append(parts, fmt.Sprintf("retainFCD: %t", p.retainFCD))
+	}
+	if p.force {
+		parts = append(parts, fmt.Sprintf("force: %t", p.force))
+	}
+	if p.namespace != "" {
+		parts = append(parts, fmt.Sprintf("namespace: %s", p.namespace))
+	}
+	if p.volumeID != "" {
+		parts = append(parts, fmt.Sprintf("volumeID: %s", p.volumeID))
+	}
+	if p.pvcName != "" {
+		parts = append(parts, fmt.Sprintf("pvcName: %s", p.pvcName))
+	}
+	if p.pvName != "" {
+		parts = append(parts, fmt.Sprintf("pvName: %s", p.pvName))
+	}
+	return strings.Join(parts, ", ")
 }
 
 var getParams = _getParams
@@ -557,22 +566,22 @@ func _getParams(ctx context.Context, instance v1a1.CnsUnregisterVolume) params {
 
 		p.pvcName, _, err = getPVCName(ctx, instance.Spec.VolumeID)
 		if err != nil {
-			log.Info("no PVC found for the Volume ID ", instance.Spec.VolumeID)
+			log.With("volumeID", instance.Spec.VolumeID).Info("no PVC found for the Volume ID")
 		}
 	} else {
 		p.pvcName = instance.Spec.PVCName
 		p.volumeID, err = getVolumeID(ctx, p.pvcName, p.namespace)
 		if err != nil {
-			log.Info("no Volume found for the PVC ", p.pvcName)
+			log.With("pvcName", p.pvcName, "namespace", p.namespace).Info("no VolumeID found for the PVC")
 		}
 	}
 
 	p.pvName, err = getPVName(ctx, p.volumeID)
 	if err != nil {
-		log.Info("no PV found for the Volume ID ", p.volumeID)
+		log.With("volumeID", p.volumeID).Info("no PV found for the volumeID")
 	}
 
-	log.Info("validated input parameters: ", p)
+	log.With("params", p).Info("derived parameters for volume unregistration")
 	return p
 }
 

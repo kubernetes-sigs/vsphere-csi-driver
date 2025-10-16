@@ -497,7 +497,6 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	BYOKEncryption:                 {},
 	SharedDiskFss:                  {},
 	FileVolumesWithVmService:       {},
-	WCPMobilityNonDisruptiveImport: {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
