@@ -456,9 +456,10 @@ const (
 	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
 	// snapshots on different datastores feature is supported in CSI.
 	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
-	// StoragePolicyReservation feature is assumed to be enabled in CSI when
+	// WCPMobilityNonDisruptiveImport feature is assumed to be enabled in CSI when
 	// "supports_mobility_non_disruptive_import" capability is enabled in supervisor.
-	StoragePolicyReservationSupport = "supports_mobility_non_disruptive_import"
+	// This capability guards CNSUnregisterVolume and StoragePolicyReservation.
+	WCPMobilityNonDisruptiveImport = "supports_mobility_non_disruptive_import"
 	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
 	LinkedCloneSupport = "supports_FCD_linked_clone"
 	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
@@ -469,19 +470,19 @@ const (
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor:      {},
-	CSIDetachOnSupervisor:           {},
-	WorkloadDomainIsolation:         {},
-	VPCCapabilitySupervisor:         {},
-	VolFromSnapshotOnTargetDs:       {},
-	SharedDiskFss:                   {},
-	LinkedCloneSupport:              {},
-	StoragePolicyReservationSupport: {},
-	WCPVMServiceVMSnapshots:         {},
-	BYOKEncryption:                  {},
-	FCDTransactionSupport:           {},
-	MultipleClustersPerVsphereZone:  {},
-	FileVolumesWithVmService:        {},
+	PodVMOnStretchedSupervisor:     {},
+	CSIDetachOnSupervisor:          {},
+	WorkloadDomainIsolation:        {},
+	VPCCapabilitySupervisor:        {},
+	VolFromSnapshotOnTargetDs:      {},
+	SharedDiskFss:                  {},
+	LinkedCloneSupport:             {},
+	WCPMobilityNonDisruptiveImport: {},
+	WCPVMServiceVMSnapshots:        {},
+	BYOKEncryption:                 {},
+	FCDTransactionSupport:          {},
+	MultipleClustersPerVsphereZone: {},
+	FileVolumesWithVmService:       {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -489,14 +490,14 @@ var WCPFeatureStates = map[string]struct{}{
 // During FSS check if driver detects that the capabilities is disabled in the cached configmap,
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
-	WorkloadDomainIsolation:         {},
-	LinkedCloneSupport:              {},
-	MultipleClustersPerVsphereZone:  {},
-	WCPVMServiceVMSnapshots:         {},
-	BYOKEncryption:                  {},
-	SharedDiskFss:                   {},
-	FileVolumesWithVmService:        {},
-	StoragePolicyReservationSupport: {},
+	WorkloadDomainIsolation:        {},
+	LinkedCloneSupport:             {},
+	MultipleClustersPerVsphereZone: {},
+	WCPVMServiceVMSnapshots:        {},
+	BYOKEncryption:                 {},
+	SharedDiskFss:                  {},
+	FileVolumesWithVmService:       {},
+	WCPMobilityNonDisruptiveImport: {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a

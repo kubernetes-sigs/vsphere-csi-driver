@@ -355,9 +355,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 				common.MultipleClustersPerVsphereZone, "", "")
 		}
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.StoragePolicyReservationSupport) {
+			common.WCPMobilityNonDisruptiveImport) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
-				common.StoragePolicyReservationSupport, "", "")
+				common.WCPMobilityNonDisruptiveImport, "", "")
 		}
 	}
 
@@ -1144,7 +1144,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 		}
 
 		// Check if storage policy reservation related FSS is enabled
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCPMobilityNonDisruptiveImport) {
 			// calculate expected reserved values for StoragePolicyReservation CRs for given namespace
 			sprReserved, err := calculateSPRReservedForNamespace(ctx, cnsOperatorClient, ns)
 			if err != nil {

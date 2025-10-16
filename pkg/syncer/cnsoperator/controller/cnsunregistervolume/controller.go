@@ -84,7 +84,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	if !coCommonInterface.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+	if !coCommonInterface.IsFSSEnabled(ctx, common.WCPMobilityNonDisruptiveImport) {
 		log.Infof("Not initializing the CnsUnregisterVolume Controller as this feature is disabled on the cluster")
 		return nil
 	}
