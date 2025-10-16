@@ -42,6 +42,7 @@ import (
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -274,7 +275,26 @@ func (r *Reconciler) reconcile(ctx context.Context,
 		return errors.New(msg)
 	}
 
-	err = unregisterVolume(ctx, r.volumeManager, request, params, false)
+	handleUnregError := func(faultType string, err error) error {
+		if err == nil {
+			return nil
+		}
+
+		if faultType == fault.VimFaultNotFound {
+			// By design, NotFound error is ignored and the instance is marked
+			// as successfully unregistered.
+			log.With("fault", faultType).
+				Warn("ignoring error and marking instance as successfully unregistered. Error: ", err)
+			return nil
+		}
+
+		// For all other errors, return the error and requeue the instance
+		// as it's likely that the error is transient.
+		return err
+	}
+
+	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params, false)
+	err = handleUnregError(faultType, err)
 	if err != nil {
 		log.Error("failed to unregister volume with error ", err)
 		return err
@@ -312,11 +332,31 @@ func (r *Reconciler) reconcileDelete(ctx context.Context,
 		return nil
 	}
 
+	handleUnregError := func(faultType string, err error) error {
+		if err == nil {
+			return nil
+		}
+
+		if faultType == fault.VimFaultNotFound ||
+			faultType == fault.VimFaultNotSupported {
+			// Since the state of the system won't change by retrying,
+			// the instance can be deleted.
+			log.With("fault", faultType).
+				Warn("ignoring error and proceeding with deletion of the instance. Error: ", err)
+			return nil
+		}
+
+		// For all other errors, return the error and requeue the instance
+		// as it's likely that the error is transient.
+		return err
+	}
+
 	// Try to unregister the volume. This ensures that the system remains
 	// consistent and the volume is not left in an unusable state.
 	// If unregistration fails, the instance will be re-queued for
 	// reconciliation.
-	err = unregisterVolume(ctx, r.volumeManager, request, params, true)
+	faultType, err := unregisterVolume(ctx, r.volumeManager, request, params, true)
+	err = handleUnregError(faultType, err)
 	if err != nil {
 		log.Error("failed to unregister volume with error ", err)
 		return err
@@ -352,14 +392,14 @@ var unregisterVolume = _unregisterVolume
 //	| false      | false     | true        | Unregister FCD                                |
 //	| false      | false     | false       | Mark success (no-op)                          |
 //	+------------+-----------+-------------+-----------------------------------------------+
-func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
-	request reconcile.Request, params params, ignoreNonTransientError bool) error {
+func _unregisterVolume(ctx context.Context, volMgr volumes.Manager, request reconcile.Request, params params,
+	ignoreNonTransientError bool) (string, error) {
 	log := logger.GetLogger(ctx).With("name", request.NamespacedName)
 
 	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		log.Error("failed to init K8s client for volume unregistration with error ", err)
-		return errors.New("failed to init K8s client for volume unregistration")
+		return "", errors.New("failed to init K8s client for volume unregistration")
 	}
 
 	if params.pvcName != "" {
@@ -368,7 +408,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to protect associated PVC with error ", err)
-				return fmt.Errorf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
+				return "", fmt.Errorf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
 			}
 
 			log.Info("associated PVC not found. Continuing with volume unregistration")
@@ -380,7 +420,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to set reclaim policy to Retain on associated PV with error ", err)
-				return fmt.Errorf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
+				return "", fmt.Errorf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
 			}
 
 			log.Info("associated PV not found. Continuing with volume unregistration")
@@ -392,7 +432,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to delete associated PVC with error ", err)
-				return fmt.Errorf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
+				return "", fmt.Errorf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
 			}
 
 			log.Info("associated PVC not found. Continuing with volume unregistration")
@@ -404,7 +444,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to delete associated PV with error ", err)
-				return fmt.Errorf("failed to delete associated PV %s", params.pvName)
+				return "", fmt.Errorf("failed to delete associated PV %s", params.pvName)
 			}
 
 			log.Info("associated PV not found. Continuing with volume unregistration")
@@ -413,15 +453,9 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 
 	if params.volumeID != "" {
 		unregDisk := !params.retainFCD // If retainFCD is false, unregister the FCD too.
-		cnsErr := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
-		if cnsErr != nil {
-			log.Error("failed to unregister volume with error ", cnsErr)
-			if ignoreNonTransientError {
-				log.Info("ignoring non-transient error")
-				return nil
-			}
-
-			return fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
+		err := volMgr.UnregisterVolume(ctx, params.volumeID, unregDisk)
+		if err != nil {
+			return err.FaultType, fmt.Errorf("failed to unregister associated volume %s", params.volumeID)
 		}
 	}
 
@@ -431,7 +465,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				log.Error("failed to remove finalizer from associated PVC with error ", err)
-				return fmt.Errorf("failed to remove finalizer from associated PVC %s/%s",
+				return "", fmt.Errorf("failed to remove finalizer from associated PVC %s/%s",
 					params.namespace, params.pvcName)
 			}
 
@@ -440,7 +474,7 @@ func _unregisterVolume(ctx context.Context, volMgr volumes.Manager,
 	}
 
 	log.Info("successfully unregistered CNS volume ", params.volumeID)
-	return nil
+	return "", nil
 }
 
 // setInstanceError sets error and records an event on the CnsUnregisterVolume

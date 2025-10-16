@@ -225,10 +225,11 @@ type ExpandVolumeExtraParams struct {
 // More fields can be added to this struct in the future if needed.
 type Error struct {
 	error
+	FaultType   string
 	IsTransient bool
 }
 
-func newError(err error, isTransient bool) *Error {
+func newError(err error, faultType string, isTransient bool) *Error {
 	return &Error{
 		error:       err,
 		IsTransient: isTransient,
@@ -3770,12 +3771,12 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 	log := logger.GetLogger(ctx).With("volumeID", volumeID, "unregisterDisk", unregisterDisk)
 
 	if m.virtualCenter == nil {
-		return newError(errors.New("invalid manager instance"), true)
+		return newError(errors.New("invalid manager instance"), "", true)
 	}
 
 	err := m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		return newError(errors.New("connecting to CNS failed"), true)
+		return newError(errors.New("connecting to CNS failed"), "", true)
 	}
 
 	targetVolumeType := "FCD"
@@ -3807,7 +3808,7 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 		msg := "taskInfo is empty for UnregisterVolume task"
 		log.Errorf("%s from vCenter %q. task: %q",
 			msg, m.virtualCenter.Config.Host, task.Reference().Value)
-		return newError(errors.New(msg), true)
+		return newError(errors.New(msg), "", true)
 	}
 
 	log.Infof("processing UnregisterVolume task: %q, opId: %q",
@@ -3816,21 +3817,21 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 	if err != nil {
 		msg := "failed to get UnregisterVolume task result"
 		log.Errorf("%s with error: %v", msg, err)
-		return newError(errors.New(msg), true)
+		return newError(errors.New(msg), "", true)
 	}
 
 	if res == nil {
 		msg := "task result is empty for UnregisterVolume task"
 		log.Errorf("%s from vCenter %q. taskID: %q, opId: %q",
 			m.virtualCenter.Config.Host, taskInfo.Task.Value, taskInfo.ActivationId)
-		return newError(errors.New(msg), true)
+		return newError(errors.New(msg), "", true)
 	}
 
 	volOpRes := res.GetCnsVolumeOperationResult()
 	if volOpRes.Fault != nil {
 		log.Errorf("failed to unregister volume: %q, fault: %q, opID: %q",
 			volumeID, ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes), taskInfo.ActivationId)
-		return newError(errors.New("observed a fault in UnregisterVolume result"), true)
+		return newError(errors.New("observed a fault in UnregisterVolume result"), "", true)
 	}
 
 	log.Infof("volume %q unregistered successfully", volumeID)
@@ -3850,7 +3851,7 @@ func handleUnregisterError(ctx context.Context, err error, unregisterDisk bool) 
 		return nil
 	}
 
-	e := Error{err, true}
+	e := Error{err, faultType, true}
 	if faultType == csifault.VimFaultNotFound ||
 		faultType == csifault.VimFaultInvalidState ||
 		faultType == csifault.VimFaultInvalidDatastore ||

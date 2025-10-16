@@ -39,6 +39,7 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
@@ -225,8 +226,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return errors.New(errMsg)
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", errors.New(errMsg)
 			}
 			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
 
@@ -247,8 +248,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return nil
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, true)
@@ -278,8 +279,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return nil
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, false, false, false, true)
@@ -384,8 +385,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return errors.New(errMsg)
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", errors.New(errMsg)
 			}
 			reconciler := setup(tt, []client.Object{instance}, interceptor.Funcs{}, nil)
 
@@ -406,8 +407,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return nil
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
@@ -435,8 +436,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				return &volumeUsageInfo{}, nil
 			}
 			unregisterVolume = func(ctx context.Context, volMgr volume.Manager, request reconcile.Request,
-				params params, ignoreNonTransientError bool) error {
-				return nil
+				params params, ignoreNonTransientError bool) (string, error) {
+				return "", nil
 			}
 			instance := newInstance(tt, "mock-instance", "mock-namespace", "mock-volume-id", "", "",
 				[]string{cnsoptypes.CNSUnregisterVolumeFinalizer}, true, false, false, false)
@@ -484,7 +485,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := "failed to init K8s client for volume unregistration"
 
 		// Execute
-		err := unregisterVolume(context.Background(), nil, request, params{}, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params{}, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -506,7 +507,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to protect associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -524,7 +525,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to set reclaim policy to Retain on associated PV %s", params.pvName)
 
 		// Execute
-		err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -549,7 +550,7 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to delete associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -570,44 +571,26 @@ func TestUnregisterVolume(t *testing.T) {
 		expErr := fmt.Sprintf("failed to delete associated PV %s", params.pvName)
 
 		// Execute
-		err := unregisterVolume(context.Background(), nil, request, params, false)
+		_, err := unregisterVolume(context.Background(), nil, request, params, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
 	})
 	t.Run("WhenUnregisteringVolumeFromCNSFails", func(tt *testing.T) {
-		tt.Run("WhenNonTransientError", func(tt *testing.T) {
-			// Setup
-			errMsg := "volume not found"
-			newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
-				return &clientset.Clientset{}, nil
-			}
-			mockMgr := volume.NewMockManager(true, errors.New(errMsg), false)
-			params := params{volumeID: "mock-volume-id"}
+		// Setup
+		errMsg := "internal server error"
+		newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+			return &clientset.Clientset{}, nil
+		}
+		mockMgr := volume.NewMockManager(true, errors.New(errMsg), false, fault.VimFaultCNSFault)
+		params := params{volumeID: "mock-volume-id"}
+		expErr := fmt.Sprintf("failed to unregister associated volume %s", params.volumeID)
 
-			// Execute
-			// Setting ignoreNonTransientError to true to test the behaviour of delete workflow
-			err := unregisterVolume(context.Background(), mockMgr, request, params, true)
+		// Execute
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
 
-			// Assert
-			assert.Nil(tt, err, "Expected no error")
-		})
-		tt.Run("WhenTransientError", func(tt *testing.T) {
-			// Setup
-			errMsg := "internal server error"
-			newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
-				return &clientset.Clientset{}, nil
-			}
-			mockMgr := volume.NewMockManager(true, errors.New(errMsg), false)
-			params := params{volumeID: "mock-volume-id"}
-			expErr := fmt.Sprintf("failed to unregister associated volume %s", params.volumeID)
-
-			// Execute
-			err := unregisterVolume(context.Background(), mockMgr, request, params, false)
-
-			// Assert
-			assert.Equal(tt, expErr, err.Error(), "Expected error to match")
-		})
+		// Assert
+		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
 	})
 	t.Run("WhenRemovingFinalizerFromPVCFails", func(tt *testing.T) {
 		// Setup
@@ -626,13 +609,13 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName, pvcNamespace, finalizer string) error {
 			return errors.New(errMsg)
 		}
-		mockMgr := volume.NewMockManager(true, nil, false)
+		mockMgr := volume.NewMockManager(true, nil, false, "")
 
 		params := params{pvcName: "mock-pvc", namespace: "mock-namespace"}
 		expErr := fmt.Sprintf("failed to remove finalizer from associated PVC %s/%s", params.namespace, params.pvcName)
 
 		// Execute
-		err := unregisterVolume(context.Background(), mockMgr, request, params, false)
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
 
 		// Assert
 		assert.Equal(tt, expErr, err.Error(), "Expected error to match")
@@ -646,6 +629,9 @@ func TestUnregisterVolume(t *testing.T) {
 			finalizer string) error {
 			return nil
 		}
+		retainPV = func(ctx context.Context, k8sClient clientset.Interface, pvName string) error {
+			return nil
+		}
 		deletePVC = func(ctx context.Context, k8sClient clientset.Interface, pvcName, pvcNamespace string) error {
 			return nil
 		}
@@ -656,7 +642,7 @@ func TestUnregisterVolume(t *testing.T) {
 			pvcName, pvcNamespace, finalizer string) error {
 			return nil
 		}
-		mockMgr := volume.NewMockManager(false, nil, false)
+		mockMgr := volume.NewMockManager(false, nil, false, "")
 		params := params{
 			pvcName:   "mock-pvc",
 			pvName:    "mock-pv",
@@ -665,7 +651,7 @@ func TestUnregisterVolume(t *testing.T) {
 		}
 
 		// Execute
-		err := unregisterVolume(context.Background(), mockMgr, request, params, false)
+		_, err := unregisterVolume(context.Background(), mockMgr, request, params, false)
 
 		// Assert
 		assert.Nil(tt, err, "Expected no error")
