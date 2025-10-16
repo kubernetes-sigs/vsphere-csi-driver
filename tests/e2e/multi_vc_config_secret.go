@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	    8. Clean up the data
 	*/
 
-	ginkgo.It("Change vCenter password on one of the multi-vc setup and update the same "+
+	ginkgo.It("[pq-multivc] Change vCenter password on one of the multi-vc setup and update the same "+
 		"in csi vsphere conf", ginkgo.Label(p1, vsphereConfigSecret, block, vanilla,
 		multiVc, vc70, flaky), func() {
 
@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	Observe the system behaviour , Expectation is CSI pod's should show CLBO or should show error
 	*/
 
-	ginkgo.It("Copy same vCenter details twice in csi vsphere conf in a multi-vc setup", ginkgo.Label(p2,
+	ginkgo.It("[pq-multivc] Copy same vCenter details twice in csi vsphere conf in a multi-vc setup", ginkgo.Label(p2,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	9. Clean up the data
 	*/
 
-	ginkgo.It("Use VC-hostname instead of VC-IP for one VC and try to switch the same during"+
+	ginkgo.It("[pq-multivc] Use VC-hostname instead of VC-IP for one VC and try to switch the same during"+
 		"a workload vcreation in a multivc setup", ginkgo.Label(p1,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky), func() {
 
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	    10. Clean up the data
 	*/
 
-	ginkgo.It("Install CSI driver on different namespace and restart CSI-controller and node daemon sets"+
+	ginkgo.It("[pq-multivc] Install CSI driver on different namespace and restart CSI-controller and node daemon sets"+
 		"in between the statefulset creation", ginkgo.Label(p2,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky), func() {
 
@@ -721,7 +721,8 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	    8. Clean up the data
 	*/
 
-	ginkgo.It("Keep different passwords on each VC and check Statefulset creation and reboot VC", ginkgo.Label(p2,
+	ginkgo.It("[pq-multivc] Keep different passwords on each VC and check Statefulset creation and reboot"+
+		" VC", ginkgo.Label(p2,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky, negative), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -898,7 +899,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	8. Clean up the data
 	*/
 
-	ginkgo.It("Change VC in the UI but not on the vsphere secret and verify "+
+	ginkgo.It("[pq-multivc] Change VC in the UI but not on the vsphere secret and verify "+
 		"volume creation workflow on a multivc setup", ginkgo.Label(p2,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky), func() {
 
@@ -967,7 +968,7 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 	vsphere-secret is fixed
 	*/
 
-	ginkgo.It("Add any wrong entry in vsphere conf and verify csi pods behaviour", ginkgo.Label(p2,
+	ginkgo.It("[pq-multivc] Add any wrong entry in vsphere conf and verify csi pods behaviour", ginkgo.Label(p2,
 		vsphereConfigSecret, block, vanilla, multiVc, vc70, flaky), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
