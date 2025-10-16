@@ -194,7 +194,7 @@ func (m *MockCOCommonInterface) GetPVCNameFromCSIVolumeID(volumeID string) (stri
 	return args.String(0), args.String(1), args.Bool(2)
 }
 
-func (m *MockCOCommonInterface) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+func (m *MockCOCommonInterface) GetVolumeIDFromPVCName(namespace, pvcName string) (string, bool) {
 	args := m.Called(pvcName)
 	return args.String(0), args.Bool(1)
 }

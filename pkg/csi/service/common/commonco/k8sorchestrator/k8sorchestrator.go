@@ -2070,8 +2070,8 @@ func (c *K8sOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (
 
 // GetVolumeIDFromPVCName returns volumeID the given pvcName using pvcToVolumeIDMap.
 // PVC name is its namespaced name.
-func (c *K8sOrchestrator) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
-	return c.pvcToVolumeIDMap.get(pvcName)
+func (c *K8sOrchestrator) GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool) {
+	return c.pvcToVolumeIDMap.get(fmt.Sprintf("%s/%s", namespace, pvcName))
 }
 
 // IsLinkedCloneRequest checks if the pvc is a linked clone request

@@ -322,7 +322,7 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 	}
 
 	// Check if storage policy reservation related FSS is enabled
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.StoragePolicyReservationSupport) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCPMobilityNonDisruptiveImport) {
 		// Check if both labelVirtualMachineName and labelStoragePolicyReservationName are on CnsRegisterVolume CR.
 		// If both are present, add both to PVC
 		if vmName, vmOk := instance.Labels[cnsoperatortypes.LabelVirtualMachineName]; vmOk && vmName != "" {

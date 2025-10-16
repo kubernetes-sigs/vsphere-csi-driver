@@ -31,9 +31,11 @@ type MockManager struct {
 	failRequest bool
 	// err is used to store the error that should be returned by the mock manager.
 	err error
+	// faultType is used to store the fault type that should be returned by the mock manager.
+	faultType string
 }
 
-func NewMockManager(failReq bool, err error) *MockManager {
+func NewMockManager(failReq bool, err error, faultType string) *MockManager {
 	if !failReq {
 		return &MockManager{}
 	}
@@ -41,6 +43,7 @@ func NewMockManager(failReq bool, err error) *MockManager {
 	return &MockManager{
 		failRequest: failReq,
 		err:         err,
+		faultType:   faultType,
 	}
 }
 
@@ -184,12 +187,12 @@ func (m MockManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.Virt
 	panic("implement me")
 }
 
-func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error) {
 	if m.failRequest {
-		return m.err
+		return "", m.err
 	}
 
-	return nil
+	return "", nil
 }
 
 func (m MockManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {

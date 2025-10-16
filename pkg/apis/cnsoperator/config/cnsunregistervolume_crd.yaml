@@ -1,4 +1,3 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -16,66 +15,80 @@ spec:
     singular: cnsunregistervolume
   scope: Namespaced
   versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: CnsUnregisterVolume is the Schema for the cnsunregistervolumes API
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: CnsUnregisterVolume is the Schema for the cnsunregistervolumes API
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation
               of an object. Servers should convert recognized schemas to the latest
               internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
               object represents. Servers may infer this from the endpoint the client
               submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
-            properties:
-              volumeID:
-                description: VolumeID indicates the volume handle of CNS volume to be unregistered.
-                type: string
-                pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
-              retainFCD:
-                description: RetainFCD indicates if the volume should be retained as an FCD. 
-                  If set to false or not specified, the volume will be retained as a VMDK.
-                type: boolean
-              forceUnregister:
-                description: ForceUnregister indicates if the volume should be forcefully unregistered.
-                  If set to true, the volume will be unregistered even if it is still in use by any VM.
-                  This should be used with caution as it may lead to data loss.
-                type: boolean
-            required:
-            - volumeID
-            type: object
-          status:
-            description: CnsUnregisterVolumeStatus defines the observed state of CnsUnregisterVolume
-            properties:
-              error:
-                description: The last error encountered during export operation, if
-                  any. This field must only be set by the entity completing the export
-                  operation, i.e. the CNS Operator.
-                type: string
-              unregistered:
-                description: Indicates the volume is successfully unregistered. 
-                  This field must only be set by the entity completing the unregister 
-                  operation, i.e. the CNS Operator.
-                type: boolean
-            required:
-            - unregistered
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: CnsUnregisterVolumeSpec defines the desired state of CnsUnregisterVolume
+              properties:
+                volumeID:
+                  description: VolumeID indicates the volume handle of CNS volume to be unregistered.
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                pvcName:
+                  description: PVCName indicates the name of the PVC to be unregistered.
+                  type: string
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                retainFCD:
+                  description: RetainFCD indicates if the volume should be retained as an FCD.
+                    If set to false or not specified, the volume will be retained as a VMDK.
+                  type: boolean
+                forceUnregister:
+                  description: ForceUnregister indicates if the volume should be forcefully unregistered.
+                    If set to true, the volume will be unregistered even if it is still in use by any VM.
+                    This should be used with caution as it may lead to data loss.
+                  type: boolean
+              type: object
+              x-kubernetes-validations:
+                - rule: "has(self.volumeID) || has(self.pvcName)"
+                  message: "Either 'volumeID' or 'pvcName' must be specified, but not both"
+                - rule: "!(has(self.volumeID) && has(self.pvcName))"
+                  message: "Cannot specify both 'volumeID' and 'pvcName' at the same time. Please specify only one of them"
+            status:
+              description: CnsUnregisterVolumeStatus defines the observed state of CnsUnregisterVolume
+              properties:
+                error:
+                  description: The last error encountered during export operation, if
+                    any. This field must only be set by the entity completing the export
+                    operation, i.e. the CNS Operator.
+                  type: string
+                unregistered:
+                  description: Indicates the volume is successfully unregistered.
+                    This field must only be set by the entity completing the unregister
+                    operation, i.e. the CNS Operator.
+                  type: boolean
+              required:
+                - unregistered
+              type: object
+          type: object
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - jsonPath: .status.unregistered
+          name: Unregistered
+          type: boolean
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      subresources:
+        status: { }
 status:
   acceptedNames:
     kind: ""
     plural: ""
-  conditions: []
-  storedVersions: []
+  conditions: [ ]
+  storedVersions: [ ]

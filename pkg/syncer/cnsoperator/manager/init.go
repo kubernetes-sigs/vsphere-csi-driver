@@ -194,7 +194,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				}
 			}()
 
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CnsUnregisterVolume) {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCPMobilityNonDisruptiveImport) {
 				// Create CnsUnregisterVolume CRD from manifest.
 				log.Infof("Creating %q CRD", cnsoperatorv1alpha1.CnsUnregisterVolumePlural)
 				err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsUnregisterVolumeCRFile,

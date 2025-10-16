@@ -94,4 +94,6 @@ const (
 	VimFaultInvalidArgument = VimFaultPrefix + "InvalidArgument"
 	// VimFaultCNSFault is the fault returned from CNS when a generic CNS fault occurs.
 	VimFaultCNSFault = VimFaultPrefix + "CnsFault"
+	// VimFaultNotSupported is the fault returned from CNS when the operation is not supported on the object.
+	VimFaultNotSupported = VimFaultPrefix + "NotSupported"
 )

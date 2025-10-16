@@ -429,8 +429,6 @@ const (
 	StorageQuotaM2 = "storage-quota-m2"
 	// CSIDetachOnSupervisor enables CSI to detach the disk from the podvm in a supervisor environment
 	CSIDetachOnSupervisor = "CSI_Detach_Supported"
-	// CnsUnregisterVolume enables the creation of CRD and controller for CnsUnregisterVolume API.
-	CnsUnregisterVolume = "cns-unregister-volume"
 	// WorkloadDomainIsolation is the name of the WCP capability which determines if
 	// workload domain isolation feature is available on a supervisor cluster.
 	WorkloadDomainIsolation = "Workload_Domain_Isolation_Supported"
@@ -458,9 +456,10 @@ const (
 	// VolFromSnapshotOnTargetDs is a FSS that tells whether creation of volumes from
 	// snapshots on different datastores feature is supported in CSI.
 	VolFromSnapshotOnTargetDs = "supports_vol_from_snapshot_on_target_ds"
-	// StoragePolicyReservation feature is assumed to be enabled in CSI when
+	// WCPMobilityNonDisruptiveImport feature is assumed to be enabled in CSI when
 	// "supports_mobility_non_disruptive_import" capability is enabled in supervisor.
-	StoragePolicyReservationSupport = "supports_mobility_non_disruptive_import"
+	// This capability guards CNSUnregisterVolume and StoragePolicyReservation.
+	WCPMobilityNonDisruptiveImport = "supports_mobility_non_disruptive_import"
 	// LinkedCloneSupport is an FSS that tells whether LinkedClone feature is supported in CSI.
 	LinkedCloneSupport = "supports_FCD_linked_clone"
 	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
@@ -471,19 +470,19 @@ const (
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor:      {},
-	CSIDetachOnSupervisor:           {},
-	WorkloadDomainIsolation:         {},
-	VPCCapabilitySupervisor:         {},
-	VolFromSnapshotOnTargetDs:       {},
-	SharedDiskFss:                   {},
-	LinkedCloneSupport:              {},
-	StoragePolicyReservationSupport: {},
-	WCPVMServiceVMSnapshots:         {},
-	BYOKEncryption:                  {},
-	FCDTransactionSupport:           {},
-	MultipleClustersPerVsphereZone:  {},
-	FileVolumesWithVmService:        {},
+	PodVMOnStretchedSupervisor:     {},
+	CSIDetachOnSupervisor:          {},
+	WorkloadDomainIsolation:        {},
+	VPCCapabilitySupervisor:        {},
+	VolFromSnapshotOnTargetDs:      {},
+	SharedDiskFss:                  {},
+	LinkedCloneSupport:             {},
+	WCPMobilityNonDisruptiveImport: {},
+	WCPVMServiceVMSnapshots:        {},
+	BYOKEncryption:                 {},
+	FCDTransactionSupport:          {},
+	MultipleClustersPerVsphereZone: {},
+	FileVolumesWithVmService:       {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later

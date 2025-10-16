@@ -443,7 +443,7 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 }
 
 // GetVolumeIDFromPVCName simlates an invalid case when pvcName contains "invalid".
-func (c *FakeK8SOrchestrator) GetVolumeIDFromPVCName(pvcName string) (string, bool) {
+func (c *FakeK8SOrchestrator) GetVolumeIDFromPVCName(namespace string, pvcName string) (string, bool) {
 	if strings.Contains(pvcName, "invalid") {
 		// Simulate a case where the volumeID is invalid and does not correspond to any PVC.
 		return "", false

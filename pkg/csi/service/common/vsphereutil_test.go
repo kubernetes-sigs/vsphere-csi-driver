@@ -23,9 +23,10 @@ type mockVolumeManager struct {
 		extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
 }
 
-func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) error {
+func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
+	unregisterDisk bool) (string, error) {
 	//TODO implement me
-	return nil
+	return "", nil
 }
 
 func (m *mockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,

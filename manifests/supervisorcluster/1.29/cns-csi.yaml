@@ -582,7 +582,6 @@ data:
   "cnsmgr-suspend-create-volume": "true"
   "storage-quota-m2": "true"
   "vdpp-on-stretched-supervisor": "true"
-  "cns-unregister-volume": "false"
   "workload-domain-isolation": "false"
   "sv-pvc-snapshot-protection-finalizer": "true"
 kind: ConfigMap
