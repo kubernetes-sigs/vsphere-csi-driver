@@ -47,7 +47,6 @@ import (
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/mo"
 	vim25types "github.com/vmware/govmomi/vim25/types"
-
 	vsanpackage "github.com/vmware/govmomi/vsan"
 	vsanmethods "github.com/vmware/govmomi/vsan/methods"
 	vsantypes "github.com/vmware/govmomi/vsan/types"
@@ -59,6 +58,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
+
 	cnsclient "sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/cns"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vc"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vsan"
@@ -558,6 +558,9 @@ func VerifySpbmPolicyOfVolume(volumeID string, vs *config.E2eTestConfig, storage
 	framework.Logf("Verifying volume: %s is created using storage policy: %s", volumeID, storagePolicyName)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Connect to VC
+	connections.ConnectToVC(ctx, vs)
 
 	// Get PBM Client
 	pbmClient, err := pbm.NewClient(ctx, vs.VcClient.Client)

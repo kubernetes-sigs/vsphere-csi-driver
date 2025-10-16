@@ -880,7 +880,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		10	Delete the SC created in step 2
 		11	Deleted the SPBM policy created in step 1
 	*/
-	ginkgo.It("[ef-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
+	ginkgo.It("[ef-f-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
 		"[pq-vanilla-block][pq-vks-thickthin] Verify EZT online volume expansion to a large size which takes "+
 		"longer than vpxd timeout", ginkgo.Label(p0, vanilla, block, thickThin, wcp, windows, tkg, stable,
 		vsanDirect, vc70), func() {
