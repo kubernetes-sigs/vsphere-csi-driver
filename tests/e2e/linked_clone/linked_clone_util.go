@@ -25,7 +25,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
-	v1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -51,7 +50,7 @@ var lcToDelete []*corev1.PersistentVolumeClaim
 This method will create PVC, attach pod to it and creates snapshot
 Keeping this method here as it populates the array used for cleanup
 */
-func CreatePvcPodAndSnapshotMap(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *v1.StorageClass, doCreatePod bool, doCreateDep bool) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume, *snapV1.VolumeSnapshot) {
+func CreatePvcPodAndSnapshotMap(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, doCreatePod bool, doCreateDep bool) (*corev1.PersistentVolumeClaim, []*corev1.PersistentVolume, *snapV1.VolumeSnapshot) {
 
 	fmt.Println("Create PVC and verify PVC is bound")
 	pvclaim, pv := k8testutil.CreateAndValidatePvc(ctx, client, namespace, storageclass)
@@ -261,7 +260,7 @@ func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *con
 }
 
 // This method can be used to create statefulset with linked clone annotation
-func CreateAndValidateLinkedCloneWithSts(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, sc *v1.StorageClass, snapName string, snapshotapigroup string) {
+func CreateAndValidateLinkedCloneWithSts(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, sc *storagev1.StorageClass, snapName string, snapshotapigroup string) {
 	statefulset := k8testutil.GetStatefulSetFromManifest(e2eTestConfig.TestInput, namespace)
 	ginkgo.By("Creating statefulset")
 	annotations := map[string]string{
