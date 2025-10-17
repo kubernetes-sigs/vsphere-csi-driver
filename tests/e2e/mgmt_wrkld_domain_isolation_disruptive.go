@@ -203,163 +203,164 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 	   29. Perform cleanup: delete pods, snapshots, volumes and namespace
 	*/
 
-	ginkgo.It("Workload creation when zone2 host is put in maintenance mode and is marked for removal", func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+	ginkgo.It("[pq-wcp-wldi] Workload creation when zone2 host is put in maintenance mode and is marked ",
+		"for removal", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		var podList []*v1.Pod
-		var hostsInMM []*object.HostSystem
-		pvcCount := 5
-		var timeout int32 = 300
-		var stsReplicas int32 = 6
-		var volhandles []string
+			var podList []*v1.Pod
+			var hostsInMM []*object.HostSystem
+			pvcCount := 5
+			var timeout int32 = 300
+			var stsReplicas int32 = 6
+			var volhandles []string
 
-		// statefulset replica count
-		replicas = 3
+			// statefulset replica count
+			replicas = 3
 
-		ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
-		namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
-			[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
-			[]string{zone1, zone2, zone3}, "", "")
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
-		defer func() {
-			delTestWcpNs(vcRestSessionId, namespace)
-			gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
-		}()
-
-		ginkgo.By("Read shared storage policy tagged to wcp namespace")
-		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
-		if !apierrors.IsNotFound(err) {
+			ginkgo.By("Create a WCP namespace and tag zone-1, zone-2 and zone-3 to it using shared storage policy")
+			namespace, statuscode, err = createtWcpNsWithZonesAndPolicies(vcRestSessionId,
+				[]string{sharedStorageProfileId}, getSvcId(vcRestSessionId, &e2eVSphere),
+				[]string{zone1, zone2, zone3}, "", "")
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
+			gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+			defer func() {
+				delTestWcpNs(vcRestSessionId, namespace)
+				gomega.Expect(waitForNamespaceToGetDeleted(ctx, client, namespace, poll, pollTimeout)).To(gomega.Succeed())
+			}()
 
-		ginkgo.By("Trigger multiple PVCs")
-		pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
+			ginkgo.By("Read shared storage policy tagged to wcp namespace")
+			storageclass, err := client.StorageV1().StorageClasses().Get(ctx, sharedStoragePolicyName, metav1.GetOptions{})
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 
-		ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
-		for i := 0; i < len(pvclaimsList); i++ {
-			var pvclaims []*v1.PersistentVolumeClaim
-			pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-				[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(pvc).NotTo(gomega.BeEmpty())
+			ginkgo.By("Trigger multiple PVCs")
+			pvclaimsList := createMultiplePVCsInParallel(ctx, client, namespace, storageclass, pvcCount, nil)
 
-			pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
-			volhandle := pv.Spec.CSI.VolumeHandle
-			volhandles = append(volhandles, volhandle)
+			ginkgo.By("Verify PVC claim to be in bound phase and create POD for each PVC")
+			for i := 0; i < len(pvclaimsList); i++ {
+				var pvclaims []*v1.PersistentVolumeClaim
+				pvc, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+					[]*v1.PersistentVolumeClaim{pvclaimsList[i]}, framework.ClaimProvisionTimeout)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(pvc).NotTo(gomega.BeEmpty())
 
-			ginkgo.By("Creating Pod")
-			pvclaims = append(pvclaims, pvclaimsList[i])
-			pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
-			podList = append(podList, pod)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				pv := getPvFromClaim(client, pvclaimsList[i].Namespace, pvclaimsList[i].Name)
+				volhandle := pv.Spec.CSI.VolumeHandle
+				volhandles = append(volhandles, volhandle)
 
-			ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
-				pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
-			vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
-			isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(
-				pv.Spec.CSI.VolumeHandle, vmUUID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
-		}
+				ginkgo.By("Creating Pod")
+				pvclaims = append(pvclaims, pvclaimsList[i])
+				pod, err := createPod(ctx, client, namespace, nil, pvclaims, false, "")
+				podList = append(podList, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
-		for i := 0; i < len(podList); i++ {
-			err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, podList[i], nil, namespace,
+				ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
+					pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
+				vmUUID := getNodeUUID(ctx, client, pod.Spec.NodeName)
+				isDiskAttached, err := multiVCe2eVSphere.verifyVolumeIsAttachedToVMInMultiVC(
+					pv.Spec.CSI.VolumeHandle, vmUUID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached")
+			}
+
+			ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
+			for i := 0; i < len(podList); i++ {
+				err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, nil, podList[i], nil, namespace,
+					allowedTopologies)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			ginkgo.By("Creating service")
+			_ = CreateService(namespace, client)
+
+			ginkgo.By("Creating statefulset")
+			statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, false, allowedTopologies,
+				false, true, "", "", storageclass, storageclass.Name)
+
+			ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for statefulset")
+			err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
 				allowedTopologies)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 
-		ginkgo.By("Creating service")
-		_ = CreateService(namespace, client)
+			ginkgo.By("Put all esxi hosts of Az2 in maintenance mode with ensureAccessibility")
+			hostsInCluster2 := getHostsByClusterName(ctx, clusterComputeResource, clusterName2)
+			hostsInMM = append(hostsInMM, hostsInCluster2...)
+			for _, host := range hostsInMM {
+				enterHostIntoMM(ctx, host, ensureAccessibilityMModeType, timeout, true)
+				isHostInMaintenanceMode = true
+			}
+			defer func() {
+				framework.Logf("Exit the hosts from MM before terminating the test")
+				if isHostInMaintenanceMode {
+					for _, host := range hostsInMM {
+						exitHostMM(ctx, host, timeout)
+					}
+				}
+			}()
 
-		ginkgo.By("Creating statefulset")
-		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, false, allowedTopologies,
-			false, true, "", "", storageclass, storageclass.Name)
+			ginkgo.By("Perform scaleup operation. Increase the replica count from 3 to 6")
+			scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				stsReplicas, false, true)
 
-		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity for statefulset")
-		err = verifyPvcAnnotationPvAffinityPodAnnotationInSvc(ctx, client, statefulset, nil, nil, namespace,
-			allowedTopologies)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Creating pvc with requested topology annotation set to zone2")
+			pvcNew, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclass, "", zone2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Put all esxi hosts of Az2 in maintenance mode with ensureAccessibility")
-		hostsInCluster2 := getHostsByClusterName(ctx, clusterComputeResource, clusterName2)
-		hostsInMM = append(hostsInMM, hostsInCluster2...)
-		for _, host := range hostsInMM {
-			enterHostIntoMM(ctx, host, ensureAccessibilityMModeType, timeout, true)
-			isHostInMaintenanceMode = true
-		}
-		defer func() {
-			framework.Logf("Exit the hosts from MM before terminating the test")
+			ginkgo.By("Expect claim to fail provisioning because zone2 cluster hosts are in MM mode")
+			err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
+				pvcNew.Namespace, pvcNew.Name, framework.Poll, time.Minute)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+				fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+
+			ginkgo.By("Expect claim to fail provisioning because zone2 cluster hosts are in MM mode")
+			expectedErrMsg := "failed to provision volume with StorageClass"
+			framework.Logf("Expected failure message: %+q", expectedErrMsg)
+			errorOccurred := checkEventsforError(client, pvcNew.Namespace,
+				metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvcNew.Name)}, expectedErrMsg)
+			gomega.Expect(errorOccurred).To(gomega.BeTrue())
+
+			ginkgo.By("Read volume snapshot class")
+			volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Create volume snapshot for any 1 PVC")
+			volumeSnapshot, _, _,
+				_, _, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
+				pvclaimsList[0], volhandles[0], diskSize, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			framework.Logf("Exit the hosts from MM mode")
 			if isHostInMaintenanceMode {
 				for _, host := range hostsInMM {
 					exitHostMM(ctx, host, timeout)
 				}
 			}
-		}()
 
-		ginkgo.By("Perform scaleup operation. Increase the replica count from 3 to 6")
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			stsReplicas, false, true)
+			ginkgo.By("Wait for k8s cluster to be healthy")
+			wait4AllK8sNodesToBeUp(nodeList)
+			err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Creating pvc with requested topology annotation set to zone2")
-		pvcNew, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclass, "", zone2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
+			pvcNew, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcNew.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvcNew.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
 
-		ginkgo.By("Expect claim to fail provisioning because zone2 cluster hosts are in MM mode")
-		err = fpv.WaitForPersistentVolumeClaimPhase(ctx, v1.ClaimPending, client,
-			pvcNew.Namespace, pvcNew.Name, framework.Poll, time.Minute)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-			fmt.Sprintf("Failed to find the volume in pending state with err: %v", err))
+			ginkgo.By("Mark zone-2 for removal from wcp namespace")
+			err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace, zone2)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Expect claim to fail provisioning because zone2 cluster hosts are in MM mode")
-		expectedErrMsg := "failed to provision volume with StorageClass"
-		framework.Logf("Expected failure message: %+q", expectedErrMsg)
-		errorOccurred := checkEventsforError(client, pvcNew.Namespace,
-			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvcNew.Name)}, expectedErrMsg)
-		gomega.Expect(errorOccurred).To(gomega.BeTrue())
+			ginkgo.By("Perform scaleup operation. Increase the replica count from 6 to 9")
+			stsReplicas = 9
+			scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
+				stsReplicas, false, true)
 
-		ginkgo.By("Read volume snapshot class")
-		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Create volume snapshot for any 1 PVC")
-		volumeSnapshot, _, _,
-			_, _, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc, volumeSnapshotClass,
-			pvclaimsList[0], volhandles[0], diskSize, true)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		framework.Logf("Exit the hosts from MM mode")
-		if isHostInMaintenanceMode {
-			for _, host := range hostsInMM {
-				exitHostMM(ctx, host, timeout)
-			}
-		}
-
-		ginkgo.By("Wait for k8s cluster to be healthy")
-		wait4AllK8sNodesToBeUp(nodeList)
-		err = waitForAllNodes2BeReady(ctx, client, pollTimeout*4)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Verify the PVC which was stuck in Pending state should gets bound eventually")
-		pvcNew, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcNew.Name, metav1.GetOptions{})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvcNew.Status.Phase == v1.ClaimBound).To(gomega.BeTrue())
-
-		ginkgo.By("Mark zone-2 for removal from wcp namespace")
-		err = markZoneForRemovalFromWcpNs(vcRestSessionId, namespace, zone2)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ginkgo.By("Perform scaleup operation. Increase the replica count from 6 to 9")
-		stsReplicas = 9
-		scaleUpStsAndVerifyPodMetadata(ctx, client, namespace, statefulset,
-			stsReplicas, false, true)
-
-		ginkgo.By("Restoring a snapshot-1 to create a new volume and attach it to a new Pod")
-		_, _, _ = verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot,
-			diskSize, true)
-	})
+			ginkgo.By("Restoring a snapshot-1 to create a new volume and attach it to a new Pod")
+			_, _, _ = verifyVolumeRestoreOperation(ctx, client, namespace, storageclass, volumeSnapshot,
+				diskSize, true)
+		})
 
 	/*
 	   Testcase-2
@@ -398,7 +399,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 	   30. Perform cleanup: delete pods, snapshots, volumes and namespace
 	*/
 
-	ginkgo.It("Perform psod on Az3 cluster with zones additon and removal", func() {
+	ginkgo.It("[pq-wcp-wldi] Perform psod on Az3 cluster with zones additon and removal", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -576,7 +577,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-disruptive] Management-Workload-
 	   30. Perform cleanup: delete pods, snapshots, volumes and namespace
 	*/
 
-	ginkgo.It("VC reboot with multiple concurrent operations", func() {
+	ginkgo.It("[pq-wcp-wldi] VC reboot with multiple concurrent operations", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
