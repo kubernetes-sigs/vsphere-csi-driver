@@ -78,6 +78,7 @@ spec:
                           - independent_persistent
                           - persistent
                           - independent_nonpersistent
+                          - nonpersistent
                           type: string
                         sharingMode:
                           description: SharingMode indicates the sharing mode if the

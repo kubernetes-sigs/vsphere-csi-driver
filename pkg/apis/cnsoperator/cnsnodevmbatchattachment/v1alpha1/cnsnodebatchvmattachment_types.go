@@ -21,7 +21,7 @@ import (
 )
 
 // DiskMode describes the desired mode to use when attaching the volume.
-// +kubebuilder:validation:Enum=independent_persistent;persistent;independent_nonpersistent
+// +kubebuilder:validation:Enum=independent_persistent;persistent;independent_nonpersistent;nonpersistent
 type DiskMode string
 
 const (
@@ -34,6 +34,8 @@ const (
 	// and discarded at power off.
 	// It is not affected by snapshots.
 	IndependentNonPersistent = "independent_nonpersistent"
+	// Changes to virtual disk are made to a redo log and discarded at power off.
+	NonPersistent = "nonpersistent"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
