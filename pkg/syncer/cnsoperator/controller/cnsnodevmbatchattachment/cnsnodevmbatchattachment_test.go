@@ -67,7 +67,7 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 				ResourceVersion: "1",
 			},
 			Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
-				NodeUUID: testNodeUUID,
+				InstanceUUID: testNodeUUID,
 				Volumes: []v1alpha1.VolumeSpec{
 					{
 						Name: disk1,
@@ -203,7 +203,7 @@ func getClientSetWithPvc() *k8sFake.Clientset {
 func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError", func(t *testing.T) {
 		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
-		testCnsNodeVMBatchAttachment.Spec.NodeUUID = "test-2"
+		testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-2"
 
 		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 
@@ -237,7 +237,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.
 
 	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
 		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
-		testCnsNodeVMBatchAttachment.Spec.NodeUUID = "test-3"
+		testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-3"
 
 		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, true)
 
@@ -287,7 +287,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceI
 		func(t *testing.T) {
 			testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
 			nodeUUID := "test-3"
-			testCnsNodeVMBatchAttachment.Spec.NodeUUID = nodeUUID
+			testCnsNodeVMBatchAttachment.Spec.InstanceUUID = nodeUUID
 
 			r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
 

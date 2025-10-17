@@ -21,7 +21,7 @@ import (
 )
 
 // DiskMode describes the desired mode to use when attaching the volume.
-// +kubebuilder:validation:Enum=independent_persistent;persistent;independent_nonpersistent
+// +kubebuilder:validation:Enum=independent_persistent;persistent;independent_nonpersistent;nonpersistent
 type DiskMode string
 
 const (
@@ -34,6 +34,8 @@ const (
 	// and discarded at power off.
 	// It is not affected by snapshots.
 	IndependentNonPersistent = "independent_nonpersistent"
+	// Changes to virtual disk are made to a redo log and discarded at power off.
+	NonPersistent = "nonpersistent"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
@@ -52,9 +54,9 @@ const (
 type CnsNodeVMBatchAttachmentSpec struct {
 	// +required
 
-	// NodeUUID indicates the UUID of the node where the volume needs to be attached to.
-	// Here NodeUUID is the instance UUID of the node.
-	NodeUUID string `json:"nodeUUID"`
+	// InstanceUUID indicates the instance UUID of the node where the volume needs to be attached to.
+	InstanceUUID string `json:"instanceUUID"`
+	// +required
 
 	// +listType=map
 	// +listMapKey=name
@@ -63,8 +65,12 @@ type CnsNodeVMBatchAttachmentSpec struct {
 }
 
 type VolumeSpec struct {
+	// +required
+
 	// Name of the volume as given by the user.
 	Name string `json:"name"`
+	// +required
+
 	// PersistentVolumeClaim contains details about the volume's desired state.
 	PersistentVolumeClaim PersistentVolumeClaimSpec `json:"persistentVolumeClaim"`
 }
@@ -74,22 +80,22 @@ type PersistentVolumeClaimSpec struct {
 
 	// ClaimName is the PVC name.
 	ClaimName string `json:"claimName"`
-	// +optional
+	// +required
 
 	// DiskMode is the desired mode to use when attaching the volume
-	DiskMode DiskMode `json:"diskMode,omitempty"`
-	// +optional
+	DiskMode DiskMode `json:"diskMode"`
+	// +required
 
 	// SharingMode indicates the sharing mode if the virtual disk while attaching.
-	SharingMode SharingMode `json:"sharingMode,omitempty"`
-	// +optional
+	SharingMode SharingMode `json:"sharingMode"`
+	// +required
 
 	// ControllerKey is the object key for the controller object for this device.
-	ControllerKey *int32 `json:"controllerKey,omitempty"`
-	// +optional
+	ControllerKey *int32 `json:"controllerKey"`
+	// +required
 
 	// UnitNumber of this device on its controller.
-	UnitNumber *int32 `json:"unitNumber,omitempty"`
+	UnitNumber *int32 `json:"unitNumber"`
 }
 
 // CnsNodeVMBatchAttachmentStatus defines the observed state of CnsNodeVMBatchAttachment
@@ -123,7 +129,7 @@ type PersistentVolumeClaimStatus struct {
 	// CnsVolumeID is the volume ID for the PVC.
 	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
 	// DiskUUID is the ID obtained when volume is attached to a VM.
-	DiskUUID string `json:"DiskUUID,omitempty"`
+	DiskUUID string `json:"diskUUID,omitempty"`
 }
 
 // +genclient

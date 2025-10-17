@@ -47,10 +47,9 @@ spec:
             description: CnsNodeVMBatchAttachmentSpec defines the desired state of
               CnsNodeVMBatchAttachment
             properties:
-              nodeUUID:
-                description: |-
-                  NodeUUID indicates the UUID of the node where the volume needs to be attached to.
-                  Here NodeUUID is the instance UUID of the node.
+              instanceUUID:
+                description: InstanceUUID indicates the instance UUID of the node
+                  where the volume needs to be attached to.
                 type: string
               volumes:
                 description: VolumeSpec reflects the desired state for each volume.
@@ -78,6 +77,7 @@ spec:
                           - independent_persistent
                           - persistent
                           - independent_nonpersistent
+                          - nonpersistent
                           type: string
                         sharingMode:
                           description: SharingMode indicates the sharing mode if the
@@ -92,6 +92,10 @@ spec:
                           type: integer
                       required:
                       - claimName
+                      - controllerKey
+                      - diskMode
+                      - sharingMode
+                      - unitNumber
                       type: object
                   required:
                   - name
@@ -102,7 +106,7 @@ spec:
                 - name
                 x-kubernetes-list-type: map
             required:
-            - nodeUUID
+            - instanceUUID
             - volumes
             type: object
           status:
@@ -123,10 +127,6 @@ spec:
                       description: PersistentVolumeClaim contains details about the
                         volume's current state.
                       properties:
-                        DiskUUID:
-                          description: DiskUUID is the ID obtained when volume is
-                            attached to a VM.
-                          type: string
                         attached:
                           description: |-
                             Attached indicates the attach status of a PVC.
@@ -139,6 +139,10 @@ spec:
                           type: string
                         cnsVolumeId:
                           description: CnsVolumeID is the volume ID for the PVC.
+                          type: string
+                        diskUUID:
+                          description: DiskUUID is the ID obtained when volume is
+                            attached to a VM.
                           type: string
                         error:
                           description: Error indicates the error which may have occurred
