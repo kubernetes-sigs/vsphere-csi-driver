@@ -529,11 +529,32 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			var cnsVolumeID string
 			var ok bool
 			if cnsVolumeID, ok = instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID]; !ok {
-				log.Debugf("CnsNodeVmAttachment does not have CNS volume ID. AttachmentMetadata: %+v",
-					instance.Status.AttachmentMetadata)
-				msg := "CnsNodeVmAttachment does not have CNS volume ID."
-				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
-				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				log.Infof("CnsNodeVmAttachment does not have CNS volume ID. "+
+					"Volume was likely never attached. Checking if CR can be deleted. "+
+					"AttachedStatus: %+v, AttachmentMetadata: %+v",
+					instance.Status.Attached, instance.Status.AttachmentMetadata)
+				if !instance.Status.Attached {
+					// If volume is not attached to VM and CnsNodeVmAttachment CR is getting
+					// deleted, then proceed with the CR deletion.
+					msg := fmt.Sprintf("CnsNodeVmAttachment does not have CNS volume ID. "+
+						"Volume was likely never attached. Proceeding with deletion of "+
+						"CnsNodeVMAttachment: %s instance.", request.Name)
+					removeFinalizerFromCRDInstance(internalCtx, instance, request)
+					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
+					if err != nil {
+						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+					}
+					recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
+					// Cleanup instance entry from backOffDuration map.
+					backOffDurationMapMutex.Lock()
+					delete(backOffDuration, request.NamespacedName)
+					backOffDurationMapMutex.Unlock()
+					return reconcile.Result{}, "", nil
+				} else {
+					msg := "CnsNodeVmAttachment does not have CNS volume ID."
+					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
 			}
 			log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
