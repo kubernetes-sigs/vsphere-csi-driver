@@ -187,7 +187,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		11. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("Volume attachment to vm using zonal policy", ginkgo.Label(p0, wldi, vmServiceVm, vc90), func() {
+	ginkgo.It("[ef-wcp-wldi] Volume attachment to vm using zonal policy", ginkgo.Label(p0, wldi, vmServiceVm,
+		vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -299,7 +300,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		12. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("Static volume attachment to vm using shared policy", ginkgo.Label(p0, wldi, vmServiceVm, vc90), func() {
+	ginkgo.It("[pq-wcp-wldi] Static volume attachment to vm using shared policy", ginkgo.Label(p0, wldi, vmServiceVm,
+		vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -404,7 +406,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 	   21. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("VM creations when zone is marked for removal", ginkgo.Label(p0, wldi, vmServiceVm, vc90), func() {
+	ginkgo.It("[ef-wcp-wldi] VM creations when zone is marked for removal", ginkgo.Label(p0, wldi,
+		vmServiceVm, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -566,7 +569,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 	   21. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("Vm Service creation with volumes and restored snapshots attached", ginkgo.Label(p0,
+	ginkgo.It("[ef-wcp-wldi] Vm Service creation with volumes and restored snapshots attached", ginkgo.Label(p0,
 		wldi, vmServiceVm, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -747,7 +750,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 	   14. Perform cleanup: Delete VM, PVC and Namespace.
 	*/
 
-	ginkgo.It("Volume attachment to VM with requested allowed topology", ginkgo.Label(p0,
+	ginkgo.It("[ef-wcp-wldi] Volume attachment to VM with requested allowed topology", ginkgo.Label(p0,
 		wldi, vmServiceVm, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
