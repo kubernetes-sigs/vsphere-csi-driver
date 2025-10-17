@@ -226,8 +226,13 @@ const (
 	EnvDevopsUserName   = "DEVOPS_USERNAME"
 )
 
+// For creating disk on target datastore
+var (
+	EnvRestoreStoragePolicy = "RESTORE_STORAGE_POLICY"
+)
+
 // For linked clone
 var (
-	EnvStoragePolicy          = "STORAGE_POLICY_NAME-LC"
-	EnvTargetDSUrlForRelocate = "TARGET_DS_URL-LC"
+	EnvStoragePolicy          = "STORAGE_POLICY_NAME_LC"
+	EnvTargetDSUrlForRelocate = "TARGET_DS_URL_LC"
 )
