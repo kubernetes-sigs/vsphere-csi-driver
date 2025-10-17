@@ -1543,10 +1543,21 @@ func checkVcenterServicesRunning(
 // httpRequest takes client and http Request as input and performs GET operation
 // and returns bodybytes
 func httpRequest(client *http.Client, req *http.Request) ([]byte, int) {
+	var bodyBytes []byte
 	resp, err := client.Do(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer resp.Body.Close()
-	bodyBytes, err := io.ReadAll(resp.Body)
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		framework.Logf("Attempt %d of httpRequest ", attempt)
+		// Create the request
+		bodyBytes, err = io.ReadAll(resp.Body)
+		if err == nil {
+			break
+		}
+		time.Sleep(pollTimeoutShort)
+	}
 	framework.Logf("API Response status %d", resp.StatusCode)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

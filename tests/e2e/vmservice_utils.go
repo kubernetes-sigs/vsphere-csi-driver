@@ -331,12 +331,24 @@ func invokeVCRestAPIGetRequest(vcRestSessionId string, url string) ([]byte, int)
 
 // invokeVCRestAPIPostRequest invokes POST on given VC REST URL using the passed session token and request body
 func invokeVCRestAPIPostRequest(vcRestSessionId string, url string, reqBody string) ([]byte, int) {
+	var err error
+	var req *http.Request
+
 	transCfg := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	httpClient := &http.Client{Transport: transCfg}
-	framework.Logf("Invoking POST on url: %s", url)
-	req, err := http.NewRequest("POST", url, strings.NewReader(reqBody))
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		framework.Logf("Attempt %d: Invoking POST on URL: %s", attempt, url)
+
+		req, err = http.NewRequest("POST", url, strings.NewReader(reqBody))
+		if err == nil {
+			break
+		}
+		time.Sleep(pollTimeoutShort)
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	req.Header.Add(vcRestSessionIdHeaderName, vcRestSessionId)
 	req.Header.Add("Content-type", "application/json")
