@@ -50,7 +50,7 @@ func CreateDeleteLinkedClonesInParallel(ctx context.Context, client clientset.In
 
 		go func(id int) {
 			defer wg.Done()
-			fpv.DeletePersistentVolumeClaim(ctx, client, pvcList[i].Name, namespace)
+			_ = fpv.DeletePersistentVolumeClaim(ctx, client, pvcList[i].Name, namespace)
 		}(i)
 	}
 

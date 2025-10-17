@@ -260,7 +260,15 @@ func Cleanup(ctx context.Context, client clientset.Interface, e2eTestConfig *con
 }
 
 // This method can be used to create statefulset with linked clone annotation
-func CreateAndValidateLinkedCloneWithSts(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, sc *storagev1.StorageClass, snapName string, snapshotapigroup string) {
+func CreateAndValidateLinkedCloneWithSts(
+	ctx context.Context,
+	e2eTestConfig *config.E2eTestConfig,
+	client clientset.Interface,
+	namespace string,
+	sc *storagev1.StorageClass,
+	snapName string,
+	snapshotapigroup string,
+) {
 	statefulset := k8testutil.GetStatefulSetFromManifest(e2eTestConfig.TestInput, namespace)
 	ginkgo.By("Creating statefulset")
 	annotations := map[string]string{

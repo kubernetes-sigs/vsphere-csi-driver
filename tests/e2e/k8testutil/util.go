@@ -8227,7 +8227,15 @@ func StaticProvisioningPreSetUpUtil(ctx context.Context, vs *config.E2eTestConfi
 Create and validate PVC and wait for PVC to become bound
 This returns PersistentVolumeClaim and PersistentVolume
 */
-func CreateAndValidatePvc(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass) (*v1.PersistentVolumeClaim, []*v1.PersistentVolume) {
+func CreateAndValidatePvc(
+	ctx context.Context,
+	client clientset.Interface,
+	namespace string,
+	storageclass *storagev1.StorageClass,
+) (
+	*v1.PersistentVolumeClaim,
+	[]*v1.PersistentVolume,
+) {
 	ginkgo.By("Create PVC")
 	pvclaim, err := CreatePVC(ctx, client, namespace, nil, "", storageclass, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -8242,7 +8250,18 @@ func CreateAndValidatePvc(ctx context.Context, client clientset.Interface, names
 }
 
 // Create stand alone or deployment pod as per given arg
-func CreatePodForPvc(ctx context.Context, e2eTestConfig *config.E2eTestConfig, client clientset.Interface, namespace string, pvclaim []*v1.PersistentVolumeClaim, doCreatePod bool, doCreateDep bool) (*v1.Pod, *appsv1.Deployment) {
+func CreatePodForPvc(
+	ctx context.Context,
+	e2eTestConfig *config.E2eTestConfig,
+	client clientset.Interface,
+	namespace string,
+	pvclaim []*v1.PersistentVolumeClaim,
+	doCreatePod bool,
+	doCreateDep bool,
+) (
+	*v1.Pod,
+	*appsv1.Deployment,
+) {
 	ginkgo.By("Create Pod to attach to Pvc")
 	var pod *v1.Pod
 	var dep *appsv1.Deployment
