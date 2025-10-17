@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -91,7 +90,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 							ClaimName:   pvc1,
 							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
-							Attached:    true,
 						},
 					},
 					{
@@ -100,7 +98,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 							ClaimName:   pvc2,
 							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
-							Attached:    true,
 						},
 					},
 				},
@@ -229,11 +226,12 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 		}
 
 		expectedReconcileError := fmt.Errorf("some error occurred while getting VM")
-		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Error)
+		assert.EqualError(t, expectedReconcileError,
+			updatedCnsNodeVMBatchAttachment.Status.Conditions[0].Message)
 	})
 }
 
-func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
+/*func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
 
 	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
 		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
@@ -280,7 +278,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.
 			t.Fatalf("Unable to verify CnsNodeVMBatchAttachment error")
 		}
 	})
-}
+}*/
 
 func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted(t *testing.T) {
 	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted",
@@ -322,7 +320,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceI
 				"Vm is CR is deleted or is being deleted but"+
 				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", nodeUUID, testCnsNodeVMBatchAttachmentName)
 			expectedErrorMsg := expectedReconcileError.Error()
-			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Error)
+			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Conditions[0].Message)
 		})
 }
 

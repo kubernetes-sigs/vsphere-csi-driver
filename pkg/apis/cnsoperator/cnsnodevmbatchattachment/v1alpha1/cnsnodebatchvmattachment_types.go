@@ -34,6 +34,18 @@ const (
 	// and discarded at power off.
 	// It is not affected by snapshots.
 	IndependentNonPersistent = "independent_nonpersistent"
+
+	// ConditionReady means that the attach/detach was successful.
+	ConditionReady    string = "Ready"
+	ConditionAttached string = "VolumeAttached"
+	ConditionDetached string = "VolumeDetached"
+
+	ReasonAttachFailed   string = "AttachFailed"
+	ReasonDetachFailed   string = "DetachFailed"
+	ReasonAttachSuceeded string = "AttachSucceeded"
+	ReasonFailed         string = "Failed"
+	ReasonCompleted      string = "Completed"
+	ReasonInProgress     string = "InProgress"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
@@ -95,12 +107,14 @@ type PersistentVolumeClaimSpec struct {
 // CnsNodeVMBatchAttachmentStatus defines the observed state of CnsNodeVMBatchAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVMBatchAttachmentStatus struct {
-	// Error is the overall error status for the instance.
-	Error string `json:"error,omitempty"`
 	// +listType=map
 	// +listMapKey=name
 	// VolumeStatus reflects the status for each volume.
 	VolumeStatus []VolumeStatus `json:"volumes,omitempty"`
+	// +optional
+
+	// Conditions represent the latest available observations of CnsNodeVMBatchAttachment's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type VolumeStatus struct {
@@ -113,17 +127,14 @@ type VolumeStatus struct {
 type PersistentVolumeClaimStatus struct {
 	// ClaimName is the PVC name.
 	ClaimName string `json:"claimName"`
-	// Attached indicates the attach status of a PVC.
-	// If volume is not attached, Attached will be set to false.
-	// If volume is attached, Attached will be set to true.
-	// If volume is detached successfully, its entry will be removed from VolumeStatus.
-	Attached bool `json:"attached"`
-	// Error indicates the error which may have occurred during attach/detach.
-	Error string `json:"error,omitempty"`
 	// CnsVolumeID is the volume ID for the PVC.
 	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
 	// DiskUUID is the ID obtained when volume is attached to a VM.
 	DiskUUID string `json:"DiskUUID,omitempty"`
+	// +optional
+
+	// Conditions represent the latest available observations of CnsNodeVMBatchAttachment's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +genclient
