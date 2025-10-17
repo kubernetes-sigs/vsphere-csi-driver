@@ -163,8 +163,8 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		12. Perfrom cleanup: Delete Pods, volumes.
 	*/
 
-	ginkgo.It("Dynamic and Pre-Provisioned snapshot creation with removal of zones from the namespace", ginkgo.Label(
-		p0, wldi, snapshot, vc90), func() {
+	ginkgo.It("[ef-vks-wldi] Dynamic and Pre-Provisioned snapshot creation with removal of zones "+
+		"from the namespace", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -373,7 +373,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		5. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Statefulset creation with zonal policy", func() {
+	ginkgo.It("[ef-vks-wldi] Statefulset creation with zonal policy", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -420,7 +420,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		8. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Workload creation by setting requested allowed topology", func() {
+	ginkgo.It("[ef-vks-wldi] Workload creation by setting requested allowed topology", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -482,7 +482,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		7. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
 
-	ginkgo.It("Create a statefulset with Node Selector Terms.", func() {
+	ginkgo.It("[ef-vks-wldi] Create a statefulset with Node Selector Terms.", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -534,7 +534,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		5. Verify the StatefulSet Pod's node annotation. All Pods should come up on zone-3
 		6. Perform cleanup by deleting the Pods, Volumes, and Namespace.
 	*/
-	ginkgo.It("Create a statefulset with Node Selector Terms and WFFC binding", func() {
+	ginkgo.It("[ef-vks-wldi] Create a statefulset with Node Selector Terms and WFFC binding", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
