@@ -234,6 +234,4 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	// gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
-
-	isTestPassed = true
 }

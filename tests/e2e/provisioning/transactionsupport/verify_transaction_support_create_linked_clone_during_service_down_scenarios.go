@@ -72,16 +72,6 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					}
 
-					//Deleting snapshots..
-					framework.Logf("In TestCleanUp Deleting snapshots.........")
-					var wg sync.WaitGroup
-					wg.Add(+volumeOpsScale)
-					for i := range volumeOpsScale {
-						framework.Logf("Deleting snapshot-%v", i+1)
-						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
-					}
-					wg.Wait()
-
 					ginkgo.By("Verify PVs, volumes are deleted from CNS")
 					for _, pv := range linkedClonePvs {
 						err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
@@ -93,6 +83,16 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 							fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
 								"kubernetes", volumeID))
 					}
+
+					//Deleting snapshots..
+					framework.Logf("In TestCleanUp Deleting snapshots.........")
+					var wg sync.WaitGroup
+					wg.Add(+volumeOpsScale)
+					for i := range volumeOpsScale {
+						framework.Logf("Deleting snapshot-%v", i+1)
+						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
+					}
+					wg.Wait()
 					testCleanUp(ctx, serviceNames)
 				})
 
@@ -280,6 +280,4 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, linkedClonePvcs, diskSize)
-
-	isTestPassed = true
 }

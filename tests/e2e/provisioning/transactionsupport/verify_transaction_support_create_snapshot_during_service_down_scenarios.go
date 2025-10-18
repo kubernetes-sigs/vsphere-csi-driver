@@ -232,5 +232,4 @@ func createVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	// gomega.Expect(numberOfSnapshotsRetVal).NotTo(gomega.BeFalse(), "Snapshots count not matched")
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
-	isTestPassed = true
 }

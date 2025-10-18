@@ -270,6 +270,4 @@ func createVolumeFromSnapshotWithServiceDown(serviceNames []string, namespace st
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaimsCreatedFromSnapshot, diskSize)
-
-	isTestPassed = true
 }

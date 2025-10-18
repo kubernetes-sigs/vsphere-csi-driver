@@ -65,7 +65,6 @@ var (
 	pvcSnapshots                                                             []*snapV1.VolumeSnapshot
 	persistentvolumes                                                        []*v1.PersistentVolume
 	totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
-	isTestPassed                                                             bool
 	dsType                                                                   string
 	fullSyncWaitTime                                                         int
 	csiReplicaCount                                                          int32
@@ -534,22 +533,21 @@ func testCleanUp(ctx context.Context, serviceNames []string) {
 
 	ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", constants.DefaultProvisionerTimeInSec))
 	k8testutil.UpdateCSIDeploymentProvisionerTimeout(c, constants.CsiSystemNamespace, constants.DefaultProvisionerTimeInSec)
-	if isTestPassed {
-		for _, claim := range pvclaims {
-			err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		ginkgo.By("Verify PVs, volumes are deleted from CNS")
-		for _, pv := range persistentvolumes {
-			err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
-				framework.PodDeleteTimeout)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			volumeID := pv.Spec.CSI.VolumeHandle
-			err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}
+
+	for _, claim := range pvclaims {
+		err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+	ginkgo.By("Verify PVs, volumes are deleted from CNS")
+	for _, pv := range persistentvolumes {
+		err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+			framework.PodDeleteTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeID := pv.Spec.CSI.VolumeHandle
+		err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+				"kubernetes", volumeID))
 	}
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
@@ -578,7 +576,6 @@ func testSetUp(fw *framework.Framework) {
 	defer cancel()
 	nodeList, err := fnodes.GetReadySchedulableNodes(ctx, fw.ClientSet)
 	framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-	isTestPassed = true
 
 	if !(len(nodeList.Items) > 0) {
 		framework.Failf("Unable to find ready and schedulable Node")

@@ -230,5 +230,4 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 
 	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
-	isTestPassed = true
 }
