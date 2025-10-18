@@ -261,7 +261,7 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 		framework.Logf("Is totalQuotaUsedStatus Matched : %t", total_quota_used_status)
 		framework.Logf("Is storagePolicyQuotaStatus : %t", sp_quota_pvc_status)
 		framework.Logf("Is storagePolicyUsageStatus : %t", sp_usage_pvc_status)
-		// gomega.Expect(total_quota_used_status && sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+		gomega.Expect(total_quota_used_status && sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 	}
 
 	dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
