@@ -7244,7 +7244,7 @@ func ValidateQuotaUsageAfterResourceCreation(ctx context.Context, restConfig *re
 
 	storagePolicyQuotaStatus := ValidateTotalStoragequota(ctx, size, storagePolicyQuotaBefore,
 		storagePolicyQuotaAfter)
-	framework.Logf("toragePolicyQuota validation status :%v", storagePolicyQuotaStatus)
+	framework.Logf("storagePolicyQuota validation status :%v", storagePolicyQuotaStatus)
 	// gomega.Expect(storagePolicyQuotaStatus).NotTo(gomega.BeFalse())
 
 	storagePolicyUsageStatus := ValidateTotalStoragequota(ctx, size, storagePolicyUsageBefore,
