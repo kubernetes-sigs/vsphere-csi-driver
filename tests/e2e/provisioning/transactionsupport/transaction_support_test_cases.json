@@ -1,127 +1,57 @@
 [
   {
-    "description": "CSI-Vsanhealth-Services-Down",
+    "description": "CSI-Vsanhealth-Vpxd-Services-Down",
     "input": [
       "CSI",
-      "vsan-health"
-    ]
-  },
-  {
-    "description": "CSI-Vpxd-Services-Down",
-    "input": [
-      "CSI",
-      "vpxd"
-    ]
-  },
-  {
-    "description": "CSI-Sps-Services-Down",
-    "input": [
-      "CSI",
-      "sps"
-    ]
-  },
-  {
-    "description": "CSI-Wcp-Services-Down",
-    "input": [
-      "CSI",
-      "wcp"
-    ]
-  },
-  {
-    "description": "CSI-VcDb-Services-Down",
-    "input": [
-      "CSI",
-      "vmware-vpostgres"
-    ]
-  },
-  {
-    "description": "CSI-Hostd-Services-Down",
-    "input": [
-      "CSI",
-      "hostd"
-    ]
-  },
-  {
-    "description": "CSI-Vpxa-Services-Down",
-    "input": [
-      "CSI",
-      "vpxa"
-    ]
-  },
-  {
-    "description": "Vsanhealth-Vpxd-Services-Down",
-    "input": [
       "vsan-health",
       "vpxd"
     ]
   },
   {
-    "description": "Vsanhealth-Sps-Services-Down",
+    "description": "CSI-Vpxd-Hostd-Services-Down",
     "input": [
+      "CSI",
+      "vpxd",
+      "hostd"
+    ]
+  },
+  {
+    "description": "CSI-Vsanhealth-Sps-Services-Down",
+    "input": [
+      "CSI",
       "vsan-health",
       "sps"
     ]
   },
   {
-    "description": "Vsanhealth-Wcp-Services-Down",
+    "description": "CSI-Vpxd-Wcp-Services-Down",
     "input": [
-      "vsan-health",
+      "CSI",
+      "vpxd",
       "wcp"
     ]
   },
   {
-    "description": "Vsanhealth-VcDb-Services-Down",
+    "description": "CSI-Vsanhealth-Hostd-Services-Down",
     "input": [
-      "vsan-health",
-      "vmware-vpostgres"
-    ]
-  },
-  {
-    "description": "Vsanhealth-Hostd-Services-Down",
-    "input": [
+      "CSI",
       "vsan-health",
       "hostd"
     ]
   },
   {
-    "description": "Vsanhealth-Vpxa-Services-Down",
+    "description": "CSI-Vpxd-Vpxa-Services-Down",
     "input": [
-      "vsan-health",
+      "CSI",
+      "vpxd",
       "vpxa"
     ]
   },
   {
-    "description": "Vpxd-Sps-Services-Down",
+    "description": "CSI-Vsanhealth-Vpxa-Services-Down",
     "input": [
-      "vpxd",
-      "sps"
-    ]
-  },
-  {
-    "description": "Vpxd-Wcp-Services-Down",
-    "input": [
-      "vpxd",
-      "wcp"
-    ]
-  },
-  {
-    "description": "Vpxd-VcDb-Services-Down",
-    "input": [
-      "vpxd",
-      "vmware-vpostgres"
-    ]
-  },
-  {
-    "description": "Vpxd-Hostd-Services-Down",
-    "input": [
-      "vpxd",
-      "hostd"
-    ]
-  },
-  {
-    "description": "Vpxd-Vpxa-Services-Down",
-    "input": [
-      "vpxd",
+      "CSI",
+      "vsan-health",
       "vpxa"
     ]
   }
