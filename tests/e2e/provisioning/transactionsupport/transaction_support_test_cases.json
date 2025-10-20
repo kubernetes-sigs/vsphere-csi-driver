@@ -24,18 +24,6 @@
     ]
   },
   {
-    "description": "Vpxa-Service-Down",
-    "input": [
-      "vpxa"
-    ]
-  },
-  {
-    "description": "Hostd-Service-Down",
-    "input": [
-      "hostd"
-    ]
-  },
-  {
     "description": "Wcp-Service-Down",
     "input": [
       "wcp"

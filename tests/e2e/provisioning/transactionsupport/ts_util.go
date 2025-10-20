@@ -157,7 +157,7 @@ func deleteSnapshot(ctx context.Context, namespace string, pvcSnapshots []*snapV
 func createLinkedClone(ctx context.Context, client clientset.Interface, storageclass *storagev1.StorageClass, namespace string, pvcSnapshots []*snapV1.VolumeSnapshot, pvcsCreatedWithLinkedClone []*v1.PersistentVolumeClaim, index int, diskSize string, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
 	defer wgMain.Done()
-	ginkgo.By("Create PVC from snapshot")
+	ginkgo.By("Create Linked Clone")
 	pvclaim := k8testutil.CreateLinkedClone(ctx, client, namespace, storageclass, pvcSnapshots[index].Name, diskSize)
 	pvcsCreatedWithLinkedClone[index] = pvclaim
 }

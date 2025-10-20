@@ -552,8 +552,6 @@ type DatastoreFcdFootprint struct {
 	numSnapShots int    //In FCD folder
 }
 
-var lcToDelete []*corev1.PersistentVolumeClaim
-
 // scaleDownNDeleteStsDeploymentsInNamespace scales down and deletes all statefulsets and deployments in given namespace
 func ScaleDownNDeleteStsDeploymentsInNamespace(ctx context.Context, c clientset.Interface, ns string) {
 	ssList, err := c.AppsV1().StatefulSets(ns).List(
@@ -8500,9 +8498,6 @@ func createLinkedClonePvc(ctx context.Context, client clientset.Interface, names
 	pvclaim, err := fpv.CreatePVC(ctx, client, namespace, pvcspec)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), fmt.Sprintf("Failed to create PVC: %v", err))
 	framework.Logf("linked-clone PVC %v created successfully in namespace: %v", pvclaim.Name, namespace)
-
-	// add to list to run cleanup
-	lcToDelete = append(lcToDelete, pvclaim)
 
 	return pvclaim, err
 }
