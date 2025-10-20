@@ -491,14 +491,12 @@ var (
 // For management workload domain isolation
 var (
 	envZonal2StoragePolicyName                     = "ZONAL2_STORAGE_POLICY_IMM"
-	envZonal2StoragePolicyNameLateBidning          = "ZONAL2_STORAGE_POLICY_WFFC"
 	envZonal1StoragePolicyName                     = "ZONAL1_STORAGE_POLICY_IMM"
 	envZonal3StoragePolicyName                     = "ZONAL3_STORAGE_POLICY_IMM"
 	topologyDomainIsolation                        = "Workload_Management_Isolation"
 	envIsolationSharedStoragePolicyName            = "WORKLOAD_ISOLATION_SHARED_STORAGE_POLICY"
 	envSharedZone2Zone4StoragePolicyName           = "SHARED_ZONE2_ZONE4_STORAGE_POLICY_IMM"
 	envSharedZone2Zone4DatastoreUrl                = "SHARED_ZONE2_ZONE4_DATASTORE_URL"
-	envZonal2DatastoreUrl                          = "ZONAL2_DATASTORE_URL"
 	envZone3DatastoreName                          = "ZONE3_DATASTORE_NAME"
 	envZone2DatastoreName                          = "ZONE2_DATASTORE_NAME"
 	vmMigrationUserName                            = "VM_MIGRATION_USER_NAME"
