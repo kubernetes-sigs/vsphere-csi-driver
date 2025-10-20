@@ -201,7 +201,7 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 
 	// Wait for quota updation
 	framework.Logf("Waiting for qutoa updation")
-	time.Sleep(2 * time.Minute)
+	time.Sleep(3 * time.Minute)
 
 	volumeOpsScale = volumeOpsScale * -1
 
@@ -224,13 +224,14 @@ func deleteVolumeWithServiceDown(serviceNames []string, namespace string, client
 	dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 	//Verify Vmdk count and fcd/volume list and used space
 	usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, _, deltaUsedSpace := k8testutil.ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning, dsFcdFootprintMapAfterProvisioning, newdiskSizeInBytes, volumeOpsScale)
-	framework.Logf("DeleteVolume-------------------------")
+	framework.Logf("DeleteVolume-------------------------%v", serviceNames)
 	framework.Logf("Is Datastore Used Space Matched : %t, Delta Used Space If any : %d", usedSpaceRetVal, deltaUsedSpace)
 	framework.Logf("Is Num of Vmdks Matched : %t", numberOfVmdksRetVal)
 	framework.Logf("Is Num of Fcds Matched : %t", numberOfFcdsRetVal)
 	framework.Logf("Is Num of Volumes Matched : %t", numberOfVolumesRetVal)
 
 	gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
+
 	// gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")

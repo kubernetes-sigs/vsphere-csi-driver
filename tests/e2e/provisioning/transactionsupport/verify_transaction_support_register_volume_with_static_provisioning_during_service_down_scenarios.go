@@ -218,7 +218,7 @@ func staticProvisioningRegisterVolumeWithServiceDown(serviceNames []string, name
 	dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 	//Verify Vmdk count and fcd/volume list and used space
 	usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, _, deltaUsedSpace := k8testutil.ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning, dsFcdFootprintMapAfterProvisioning, newdiskSizeInBytes, volumeOpsScale)
-	framework.Logf("CreateVolume-------------------------")
+	framework.Logf("CreateVolume-------------------------%v", serviceNames)
 	framework.Logf("Is Datastore Used Space Matched : %t, Delta Used Space If any : %d", usedSpaceRetVal, deltaUsedSpace)
 	framework.Logf("Is Num of Vmdks Matched : %t", numberOfVmdksRetVal)
 	framework.Logf("Is Num of Fcds Matched : %t", numberOfFcdsRetVal)

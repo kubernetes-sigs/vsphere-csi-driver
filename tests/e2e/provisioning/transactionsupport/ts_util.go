@@ -400,8 +400,13 @@ func restartService(ctx context.Context, client clientset.Interface, serviceName
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	ginkgo.By(fmt.Sprintf("Sleeping for %s service to comeup", serviceName))
-	time.Sleep(time.Duration(5) * time.Minute)
+	if serviceName == constants.VpxdServiceName {
+		ginkgo.By(fmt.Sprintf("Sleeping for %s service to comeup", serviceName))
+		time.Sleep(time.Duration(10) * time.Minute)
+	} else {
+		ginkgo.By(fmt.Sprintf("Sleeping for %s service to comeup", serviceName))
+		time.Sleep(time.Duration(5) * time.Minute)
+	}
 
 	ginkgo.By("Sleeping for full sync interval")
 	time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)

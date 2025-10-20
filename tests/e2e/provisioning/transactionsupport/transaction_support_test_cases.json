@@ -1,37 +1,36 @@
 [
   {
-    "description": "CSI-Service-Down",
+    "description": "CSI-VcDb-Services-Down",
     "input": [
-      "CSI"
+      "CSI",
+      "vmware-vpostgres"
     ]
   },
   {
-    "description": "Vsanhealth-Service-Down",
+    "description": "Vsanhealth-Sps-Services-Down",
     "input": [
-      "vsan-health"
-    ]
-  },
-  {
-    "description": "Vpxd-Service-Down",
-    "input": [
-      "vpxd"
-    ]
-  },
-  {
-    "description": "SPS-Service-Down",
-    "input": [
+      "vsan-health",
       "sps"
     ]
   },
   {
-    "description": "Wcp-Service-Down",
+    "description": "Vpxd-Wcp-Services-Down",
     "input": [
+      "vpxd",
       "wcp"
     ]
   },
   {
-    "description": "VcDb-Service-Down",
+    "description": "Vsanhealth-Hostd-Services-Down",
     "input": [
+      "vsan-health",
+      "hostd"
+    ]
+  },
+  {
+    "description": "Vsanhealth-VcDb-Services-Down",
+    "input": [
+      "vsan-health",
       "vmware-vpostgres"
     ]
   }
