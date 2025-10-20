@@ -66,6 +66,7 @@ const (
 	RegionKey                                 = "topology.csi.vmware.com/k8s-region"
 	RestartOperation                          = "restart"
 	RqLimit                                   = "200Gi"
+	RqLimit_500GB                             = "500Gi"
 	RqLimitScaleTest                          = "900Gi"
 	DefaultrqLimit                            = "20Gi"
 	RqStorageType                             = ".storageclass.storage.k8s.io/requests.storage"

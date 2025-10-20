@@ -433,7 +433,7 @@ func getStorageClass(ctx context.Context, scParameters map[string]string, client
 		// create resource quota
 		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
-		k8testutil.SetStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, constants.RqLimit)
+		k8testutil.SetStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, constants.RqLimit_500GB)
 		storageclass, err = k8testutil.CreateStorageClass(client, e2eTestConfig, scParameters, nil, "", "", false, thickProvPolicy)
 	} else {
 		ginkgo.By("CNS_TEST: Running for GC setup")
