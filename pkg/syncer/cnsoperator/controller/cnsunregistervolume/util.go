@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

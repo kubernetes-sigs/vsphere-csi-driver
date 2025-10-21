@@ -30,7 +30,6 @@ import (
 	vmopv2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
-	vmopv5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
@@ -118,7 +117,6 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		gomega.Expect(vmopv2.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv3.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv5.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		vmopC, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -529,10 +527,10 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Append new volume with a required Name field
 		vm1v5.Spec.Volumes = append(vm1v5.Spec.Volumes,
-			vmopv5.VirtualMachineVolume{
+			vmopv4.VirtualMachineVolume{
 				Name: pvclaim2.Name,
-				VirtualMachineVolumeSource: vmopv5.VirtualMachineVolumeSource{
-					PersistentVolumeClaim: &vmopv5.PersistentVolumeClaimVolumeSource{
+				VirtualMachineVolumeSource: vmopv4.VirtualMachineVolumeSource{
+					PersistentVolumeClaim: &vmopv4.PersistentVolumeClaimVolumeSource{
 						PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: pvclaim2.Name,
 						},
@@ -667,10 +665,10 @@ var _ bool = ginkgo.Describe("[vmsvc] VM-Service-VM-LateBinding", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Append new volume with a required Name field
 		vm1v5.Spec.Volumes = append(vm1v5.Spec.Volumes,
-			vmopv5.VirtualMachineVolume{
+			vmopv4.VirtualMachineVolume{
 				Name: pvclaim2.Name,
-				VirtualMachineVolumeSource: vmopv5.VirtualMachineVolumeSource{
-					PersistentVolumeClaim: &vmopv5.PersistentVolumeClaimVolumeSource{
+				VirtualMachineVolumeSource: vmopv4.VirtualMachineVolumeSource{
+					PersistentVolumeClaim: &vmopv4.PersistentVolumeClaimVolumeSource{
 						PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: pvclaim2.Name,
 						},
