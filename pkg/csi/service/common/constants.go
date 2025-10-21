@@ -456,9 +456,6 @@ const (
 	LinkedCloneSupport = "supports_FCD_linked_clone"
 	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
 	LinkedCloneSupportFSS = "linked-clone-support"
-	// WCPVMServiceVMSnapshots is a supervisor capability indicating
-	// if supports_VM_service_VM_snapshots FSS is enabled
-	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -470,7 +467,6 @@ var WCPFeatureStates = map[string]struct{}{
 	SharedDiskFss:                   {},
 	LinkedCloneSupport:              {},
 	StoragePolicyReservationSupport: {},
-	WCPVMServiceVMSnapshots:         {},
 	BYOKEncryption:                  {},
 	FCDTransactionSupport:           {},
 	MultipleClustersPerVsphereZone:  {},
@@ -485,7 +481,6 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	WorkloadDomainIsolation:        {},
 	LinkedCloneSupport:             {},
 	MultipleClustersPerVsphereZone: {},
-	WCPVMServiceVMSnapshots:        {},
 	BYOKEncryption:                 {},
 	SharedDiskFss:                  {},
 	FileVolumesWithVmService:       {},

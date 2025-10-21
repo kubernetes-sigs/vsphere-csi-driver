@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 
 	admissionv1 "k8s.io/api/admission/v1"

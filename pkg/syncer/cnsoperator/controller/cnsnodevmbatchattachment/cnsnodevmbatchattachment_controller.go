@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

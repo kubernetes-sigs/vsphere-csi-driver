@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	v1 "k8s.io/api/core/v1"
