@@ -149,7 +149,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		10. Verify pv affinity and pvc annotation
 		11. Perform cleanup
 	*/
-	ginkgo.It("Verify workloads with vsan-health down", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
+	ginkgo.It("[pq-wcp-wldi] Verify workloads with vsan-health down", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -295,7 +295,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		9. If it fails, verify the error message.
 		10. Perfrom cleanup
 	*/
-	ginkgo.It("Large disk with zone removal", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
+	ginkgo.It("[pq-wcp-wldi] Large disk with zone removal", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -390,7 +390,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-negative] Management-Workload-Do
 		13. If workload creation fails, valid the error.
 		14. If it passes, perform cleanup.
 	*/
-	ginkgo.It("Workload creation when WCP is down", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
+	ginkgo.It("[pq-wcp-wldi] Workload creation when WCP is down", ginkgo.Label(p0, wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
