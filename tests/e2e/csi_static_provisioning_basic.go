@@ -1997,6 +1997,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 4. verify PV, PVC got created , check the bidirectional reference.
 	ginkgo.It("[pq-f-wcp][csi-supervisor] Verify static provisioning - import VMDK", ginkgo.Label(p1,
 		block, wcp, vc70), func() {
+		// Test to import vmdk
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
