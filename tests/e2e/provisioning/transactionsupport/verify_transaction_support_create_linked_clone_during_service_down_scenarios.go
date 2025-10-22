@@ -257,7 +257,8 @@ func createLinkedCloneWithServiceDown(serviceNames []string, namespace string, c
 	time.Sleep(2 * time.Minute)
 
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
-	newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
+	// newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
+	newdiskSizeInBytes := 1 * int64(volumeOpsScale) * int64(1024) * int64(1024) // LC/Snapshot size 1Mb
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,

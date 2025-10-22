@@ -165,7 +165,7 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	framework.Logf("Waiting for qutoa updation")
 	time.Sleep(1 * time.Minute)
 
-	// dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
+	dsFcdFootprintMapBeforeProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
 
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
@@ -195,7 +195,7 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 
 	volumeOpsScale = volumeOpsScale * -1
 	newdiskSizeInMb := diskSizeInMb * int64(volumeOpsScale)
-	// newdiskSizeInBytes := newdiskSizeInMb * int64(1024) * int64(1024)
+	newdiskSizeInBytes := 1 * int64(volumeOpsScale) * int64(1024) * int64(1024) // Snapshot size 1Mb
 	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
 		restConfig := k8testutil.GetGcRestConfigClient(e2eTestConfig)
 		total_quota_used_status, sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
@@ -209,15 +209,15 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 		// gomega.Expect(total_quota_used_status && sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
 	}
 
-	// dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
-	// //Verify Vmdk count and fcd/volume list and used space
-	// usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, numberOfSnapshotsRetVal, deltaUsedSpace := k8testutil.ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning, dsFcdFootprintMapAfterProvisioning, newdiskSizeInBytes, volumeOpsScale)
-	// framework.Logf("DeleteSnapshot-------------------------")
-	// framework.Logf("Is Datastore Used Space Matched : %t, Delta Used Space If any : %d", usedSpaceRetVal, deltaUsedSpace)
-	// framework.Logf("Is Num of Vmdks Matched : %t", numberOfVmdksRetVal)
-	// framework.Logf("Is Num of Fcds Matched : %t", numberOfFcdsRetVal)
-	// framework.Logf("Is Num of Volumes Matched : %t", numberOfVolumesRetVal)
-	// framework.Logf("Is Num of Snapshots Matched : %t", numberOfSnapshotsRetVal)
+	dsFcdFootprintMapAfterProvisioning := k8testutil.GetDatastoreFcdFootprint(ctx, e2eTestConfig)
+	//Verify Vmdk count and fcd/volume list and used space
+	usedSpaceRetVal, numberOfVmdksRetVal, numberOfFcdsRetVal, numberOfVolumesRetVal, numberOfSnapshotsRetVal, deltaUsedSpace := k8testutil.ValidateSpaceUsageAfterResourceCreationUsingDatastoreFcdFootprint(dsFcdFootprintMapBeforeProvisioning, dsFcdFootprintMapAfterProvisioning, newdiskSizeInBytes, volumeOpsScale)
+	framework.Logf("DeleteSnapshot-------------------------")
+	framework.Logf("Is Datastore Used Space Matched : %t, Delta Used Space If any : %d", usedSpaceRetVal, deltaUsedSpace)
+	framework.Logf("Is Num of Vmdks Matched : %t", numberOfVmdksRetVal)
+	framework.Logf("Is Num of Fcds Matched : %t", numberOfFcdsRetVal)
+	framework.Logf("Is Num of Volumes Matched : %t", numberOfVolumesRetVal)
+	framework.Logf("Is Num of Snapshots Matched : %t", numberOfSnapshotsRetVal)
 
 	// gomega.Expect(usedSpaceRetVal).NotTo(gomega.BeFalse(), "Used space not matched")
 	// gomega.Expect(numberOfVmdksRetVal).NotTo(gomega.BeFalse(), "Vmdks count not matched")

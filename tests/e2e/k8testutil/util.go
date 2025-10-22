@@ -8049,6 +8049,7 @@ func WaitForVolumeSnapshotsReadyToUse(ctx context.Context, e2eTestConfig *config
 // DeleteVolumeSnapshotWithPandoraWait  deletes Volume Snapshot with Pandora wait for CNS to sync
 func DeleteVolumeSnapshotWithPandoraWait(ctx context.Context, snapc *snapclient.Clientset,
 	namespace string, snapshotName string, pandoraSyncWaitTime int) {
+	framework.Logf("In Delete Snapshot Name : %v", snapshotName)
 	err := snapc.SnapshotV1().VolumeSnapshots(namespace).Delete(ctx, snapshotName,
 		metav1.DeleteOptions{})
 	if !apierrors.IsNotFound(err) {

@@ -150,7 +150,7 @@ func deleteSnapshot(ctx context.Context, namespace string, pvcSnapshots []*snapV
 	snapc, _ := snapclient.NewForConfig(restConfig)
 	ginkgo.By("Delete volume snapshot")
 
-	framework.Logf("Deleting volume snapshot")
+	framework.Logf("Deleting volume snapshot %s", pvcSnapshots[index].UID)
 	k8testutil.DeleteVolumeSnapshotWithPandoraWait(ctx, snapc, namespace, pvcSnapshots[index].Name, constants.DefaultPandoraSyncWaitTime)
 }
 
