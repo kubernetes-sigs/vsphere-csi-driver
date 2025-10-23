@@ -1035,7 +1035,7 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
 	log := logger.GetLogger(ctx)
 	instance.Status.Error = errMsg
-	err := updateCnsRegisterVolume(ctx, r.client, instance)
+	err := k8s.UpdateStatus(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("updateCnsRegisterVolume failed. err: %v", err)
 	}
