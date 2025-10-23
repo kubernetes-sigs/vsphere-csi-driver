@@ -1,0 +1,12 @@
+{"level":"info","time":"2025-10-22T06:43:14.820421316Z","caller":"logger/logger.go:46","msg":"Setting default log level to :\"PRODUCTION\""}
+{"level":"info","time":"2025-10-22T06:43:14.821748236Z","caller":"syncer/main.go:102","msg":"Version : ","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.821949786Z","caller":"commonco/utils.go:41","msg":"Defaulting feature states configmap name to \"csi-feature-states\"","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.822128488Z","caller":"commonco/utils.go:45","msg":"Defaulting feature states configmap namespace to \"vmware-system-csi\"","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.822236139Z","caller":"syncer/main.go:106","msg":"Starting the http server to expose profiling metrics..","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.822778955Z","caller":"syncer/main.go:151","msg":"Starting container with operation mode: METADATA_SYNC","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.82458943Z","caller":"k8scloudoperator/k8scloudoperator.go:83","msg":"Trying to initialize the K8s Cloud Operator gRPC service","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.824771636Z","caller":"common/util.go:323","msg":"Connecting to K8s Cloud Operator Service on port 29000","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:43:14.825400978Z","caller":"syncer/main.go:185","msg":"Starting the http server to expose Prometheus metrics..","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+I1022 06:43:14.828317       1 leaderelection.go:257] attempting to acquire leader lease vmware-system-csi/vsphere-syncer...
+{"level":"info","time":"2025-10-22T06:43:14.906402505Z","caller":"syncer/main.go:244","msg":"new leader detected, current leader: 42266cc1b13b24f3e2f7e7b363969b51","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}
+{"level":"info","time":"2025-10-22T06:45:42.016790556Z","caller":"syncer/main.go:244","msg":"new leader detected, current leader: 4226fda325fbcf12846a6a6f6749dcf1","TraceId":"6d4d97b1-f740-47ae-ae09-aedef7922bbd"}

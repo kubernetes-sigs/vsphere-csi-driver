@@ -1,0 +1,887 @@
+I1022 06:43:11.587752       1 main.go:108] "Version" version="${VERSION}"
+I1022 06:43:11.587885       1 feature_gate.go:387] feature gates: {map[]}
+I1022 06:43:13.760194       1 common.go:143] "Probing CSI driver for readiness"
+I1022 06:43:13.768803       1 main.go:162] "CSI driver name" driverName="csi.vsphere.vmware.com"
+I1022 06:43:13.771695       1 common.go:143] "Probing CSI driver for readiness"
+I1022 06:43:13.783864       1 leaderelection.go:254] attempting to acquire leader lease vmware-system-csi/external-resizer-csi-vsphere-vmware-com...
+I1022 06:43:13.946637       1 leader_election.go:192] "New leader detected" leader="4226fda325fbcf12846a6a6f6749dcf1"
+I1022 06:43:13.948367       1 leaderelection.go:268] successfully acquired lease vmware-system-csi/external-resizer-csi-vsphere-vmware-com
+I1022 06:43:13.949506       1 leader_election.go:184] "became leader, starting"
+I1022 06:43:13.949703       1 controller.go:272] "Starting external resizer" controller="csi.vsphere.vmware.com"
+I1022 06:43:13.950666       1 envvar.go:172] "Feature gate default state" feature="WatchListClient" enabled=false
+I1022 06:43:13.950773       1 envvar.go:172] "Feature gate default state" feature="InformerResourceVersion" enabled=false
+I1022 06:43:13.950901       1 reflector.go:305] Starting reflector *v1.PersistentVolume (10m0s) from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:13.951033       1 reflector.go:341] Listing and watching *v1.PersistentVolume from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:13.952780       1 reflector.go:305] Starting reflector *v1.PersistentVolumeClaim (10m0s) from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:13.952800       1 reflector.go:341] Listing and watching *v1.PersistentVolumeClaim from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:13.957682       1 reflector.go:368] Caches populated for *v1.PersistentVolumeClaim from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:13.957682       1 reflector.go:368] Caches populated for *v1.PersistentVolume from k8s.io/client-go/informers/factory.go:160
+I1022 06:43:14.050081       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-c7j8d"
+I1022 06:43:14.050483       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-c7j8d"
+I1022 06:43:14.050337       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 06:43:14.050608       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 06:51:49.960548       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 06:51:56.961926       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 06:53:13.959019       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 06:53:13.959731       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-c7j8d"
+I1022 06:53:13.959822       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-c7j8d"
+I1022 06:53:13.959930       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 06:53:13.959940       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 06:57:18.966821       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 06:57:58.964283       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 07:03:05.970277       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 07:03:13.960171       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:03:13.960372       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:03:13.960410       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:03:47.966832       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 07:09:14.970987       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 07:09:36.973602       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 07:13:13.962278       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:13:13.962885       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:13:13.962909       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:14:40.975490       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 07:18:23.977788       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 07:20:11.979838       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 07:23:13.963951       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:23:13.965173       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:23:13.966191       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:25:30.984043       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 07:27:51.981498       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 07:33:13.965336       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:33:13.966755       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:33:13.966940       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:33:40.988737       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 07:36:37.985902       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 07:43:03.995617       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 07:43:13.966534       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:43:13.968174       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:43:13.968234       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:45:25.989474       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 07:48:15.000814       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 07:53:13.967831       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 07:53:13.970083       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 07:53:13.970278       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 07:54:34.991994       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 07:56:37.010370       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 08:02:25.996837       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 08:03:13.969298       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:03:13.970088       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:03:13.970134       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:04:30.016372       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 08:11:06.003098       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 08:11:26.020117       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 08:13:13.970610       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:13:13.972127       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:13:13.972451       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:19:22.028572       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 08:19:47.022904       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 08:23:13.972599       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:23:13.977158       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:23:13.977519       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:25:29.037740       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 08:27:55.026268       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 08:32:08.049768       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 08:33:13.975802       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:33:13.978130       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:33:13.978643       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:33:22.033286       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 08:38:51.036808       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 08:38:57.055095       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 08:43:13.976779       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:43:13.978060       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:43:13.978221       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:47:40.041058       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 08:47:40.057824       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 08:52:42.061813       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 08:53:13.978954       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 08:53:13.981541       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 08:53:13.982123       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 08:57:00.046344       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 08:59:27.065471       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 09:03:13.980983       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:03:13.982259       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:03:13.982485       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:06:51.051212       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 09:08:16.068810       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 09:13:13.981873       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:13:13.982517       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:13:13.982965       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:15:10.071884       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 09:16:09.054285       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 09:21:46.062978       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 09:22:36.076340       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 09:23:13.982891       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:23:13.986868       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:23:13.987165       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:29:29.081349       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 09:29:59.071067       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 09:33:13.984667       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:33:13.985448       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:33:13.985727       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:36:07.087455       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 09:37:09.079452       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 09:43:13.986981       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:43:13.988443       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:43:13.988927       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:46:03.095666       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 09:46:52.087813       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 09:51:48.101783       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 09:53:13.988690       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 09:53:13.989588       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 09:53:13.989957       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 09:54:01.090107       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 10:00:39.094529       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 10:01:19.106527       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 10:03:13.989768       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:03:13.991666       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:03:13.991779       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:08:45.099146       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 10:10:21.109850       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 10:13:13.990747       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:13:13.993130       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:13:13.993287       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:15:52.110781       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 10:18:16.114819       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 10:23:13.992720       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:23:13.993673       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:23:13.993994       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:23:22.116443       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 10:23:56.118859       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 10:31:34.123854       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 10:32:55.124008       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 10:33:13.995416       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:33:14.000620       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:33:14.001990       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:38:36.131701       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 10:39:20.128283       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 10:43:13.997901       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:43:13.999053       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:43:13.999254       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:47:16.135463       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 10:47:59.157969       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 10:53:14.000563       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 10:53:14.002092       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 10:53:14.002224       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 10:54:04.144795       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 10:57:36.167324       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 10:59:24.157753       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 11:03:14.002560       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:03:14.003997       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:03:14.004404       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:05:50.171269       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 11:07:05.167813       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 11:13:14.005571       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:13:14.008158       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:13:14.008760       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:13:43.175387       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 11:14:01.173095       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 11:19:05.176963       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 11:23:14.008185       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:23:14.009948       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:23:14.010383       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:23:32.180127       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 11:25:31.181383       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 11:29:06.190776       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 11:33:14.009674       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:33:14.010918       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:33:14.011159       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:34:26.186143       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 11:36:38.215890       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 11:41:57.190903       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 11:43:14.012140       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:43:14.013600       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:43:14.013842       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:45:15.227748       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 11:50:38.232745       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 11:50:53.196350       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 11:53:14.013160       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 11:53:14.015594       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 11:53:14.015702       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 11:57:26.200789       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 12:00:03.236521       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 12:03:14.016131       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:03:14.017434       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:03:14.017634       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 12:05:03.208931       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 12:09:53.250601       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 12:11:34.213776       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 12:13:14.017929       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:13:14.019621       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:13:14.019764       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 12:19:22.217320       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 12:19:46.255058       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 12:23:14.020188       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:23:14.021369       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:23:14.021751       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 12:26:16.260211       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 12:28:30.221042       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 12:31:57.264721       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 12:33:14.020959       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:33:14.022310       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:33:14.022693       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 12:34:53.224770       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 12:37:00.270156       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 5 items received
+I1022 12:41:40.231015       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 12:43:14.022907       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:43:14.025667       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:43:14.025852       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 12:44:54.277845       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 12:51:20.235586       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 12:51:20.284740       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 12:53:14.024295       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 12:53:14.025845       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 12:53:14.026012       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:00:34.247763       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 13:01:04.289055       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 13:03:14.025789       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:03:14.030350       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:03:14.033589       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:08:29.257652       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 13:09:58.293332       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 13:13:14.030548       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:13:14.030831       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:13:14.030877       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:15:42.296527       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 13:16:25.262255       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 13:21:50.267119       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 13:22:55.301533       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 13:23:14.032186       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:23:14.033659       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:23:14.033830       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:29:07.275030       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 13:32:36.306300       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 13:33:14.033677       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:33:14.035892       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:33:14.036209       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:37:47.281351       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 13:42:07.319558       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 13:43:09.286192       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 13:43:14.036106       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:43:14.037161       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:43:14.037312       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:49:24.289830       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 13:50:44.324177       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 13:53:14.036854       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 13:53:14.038017       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 13:53:14.038140       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 13:56:47.294847       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 13:58:29.327885       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 14:02:22.302515       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 14:03:14.038143       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:03:14.039681       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:03:14.040188       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:06:29.333459       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 14:08:46.308194       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 14:11:42.336205       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 14:13:14.040104       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:13:14.040826       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:13:14.040893       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:17:24.311880       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 14:20:07.341576       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 14:22:35.317855       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 14:23:14.040941       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:23:14.046203       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:23:14.046866       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:28:30.350842       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 14:31:42.321830       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 14:33:14.042279       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:33:14.044958       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:33:14.045732       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:35:14.355024       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 14:38:47.327611       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 14:41:48.358708       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 14:43:14.042831       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:43:14.043132       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:43:14.043216       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:44:34.333067       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 14:47:05.366275       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 14:51:52.337371       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 14:53:14.044581       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 14:53:14.045664       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 14:53:14.045885       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 14:56:11.381100       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 15:01:47.342217       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 15:03:14.046336       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:03:14.048551       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:03:14.049581       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:03:16.389301       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 15:08:45.393111       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 15:11:10.366899       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 15:13:14.049733       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:13:14.053901       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:13:14.054368       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:16:49.434938       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 15:19:39.386229       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 15:22:24.439623       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 15:23:14.050696       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:23:14.051876       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:23:14.052159       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:29:24.392284       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 15:32:18.442661       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 15:33:14.052013       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:33:14.053570       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:33:14.054040       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:37:24.400674       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 15:39:40.446792       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 15:43:14.054946       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:43:14.056879       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:43:14.057286       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:45:12.451144       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 15:45:37.405354       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 15:51:11.455756       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 15:52:52.409736       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 15:53:14.056698       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 15:53:14.058791       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 15:53:14.059745       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 15:56:15.461511       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 16:00:57.415494       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 16:03:14.057832       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:03:14.059272       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:03:14.059770       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:06:08.466182       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 16:08:42.420829       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 16:13:14.059252       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:13:14.064850       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:13:14.065848       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:15:32.473466       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 16:18:04.425469       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 16:23:14.064416       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:23:14.066096       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:23:14.066259       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:23:19.480122       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 16:25:02.431115       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 16:32:12.485850       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 16:33:14.066934       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:33:14.069443       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:33:14.069786       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:34:32.442905       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 16:41:50.491510       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 16:42:45.456432       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 16:43:14.069700       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:43:14.071235       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:43:14.071549       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:47:05.495736       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 16:49:22.460547       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 16:53:14.071898       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 16:53:14.075507       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 16:53:14.075650       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 16:53:32.501608       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 16:56:46.465284       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 17:00:53.508992       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 17:03:14.074864       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:03:14.078238       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:03:14.078876       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:03:25.469561       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 17:10:46.515737       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 17:11:59.475155       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 17:13:14.077328       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:13:14.081285       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:13:14.081880       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:16:03.523268       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 17:19:24.479090       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 17:22:38.528575       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 17:23:14.078797       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:23:14.079928       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:23:14.080028       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:28:46.484874       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 17:30:31.533049       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 17:33:14.079379       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:33:14.082054       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:33:14.082169       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:37:46.489426       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 17:38:42.539177       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 17:43:14.080148       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:43:14.084523       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:43:14.084914       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:45:22.495219       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 17:47:23.546635       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 17:52:26.500846       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 17:53:14.085866       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 17:53:14.087626       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 17:53:14.087776       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 17:55:50.561756       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 18:01:10.505302       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 18:02:39.567408       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 18:03:14.087156       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:03:14.087534       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:03:14.087605       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:08:14.574077       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 18:10:28.510005       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 18:13:14.090269       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:13:14.093517       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:13:14.093942       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:15:05.581885       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 18:19:55.515387       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 18:20:30.592095       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 18:23:14.092322       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:23:14.093404       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:23:14.093833       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:25:56.519779       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 18:28:50.597932       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 18:33:14.093340       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:33:14.095771       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:33:14.096436       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:34:40.526697       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 18:37:36.605317       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 18:40:27.529825       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 18:43:14.095625       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:43:14.098101       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:43:14.099218       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:46:50.610864       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 18:48:43.534302       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 18:52:37.615728       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 18:53:14.097905       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 18:53:14.100592       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 18:53:14.101209       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 18:57:13.542320       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 19:01:00.625738       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 19:03:14.099979       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:03:14.102519       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:03:14.102715       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:04:24.555539       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 19:09:13.636384       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 19:13:14.101334       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:13:14.104874       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:13:14.105851       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:14:11.561222       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 19:16:17.652699       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 19:22:57.658315       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 19:23:14.103629       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:23:14.105758       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:23:14.106937       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:24:00.568607       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 19:29:35.663273       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 19:33:14.105506       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:33:14.106847       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:33:14.107104       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:33:21.576344       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 19:36:35.669287       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 19:40:38.583759       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 19:41:52.672824       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 19:43:14.107545       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:43:14.109488       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:43:14.109845       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:48:41.679857       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 19:49:36.590674       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 19:53:14.110304       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 19:53:14.111493       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 19:53:14.111984       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 19:55:57.600637       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 19:57:25.684396       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 20:02:05.606914       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 20:03:14.112741       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:03:14.115437       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:03:14.115829       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:03:58.688909       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 20:10:30.614762       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 20:13:14.114780       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:13:14.117439       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:13:14.117926       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:13:28.694932       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 20:18:42.620914       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 20:19:35.699719       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 20:23:14.115756       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:23:14.117214       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:23:14.117453       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:26:17.625798       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 20:29:18.704640       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 20:33:14.117156       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:33:14.118660       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:33:14.119469       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:34:46.709225       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 20:36:09.629152       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 20:43:14.118104       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:43:14.120715       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:43:14.120788       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:44:00.718643       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1022 20:45:27.632824       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 20:49:36.723007       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 20:52:42.637175       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 20:53:14.121485       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 20:53:14.123116       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 20:53:14.123363       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 20:54:55.729798       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 21:00:13.641900       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 21:01:39.734678       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 21:03:14.122228       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:03:14.122719       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:03:14.122911       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:06:45.740834       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 21:10:03.649589       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 21:12:53.750957       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 21:13:14.123368       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:13:14.124666       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:13:14.125221       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:18:58.754942       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 21:19:34.656224       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 21:23:14.125508       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:23:14.127322       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:23:14.127690       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:27:10.662273       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 21:28:01.758863       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 21:33:14.127393       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:33:14.129378       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:33:14.129639       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:34:45.761904       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 21:35:55.672003       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 21:39:48.766234       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 5 items received
+I1022 21:40:56.677838       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 5 items received
+I1022 21:43:14.128621       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:43:14.131355       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:43:14.131733       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:44:53.771110       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 21:47:54.684248       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 21:53:14.130013       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 21:53:14.132486       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 21:53:14.133660       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 21:54:33.775208       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 21:54:55.699779       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 22:01:59.703394       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 22:02:24.782835       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 22:03:14.131910       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:03:14.133760       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:03:14.134718       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:08:05.787084       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 22:08:50.707726       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1022 22:13:14.133749       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:13:14.136697       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:13:14.138307       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:14:48.791288       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 22:16:33.710951       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 22:20:25.797098       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 22:21:40.714231       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 22:23:14.137317       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:23:14.139397       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:23:14.139734       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:27:05.800861       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 22:27:18.719847       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 22:32:41.724164       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 22:33:14.139218       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:33:14.140807       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:33:14.141517       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:34:16.804682       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 22:38:21.728971       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1022 22:40:35.808968       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 22:43:14.140778       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:43:14.141883       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:43:14.142149       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:46:55.731972       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 22:47:14.812978       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 22:53:14.142101       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 22:53:14.145260       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 22:53:14.145662       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 22:55:38.737042       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 22:56:41.816897       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1022 23:03:02.822464       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 23:03:08.743695       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 23:03:14.144729       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:03:14.145884       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:03:14.146259       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:09:56.747498       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 23:11:35.826683       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 23:13:14.146929       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:13:14.150983       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:13:14.152345       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:16:35.830222       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 23:19:06.751677       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1022 23:23:14.147467       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:23:14.148438       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:23:14.148594       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:24:01.836840       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1022 23:27:38.786204       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1022 23:30:09.839894       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 23:33:14.152622       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:33:14.153555       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:33:14.153747       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:36:45.843150       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1022 23:37:20.791354       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1022 23:43:14.153056       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:43:14.155254       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:43:14.155626       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:44:37.795278       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 23:45:35.849091       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1022 23:51:31.854176       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 23:52:13.798821       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1022 23:53:14.154317       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1022 23:53:14.155788       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1022 23:53:14.155979       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1022 23:57:05.859642       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1022 23:59:44.802254       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 00:03:14.156175       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:03:14.157492       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:03:14.157772       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:03:32.864467       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 00:05:22.806052       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 00:11:41.868109       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 00:12:40.812246       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 00:13:14.157251       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:13:14.159418       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:13:14.160036       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:17:41.872509       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 00:21:53.818294       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 00:23:14.159170       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:23:14.162366       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:23:14.162983       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:26:40.877573       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 00:29:14.822353       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 00:32:41.905062       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 00:33:14.161729       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:33:14.163778       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:33:14.163921       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:36:52.827375       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 00:41:35.911210       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 00:43:14.164065       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:43:14.164547       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:43:14.164593       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:45:38.830292       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 00:48:29.914800       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 00:50:43.834763       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 00:53:14.165389       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 00:53:14.169667       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 00:53:14.170575       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 00:56:28.839619       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 00:56:49.919942       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 01:02:47.843710       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 01:03:14.169762       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:03:14.170312       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:03:14.170561       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:04:32.924725       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 01:09:13.849688       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 01:09:37.927841       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 01:13:14.171348       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:13:14.172226       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:13:14.172462       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:14:49.931170       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 01:15:56.859377       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 01:23:14.172585       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:23:14.173913       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:23:14.174539       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:23:52.936089       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 01:25:24.865569       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 01:30:58.944183       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 01:33:14.173797       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:33:14.175450       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:33:14.176448       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:34:54.868974       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 01:39:11.962918       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 01:43:12.873070       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 01:43:14.175119       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:43:14.175839       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:43:14.176036       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:44:21.970067       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 01:50:36.877116       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 01:51:35.972941       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 01:53:14.176118       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 01:53:14.177739       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 01:53:14.177865       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 01:57:32.881876       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 01:58:36.975839       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 02:03:14.179546       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:03:14.183424       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:03:14.183846       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:03:43.887794       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 02:07:18.979659       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 02:12:10.892899       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 02:13:14.180705       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:13:14.181642       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:13:14.182029       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:14:48.984364       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 02:20:59.897277       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 02:23:00.992371       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 02:23:14.181263       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:23:14.182257       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:23:14.182587       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:26:43.900785       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 02:30:43.996093       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 02:33:14.185392       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:33:14.188362       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:33:14.188876       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:35:01.905638       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 02:36:51.001529       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 02:42:45.911582       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 02:43:14.188985       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:43:14.190199       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:43:14.190787       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:45:22.007967       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 02:49:24.917983       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 02:53:14.208776       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 02:53:14.210101       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 02:53:14.210820       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 02:53:54.011046       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 02:54:55.922664       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 03:01:34.926572       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 03:01:44.014200       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 03:03:14.210112       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:03:14.211122       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:03:14.211401       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:06:58.930828       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 03:08:06.017254       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 03:13:14.211733       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:13:14.213746       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:13:14.213954       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:13:24.022715       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 03:15:33.934255       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 03:20:50.027411       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 03:21:43.937192       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 03:23:14.213950       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:23:14.215417       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:23:14.215534       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:29:01.033189       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 03:29:28.941236       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 03:33:14.216549       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:33:14.219595       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:33:14.220236       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:35:58.945426       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 03:37:41.038645       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 03:42:26.949856       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 03:43:14.219161       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:43:14.219944       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:43:14.220217       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:47:13.041425       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 03:52:23.954490       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 03:53:14.219878       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 03:53:14.221614       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 03:53:14.221849       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 03:56:58.046227       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 04:01:57.960061       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1023 04:03:14.221342       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:03:14.221599       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:03:14.222542       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 04:03:41.049135       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 04:07:02.983315       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 04:09:24.055354       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 04:13:14.222081       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:13:14.224091       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:13:14.224448       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 04:16:15.988569       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1023 04:16:46.060014       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 04:21:21.992006       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 04:23:14.222249       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:23:14.222659       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:23:14.222762       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 04:26:03.063217       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 04:30:43.000580       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 04:33:14.223075       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:33:14.224900       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:33:14.225045       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 04:35:39.066793       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 04:37:03.004420       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 04:43:14.224726       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:43:14.226014       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:43:14.226280       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 04:45:02.070049       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 04:46:24.010053       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 04:52:07.024736       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 04:52:10.072789       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 04:53:14.226701       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 04:53:14.227905       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 04:53:14.228037       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:00:56.077109       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 05:02:04.028470       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 11 items received
+I1023 05:03:14.227251       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:03:14.228110       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:03:14.228824       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:07:52.081466       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 05:11:05.035097       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 05:13:14.229413       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:13:14.231027       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:13:14.231677       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:14:53.087332       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 05:17:01.038993       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 05:22:28.147350       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 05:23:04.042122       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 05:23:14.231073       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:23:14.232404       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:23:14.232688       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:27:38.152390       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 05:29:27.046864       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 05:33:14.232575       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:33:14.234276       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:33:14.234670       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:36:37.053984       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 05:36:41.180003       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 05:42:57.061360       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 05:43:14.233668       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:43:14.236096       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:43:14.236399       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:45:52.186661       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 05:49:40.068606       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 05:53:14.235621       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 05:53:14.237932       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 05:53:14.239329       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 05:55:36.191648       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 05:58:31.076294       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 06:01:17.195356       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 06:03:14.237961       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:03:14.239579       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:03:14.239857       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:06:54.082121       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 06:10:41.200240       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 06:13:07.087228       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 06:13:14.241010       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:13:14.243107       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:13:14.243222       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:19:45.091322       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 06:20:38.207014       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 06:23:14.243223       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:23:14.244115       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:23:14.244682       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:27:27.095756       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 06:28:22.215034       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 06:33:14.244919       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:33:14.246540       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:33:14.247434       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:33:46.218044       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 06:36:17.099447       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 06:41:22.223003       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 06:42:17.103322       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 06:43:14.246200       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:43:14.249039       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:43:14.249177       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:47:46.226244       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 06:47:53.107154       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 6 items received
+I1023 06:53:14.250927       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 06:53:14.252667       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 06:53:14.252833       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 06:54:43.122751       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 06:56:35.231537       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 9 items received
+I1023 07:00:57.128308       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 8 items received
+I1023 07:03:14.252188       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:03:14.253352       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:03:14.253858       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:04:43.235937       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 10 items received
+I1023 07:09:31.178838       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 07:12:09.239945       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 07:13:14.253582       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:13:14.254804       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:13:14.255063       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:17:18.243699       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 6 items received
+I1023 07:18:22.182245       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 07:23:14.254960       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:23:14.258063       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:23:14.258351       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:24:11.248357       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 07:27:51.187553       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 07:30:34.252990       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 7 items received
+I1023 07:33:14.256958       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:33:14.257712       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:33:14.257792       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:35:46.191709       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 9 items received
+I1023 07:37:01.256805       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 07:42:00.195716       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 7 items received
+I1023 07:43:13.260811       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 07:43:14.259687       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:43:14.265085       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:43:14.265498       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:51:00.199728       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 07:52:38.268856       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 11 items received
+I1023 07:53:14.261287       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 07:53:14.264001       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 07:53:14.264201       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 07:59:45.206279       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolumeClaim total 10 items received
+I1023 07:59:57.274753       1 reflector.go:871] k8s.io/client-go/informers/factory.go:160: Watch close - *v1.PersistentVolume total 8 items received
+I1023 08:03:14.262950       1 reflector.go:389] k8s.io/client-go/informers/factory.go:160: forcing resync
+I1023 08:03:14.264203       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-rj2dl"
+I1023 08:03:14.264565       1 controller.go:372] "No need to resize PVC" PVC="transaction-support-ns/pvc-rj2dl"
+I1023 08:04:23.219248       1 controller.go:324] "Started PVC processing for resize controller" key="transaction-support-ns/pvc-dxpxk"
+I1023 08:04:23.220270       1 controller.go:347] "PV bound to PVC is not created yet" PVC="transaction-support-ns/pvc-dxpxk"

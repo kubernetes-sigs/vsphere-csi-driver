@@ -8331,9 +8331,8 @@ func GetDatastoreFcdFootprint(ctx context.Context, e2eTestConfig *config.E2eTest
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	dsDetailsMap := make(map[string]DatastoreFcdFootprint)
-	for dsName, freeSpace := range dsFreeSpaceMap {
-		dsPath := dsPathMap[dsName]
-
+	for dsName, dsPath := range dsPathMap {
+		freeSpace := dsFreeSpaceMap[dsName]
 		numVmdks := GetVmdkCountFromDatastore(ctx, e2eTestConfig, hostIP, dsName)
 		numSnapshots := GetSnapshotCountFromDatastore(ctx, e2eTestConfig, hostIP, dsName)
 
