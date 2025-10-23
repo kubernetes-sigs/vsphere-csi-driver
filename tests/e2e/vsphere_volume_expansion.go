@@ -1481,7 +1481,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			13.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[ef-wcp][csi-supervisor] Verify offline and online volume expansion when there is no quota "+
+	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify offline and online volume expansion when there is no quota "+
 		"available", ginkgo.Label(p1, block, wcp, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
