@@ -1,8 +1,50 @@
 [
   {
+    "description": "CSI-Service-Down",
+    "input": [
+      "CSI"
+    ]
+  },
+  {
+    "description": "Vsanhealth-Service-Down",
+    "input": [
+      "vsan-health"
+    ]
+  },
+  {
+    "description": "Vpxd-Service-Down",
+    "input": [
+      "vpxd"
+    ]
+  },
+  {
+    "description": "SPS-Service-Down",
+    "input": [
+      "sps"
+    ]
+  },
+  {
+    "description": "Vpxa-Service-Down",
+    "input": [
+      "vpxa"
+    ]
+  },
+  {
     "description": "Hostd-Service-Down",
     "input": [
       "hostd"
+    ]
+  },
+  {
+    "description": "Wcp-Service-Down",
+    "input": [
+      "wcp"
+    ]
+  },
+  {
+    "description": "VcDb-Service-Down",
+    "input": [
+      "vmware-vpostgres"
     ]
   }
 ]
