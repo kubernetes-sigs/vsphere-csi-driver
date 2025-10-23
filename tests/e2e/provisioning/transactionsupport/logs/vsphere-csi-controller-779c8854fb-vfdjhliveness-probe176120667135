@@ -1,3 +1,0 @@
-I1022 06:43:15.472158       1 main.go:135] "Calling CSI driver to discover driver name"
-I1022 06:43:15.496839       1 main.go:143] "CSI driver name" driver="csi.vsphere.vmware.com"
-I1022 06:43:15.497654       1 main.go:172] "ServeMux listening" address="0.0.0.0:9808"
