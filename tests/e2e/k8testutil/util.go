@@ -8151,9 +8151,10 @@ func GetDatastoresPaths(ctx context.Context, vs *config.E2eTestConfig) (map[stri
 		dsMoList, _ := GetDatastoresList(ctx, vs, dc)
 		for _, dsMo := range dsMoList {
 			dsName := dsMo.Info.GetDatastoreInfo().Name
-			if strings.Contains(dsName, constants.Local) {
+			if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsanDatastore (2)") || strings.Contains(dsName, "vsanDatastore (1)") {
 				continue
 			}
+
 			dsPath := dsMo.Info.GetDatastoreInfo().Url
 			framework.Logf("DC Name: %v, DS Name : %v, DS Path : %v", dc, dsName, dsPath)
 			dsPathMap[dsName] = dsPath
