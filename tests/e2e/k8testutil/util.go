@@ -8151,7 +8151,8 @@ func GetDatastoresPaths(ctx context.Context, vs *config.E2eTestConfig) (map[stri
 		dsMoList, _ := GetDatastoresList(ctx, vs, dc)
 		for _, dsMo := range dsMoList {
 			dsName := dsMo.Info.GetDatastoreInfo().Name
-			if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsanDatastore (2)") || strings.Contains(dsName, "vsanDatastore (1)") {
+			// if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsanDatastore (2)") || strings.Contains(dsName, "vsanDatastore (1)") {
+			if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsan") {
 				continue
 			}
 
@@ -8172,7 +8173,8 @@ func GetDatastoresFreeSpace(ctx context.Context, vs *config.E2eTestConfig) (map[
 		dsMoList, _ := GetDatastoresList(ctx, vs, dc)
 		for _, dsMo := range dsMoList {
 			dsName := dsMo.Info.GetDatastoreInfo().Name
-			if strings.Contains(dsName, constants.Local) {
+			// if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsanDatastore (2)") || strings.Contains(dsName, "vsanDatastore (1)") {
+			if strings.Contains(dsName, constants.Local) || strings.Contains(dsName, "vsan") {
 				continue
 			}
 			freeSpace := dsMo.Info.GetDatastoreInfo().FreeSpace
