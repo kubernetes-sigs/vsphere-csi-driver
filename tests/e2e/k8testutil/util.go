@@ -7032,23 +7032,23 @@ func ValidateTotalStoragequota(ctx context.Context, diskSize int64, totalUsedQuo
 
 	ginkgo.By(fmt.Sprintf(" quotaAfter :  %v%s", quotaAfter, string(suffix1)))
 
-	if string(suffix) != string(suffix1) {
-		if string(suffix1) == "Mi" {
-			var bytes = quotaBefore
-			// Convert to Gi
-			//kibibytes := float64(bytes) / 1024
-			quotaBefore = int64(bytes) * 1024
-			fmt.Printf("Converted quotaBefore to Mi :  %dMi\n", quotaBefore)
-		}
-	}
+	// if string(suffix) != string(suffix1) {
+	// 	if string(suffix1) == "Mi" {
+	// 		var bytes = quotaBefore
+	// 		// Convert to Gi
+	// 		//kibibytes := float64(bytes) / 1024
+	// 		quotaBefore = int64(bytes) * 1024
+	// 		fmt.Printf("Converted quotaBefore to Mi :  %dMi\n", quotaBefore)
+	// 	}
+	// }
 
-	if string(suffix1) == "Gi" {
-		var bytes = diskSize
-		// Convert to Gi
-		//kibibytes := float64(bytes) / 1024
-		diskSize = int64(bytes) / 1024
-		fmt.Printf("Storagequota size:  %dGi\n", diskSize)
-	}
+	// if string(suffix1) == "Gi" {
+	var bytes = diskSize
+	// Convert to Gi
+	//kibibytes := float64(bytes) / 1024
+	diskSize = int64(bytes) / 1024
+	fmt.Printf("Storagequota size:  %dGi\n", diskSize)
+	// }
 
 	ginkgo.By(fmt.Sprintf("quotaBefore+diskSize:  %v, quotaAfter : %v",
 		quotaBefore+diskSize, quotaAfter))
