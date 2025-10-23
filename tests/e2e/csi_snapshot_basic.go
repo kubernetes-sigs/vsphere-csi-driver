@@ -2278,7 +2278,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   10. Verify if the new pod attaches to the PV created in step-8
 	   11. Cleanup the sts and the snapshot + pv that was left behind in step-7
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot]"+
+	ginkgo.It("[ef-f-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot]"+
 		"[supervisor-snapshot][ef-vks-snapshot-f] Snapshot workflow for "+
 		"statefulsets", ginkgo.Label(p0, block, vanilla, snapshot, wcp,
 		tkg, vc80), func() {
@@ -4258,7 +4258,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   7. Verify pvcs all are in Bound state.
 	   8. Cleanup all the snapshots and the pvc.
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[ef-f-vanilla-block][ef-f-wcp-snapshot][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
 		"[ef-vks-snapshot-f] Multi-master and snapshot workflow", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -4529,7 +4529,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   5. Validate creation of additional snapshots beyond the configured
 	       max-snapshots per volume fails - check error returned
 	*/
-	ginkgo.It("[ef-vanilla-block][block-vanilla-snapshot] Max Snapshots per volume test", ginkgo.Label(p1, block,
+	ginkgo.It("[ef-f-vanilla-block][block-vanilla-snapshot] Max Snapshots per volume test", ginkgo.Label(p1, block,
 		vanilla, snapshot, vc80), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -4910,7 +4910,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Cleanup of snapshot, pvc and sc
 	*/
 
-	ginkgo.It("[ef-vanilla-block][pq-wcp-snpt][block-vanilla-snapshot][tkg-snapshot]"+
+	ginkgo.It("[ef-f-vanilla-block][pq-wcp-snpt][block-vanilla-snapshot][tkg-snapshot]"+
 		"[supervisor-snapshot][ef-vks-snapshot-f] Volume provision and snapshot creation/restore "+
 		"on VMFS Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())

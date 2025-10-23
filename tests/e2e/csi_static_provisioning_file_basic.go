@@ -110,7 +110,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 	// 8. Delete POD.
 	// 9. Delete PVC.
 	// 10. Verify PV is deleted automatically.
-	ginkgo.It("[ef-file-vanilla] Verify basic static provisioning workflow for file volume", ginkgo.Label(p1,
+	ginkgo.It("[ef-f-file-vanilla] Verify basic static provisioning workflow for file volume", ginkgo.Label(p1,
 		file, vanilla, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

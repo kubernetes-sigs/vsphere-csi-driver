@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic Testing", func() {
 		5. Delete PVC
 		6. Delete Storage class
 	*/
-	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]verify dynamic volume provisioning fails for VSAN datastore "+
+	ginkgo.It("[csi-file-vanilla] [ef-f-file-vanilla]verify dynamic volume provisioning fails for VSAN datastore "+
 		"in datacenter doesn't have VSAN FS enabled", ginkgo.Label(p1, negative, file, vanilla, vc70), func() {
 		testHelperForCreateFileVolumeFailWhenFileServiceIsDisabled(f, client, namespace, v1.ReadWriteMany, "")
 	})
