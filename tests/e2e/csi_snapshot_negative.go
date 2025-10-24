@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	   6. k8s side: csi pod restarts with improved_idempotency enabled as well
 	       as run a scenario with improved_idempotency disabled
 	*/
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
 		"[pq-vks-snapshot] create volume snapshot when hostd goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot,
 		disruptive, negative, vc90), func() {
 
@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] "+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot] "+
 		"[pq-vks-snapshot] create volume snapshot when CSI restarts", ginkgo.Label(p1, block,
 		vanilla, tkg, snapshot, disruptive, negative, vc90), func() {
 
@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			csiNamespace, fullSyncWaitTime, isServiceStopped, true, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
 		"[pq-vks-snapshot] create volume snapshot when VPXD goes down", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, disruptive, vc90), func() {
 
@@ -280,7 +280,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 			csiNamespace, fullSyncWaitTime, isServiceStopped, false, csiReplicas, pandoraSyncWaitTime)
 	})
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
 		"[pq-vks-snapshot] create volume snapshot when CNS goes down", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, disruptive, negative, vc90), func() {
 

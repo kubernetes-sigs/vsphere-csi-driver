@@ -3603,7 +3603,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		8. cleanup the snapshots, restore-pvc and source-pvc
 	*/
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot][supervisor-snapshot][pq-vks-snapshot] Snapshot restore "+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot][supervisor-snapshot][pq-vks-snapshot] Snapshot restore "+
 		"while the Host is Down", ginkgo.Label(p2, block, vanilla, snapshot, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3777,7 +3777,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   9. Delete both deployments and. the pvcs
 	*/
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot][pq-vks-snapshot] VC reboot "+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot][pq-vks-snapshot] VC reboot "+
 		"with deployment pvcs having snapshot", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive,
 		negative, flaky, vc90), func() {
 
@@ -4893,7 +4893,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		2. Create Snapshot class and take a snapshot of the volume
 		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[pq-wcp-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[pq-f-wcp-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot]"+
 		"[ef-vks-snapshot-f] Volume provision and snapshot creation/restore on VVOL "+
 		"Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -4938,7 +4938,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		2. Create Snapshot class and take a snapshot of the volume
 		3. Cleanup of snapshot, pvc and sc
 	*/
-	ginkgo.It("[pq-wcp-snpt] [tkg-snapshot][ef-vks-snapshot-f][supervisor-snapshot] Volume provision "+
+	ginkgo.It("[pq-wcp-f-snpt] [tkg-snapshot][ef-vks-snapshot-f][supervisor-snapshot] Volume provision "+
 		"and snapshot creation/restore on VSAN2 Datastore", ginkgo.Label(p0, snapshot, tkg,
 		newTest, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
