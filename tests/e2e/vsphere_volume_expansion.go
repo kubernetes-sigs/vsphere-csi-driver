@@ -1642,9 +1642,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+		if !isPrivateNetwork {
+			ginkgo.By("Checking for conditions on pvc")
+			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By("Bringup SPS service")
 		startVCServiceWait4VPs(ctx, vcAddress, spsServiceName, &isSPSServiceStopped)
@@ -1797,9 +1800,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+		if !isPrivateNetwork {
+			ginkgo.By("Checking for conditions on pvc")
+			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
@@ -2591,9 +2597,12 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for conditions on pvc")
-		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+		if !isPrivateNetwork {
+			ginkgo.By("Checking for conditions on pvc")
+			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
@@ -2707,11 +2716,13 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	err = waitForPvResize(pv, client, pvcSize, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By("Checking for conditions on pvc")
-	framework.Logf("PVC Name %s:", pvclaim.Name)
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(
-		client, namespace, pvclaim.Name, totalResizeWaitPeriod)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(
+			client, namespace, pvclaim.Name, totalResizeWaitPeriod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	pvclaim, err = waitForFSResize(pvclaim, client)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3404,9 +3415,12 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 	}
 
-	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	if guestCluster {
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -3937,9 +3951,12 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
-	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	if guestCluster {
 		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
@@ -4298,9 +4315,12 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By("Checking for conditions on pvc")
-	pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
+	if !isPrivateNetwork {
+		ginkgo.By("Checking for conditions on pvc")
+		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
 	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
