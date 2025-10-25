@@ -42,6 +42,8 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
 )
 
 var (
@@ -262,52 +264,96 @@ func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
 	return nil
 }
 
+// updateInstanceVolumeStatus finds the given's PVC's status in the instance status
+// and updates it.
+func updateInstanceVolumeStatus(instance *v1alpha1.CnsNodeVMBatchAttachment,
+	pvc string, volumeName string, err error, conditionType string, reason string) {
+
+	for i, volume := range instance.Status.VolumeStatus {
+		if volume.PersistentVolumeClaim.ClaimName != pvc {
+			continue
+		}
+		instance.Status.VolumeStatus[i].PersistentVolumeClaim.Conditions = []metav1.Condition{}
+		if err != nil {
+			conditions.MarkError(&volume.PersistentVolumeClaim, conditionType, reason, err)
+		} else {
+			conditions.MarkTrue(&volume.PersistentVolumeClaim, conditionType)
+		}
+		instance.Status.VolumeStatus[i].PersistentVolumeClaim.Conditions = volume.PersistentVolumeClaim.Conditions
+		return
+	}
+
+	// Add new entry if it dpes not alredy exist.
+	newVolumeStatus := v1alpha1.VolumeStatus{
+		Name: volumeName,
+		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+			ClaimName:   pvc,
+			CnsVolumeID: "",
+			DiskUUID:    "",
+			Conditions:  []metav1.Condition{},
+		},
+	}
+
+	if err != nil {
+		conditions.MarkError(&newVolumeStatus.PersistentVolumeClaim, conditionType, reason, err)
+	} else {
+		conditions.MarkTrue(&newVolumeStatus.PersistentVolumeClaim, conditionType)
+	}
+	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
+}
+
 // updateInstanceWithAttachVolumeResult finds the given's volumeName's status in the instance status
 // and updates it with error.
 // It will add a new status for the volume if it does not already exist.
 func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumeName string, pvc string, result volumes.BatchAttachResult) {
 
-	errMsg := ""
-	attached := true
-	if result.Error != nil {
-		attached = false
-		errMsg = result.Error.Error()
+	for i, volumeStatus := range instance.Status.VolumeStatus {
+		if volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
+			continue
+		}
+
+		volumeStatus.PersistentVolumeClaim.CnsVolumeID = result.VolumeID
+		volumeStatus.PersistentVolumeClaim.DiskUUID = result.DiskUUID
+		if result.Error != nil {
+			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, v1alpha1.ConditionAttached, v1alpha1.ReasonAttachFailed,
+				result.Error)
+		} else {
+			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, v1alpha1.ConditionAttached)
+		}
+		instance.Status.VolumeStatus[i] = volumeStatus
+		return
 	}
 
 	newVolumeStatus := v1alpha1.VolumeStatus{
 		Name: volumeName,
 		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
 			ClaimName:   pvc,
-			Attached:    attached,
-			Error:       errMsg,
 			CnsVolumeID: result.VolumeID,
 			DiskUUID:    result.DiskUUID,
+			Conditions:  []metav1.Condition{},
 		},
 	}
-
-	for i, volume := range instance.Status.VolumeStatus {
-		if volume.Name != volumeName {
-			continue
-		}
-		// Update existing entry
-		instance.Status.VolumeStatus[i] = newVolumeStatus
-		return
+	if result.Error != nil {
+		conditions.MarkError(&newVolumeStatus.PersistentVolumeClaim, v1alpha1.ConditionAttached, v1alpha1.ReasonAttachFailed,
+			result.Error)
+	} else {
+		conditions.MarkTrue(&newVolumeStatus.PersistentVolumeClaim, v1alpha1.ConditionAttached)
 	}
 
-	// Add new entry instatus if it does not already exist.
+	// Add new entry in status.
 	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
 }
 
 // updateInstanceWithErrorVolumeName finds the given's PVC's status in the instance status
 // and updates it with error.
 func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVMBatchAttachment,
-	pvc string, errMsg string) {
-	for i, volume := range instance.Status.VolumeStatus {
+	pvc string, err error, conditionType string, reason string) {
+	for _, volume := range instance.Status.VolumeStatus {
 		if volume.PersistentVolumeClaim.ClaimName != pvc {
 			continue
 		}
-		instance.Status.VolumeStatus[i].PersistentVolumeClaim.Error = errMsg
+		conditions.MarkError(&volume.PersistentVolumeClaim, conditionType, v1alpha1.ReasonFailed, err)
 		return
 	}
 }
