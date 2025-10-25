@@ -330,7 +330,7 @@ func QueryCNSVolumeSnapshotWithResult(vs *config.E2eTestConfig, fcdID string,
 	snapshotId string) (*cnstypes.CnsSnapshotQueryResult, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
+	framework.Logf("fcdID : %s ; snapshotIds : %s", fcdID, snapshotId)
 	var snapshotSpec []cnstypes.CnsSnapshotQuerySpec
 	snapshotSpec = append(snapshotSpec, cnstypes.CnsSnapshotQuerySpec{
 		VolumeId: cnstypes.CnsVolumeId{
