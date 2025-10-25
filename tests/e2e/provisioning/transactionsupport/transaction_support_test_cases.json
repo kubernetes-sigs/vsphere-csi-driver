@@ -1,26 +1,14 @@
 [
   {
-    "description": "CSI-Service-Down",
-    "input": [
-      "CSI"
-    ]
-  },
-  {
     "description": "SPS-Service-Down",
     "input": [
       "sps"
     ]
   },
   {
-    "description": "Hostd-Service-Down",
+    "description": "Vsanhealth-Service-Down",
     "input": [
-      "hostd"
-    ]
-  },
-  {
-    "description": "Wcp-Service-Down",
-    "input": [
-      "wcp"
+      "vsan-health"
     ]
   },
   {
