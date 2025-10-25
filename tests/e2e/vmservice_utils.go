@@ -1322,8 +1322,10 @@ func createVMServiceandWaitForVMtoGetIP(ctx context.Context, vmopC ctlrclient.Cl
 			vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for i, vol := range vm.Status.Volumes {
-				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+				if vol.Name == pvclaimsList[j].Name {
+					volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+					verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+				}
 			}
 		}
 	}
