@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	snapV1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -674,4 +675,98 @@ func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 	}
 
 	return claim
+}
+
+/*
+Create volume snapshotClass and Dynamic volume snapshot
+It returns VolumeSnapshotClass, VolumeSnapshot, VolumeSnapshotContent
+*/
+func CreateVolumeSnapshot(
+	ctx context.Context,
+	e2eTestConfig *config.E2eTestConfig,
+	namespace string,
+	pvclaim *v1.PersistentVolumeClaim,
+	pv []*v1.PersistentVolume,
+	diskSize string,
+) (
+	*snapV1.VolumeSnapshotClass,
+	*snapV1.VolumeSnapshot,
+	*snapV1.VolumeSnapshotContent,
+) {
+	// Create or get volume snapshot class
+	ginkgo.By("Get or create volume snapshot class")
+	snapc := GetSnashotClientSet(e2eTestConfig)
+	volumeSnapshotClass, err := CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create volume snapshot
+	ginkgo.By("Create a volume snapshot")
+	performCnsQueryVolumeSnapshot := false
+	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		performCnsQueryVolumeSnapshot = true
+	}
+	volumeSnapshot, snapshotContent, _,
+		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
+		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, performCnsQueryVolumeSnapshot)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return volumeSnapshotClass, volumeSnapshot, snapshotContent
+}
+
+/*
+Get snashot client set
+*/
+func GetSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Clientset {
+	var restConfig *rest.Config
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		restConfig = GetRestConfigClientForGuestCluster(nil)
+	} else {
+		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
+	}
+	snapc, err := snapclient.NewForConfig(restConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return snapc
+}
+
+// This method can be used to create snapshot in parallel
+func CreateSnapshotInParallel(
+	ctx context.Context,
+	e2eTestConfig *config.E2eTestConfig,
+	namespace string,
+	volumeMap map[*v1.PersistentVolumeClaim][]*v1.PersistentVolume,
+) (
+	chan *snapV1.VolumeSnapshotClass,
+	chan *snapV1.VolumeSnapshot,
+	chan *snapV1.VolumeSnapshotContent,
+) {
+
+	var wg sync.WaitGroup
+	snapshots := make(chan *snapV1.VolumeSnapshot, len(volumeMap))
+	snapshotClasses := make(chan *snapV1.VolumeSnapshotClass, len(volumeMap))
+	snapshotContents := make(chan *snapV1.VolumeSnapshotContent, len(volumeMap))
+
+	for pvclaim, pvList := range volumeMap {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			snapshotClass, snapshot, snapContent := CreateVolumeSnapshot(
+				ctx,
+				e2eTestConfig,
+				namespace,
+				pvclaim,
+				pvList,
+				constants.DiskSize,
+			)
+			snapshotClasses <- snapshotClass
+			snapshots <- snapshot
+			snapshotContents <- snapContent
+		}()
+	}
+
+	wg.Wait()
+	close(snapshotClasses)
+	close(snapshots)
+	close(snapshotContents)
+	fmt.Println("All snapshot creation completed")
+	return snapshotClasses, snapshots, snapshotContents
 }
