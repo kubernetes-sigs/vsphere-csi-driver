@@ -62,8 +62,8 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 				})
 
 				ginkgo.AfterEach(func() {
-					if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster || e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
-						ginkgo.Skip("Currently Register volume skipping for GC/Vanilla")
+					if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+						ginkgo.Skip("Currently Register volume skipping for Vanilla")
 					}
 
 					ctx, cancel := context.WithCancel(context.Background())
@@ -103,8 +103,8 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 				ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
 					"Veify Create Linked Clone With Transaction Support During Service Down-APD-vSAN-Partitioning", ginkgo.Label(constants.P0, constants.Disruptive, constants.Block,
 					constants.Windows, constants.Wcp, constants.Tkg, constants.Vanilla, constants.Vc91), func() {
-					if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster || e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
-						ginkgo.Skip("Currently Register volume skipping for GC/Vanilla")
+					if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+						ginkgo.Skip("Currently Register volume skipping for Vanilla")
 					}
 					if slices.Contains(serviceNames, constants.ApdName) {
 						if dsType != constants.Vmfs {
