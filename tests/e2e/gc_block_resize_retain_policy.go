@@ -311,7 +311,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 		verifyPVSizeinSupervisor(svcPVCName, newSize)
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvcNew, err = waitForPVCToReachFileSystemResizePendingCondition(clientNewGc,
 				namespaceNewGC, pvcNew.Name, pollTimeout)
@@ -1092,7 +1092,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvcNew, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvcNew.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

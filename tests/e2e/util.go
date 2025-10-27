@@ -8157,6 +8157,10 @@ func createtWcpNsWithZonesAndPolicies(
 	// Make the API request
 	_, statusCode := invokeVCRestAPIPostRequest(vcRestSessionId, nsCreationUrl, reqBody)
 
+	ginkgo.By("Wait for namespace to get created and listed under " +
+		"supervisor cluster")
+	time.Sleep(2 * time.Minute)
+
 	return namespace, statusCode, nil
 }
 

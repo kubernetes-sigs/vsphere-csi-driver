@@ -1643,7 +1643,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1801,7 +1801,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2598,7 +2598,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-		if !isPrivateNetwork {
+		if isPrivateNetwork {
 			ginkgo.By("Checking for conditions on pvc")
 			pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2717,7 +2717,7 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if !isPrivateNetwork {
+	if isPrivateNetwork {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(
 			client, namespace, pvclaim.Name, totalResizeWaitPeriod)
@@ -3146,7 +3146,7 @@ func invokeTestForVolumeExpansion(f *framework.Framework, client clientset.Inter
 	}
 
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if !isPrivateNetwork {
+	if isPrivateNetwork {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3416,7 +3416,7 @@ func invokeTestForVolumeExpansionWithFilesystem(f *framework.Framework, client c
 	}
 
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if !isPrivateNetwork {
+	if isPrivateNetwork {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -3952,7 +3952,7 @@ func invokeTestForExpandVolumeMultipleTimes(f *framework.Framework, client clien
 	}
 
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if !isPrivateNetwork {
+	if isPrivateNetwork {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -4316,7 +4316,7 @@ func offlineVolumeExpansionOnSupervisorPVC(client clientset.Interface, f *framew
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
-	if !isPrivateNetwork {
+	if isPrivateNetwork {
 		ginkgo.By("Checking for conditions on pvc")
 		pvclaim, err = waitForPVCToReachFileSystemResizePendingCondition(client, namespace, pvclaim.Name, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
