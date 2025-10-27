@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	   6. k8s side: csi pod restarts with improved_idempotency enabled as well
 	       as run a scenario with improved_idempotency disabled
 	*/
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
 		"create volume snapshot when hostd goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot,
 		disruptive, negative, vc90), func() {
 
