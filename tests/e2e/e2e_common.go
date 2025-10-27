@@ -664,6 +664,9 @@ var (
 	envMasterIP1SshdPortNum = "MASTER_IP1_SSHD_PORT_NUM"
 	envMasterIP2SshdPortNum = "MASTER_IP2_SSHD_PORT_NUM"
 	envMasterIP3SshdPortNum = "MASTER_IP3_SSHD_PORT_NUM"
+	envWorkerIP1SshdPortNum = "WORKER_IP1_SSHD_PORT_NUM"
+	envWorkerIP2SshdPortNum = "WORKER_IP2_SSHD_PORT_NUM"
+	envWorkerIP3SshdPortNum = "WORKER_IP3_SSHD_PORT_NUM"
 	envEsx1PortNum          = "ESX1_SSHD_PORT_NUM"
 	envEsx2PortNum          = "ESX2_SSHD_PORT_NUM"
 	envEsx3PortNum          = "ESX3_SSHD_PORT_NUM"
@@ -682,6 +685,9 @@ var (
 	envMasterIP1 = "MASTER_IP1"
 	envMasterIP2 = "MASTER_IP2"
 	envMasterIP3 = "MASTER_IP3"
+	envWorkerIP1 = "WORKER_IP1"
+	envWorkerIP2 = "WORKER_IP2"
+	envWorkerIP3 = "WORKER_IP3"
 	envEsxIp1    = "ESX1_IP"
 	envEsxIp2    = "ESX2_IP"
 	envEsxIp3    = "ESX3_IP"
@@ -710,6 +716,9 @@ var (
 	k8sMasterIp1PortNum   = sshdPort
 	k8sMasterIp2PortNum   = sshdPort
 	k8sMasterIp3PortNum   = sshdPort
+	k8sWorkerIp1PortNum   = sshdPort
+	k8sWorkerIp2PortNum   = sshdPort
+	k8sWorkerIp3PortNum   = sshdPort
 	defaultVcAdminPortNum = "443"
 
 	// global variables declared
@@ -729,6 +738,9 @@ var (
 	masterIP1          = ""
 	masterIP2          = ""
 	masterIP3          = ""
+	workerIP1          = ""
+	workerIP2          = ""
+	workerIP3          = ""
 	ipPortMap          = make(map[string]string)
 	missingEnvVars     []string
 	defaultlocalhostIP = "127.0.0.1"
@@ -767,10 +779,15 @@ func setSShdPort() {
 		masterIP1 = GetorIgnoreStringEnvVar(envMasterIP1)
 		masterIP2 = GetorIgnoreStringEnvVar(envMasterIP2)
 		masterIP3 = GetorIgnoreStringEnvVar(envMasterIP3)
+		workerIP1 = GetorIgnoreStringEnvVar(envWorkerIP1)
+		workerIP2 = GetorIgnoreStringEnvVar(envWorkerIP2)
+		workerIP3 = GetorIgnoreStringEnvVar(envWorkerIP3)
 		k8sMasterIp1PortNum = GetorIgnoreStringEnvVar(envMasterIP1SshdPortNum)
 		k8sMasterIp2PortNum = GetorIgnoreStringEnvVar(envMasterIP2SshdPortNum)
 		k8sMasterIp3PortNum = GetorIgnoreStringEnvVar(envMasterIP3SshdPortNum)
-
+		k8sWorkerIp1PortNum = GetorIgnoreStringEnvVar(envWorkerIP1SshdPortNum)
+		k8sWorkerIp2PortNum = GetorIgnoreStringEnvVar(envWorkerIP2SshdPortNum)
+		k8sWorkerIp3PortNum = GetorIgnoreStringEnvVar(envWorkerIP3SshdPortNum)
 		vcIp1SshPortNum = GetorIgnoreStringEnvVar(envVc1SshdPortNum)
 
 		// reading esxi ip and its port
@@ -800,6 +817,9 @@ func setSShdPort() {
 		safeInsertToMap(masterIP1, k8sMasterIp1PortNum)
 		safeInsertToMap(masterIP2, k8sMasterIp2PortNum)
 		safeInsertToMap(masterIP3, k8sMasterIp3PortNum)
+		safeInsertToMap(workerIP1, k8sWorkerIp1PortNum)
+		safeInsertToMap(workerIP2, k8sWorkerIp2PortNum)
+		safeInsertToMap(workerIP3, k8sWorkerIp3PortNum)
 		safeInsertToMap(esxIp1, esxIp1PortNum)
 		safeInsertToMap(esxIp2, esxIp2PortNum)
 		safeInsertToMap(esxIp3, esxIp3PortNum)

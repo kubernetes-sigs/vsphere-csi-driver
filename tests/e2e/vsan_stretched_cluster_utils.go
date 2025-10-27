@@ -220,19 +220,44 @@ func createFaultDomainMap(ctx context.Context, vs *vSphere) map[string]string {
 	return fdMap
 }
 
+func isSSHReachable(ip string, timeout time.Duration) error {
+	nimbusGeneratedK8sVmPwd := GetAndExpectStringEnvVar(nimbusK8sVmPwd)
+	sshClientConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(nimbusGeneratedK8sVmPwd),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+	// Read hosts sshd port number
+	ip, portNum, err := getPortNumAndIP(ip)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	addr := ip + ":" + portNum
+	_, err = ssh.Dial("tcp", addr, sshClientConfig)
+	if err != nil {
+		if strings.Contains(err.Error(), "connection reset by peer") ||
+			strings.Contains(err.Error(), "no route to host") ||
+			strings.Contains(err.Error(), "handshake failed") {
+			return err // unreachable
+		}
+	}
+	return nil
+}
+
 // waitForHostToBeDown wait for host to be down
 func waitForHostToBeDown(ctx context.Context, ip string) error {
 	framework.Logf("checking host status of %s", ip)
 	gomega.Expect(ip).NotTo(gomega.BeNil())
 	gomega.Expect(ip).NotTo(gomega.BeEmpty())
-	// Read hosts sshd port number
+	/* Read hosts sshd port number
 	ip, portNum, err := getPortNumAndIP(ip)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	addr := ip + ":" + portNum
+	addr := ip + ":" + portNum*/
 
 	waitErr := wait.PollUntilContextTimeout(ctx, poll*2, pollTimeoutShort*2, true,
 		func(ctx context.Context) (bool, error) {
-			_, err := net.DialTimeout("tcp", addr, poll)
+			//_, err := net.DialTimeout("tcp", addr, poll)
+			err := isSSHReachable(ip, poll)
 			if err == nil {
 				framework.Logf("host is reachable")
 				return false, nil
