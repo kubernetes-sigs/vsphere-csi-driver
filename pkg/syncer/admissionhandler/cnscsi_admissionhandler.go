@@ -43,6 +43,7 @@ const (
 	MutationWebhookPath              = "/mutate"
 	DefaultWebhookPort               = 9883
 	DefaultWebhookMetricsBindAddress = "0"
+	DefaultWebhookCertDir            = "/etc/vmware/wcp/webhook-certs"
 	devopsUserLabelKey               = "cns.vmware.com/user-created"
 	vmUIDLabelKey                    = "cns.vmware.com/vm-uid"
 	pvcUIDLabelKey                   = "cns.vmware.com/pvc-uid"
@@ -113,6 +114,7 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 		},
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:         webhookPort,
+			CertDir:      DefaultWebhookCertDir,
 			TLSOpts:      tlsConfigOpts,
 			ClientCAName: clientCAName,
 		})}
