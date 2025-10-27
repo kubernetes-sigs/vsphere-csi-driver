@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	})
 
 	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
-		"[pq-vks-snapshot] create volume snapshot when CNS goes down", ginkgo.Label(p1, block, vanilla,
+		"[pq-f-vks-snapshot] create volume snapshot when CNS goes down", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = vsanhealthServiceName
