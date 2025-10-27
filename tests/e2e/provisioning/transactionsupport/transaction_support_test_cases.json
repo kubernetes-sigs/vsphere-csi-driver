@@ -1,8 +1,8 @@
 [
   {
-    "description": "Vpxa-Service-Down",
+    "description": "Hostd-Service-Down",
     "input": [
-      "vpxa"
+      "hostd"
     ]
   }
 ]
