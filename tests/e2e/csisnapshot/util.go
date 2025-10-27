@@ -675,3 +675,42 @@ func GetPersistentVolumeClaimSpecWithDatasource(namespace string, ds string, sto
 
 	return claim
 }
+
+/*
+Create volume snapshot
+*/
+func CreateVolumeSnapshot(ctx context.Context, e2eTestConfig *config.E2eTestConfig, namespace string, pvclaim *v1.PersistentVolumeClaim, pv []*v1.PersistentVolume, diskSize string) (*snapV1.VolumeSnapshot, *snapV1.VolumeSnapshotContent) {
+	// Create or get volume snapshot class
+	ginkgo.By("Get or create volume snapshot class")
+	snapc := GetSnashotClientSet(e2eTestConfig)
+	volumeSnapshotClass, err := CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create volume snapshot
+	ginkgo.By("Create a volume snapshot")
+	performCnsQueryVolumeSnapshot := false
+	if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+		performCnsQueryVolumeSnapshot = true
+	}
+	volumeSnapshot, snapshotContent, _,
+		_, _, _, err := CreateDynamicVolumeSnapshot(ctx, e2eTestConfig, namespace, snapc, volumeSnapshotClass,
+		pvclaim, pv[0].Spec.CSI.VolumeHandle, diskSize, performCnsQueryVolumeSnapshot)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return volumeSnapshot, snapshotContent
+}
+
+/*
+Get snashot client set
+*/
+func GetSnashotClientSet(e2eTestConfig *config.E2eTestConfig) *snapclient.Clientset {
+	var restConfig *rest.Config
+	if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
+		restConfig = GetRestConfigClientForGuestCluster(nil)
+	} else {
+		restConfig = vcutil.GetRestConfigClient(e2eTestConfig)
+	}
+	snapc, err := snapclient.NewForConfig(restConfig)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return snapc
+}

@@ -106,60 +106,61 @@ type TestInputData struct {
 
 // This struct has all the testbed related information
 type TestBedConfig struct {
-	EsxIp1              string
-	EsxIp2              string
-	EsxIp3              string
-	EsxIp4              string
-	EsxIp5              string
-	EsxIp6              string
-	EsxIp7              string
-	EsxIp8              string
-	EsxIp9              string
-	EsxIp10             string
-	VcAddress           string
-	VcAddress2          string
-	VcAddress3          string
-	MasterIP1           string
-	MasterIP2           string
-	MasterIP3           string
-	IpPortMap           map[string]string
-	MissingEnvVars      []string
-	DefaultlocalhostIP  string //= "127.0.0.1"
-	VcIp2SshPortNum     string
-	VcIp3SshPortNum     string
-	RwxAccessMode       bool
-	Vcptocsi            bool
-	MultipleSvc         bool
-	WindowsEnv          bool
-	Multivc             bool
-	StretchedSVC        bool
-	IsPrivateNetwork    bool
-	LinkedClone         bool
-	K8sMasterIp1PortNum string
-	K8sMasterIp2PortNum string
-	K8sMasterIp3PortNum string
-	VcIp1SshPortNum     string
-	EsxIp1PortNum       string
-	EsxIp2PortNum       string
-	EsxIp3PortNum       string
-	EsxIp4PortNum       string
-	EsxIp5PortNum       string
-	EsxIp6PortNum       string
-	EsxIp7PortNum       string
-	EsxIp8PortNum       string
-	EsxIp9PortNum       string
-	EsxIp10PortNum      string
-	VcVersion           string
-	DefaultCluster      *object.ClusterComputeResource
-	DefaultDatastore    *object.Datastore
-	Name                string `default:"worker"`
-	User                string
-	Location            string
-	VcIp                string
-	VcVmName            string
-	EsxHosts            []map[string]string
-	Podname             string
-	Datastores          []map[string]string
+	EsxIp1               string
+	EsxIp2               string
+	EsxIp3               string
+	EsxIp4               string
+	EsxIp5               string
+	EsxIp6               string
+	EsxIp7               string
+	EsxIp8               string
+	EsxIp9               string
+	EsxIp10              string
+	VcAddress            string
+	VcAddress2           string
+	VcAddress3           string
+	MasterIP1            string
+	MasterIP2            string
+	MasterIP3            string
+	IpPortMap            map[string]string
+	MissingEnvVars       []string
+	DefaultlocalhostIP   string //= "127.0.0.1"
+	VcIp2SshPortNum      string
+	VcIp3SshPortNum      string
+	RwxAccessMode        bool
+	Vcptocsi             bool
+	MultipleSvc          bool
+	WindowsEnv           bool
+	Multivc              bool
+	StretchedSVC         bool
+	IsPrivateNetwork     bool
+	LinkedClone          bool
+	K8sMasterIp1PortNum  string
+	K8sMasterIp2PortNum  string
+	K8sMasterIp3PortNum  string
+	VcIp1SshPortNum      string
+	EsxIp1PortNum        string
+	EsxIp2PortNum        string
+	EsxIp3PortNum        string
+	EsxIp4PortNum        string
+	EsxIp5PortNum        string
+	EsxIp6PortNum        string
+	EsxIp7PortNum        string
+	EsxIp8PortNum        string
+	EsxIp9PortNum        string
+	EsxIp10PortNum       string
+	VcVersion            string
+	DefaultCluster       *object.ClusterComputeResource
+	DefaultDatastore     *object.Datastore
+	Name                 string `default:"worker"`
+	User                 string
+	Location             string
+	VcIp                 string
+	VcVmName             string
+	EsxHosts             []map[string]string
+	Podname              string
+	Datastores           []map[string]string
+	WcpVsanDirectCluster bool
 }
 
 // NetPermissionConfig consists of information used to restrict the
