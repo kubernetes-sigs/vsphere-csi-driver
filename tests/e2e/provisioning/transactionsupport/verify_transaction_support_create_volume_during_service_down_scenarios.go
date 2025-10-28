@@ -206,5 +206,5 @@ func createVolumeWithServiceDown(serviceNames []string, namespace string, client
 	// gomega.Expect(numberOfFcdsRetVal).NotTo(gomega.BeFalse(), "Fcds count not matched")
 	// gomega.Expect(numberOfVolumesRetVal).NotTo(gomega.BeFalse(), "Volumes count not matched")
 
-	// k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
+	k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, pvclaims, diskSize)
 }
