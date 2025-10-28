@@ -1478,8 +1478,8 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 		7. Verify Pod node annotation.
 		8. Perform cleanup. Delete Pods, PVcs and ns.
 	*/
-	ginkgo.It("[ef-wcp-wldi] Workloads with all-zone zonal storage policy", ginkgo.Label(p0, wldi,
-		snapshot, vc90), func() {
+	ginkgo.It("[ef-f-wcp-wldi] Workloads with all-zone zonal storage policy", ginkgo.Label(p0,
+		wldi, snapshot, vc90), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
