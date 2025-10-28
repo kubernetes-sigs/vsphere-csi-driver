@@ -174,7 +174,7 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 				// This kind of situation can happen when detach is successful but finalizer could not be removed
 				// because of which the instance is back in queue.
 				err := removePvcFinalizer(ctx, client, k8sClient, volumeStatus.PersistentVolumeClaim.ClaimName, instance.Namespace,
-					instance.Spec.NodeUUID)
+					instance.Spec.InstanceUUID)
 				if err != nil {
 					log.Errorf("failed to ensure that PVC finalizers are removed.")
 					return err
@@ -452,10 +452,10 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 	log := logger.GetLogger(ctx)
 
 	// Get vm from vCenter.
-	vm, err := GetVMFromVcenter(ctx, instance.Spec.NodeUUID, configInfo)
+	vm, err := GetVMFromVcenter(ctx, instance.Spec.InstanceUUID, configInfo)
 	if err != nil {
 		if err == cnsvsphere.ErrVMNotFound {
-			log.Infof("VM %s not found on VC", instance.Spec.NodeUUID)
+			log.Infof("VM %s not found on VC", instance.Spec.InstanceUUID)
 			return nil, nil
 		}
 		return nil, err
@@ -507,7 +507,7 @@ func getVolumesToDetachFromVM(ctx context.Context, client client.Client,
 		log.Errorf("failed to find the FCDs attached to VM %s. Err: %s", vm, err)
 		return map[string]string{}, err
 	}
-	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.NodeUUID)
+	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.InstanceUUID)
 
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
 	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient, attachedFcdList)

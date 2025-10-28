@@ -270,7 +270,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			// If VM is deleted from the VC but CnsNodeVMBatchAttachment is not being deleted, it is an error.
 			err := fmt.Errorf("virtual Machine with UUID %s on vCenter does not exist. "+
 				"Vm is CR is deleted or is being deleted but"+
-				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", instance.Spec.NodeUUID, instance.Name)
+				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", instance.Spec.InstanceUUID, instance.Name)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
 		// If CnsNodeVMBatchAttachment is also being deleted, then all volumes on the instance can be considered detached.
@@ -295,7 +295,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		// For every PVC mentioned in instance.Spec, remove finalizer from its PVC.
 		for _, volume := range instance.Spec.Volumes {
 			err := removePvcFinalizer(ctx, r.client, k8sClient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
-				instance.Spec.NodeUUID)
+				instance.Spec.InstanceUUID)
 			if err != nil {
 				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
 					err)
@@ -460,7 +460,7 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 					instance, pvc, volumesThatFailedToDetach)
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
-					pvc, instance.Spec.NodeUUID, faulttype, detachErr)
+					pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
 				// Update the instance with error for this PVC.
 				updateInstanceWithErrorForPvc(instance, pvc, detachErr.Error())
 				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
@@ -486,7 +486,7 @@ func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8
 	volumesThatFailedToDetach []string) []string {
 	log := logger.GetLogger(ctx)
 
-	err := removePvcFinalizer(ctx, client, k8sClient, pvc, instance.Namespace, instance.Spec.NodeUUID)
+	err := removePvcFinalizer(ctx, client, k8sClient, pvc, instance.Namespace, instance.Spec.InstanceUUID)
 	if err != nil {
 		log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvc, err)
 		updateInstanceWithErrorForPvc(instance, pvc, err.Error())
@@ -494,7 +494,7 @@ func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8
 	} else {
 		// Remove entry of this volume from the instance's status.
 		deleteVolumeFromStatus(pvc, instance)
-		log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.NodeUUID)
+		log.Infof("Successfully detached volume %s from VM %s", pvc, instance.Spec.InstanceUUID)
 	}
 	return volumesThatFailedToDetach
 }
@@ -538,7 +538,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		// If attach was successful, add finalizer to the PVC.
 		if result.Error == nil {
 			// Add finalizer on PVC as attach was successful.
-			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.NodeUUID)
+			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.InstanceUUID)
 			if err != nil {
 				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
 				result.Error = err
