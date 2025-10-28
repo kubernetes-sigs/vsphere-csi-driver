@@ -38,7 +38,6 @@ import (
 	fdep "k8s.io/kubernetes/test/e2e/framework/deployment"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
-	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 /*
@@ -449,28 +448,6 @@ func verifyVmServiceVmAnnotationAffinity(vm *vmopv1.VirtualMachine, allowedTopol
 		return fmt.Errorf("node location is not correct")
 	}
 
-	return nil
-}
-
-// Verifies volume accessibility and data integrity on a given VM by checking each attached volume from within the VM.
-func verifyVolumeAccessibilityAndDataIntegrityOnVM(ctx context.Context, vm *vmopv1.VirtualMachine,
-	vmopC ctlrclient.Client, namespace string) error {
-	// get vm ip address
-	vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get VM IP: %w", err)
-	}
-
-	// refresh vm info
-	vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	/* Verify that the attached volumes are accessible and validate data integrity. The function iterates through each
-	volume of the VM, verifies that the PVC is accessible, and checks the data integrity on each attached disk */
-	for i, vol := range vm.Status.Volumes {
-		volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-		verifyDataIntegrityOnVmDisk(vmIp, volFolder)
-	}
 	return nil
 }
 

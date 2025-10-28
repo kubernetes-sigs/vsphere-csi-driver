@@ -826,7 +826,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		ginkgo.By(fmt.Sprintf("deleting labels for pvc %s", pvc.Name))
 		pvc.Labels = make(map[string]string)
-
+		time.Sleep(pollTimeoutShort)
 		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
