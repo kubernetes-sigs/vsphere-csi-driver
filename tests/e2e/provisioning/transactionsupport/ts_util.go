@@ -82,6 +82,11 @@ var (
 	linkedClonePvcs                                                          []*v1.PersistentVolumeClaim
 )
 
+type TestCase struct {
+	Description string   `json:"description"`
+	Input       []string `json:"input"`
+}
+
 func createPVC(ctx context.Context, client clientset.Interface, namespace string, ds string,
 	storageclass *storagev1.StorageClass, accessMode v1.PersistentVolumeAccessMode, pvclaims []*v1.PersistentVolumeClaim, index int, wgMain *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
