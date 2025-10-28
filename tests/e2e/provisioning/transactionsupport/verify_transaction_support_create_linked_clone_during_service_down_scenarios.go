@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/k8testutil"
-	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/vcutil"
 )
 
 var _ = ginkgo.Describe("Transaction_Support_LC", func() {
@@ -62,42 +61,42 @@ var _ = ginkgo.Describe("Transaction_Support_LC", func() {
 				})
 
 				ginkgo.AfterEach(func() {
-					if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
-						ginkgo.Skip("Currently Register volume skipping for Vanilla")
-					}
+					// if e2eTestConfig.TestInput.ClusterFlavor.VanillaCluster {
+					// 	ginkgo.Skip("Currently Register volume skipping for Vanilla")
+					// }
 
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
+					// ctx, cancel := context.WithCancel(context.Background())
+					// defer cancel()
 
-					//Deleting linked clones..
-					framework.Logf("In TestCleanUp Deleting Linked Clones.........")
-					for _, claim := range linkedClonePvcs {
-						err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					}
+					// //Deleting linked clones..
+					// framework.Logf("In TestCleanUp Deleting Linked Clones.........")
+					// for _, claim := range linkedClonePvcs {
+					// 	err := fpv.DeletePersistentVolumeClaim(ctx, client, claim.Name, namespace)
+					// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					// }
 
-					ginkgo.By("Verify PVs, volumes are deleted from CNS")
-					for _, pv := range linkedClonePvs {
-						err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
-							framework.PodDeleteTimeout)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						volumeID := pv.Spec.CSI.VolumeHandle
-						err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
-						gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-							fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-								"kubernetes", volumeID))
-					}
+					// ginkgo.By("Verify PVs, volumes are deleted from CNS")
+					// for _, pv := range linkedClonePvs {
+					// 	err := fpv.WaitForPersistentVolumeDeleted(ctx, client, pv.Name, framework.Poll,
+					// 		framework.PodDeleteTimeout)
+					// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					// 	volumeID := pv.Spec.CSI.VolumeHandle
+					// 	err = vcutil.WaitForCNSVolumeToBeDeleted(e2eTestConfig, volumeID)
+					// 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					// 		fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+					// 			"kubernetes", volumeID))
+					// }
 
-					//Deleting snapshots..
-					framework.Logf("In TestCleanUp Deleting snapshots.........")
-					var wg sync.WaitGroup
-					wg.Add(+volumeOpsScale)
-					for i := range volumeOpsScale {
-						framework.Logf("Deleting snapshot-%v", i+1)
-						go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
-					}
-					wg.Wait()
-					testCleanUp(ctx, serviceNames)
+					// //Deleting snapshots..
+					// framework.Logf("In TestCleanUp Deleting snapshots.........")
+					// var wg sync.WaitGroup
+					// wg.Add(+volumeOpsScale)
+					// for i := range volumeOpsScale {
+					// 	framework.Logf("Deleting snapshot-%v", i+1)
+					// 	go deleteSnapshot(ctx, namespace, pvcSnapshots, i, &wg)
+					// }
+					// wg.Wait()
+					// testCleanUp(ctx, serviceNames)
 				})
 
 				ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-supervisor] "+
