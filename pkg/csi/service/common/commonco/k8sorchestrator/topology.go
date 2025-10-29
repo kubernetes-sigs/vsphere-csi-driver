@@ -1587,12 +1587,13 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 	return topologySegments, nil
 }
 
-// getSharedDatastoresInClusters helps find shared datastores accessible to all given clusters
+// getSharedDatastoresInClusters returns the union of datastores accessible to any of the supplied clusters.
 func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 	vc *cnsvsphere.VirtualCenter) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
-	var sharedDatastoresForclusterMorefs []*cnsvsphere.DatastoreInfo
-	for index, clusterMoref := range clusterMorefs {
+	dsMap := make(map[string]*cnsvsphere.DatastoreInfo)
+
+	for _, clusterMoref := range clusterMorefs {
 		accessibleDs, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref, false)
 		if err != nil {
 			return nil, logger.LogNewErrorf(log,
@@ -1600,29 +1601,27 @@ func getSharedDatastoresInClusters(ctx context.Context, clusterMorefs []string,
 				clusterMoref, err)
 		}
 		if len(accessibleDs) == 0 {
-			return nil, logger.LogNewErrorf(log,
-				"no accessibleDs candidate datastores found to place volume for cluster %v", clusterMoref)
+			log.Infof("no accessible candidate datastores found for cluster %q", clusterMoref)
+			continue
 		}
-		if index == 0 {
-			sharedDatastoresForclusterMorefs = append(sharedDatastoresForclusterMorefs, accessibleDs...)
-		} else {
-			var sharedAccessibleDatastores []*cnsvsphere.DatastoreInfo
-			for _, sharedDatastore := range sharedDatastoresForclusterMorefs {
-				for _, accessibleDsInCluster := range accessibleDs {
-					if sharedDatastore.Info.Url == accessibleDsInCluster.Info.Url {
-						sharedAccessibleDatastores = append(sharedAccessibleDatastores, accessibleDsInCluster)
-						break
-					}
-				}
-			}
-			if len(sharedAccessibleDatastores) == 0 {
-				return nil, logger.LogNewErrorf(log,
-					"no shared candidate datastores found to place volume for clusters %v", clusterMorefs)
-			}
-			sharedDatastoresForclusterMorefs = sharedAccessibleDatastores
+
+		for _, ds := range accessibleDs {
+			dsMap[ds.Info.Url] = ds
 		}
 	}
-	return sharedDatastoresForclusterMorefs, nil
+
+	if len(dsMap) == 0 {
+		return nil, logger.LogNewErrorf(log,
+			"no shared candidate datastores found to place volume for clusters %v", clusterMorefs)
+	}
+
+	// Convert map to slice
+	var allSharedDatastores []*cnsvsphere.DatastoreInfo
+	for _, ds := range dsMap {
+		allSharedDatastores = append(allSharedDatastores, ds)
+	}
+
+	return allSharedDatastores, nil
 }
 
 // StartZonesInformer watches on changes to Zone instances.

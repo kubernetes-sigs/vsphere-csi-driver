@@ -83,30 +83,18 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 	azClustersMap map[string][]string, datastoreURL string) bool {
 	log := logger.GetLogger(ctx)
 	for _, clusterIDs := range azClustersMap {
-		var found bool
 		for _, clusterID := range clusterIDs {
 			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, false)
 			if err != nil {
 				log.Warnf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 				continue
 			}
-			found = false
 			for _, ds := range sharedDatastores {
 				if ds.Info.Url == datastoreURL {
 					log.Infof("Found datastoreUrl: %s is accessible to cluster: %s", datastoreURL, clusterID)
-					found = true
+					return true
 				}
 			}
-			// If datastoreURL was found in the list of datastores accessible to the
-			// cluster with clusterID, continue checking for the rest of the clusters
-			// in AZ. Otherwise, break and check the next AZ in azClustersMap.
-			if !found {
-				break
-			}
-		}
-		// datastoreURL was found in all the clusters with clusterIDs.
-		if found {
-			return true
 		}
 	}
 	return false
