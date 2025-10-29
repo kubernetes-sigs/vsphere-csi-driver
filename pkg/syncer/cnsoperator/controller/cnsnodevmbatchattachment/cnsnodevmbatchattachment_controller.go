@@ -100,7 +100,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
-		log.Debug("Not initializing the CnsNodeVMBatchAttachment Controller as SharedDisk FSS is not enabled")
+		log.Debug("TEST Not initializing the CnsNodeVMBatchAttachment Controller as SharedDisk FSS is not enabled")
 		return nil
 	}
 
