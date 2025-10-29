@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -162,6 +163,9 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) error {
 	log := logger.GetLogger(ctx)
 
+	// Add the stale PVCs which need to be removed to this list.
+	pvcsEntriesToRemove := make([]string, 0)
+
 	// Remove entries them from instance status and update the instance.
 	// For each entry in status, find corresponding entry in Spec and in pvcsToDetach.
 	for _, volumeStatus := range instance.Status.VolumeStatus {
@@ -182,10 +186,17 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 
 				log.Infof("Status for a PVC %s found in instance %s but it is not present in Spec. "+
 					"Removing it from instance", volumeStatus.PersistentVolumeClaim.ClaimName, instance.Name)
-				deleteVolumeFromStatus(volumeStatus.PersistentVolumeClaim.ClaimName, instance)
+				pvcsEntriesToRemove = append(pvcsEntriesToRemove, volumeStatus.PersistentVolumeClaim.ClaimName)
 			}
 		}
 	}
+
+	// Go does not support in slice mutation as it shifts the indices.
+	// Hence, it is important to delete the entries separately.
+	for _, pvcToDeleteFromStatus := range pvcsEntriesToRemove {
+		deleteVolumeFromStatus(pvcToDeleteFromStatus, instance)
+	}
+
 	return nil
 }
 
@@ -347,12 +358,25 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 }
 
 // getPvcsInSpec returns map of PVCs and their volumeIDs.
-func getPvcsInSpec(instance *v1alpha1.CnsNodeVMBatchAttachment) (map[string]string, error) {
+func getPvcsInSpec(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
+	k8sClient kubernetes.Interface) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
 	pvcsInSpec := make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
 		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
 			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
 		if !ok {
+			pvcName := volume.PersistentVolumeClaim.ClaimName
+			_, err := k8sClient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx,
+				pvcName, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Infof("PVC %s has already been deleted. No action to be taken", pvcName)
+					continue
+				}
+				return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
+			}
 			return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
 		}
 		pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volumeId
@@ -474,7 +498,7 @@ func getVolumesToDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAt
 
 	if instance.DeletionTimestamp != nil {
 		log.Debugf("Instance %s is being deleted, adding all volumes in spec to volumesToDetach list.", instance.Name)
-		volumesToDetach, err := getPvcsInSpec(instance)
+		volumesToDetach, err := getPvcsInSpec(ctx, instance, k8sClient)
 		if err != nil {
 			log.Errorf("failed to get volumes to detach from instance spec. Err: %s", err)
 			return volumesToDetach, err
@@ -696,8 +720,21 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	// Get PVC object from informer cache
 	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
 	if err != nil {
-		log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
-		return err
+		if !apierrors.IsNotFound(err) {
+			log.Errorf("failed to get PVC object for PVC %s. Err: %s", pvcName, err)
+			return err
+		}
+
+		// Verify if the PVC object itself has been deleted by querying the API server in case the cache is old.
+		pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Infof("PVC %s has already been deleted. No action to be taken", pvcName)
+				return nil
+			}
+			log.Errorf("failed to get updated PVC %s in namespace %s", pvcName, namespace)
+			return err
+		}
 	}
 
 	// Remove usedby annotation
