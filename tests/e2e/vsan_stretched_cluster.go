@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		if guestCluster {
 			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
 			// Check if csi pods are running fine after site failure
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()),
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
 				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -566,7 +566,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		if guestCluster {
 			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
 			// Check if csi pods are running fine after site failure
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()),
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
 				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
@@ -917,7 +917,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		time.Sleep(pollTimeout * 2)
 		if guestCluster {
 			ginkgo.By("Check for csi pods to be in Ready state in supervisor")
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1075,7 +1076,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		if guestCluster {
 			ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1235,7 +1237,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		time.Sleep(pollTimeout * 2)
 		if guestCluster {
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		// Check if csi pods are running fine after site failure
@@ -1530,7 +1533,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		time.Sleep(pollTimeout)
 		ginkgo.By("Check if csi pods are running fine after site failure")
 		if guestCluster {
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		err = fpod.WaitForPodsRunningReady(ctx, client, csiNs, len(csipods.Items),
@@ -2203,7 +2207,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		time.Sleep(pollTimeout * 2)
 		if guestCluster {
 			ginkgo.By("Check if csi pods are running fine after site failurein supervisor")
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -2392,7 +2397,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		time.Sleep(2 * pollTimeout)
 		if guestCluster {
 			ginkgo.By("Check if csi pods are running fine after site failurein supervisor")
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -2572,7 +2578,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		ginkgo.By("Check if csi pods are running fine after witness failure")
 		if guestCluster {
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -4031,7 +4038,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			if guestCluster {
 				ginkgo.By("Check if csi pods are running fine after site failure in supervisor")
 				// Check if csi pods are running fine after site failure
-				err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+				err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+					time.Duration(pollTimeout))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 			// Check if csi pods are running fine after site failure
@@ -4951,7 +4959,8 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 
 		if guestCluster {
 			ginkgo.By("Check for nodes to be in Ready state in supervisor")
-			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, int(svcCsipods.Size()), time.Duration(pollTimeout))
+			err = fpod.WaitForPodsRunningReady(ctx, svcClient, csiNs, len(svcCsipods.Items),
+				time.Duration(pollTimeout))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 

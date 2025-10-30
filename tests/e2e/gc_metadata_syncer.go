@@ -723,7 +723,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 10. Verify CnsVolumeMetadata CRD in SV are updated.
 	// 11. Wait for labels to be deleted in CNS.
 	// 12. Delete PVC.
-	ginkgo.It("[ef-vks][ef-vks-n1][ef-vks-n2] Validate PV and PVC labels are updated/deleted "+
+	ginkgo.It("Validate PV and PVC labels are updated/deleted "+
 		"on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
