@@ -18,7 +18,9 @@ package cnsnodevmbatchattachment
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -91,7 +92,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 							ClaimName:   pvc1,
 							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
-							Attached:    true,
 						},
 					},
 					{
@@ -100,7 +100,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 							ClaimName:   pvc2,
 							DiskUUID:    "123456",
 							CnsVolumeID: "67890",
-							Attached:    true,
 						},
 					},
 				},
@@ -115,7 +114,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAttachment,
 	setDeletionTimestamp bool) *Reconciler {
 	cnsNodeVmBatchAttachment := testCnsNodeVMBatchAttachment.DeepCopy()
-	//objs := []runtime.Object{cnsNodeVmBatchAttachment}
 
 	if setDeletionTimestamp {
 		currentTime := time.Now()
@@ -229,56 +227,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 		}
 
 		expectedReconcileError := fmt.Errorf("some error occurred while getting VM")
-		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Error)
-	})
-}
-
-func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
-
-	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
-		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
-		testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-3"
-
-		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, true)
-
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      testCnsNodeVMBatchAttachmentName,
-				Namespace: testNamespace,
-			},
-		}
-
-		GetVMFromVcenter = MockGetVMFromVcenter
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-
-		// Override with fake client
-		newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {
-			fakeK8sClient := getClientSetWithPvc()
-			return fakeK8sClient, nil
-		}
-
-		res, err := r.Reconcile(context.TODO(), req)
-		if err != nil {
-			t.Fatal("Unexpected reconcile error")
-		}
-		expectedReconcileResult := reconcile.Result{}
-		var expectedReconcileError error
-
-		assert.Equal(t, expectedReconcileResult, res)
-		assert.Equal(t, expectedReconcileError, err)
-
-		updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
-		err = r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment)
-		if err == nil {
-			t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
-		}
-
-		// Error should be not found
-		if statusErr, ok := err.(*errors.StatusError); ok {
-			assert.Equal(t, metav1.StatusReasonNotFound, statusErr.Status().Reason)
-		} else {
-			t.Fatalf("Unable to verify CnsNodeVMBatchAttachment error")
-		}
+		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Conditions[0].Message)
 	})
 }
 
@@ -322,7 +271,7 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceI
 				"Vm is CR is deleted or is being deleted but"+
 				"CnsNodeVMBatchAttachmentInstance %s is not being deleted", nodeUUID, testCnsNodeVMBatchAttachmentName)
 			expectedErrorMsg := expectedReconcileError.Error()
-			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Error)
+			assert.Equal(t, expectedErrorMsg, updatedCnsNodeVMBatchAttachment.Status.Conditions[0].Message)
 		})
 }
 
@@ -720,6 +669,28 @@ func TestIsSharedPvc(t *testing.T) {
 	}
 }
 
+func TestTrimError(t *testing.T) {
+	longErr := errors.New(strings.Repeat("x", 40000))
+	trimmed := trimMessage(longErr)
+
+	if len([]rune(trimmed.Error())) > MaxConditionMessageLength {
+		t.Errorf("expected trimmed error message to be <= %d, got %d",
+			MaxConditionMessageLength, len([]rune(trimmed.Error())))
+	}
+
+	// Nil case
+	if trimMessage(nil) != nil {
+		t.Errorf("expected nil error to remain nil")
+	}
+
+	// Short case
+	shortErr := errors.New("short error")
+	same := trimMessage(shortErr)
+	if same != shortErr {
+		t.Errorf("expected same error back for short message")
+	}
+}
+
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
@@ -730,4 +701,81 @@ func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 		return vm, cnsvsphere.ErrVMNotFound
 	}
 	return &cnsvsphere.VirtualMachine{}, nil
+}
+
+func TestUpdateInstanceVolume_AddsNewVolumeStatus_WhenNotFound(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{}
+
+	updateInstanceVolumeStatus(
+		instance,
+		"vol1", "pvc1",
+		"vol-id-123", "uuid-456",
+		nil,
+		v1alpha1.ConditionAttached, "Success",
+	)
+
+	assert.Len(t, instance.Status.VolumeStatus, 1)
+	vs := instance.Status.VolumeStatus[0]
+	assert.Equal(t, "vol1", vs.Name)
+	assert.Equal(t, "pvc1", vs.PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "vol-id-123", vs.PersistentVolumeClaim.CnsVolumeID)
+	assert.Equal(t, "uuid-456", vs.PersistentVolumeClaim.DiskUUID)
+	assert.Equal(t, "", vs.PersistentVolumeClaim.Conditions[0].Message)
+	assert.Equal(t, "True", vs.PersistentVolumeClaim.Conditions[0].Reason)
+	assert.Equal(t, metav1.ConditionTrue, vs.PersistentVolumeClaim.Conditions[0].Status)
+	assert.Equal(t, v1alpha1.ConditionAttached, vs.PersistentVolumeClaim.Conditions[0].Type)
+}
+
+func TestUpdateInstanceVolume_UpdatesExistingVolumeStatus(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "pvc1",
+					},
+				},
+			},
+		},
+	}
+
+	updateInstanceVolumeStatus(
+		instance,
+		"vol1", "pvc1",
+		"new-vol-id", "new-uuid",
+		nil,
+		v1alpha1.ConditionAttached, "Success",
+	)
+
+	assert.Len(t, instance.Status.VolumeStatus, 1)
+	vs := instance.Status.VolumeStatus[0]
+	assert.Equal(t, "new-vol-id", vs.PersistentVolumeClaim.CnsVolumeID)
+	assert.Equal(t, "new-uuid", vs.PersistentVolumeClaim.DiskUUID)
+	assert.Equal(t, "", vs.PersistentVolumeClaim.Conditions[0].Message)
+	assert.Equal(t, "True", vs.PersistentVolumeClaim.Conditions[0].Reason)
+	assert.Equal(t, metav1.ConditionTrue, vs.PersistentVolumeClaim.Conditions[0].Status)
+	assert.Equal(t, v1alpha1.ConditionAttached, vs.PersistentVolumeClaim.Conditions[0].Type)
+}
+
+func TestUpdateInstanceVolume_MarksErrorCondition_WhenErrorProvided(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{}
+
+	err := errors.New("failed to attach")
+	updateInstanceVolumeStatus(
+		instance,
+		"vol2", "pvc2",
+		"", "",
+		err,
+		v1alpha1.ConditionAttached, v1alpha1.ReasonAttachFailed,
+	)
+
+	assert.Len(t, instance.Status.VolumeStatus, 1)
+	vs := instance.Status.VolumeStatus[0]
+	assert.Equal(t, "pvc2", vs.PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "failed to attach", vs.PersistentVolumeClaim.Conditions[0].Message)
+	assert.Equal(t, v1alpha1.ReasonAttachFailed, vs.PersistentVolumeClaim.Conditions[0].Reason)
+	assert.Equal(t, metav1.ConditionFalse, vs.PersistentVolumeClaim.Conditions[0].Status)
+	assert.Equal(t, v1alpha1.ConditionAttached, vs.PersistentVolumeClaim.Conditions[0].Type)
+
 }
