@@ -424,8 +424,8 @@ func GetVirtualMachineAllApiVersions(ctx context.Context, vmKey types.Namespaced
 			log.Debugf("GetVirtualMachineAllApiVersions: converting v1alpha4 VirtualMachine "+
 				"to v1alpha5 VirtualMachine, name %s", vmV1alpha4.Name)
 			apiVersion = vmOperatorApiVersionPrefix + "/v1alpha4"
-			err = vmoperatorv1alpha4.Convert_v1alpha5_VirtualMachine_To_v1alpha4_VirtualMachine(
-				vm, vmV1alpha4, nil)
+			err = vmoperatorv1alpha4.Convert_v1alpha4_VirtualMachine_To_v1alpha5_VirtualMachine(
+				vmV1alpha4, vm, nil)
 			if err != nil {
 				return nil, apiVersion, err
 			}
@@ -451,7 +451,7 @@ func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	vmV1alpha2, old_vmV1alpha2 := &vmoperatorv1alpha2.VirtualMachine{}, &vmoperatorv1alpha2.VirtualMachine{}
 	vmV1alpha3, old_vmV1alpha3 := &vmoperatorv1alpha3.VirtualMachine{}, &vmoperatorv1alpha3.VirtualMachine{}
 	vmV1alpha4, old_vmV1alpha4 := &vmoperatorv1alpha4.VirtualMachine{}, &vmoperatorv1alpha4.VirtualMachine{}
-	log.Infof("PatchVirtualMachine: patch virtualmachine name: %s", vmV1alpha4.Name)
+	log.Infof("PatchVirtualMachine: patch virtualmachine name: %s", vm.Name)
 	// try patch virtualmachine with latest api version
 	vmPatch := client.MergeFromWithOptions(
 		old_vm.DeepCopy(),
