@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -248,16 +249,51 @@ func updatePvcStatusEntryName(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcsToDetach map[string]string) {
 	log := logger.GetLogger(ctx)
 
+	allVolumeNamesInStatus := getVolumeNamesInStatus(instance)
+
 	for i, volume := range instance.Status.VolumeStatus {
 		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
 			continue
 		}
-		newVolumeName := instance.Status.VolumeStatus[i].Name + detachSuffix
+		if strings.HasSuffix(instance.Status.VolumeStatus[i].Name, detachSuffix) {
+			log.Infof("VolumeName %s for PVC %s already contains suffix %s. Skipping.",
+				instance.Status.VolumeStatus[i].Name, volume.PersistentVolumeClaim.ClaimName,
+				detachSuffix)
+			continue
+		}
+		// First ensure that the volumeName with the suffix is unique.
+		newVolumeName := getUniqueVolumeName(instance.Status.VolumeStatus[i].Name,
+			allVolumeNamesInStatus)
 		instance.Status.VolumeStatus[i].Name = newVolumeName
+		// Add the new volumename to allVolumeNamesInStatus
+		allVolumeNamesInStatus[newVolumeName] = true
 		log.Infof("Updating status name entry to %s for detaching PVC %s",
 			newVolumeName,
 			volume.PersistentVolumeClaim.ClaimName)
 	}
+}
+
+// getUniqueVolumeName finds a unque name for volume status entry.
+func getUniqueVolumeName(currentName string, allVolumeNamesInStatus map[string]bool) string {
+	detachingSuffixIndex := 1
+	newVolumeName := currentName + "-" + strconv.Itoa(detachingSuffixIndex) + detachSuffix
+	for {
+		// Unique name found.
+		if _, exists := allVolumeNamesInStatus[newVolumeName]; !exists {
+			return newVolumeName
+		}
+		detachingSuffixIndex++
+		newVolumeName = currentName + "-" + strconv.Itoa(detachingSuffixIndex) + detachSuffix
+	}
+}
+
+// getVolumeNamesInStatus returns all the names of the volume in the instance.
+func getVolumeNamesInStatus(instance *v1alpha1.CnsNodeVMBatchAttachment) map[string]bool {
+	volumeNamesInStatus := make(map[string]bool)
+	for _, volumeStatus := range instance.Status.VolumeStatus {
+		volumeNamesInStatus[volumeStatus.Name] = true
+	}
+	return volumeNamesInStatus
 }
 
 // updateInstanceStatus updates the given nodevmbatchattachment instance's status.
