@@ -68,13 +68,14 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 
 		bootstrap()
 		client = f.ClientSet
+		var err error
+		var nodeList *v1.NodeList
 		namespace = getNamespaceToRunTests(f)
-
 		// parameters set for storage policy
 		scParameters = make(map[string]string)
 
 		// fetching node list and checking node status
-		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
+		nodeList, err = fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
@@ -155,7 +156,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 		defer cancel()
 
 		ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-		fss.DeleteAllStatefulSets(ctx, client, namespace)
+		deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 		ginkgo.By(fmt.Sprintf("Deleting service nginx in namespace: %v", namespace))
 		err := client.CoreV1().Services(namespace).Delete(ctx, servicename, *metav1.NewDeleteOptions(0))
 		if !apierrors.IsNotFound(err) {
@@ -488,7 +489,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			int32(stsReplicas), true, allowedTopologies, true, true,
 			zonalPolicy, "", storageclass, zonalPolicy)
 		defer func() {
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			deleteAllStsAndPodsPVCsInNamespace(ctx, client, namespace)
 		}()
 
 		framework.Logf("Verify PV node affinity and that the PODS are running on appropriate node")
@@ -544,7 +545,7 @@ var _ = ginkgo.Describe("Stretched-Supervisor-Snapshot", func() {
 			v1.ReadWriteOnce, volumeSnapshot1.Name, snapshotapigroup)
 		restoreVol1, err := fpv.CreatePVC(ctx, client, namespace, pvcSpec)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		restorepv1, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+		restorepv1, err := WaitForPVClaimBoundPhase(ctx, client,
 			[]*v1.PersistentVolumeClaim{restoreVol1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		restoreVolHandle1 := restorepv1[0].Spec.CSI.VolumeHandle
