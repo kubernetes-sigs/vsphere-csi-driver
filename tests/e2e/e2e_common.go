@@ -517,6 +517,7 @@ var (
 	audienceForSvcAccountName = "https://kubernetes.default.svc.cluster.local"
 	envIsDevopsUser           = "IS_DEVOPS_USER"
 	serviceAccountKeyword     = "ServiceAccount"
+	envUserName               = "USERNAME"
 )
 
 // storage policy usages for storage quota validation
