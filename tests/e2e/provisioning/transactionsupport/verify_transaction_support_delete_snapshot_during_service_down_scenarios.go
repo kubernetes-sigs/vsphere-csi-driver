@@ -99,8 +99,8 @@ func deleteVolumeSnapshotWithServiceDown(serviceNames []string, namespace string
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	diskSize := constants.DiskSize10GB
-	diskSizeInMb := constants.DiskSize10GBInMb //TODO modify these values as per datastore
+	diskSize := constants.DiskSize5GB
+	diskSizeInMb := constants.DiskSize5GBInMb //TODO modify these values as per datastore
 
 	ginkgo.By(fmt.Sprintf("Invoking Test for delete snapshot when %v goes down", serviceNames))
 	pvclaims = make([]*v1.PersistentVolumeClaim, volumeOpsScale)
