@@ -48,8 +48,8 @@ type Manager interface {
 	DiscoverNode(ctx context.Context, nodeUUID string) error
 	// GetK8sNode returns Kubernetes Node object for the given node name
 	GetK8sNode(ctx context.Context, nodename string) (*v1.Node, error)
-	// GetNode refreshes and returns the VirtualMachine for a registered node
-	// given its UUID. If datacenter is present, GetNode will search within this
+	// GetNodeVMAndUpdateCache refreshes and returns the VirtualMachine for a registered node
+	// given its UUID. If datacenter is present, GetNodeVMAndUpdateCache will search within this
 	// datacenter given its UUID. If not, it will search in all registered
 	// datacenters.
 	GetNodeVMAndUpdateCache(ctx context.Context, nodeUUID string, dc *vsphere.Datacenter) (*vsphere.VirtualMachine, error)
