@@ -1038,6 +1038,7 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	err := k8s.UpdateStatus(ctx, r.client, instance)
 	if err != nil {
 		log.Errorf("updateCnsRegisterVolume failed. err: %v", err)
+		return
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
 }
@@ -1046,11 +1047,30 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 // CnsRegisterVolume instance.
 func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, pvcName string, pvcUID apitypes.UID, msg string) error {
-	instance.Status.Registered = true
-	instance.Status.Error = ""
+	log := logger.GetLogger(ctx)
 	setInstanceOwnerRef(instance, pvcName, pvcUID)
+	// Update the metadata (ownerReferences) first
 	err := updateCnsRegisterVolume(ctx, r.client, instance)
 	if err != nil {
+		return err
+	}
+	// Fetch the latest version of the instance after updating metadata
+	// to avoid conflict when updating status
+	namespacedName := apitypes.NamespacedName{
+		Name:      instance.Name,
+		Namespace: instance.Namespace,
+	}
+	err = r.client.Get(ctx, namespacedName, instance)
+	if err != nil {
+		log.Errorf("Failed to fetch latest CnsRegisterVolume instance after metadata update. err: %v", err)
+		return err
+	}
+	// Now update the status subresource with the fresh object
+	instance.Status.Registered = true
+	instance.Status.Error = ""
+	err = k8s.UpdateStatus(ctx, r.client, instance)
+	if err != nil {
+		log.Errorf("updateCnsRegisterVolume status failed. err: %v", err)
 		return err
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)

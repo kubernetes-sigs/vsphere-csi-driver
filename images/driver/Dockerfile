@@ -26,7 +26,7 @@ ARG BASE_IMAGE=photon:5.0
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM ${GOLANG_IMAGE} as builder
+FROM ${GOLANG_IMAGE} AS builder
 
 # This build arg is the version to embed in the CSI binary
 ARG VERSION=unknown
@@ -41,7 +41,7 @@ COPY cmd/    cmd/
 ENV CGO_ENABLED=0
 ENV GOFIPS=1
 ENV GOEXPERIMENT="boringcrypto"
-ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
+ENV GOPROXY=${GOPROXY:-https://proxy.golang.org}
 RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o vsphere-csi ./cmd/vsphere-csi
 
 ################################################################################
