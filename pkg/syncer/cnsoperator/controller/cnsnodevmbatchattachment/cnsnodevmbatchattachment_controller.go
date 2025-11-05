@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
+
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
@@ -297,15 +299,20 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			err := removePvcFinalizer(ctx, r.client, k8sClient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
 				instance.Spec.InstanceUUID)
 			if err != nil {
+				updateInstanceVolumeStatus(instance, volume.Name, volume.PersistentVolumeClaim.ClaimName, "", "", err,
+					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
 				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
 					err)
 				return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+			} else {
+				updateInstanceVolumeStatus(instance, volume.Name, volume.PersistentVolumeClaim.ClaimName, "", "", err,
+					v1alpha1.ConditionDetached, "")
 			}
 		}
 
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
-			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", instance.Name, patchErr)
+			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", instance.Name, patchErr)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
 		log.Infof("Successfully removed finalizer %s from instance %s",
@@ -314,7 +321,6 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		backOffDurationMapMutex.Lock()
 		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
-
 		return r.completeReconciliationWithSuccess(batchAttachCtx, instance, request.NamespacedName, timeout)
 	}
 
@@ -458,7 +464,14 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
 				// Update the instance with error for this PVC.
-				updateInstanceWithErrorForPvc(instance, pvc, detachErr.Error())
+
+				// First find a volumeName to fall back on. If entry for the given PVC is not found in the status,
+				// then this volumeName will be used to add a new entry.
+				allVolumeNamesInStatus := getVolumeNamesInStatus(instance)
+				fallbackVolumeName := getUniqueVolumeName(pvc, allVolumeNamesInStatus)
+				updateInstanceVolumeStatus(instance, fallbackVolumeName, pvc, "", "", detachErr,
+					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+
 				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 			}
 		} else {
@@ -485,7 +498,13 @@ func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8
 	err := removePvcFinalizer(ctx, client, k8sClient, pvc, instance.Namespace, instance.Spec.InstanceUUID)
 	if err != nil {
 		log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvc, err)
-		updateInstanceWithErrorForPvc(instance, pvc, err.Error())
+		// First find a volumeName to fall back on. If entry for the given PVC is not found in the status,
+		// then this volumeName will be used to add a new entry.
+		allVolumeNamesInStatus := getVolumeNamesInStatus(instance)
+		fallbackVolumeName := getUniqueVolumeName(pvc, allVolumeNamesInStatus)
+		updateInstanceVolumeStatus(instance, fallbackVolumeName, pvc, "", "", err,
+			v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+
 		volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
 	} else {
 		// Remove entry of this volume from the instance's status.
@@ -512,9 +531,9 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 	// Call CNS AttachVolume
 	batchAttachResult, faultType, attachErr := r.volumeManager.BatchAttachVolumes(ctx, vm, batchAttachRequest)
 	if attachErr != nil {
-		log.Errorf("failed to batch attach all volumes. Fault: %s Err: %s", faultType, attachErr)
+		log.Errorf("failed to attach all volumes. Fault: %s Err: %s", faultType, attachErr)
 	} else {
-		log.Infof("Successfully batch attached all volumes")
+		log.Infof("Successfully attached all volumes")
 	}
 
 	// Update instance based on the result of BatchAttach
@@ -531,18 +550,23 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 		}
 
+		reason := v1alpha1.ReasonAttachFailed
 		// If attach was successful, add finalizer to the PVC.
 		if result.Error == nil {
+			reason = ""
 			// Add finalizer on PVC as attach was successful.
 			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.InstanceUUID)
 			if err != nil {
 				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
 				result.Error = err
-				attachErr = err
+				attachErr = errors.Join(attachErr,
+					fmt.Errorf("failure during attach of PVC %s", pvcName))
 			}
 		}
-		// Update instance with attach result
-		updateInstanceWithAttachVolumeResult(instance, volumeName, pvcName, result)
+		// Update instance with attach result.
+		updateInstanceVolumeStatus(instance, volumeName, pvcName, result.VolumeID, result.DiskUUID, result.Error,
+			v1alpha1.ConditionAttached, reason)
+
 	}
 	return attachErr
 }
@@ -581,11 +605,12 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 	namespaceName types.NamespacedName, timeout time.Duration) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
-	instance.Status.Error = ""
+	conditions.MarkTrue(instance, v1alpha1.ConditionReady)
+
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
-		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", namespaceName, updateErr)
+		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -603,11 +628,14 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	namespaceName types.NamespacedName, timeout time.Duration, err error) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
-	instance.Status.Error = err.Error()
+
+	trimmedError := trimMessage(err)
+	conditions.MarkError(instance, v1alpha1.ConditionReady, v1alpha1.ReasonFailed, trimmedError)
+
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
 		recordEvent(ctx, r, instance, v1.EventTypeWarning, updateErr.Error())
-		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", namespaceName, updateErr)
+		log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", namespaceName, updateErr)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, err.Error())
