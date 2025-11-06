@@ -44,8 +44,6 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
-
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
 )
 
 var (
@@ -54,26 +52,8 @@ var (
 )
 
 const (
-	detachSuffix              = ":detaching"
-	MaxConditionMessageLength = 32768
+	detachSuffix = ":detaching"
 )
-
-// trimMessage safely truncates a message to the Kubernetes status.conditions max length.
-func trimMessage(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	msg := err.Error()
-	runes := []rune(msg)
-
-	if len(runes) > MaxConditionMessageLength {
-		trimmed := string(runes[:MaxConditionMessageLength-3]) + "..."
-		return fmt.Errorf("%s", trimmed)
-	}
-
-	return err
-}
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmbatchattachment instance.
@@ -245,7 +225,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
 	}
-	log.Infof("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
+	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 
 	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
 
@@ -327,6 +307,56 @@ func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
 		return err
 	}
 	return nil
+}
+
+// updateInstanceWithAttachVolumeResult finds the given's volumeName's status in the instance status
+// and updates it with error.
+// It will add a new status for the volume if it does not already exist.
+func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumeName string, pvc string, result volumes.BatchAttachResult) {
+
+	errMsg := ""
+	attached := true
+	if result.Error != nil {
+		attached = false
+		errMsg = result.Error.Error()
+	}
+
+	newVolumeStatus := v1alpha1.VolumeStatus{
+		Name: volumeName,
+		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+			ClaimName:   pvc,
+			Attached:    attached,
+			Error:       errMsg,
+			CnsVolumeID: result.VolumeID,
+			DiskUUID:    result.DiskUUID,
+		},
+	}
+
+	for i, volume := range instance.Status.VolumeStatus {
+		if volume.Name != volumeName {
+			continue
+		}
+		// Update existing entry
+		instance.Status.VolumeStatus[i] = newVolumeStatus
+		return
+	}
+
+	// Add new entry instatus if it does not already exist.
+	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
+}
+
+// updateInstanceWithErrorVolumeName finds the given's PVC's status in the instance status
+// and updates it with error.
+func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVMBatchAttachment,
+	pvc string, errMsg string) {
+	for i, volume := range instance.Status.VolumeStatus {
+		if volume.PersistentVolumeClaim.ClaimName != pvc {
+			continue
+		}
+		instance.Status.VolumeStatus[i].PersistentVolumeClaim.Error = errMsg
+		return
+	}
 }
 
 // deleteVolumeFromStatus finds the status of the given volumeName in an instance and deletes its entry.
@@ -586,7 +616,7 @@ func patchPVCAnnotations(ctx context.Context, k8sClient kubernetes.Interface,
 		log.Infof("Removing annotation %s from PVC %s", key, pvc.Name)
 		patchAnnotations[key] = nil
 	} else {
-		log.Infof("Adding annotation %s on PVC %s", key, pvc.Name)
+		log.Infof("Adding annotation %s on PVC", key, pvc.Name)
 		patchAnnotations[key] = ""
 	}
 
@@ -672,6 +702,7 @@ func addPvcFinalizer(ctx context.Context, client client.Client,
 	}
 
 	// Add annotation indicating that the PVC is being used by this VM.
+	log.Infof("PVC %s is shared", pvc.Name)
 	err = addPvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
 	if err != nil {
 		log.Errorf("failed to add annotation %s to PVC %s in namespace %s for VM %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -743,6 +774,7 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	}
 
 	// Remove usedby annotation
+	log.Infof("PVC %s is shared", pvc.Name)
 	err = removePvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
 	if err != nil {
 		return err
@@ -794,61 +826,4 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	// Remove this PVC from volume lock store.
 	VolumeLock.Delete(namespacedVolumeName)
 	return nil
-}
-
-// updateInstanceVolumeStatus updates the status for a given volume in the instance.
-func updateInstanceVolumeStatus(
-	instance *v1alpha1.CnsNodeVMBatchAttachment,
-	volumeName, pvc string,
-	volumeID, diskUUID string,
-	err error,
-	conditionType, reason string) {
-	trimmedError := trimMessage(err)
-	for i, volumeStatus := range instance.Status.VolumeStatus {
-
-		if volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
-			continue
-		}
-
-		if volumeID != "" {
-			volumeStatus.PersistentVolumeClaim.CnsVolumeID = volumeID
-		}
-		if diskUUID != "" {
-			volumeStatus.PersistentVolumeClaim.DiskUUID = diskUUID
-		}
-
-		// Ensure conditions are initialized
-		if volumeStatus.PersistentVolumeClaim.Conditions == nil {
-			volumeStatus.PersistentVolumeClaim.Conditions = []metav1.Condition{}
-		}
-
-		// Apply condition
-		if err != nil {
-			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
-		} else {
-			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, conditionType)
-		}
-
-		instance.Status.VolumeStatus[i] = volumeStatus
-		return
-	}
-
-	// Not found — create a new entry
-	newVolumeStatus := v1alpha1.VolumeStatus{
-		Name: volumeName,
-		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
-			ClaimName:   pvc,
-			CnsVolumeID: volumeID,
-			DiskUUID:    diskUUID,
-			Conditions:  []metav1.Condition{},
-		},
-	}
-
-	if err != nil {
-		conditions.MarkError(&newVolumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
-	} else {
-		conditions.MarkTrue(&newVolumeStatus.PersistentVolumeClaim, conditionType)
-	}
-
-	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
 }
