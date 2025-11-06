@@ -107,7 +107,6 @@ spec:
                 x-kubernetes-list-type: map
             required:
             - instanceUUID
-            - volumes
             type: object
           status:
             description: CnsNodeVMBatchAttachmentStatus defines the observed state

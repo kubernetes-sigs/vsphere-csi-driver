@@ -326,8 +326,6 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 	// The CR is not being deleted, so call attach and detach for volumes.
 	if instance.DeletionTimestamp == nil {
-		log.Infof("Starting reconciliation for instance %s", request.NamespacedName.String())
-
 		// Add finalizer to CR if it does not already exist.
 		if !controllerutil.ContainsFinalizer(instance, cnsoperatortypes.CNSFinalizer) {
 			log.Debugf("Finalizer %s not found on instance %s. Adding it now.",
@@ -520,6 +518,11 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 	vm *cnsvsphere.VirtualMachine,
 	instance *v1alpha1.CnsNodeVMBatchAttachment) error {
 	log := logger.GetLogger(ctx)
+
+	if len(instance.Spec.Volumes) == 0 {
+		log.Infof("No volumes to attach to VM %q", instance.Spec.InstanceUUID)
+		return nil
+	}
 
 	// Construct batch attach request
 	pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err := constructBatchAttachRequest(ctx, instance)

@@ -356,6 +356,26 @@ func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 	})
 }
 
+func TestReconcileWithoutDeletionTimestampWithNoVolumestoAttach(t *testing.T) {
+
+	t.Run("TestReconcileWithoutDeletionTimestampWithNoVolumestoAttach", func(t *testing.T) {
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		testCnsNodeVMBatchAttachment.Spec.Volumes = []v1alpha1.VolumeSpec{}
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+		mockVolumeManager := &unittestcommon.MockVolumeManager{}
+		r.volumeManager = mockVolumeManager
+		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+		volumesToDetach := map[string]string{}
+		vm := &cnsvsphere.VirtualMachine{}
+		clientset := getClientSetWithPvc()
+
+		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
+			clientset,
+			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
+		assert.NoError(t, err)
+	})
+}
+
 func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 
 	t.Run("TestReconcileWithoutDeletionTimestamp", func(t *testing.T) {
