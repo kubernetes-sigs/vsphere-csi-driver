@@ -74,12 +74,11 @@ type CnsNodeVMBatchAttachmentSpec struct {
 
 	// InstanceUUID indicates the instance UUID of the node where the volume needs to be attached to.
 	InstanceUUID string `json:"instanceUUID"`
-	// +required
 
 	// +listType=map
 	// +listMapKey=name
 	// VolumeSpec reflects the desired state for each volume.
-	Volumes []VolumeSpec `json:"volumes"`
+	Volumes []VolumeSpec `json:"volumes,omitempty"`
 }
 
 type VolumeSpec struct {
