@@ -30,6 +30,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
+
 	v1 "k8s.io/api/core/v1"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -255,6 +257,265 @@ func TestWCPCreateVolumeWithStoragePolicy(t *testing.T) {
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
+}
+
+func TestWCPCreateRWXVolumeWithVMFSNonEZTStoragePolicy(t *testing.T) {
+	ct := getControllerTest(t)
+	ctx := context.Background()
+
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// Use our custom VMFS policy for PBM simulator
+			storagePolicyName = "VMFS Storage Policy"
+		}
+
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check if the simulator already has it
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			// Create a fake VMFS policy in PBM simulator
+			spec := pbmtypes.PbmCapabilityProfileCreateSpec{
+				Name:         storagePolicyName,
+				Description:  "Simulated VMFS storage policy",
+				ResourceType: pbmtypes.PbmProfileResourceType{ResourceType: "STORAGE"},
+				Constraints: &pbmtypes.PbmCapabilitySubProfileConstraints{
+					SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+						{
+							Name: "VMFS-SubProfile",
+							Capability: []pbmtypes.PbmCapabilityInstance{
+								{
+									Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+										Id:        "vmfs.eagerzeroedthick",
+										Namespace: "com.vmware.storage.volumeallocation",
+									},
+									Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+										{
+											PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+												{
+													Id:    "property-id", // must be string
+													Value: "testval",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			id, err := pc.CreateProfile(ctx, spec)
+			if err != nil {
+				t.Fatalf("failed to create VMFS policy: %v", err)
+			}
+			profileID = id.UniqueId
+		}
+	}
+
+	params[common.AttributeStoragePolicyID] = profileID
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: params,
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				},
+				AccessType: &csi.VolumeCapability_Block{
+					Block: &csi.VolumeCapability_BlockVolume{},
+				},
+			},
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{},
+	}
+
+	err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "supports_shared_disks_with_VM_service_VMs")
+	if err != nil {
+		t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS")
+	}
+
+	defer func() {
+		err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, "supports_shared_disks_with_VM_service_VMs")
+		if err != nil {
+			t.Fatal("failed to disable Workload_Domain_Isolation_Supported FSS")
+		}
+	}()
+
+	// Create volume
+	_, err = ct.controller.CreateVolume(ctx, reqCreate)
+	if err == nil {
+		t.Fatalf("Error Expected")
+	}
+
+	expectedSubstring := "It must be Thick Provision Eager Zero for RWX block volumes"
+	if !strings.Contains(err.Error(), expectedSubstring) {
+		t.Fatalf("expected error to contain %q, got %q", expectedSubstring, err.Error())
+	}
+}
+
+func TestWCPCreateRWXVolumeWithVMFSEZTStoragePolicy(t *testing.T) {
+	ct := getControllerTest(t)
+	ctx := context.Background()
+
+	params := make(map[string]string)
+
+	profileID := os.Getenv("VSPHERE_STORAGE_POLICY_ID")
+	if profileID == "" {
+		storagePolicyName := os.Getenv("VSPHERE_STORAGE_POLICY_NAME")
+		if storagePolicyName == "" {
+			// Use our custom VMFS policy for PBM simulator
+			storagePolicyName = "VMFS Storage Policy"
+		}
+
+		pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check if the simulator already has it
+		profileID, err = pc.ProfileIDByName(ctx, storagePolicyName)
+		if err != nil {
+			// Create a fake VMFS policy in PBM simulator
+			spec := pbmtypes.PbmCapabilityProfileCreateSpec{
+				Name:         storagePolicyName,
+				Description:  "Simulated VMFS storage policy",
+				ResourceType: pbmtypes.PbmProfileResourceType{ResourceType: "STORAGE"},
+				Constraints: &pbmtypes.PbmCapabilitySubProfileConstraints{
+					SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+						{
+							Name: "VMFS-SubProfile",
+							Capability: []pbmtypes.PbmCapabilityInstance{
+								{
+									Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+										Id:        "vmfs.eagerzeroedthick",
+										Namespace: "com.vmware.storage.volumeallocation",
+									},
+									Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+										{
+											PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+												{
+													Id:    "property-id",
+													Value: "Fully initialized",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			id, err := pc.CreateProfile(ctx, spec)
+			if err != nil {
+				t.Fatalf("failed to create VMFS policy: %v", err)
+			}
+			profileID = id.UniqueId
+		}
+	}
+
+	params[common.AttributeStoragePolicyID] = profileID
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: params,
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				},
+				AccessType: &csi.VolumeCapability_Block{
+					Block: &csi.VolumeCapability_BlockVolume{},
+				},
+			},
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{},
+	}
+
+	err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, "supports_shared_disks_with_VM_service_VMs")
+	if err != nil {
+		t.Fatal("failed to enable Workload_Domain_Isolation_Supported FSS")
+	}
+
+	// Create volume
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	if queryResult.Volumes[0].StoragePolicyId != profileID {
+		t.Fatalf("failed to match volume policy ID: %s", profileID)
+	}
+
+	// QueryAll.
+	queryFilter = cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{
+			{
+				Id: volID,
+			},
+		},
+	}
+	querySelection := cnstypes.CnsQuerySelection{}
+	queryResult, err = ct.vcenter.CnsClient.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	// Delete.
+	reqDelete := &csi.DeleteVolumeRequest{
+		VolumeId: volID,
+	}
+	_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Varify the volume has been deleted.
+	queryResult, err = ct.vcenter.CnsClient.QueryVolume(ctx, &queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
+	}
+
 }
 
 // TestWCPCreateVolumeWithZonalLabelPresentButNoStorageTopoType creates volume with zonal label present

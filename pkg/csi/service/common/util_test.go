@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
 
 var (
@@ -621,4 +622,107 @@ func TestGetClusterComputeResourceMoIds_SingleClusterPerAZ(t *testing.T) {
 	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(multiple).To(gomega.BeFalse())
 	gomega.Expect(moIDs).To(gomega.ContainElements("domain-c1", "domain-c2"))
+}
+
+func TestIsVmfsEagerZeroed(t *testing.T) {
+	tests := []struct {
+		name       string
+		profile    vsphere.SpbmPolicySubProfile
+		wantIsVmfs bool
+		wantIsEzt  bool
+	}{
+		{
+			name:       "VMFS eager zeroed",
+			profile:    makeProfile(makeRule(vmfsNamespace, vmfsNamespaceEztValue)),
+			wantIsVmfs: true,
+			wantIsEzt:  true,
+		},
+		{
+			name:       "VMFS not eager zeroed",
+			profile:    makeProfile(makeRule(vmfsNamespace, "THIN")),
+			wantIsVmfs: true,
+			wantIsEzt:  false,
+		},
+		{
+			name:       "Non-VMFS",
+			profile:    makeProfile(makeRule("NFS", "ANY")),
+			wantIsVmfs: false,
+			wantIsEzt:  false,
+		},
+		{
+			name:       "Empty rules",
+			profile:    makeProfile(),
+			wantIsVmfs: false,
+			wantIsEzt:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotVmfs, gotEzt := isVmfsEagerZeroed(tt.profile)
+			assert.Equal(t, tt.wantIsVmfs, gotVmfs)
+			assert.Equal(t, tt.wantIsEzt, gotEzt)
+		})
+	}
+}
+
+func TestVerifyStoragePolicyForVmfsWithEagerZeroedThick(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		policy      vsphere.SpbmPolicyContent
+		expectError bool
+	}{
+		{
+			name: "VMFS eager zeroed",
+			policy: makePolicy(
+				makeProfile(makeRule(vmfsNamespace, vmfsNamespaceEztValue)),
+			),
+			expectError: false,
+		},
+		{
+			name: "VMFS but not eager zeroed",
+			policy: makePolicy(
+				makeProfile(makeRule(vmfsNamespace, "THIN")),
+			),
+			expectError: true,
+		},
+		{
+			name: "Non-VMFS policy",
+			policy: makePolicy(
+				makeProfile(makeRule("NFS", "ANY")),
+			),
+			expectError: false,
+		},
+		{
+			name:        "Empty profiles",
+			policy:      makePolicy(),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyStoragePolicyForVmfsWithEagerZeroedThick(ctx, tt.policy, "test-policy")
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "It must be Thick Provision Eager Zero for RWX block volumes")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func makeRule(ns, value string) vsphere.SpbmPolicyRule {
+	return vsphere.SpbmPolicyRule{Ns: ns, Value: value}
+}
+
+func makeProfile(rules ...vsphere.SpbmPolicyRule) vsphere.SpbmPolicySubProfile {
+	return vsphere.SpbmPolicySubProfile{Rules: rules}
+}
+
+func makePolicy(profiles ...vsphere.SpbmPolicySubProfile) vsphere.SpbmPolicyContent {
+	return vsphere.SpbmPolicyContent{Profiles: profiles}
 }
