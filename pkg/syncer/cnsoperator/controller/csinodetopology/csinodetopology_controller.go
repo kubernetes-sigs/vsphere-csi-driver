@@ -18,6 +18,7 @@ package csinodetopology
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -40,10 +41,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
-	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
@@ -206,7 +207,6 @@ type ReconcileCSINodeTopology struct {
 	configInfo          *cnsconfig.ConfigurationInfo
 	recorder            record.EventRecorder
 	enableTKGsHAinGuest bool
-	isMultiVCFSSEnabled bool
 	vmOperatorClient    client.Client
 	supervisorNamespace string
 }
@@ -281,7 +281,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		nodeVM, err = nodeManager.GetNodeVMByNameAndUpdateCache(ctx, nodeID)
 	}
 	if err != nil {
-		if err == node.ErrNodeNotFound {
+		if errors.Is(err, node.ErrNodeNotFound) {
 			log.Warnf("Node %q is not yet registered in the node manager. Error: %+v", nodeID, err)
 			return reconcile.Result{}, err
 		}
@@ -316,7 +316,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		}
 
 		// Fetch topology labels for nodeVM.
-		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg, r.isMultiVCFSSEnabled)
+		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg)
 		if err != nil {
 			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM %q. Error: %v",
 				instance.Name, err)
@@ -485,28 +485,19 @@ func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *
 	return nil
 }
 
-func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine, cfg *cnsconfig.Config,
-	isMultiVCFSSEnabled bool) ([]csinodetopologyv1alpha1.TopologyLabel, error) {
+func getNodeTopologyInfo(ctx context.Context, nodeVM *cnsvsphere.VirtualMachine,
+	cfg *cnsconfig.Config) ([]csinodetopologyv1alpha1.TopologyLabel, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		vcenter *cnsvsphere.VirtualCenter
 		err     error
 	)
 	// Get VC instance.
-	if isMultiVCFSSEnabled {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, nodeVM.VirtualCenterHost, true)
-		if err != nil {
-			return nil, logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
-				nodeVM.VirtualCenterHost, err)
-		}
-	} else {
-		vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance with error: %v", err)
-			return nil, err
-		}
+	vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterHost(ctx, nodeVM.VirtualCenterHost, true)
+	if err != nil {
+		return nil, logger.LogNewErrorf(log, "failed to get vCenterInstance for vCenter Host: %q, err: %v",
+			nodeVM.VirtualCenterHost, err)
 	}
-
 	// Get tag manager instance.
 	tagManager, err := vcenter.GetTagManager(ctx)
 	if err != nil {
