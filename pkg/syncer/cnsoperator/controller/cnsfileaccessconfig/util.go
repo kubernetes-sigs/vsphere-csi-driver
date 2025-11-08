@@ -23,7 +23,7 @@ import (
 	"reflect"
 	"strconv"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 
@@ -36,13 +36,13 @@ import (
 // getVirtualMachine gets the virtual machine instance with a name on a SV
 // namespace.
 func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
-	vmName string, namespace string) (*vmoperatorv1alpha4.VirtualMachine, error) {
+	vmName string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := apitypes.NamespacedName{
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(ctx,
+	virtualMachine, err := utils.GetVirtualMachine(ctx,
 		vmKey, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)
@@ -58,7 +58,7 @@ func setInstanceOwnerRef(instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConf
 	vmUID apitypes.UID) {
 	bController := true
 	bOwnerDeletion := true
-	kind := reflect.TypeOf(vmoperatorv1alpha4.VirtualMachine{}).Name()
+	kind := reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name()
 	instance.OwnerReferences = []metav1.OwnerReference{
 		{
 			APIVersion:         "v1",
