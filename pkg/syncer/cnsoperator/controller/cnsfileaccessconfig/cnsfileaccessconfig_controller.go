@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -127,7 +127,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatorv1alpha4.GroupName)
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
 		log.Error(msg)
@@ -361,7 +361,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	vmOwnerRefExists := false
 	if len(instance.OwnerReferences) != 0 {
 		for _, ownerRef := range instance.OwnerReferences {
-			if ownerRef.Kind == reflect.TypeOf(vmoperatorv1alpha4.VirtualMachine{}).Name() &&
+			if ownerRef.Kind == reflect.TypeOf(vmoperatortypes.VirtualMachine{}).Name() &&
 				ownerRef.Name == instance.Spec.VMName && ownerRef.UID == vm.UID {
 				vmOwnerRefExists = true
 				break
@@ -502,7 +502,7 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 // permissions by setting the parameter removePermission to true or false
 // respectively. Returns error if any operation fails.
 func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx context.Context,
-	volumeID string, vm *vmoperatorv1alpha4.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig,
+	volumeID string, vm *vmoperatortypes.VirtualMachine, instance *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig,
 	removePermission bool) error {
 	log := logger.GetLogger(ctx)
 	tkgVMIP, err := r.getVMExternalIP(ctx, vm)
@@ -594,7 +594,7 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 
 // getVMExternalIP helps to fetch the external facing IP for a given TKG VM.
 func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
-	vm *vmoperatorv1alpha4.VirtualMachine) (string, error) {
+	vm *vmoperatortypes.VirtualMachine) (string, error) {
 	log := logger.GetLogger(ctx)
 	networkProvider, err := cnsoperatorutil.GetNetworkProvider(ctx)
 	if err != nil {

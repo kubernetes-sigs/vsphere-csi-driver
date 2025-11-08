@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -97,7 +97,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Infof("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		restClientConfigForSupervisor :=
 			k8s.GetRestClientConfigForSupervisor(ctx, configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
-		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatorv1alpha4.GroupName)
+		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
 			return err
@@ -427,8 +427,8 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		Namespace: supervisorNamespace,
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
-	log.Info("fetching virtual machines with all versions")
-	virtualMachine, err := utils.GetVirtualMachineAllApiVersions(
+	log.Info("fetching virtual machine")
+	virtualMachine, err := utils.GetVirtualMachine(
 		ctx, vmKey, vmOperatorClient)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,

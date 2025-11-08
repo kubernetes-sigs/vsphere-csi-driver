@@ -26,9 +26,7 @@ import (
 	"time"
 
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -221,7 +219,7 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			log.Errorf("failed to add to scheme for %s with err: %+v", ccV1beta1.GroupVersion.Group, err)
 			return nil, err
 		}
-	case vmoperatorv1alpha4.GroupName:
+	case vmoperatortypes.GroupName:
 		log.Info("adding scheme for vm-operator version v1alpha1")
 		err = vmoperatorv1alpha1.AddToScheme(scheme)
 		if err != nil {
@@ -229,19 +227,7 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 			return nil, err
 		}
 		log.Info("adding scheme for vm-operator version v1alpha2")
-		err = vmoperatorv1alpha2.AddToScheme(scheme)
-		if err != nil {
-			log.Errorf("failed to add to scheme with err: %+v", err)
-			return nil, err
-		}
-		log.Info("adding scheme for vm-operator version v1alpha3")
-		err = vmoperatorv1alpha3.AddToScheme(scheme)
-		if err != nil {
-			log.Errorf("failed to add to scheme with err: %+v", err)
-			return nil, err
-		}
-		log.Info("adding scheme for vm-operator version v1alpha4")
-		err = vmoperatorv1alpha4.AddToScheme(scheme)
+		err = vmoperatortypes.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
@@ -329,16 +315,8 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 	log := logger.GetLogger(ctx)
 
 	scheme := runtime.NewScheme()
-	log.Info("adding scheme for vm-operator versions v1alpha1, v1alpha2, v1alpha3, v1alpha4")
-	err = vmoperatorv1alpha4.AddToScheme(scheme)
-	if err != nil {
-		log.Errorf("failed to add to scheme with err: %+v", err)
-	}
-	err = vmoperatorv1alpha3.AddToScheme(scheme)
-	if err != nil {
-		log.Errorf("failed to add to scheme with err: %+v", err)
-	}
-	err = vmoperatorv1alpha2.AddToScheme(scheme)
+	log.Info("adding scheme for vm-operator versions v1alpha1, v1alpha2")
+	err = vmoperatortypes.AddToScheme(scheme)
 	if err != nil {
 		log.Errorf("failed to add to scheme with err: %+v", err)
 	}
@@ -348,8 +326,8 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 	}
 
 	gvk := schema.GroupVersionKind{
-		Group:   vmoperatorv1alpha1.GroupVersion.Group,
-		Version: vmoperatorv1alpha1.GroupVersion.Version,
+		Group:   vmoperatortypes.GroupVersion.Group,
+		Version: vmoperatortypes.GroupVersion.Version,
 		Kind:    virtualMachineKind,
 	}
 
