@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -427,7 +427,7 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
 	log.Info("fetching virtual machines with all versions")
-	virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(
+	virtualMachine, _, err := utils.GetVirtualMachine(
 		ctx, vmKey, vmOperatorClient)
 	if err != nil {
 		return nil, logger.LogNewErrorf(log,
