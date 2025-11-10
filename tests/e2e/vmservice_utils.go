@@ -42,7 +42,6 @@ import (
 	vmopv3common "github.com/vmware-tanzu/vm-operator/api/v1alpha3/common"
 	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	vmopv4common "github.com/vmware-tanzu/vm-operator/api/v1alpha4/common"
-	vmopv5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -1655,9 +1654,9 @@ func getVmsvcVM4(
 
 // getVmsvcVM fetches the vm from the specified ns
 func getVmsvcVM5(
-	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) (*vmopv5.VirtualMachine, error) {
+	ctx context.Context, c ctlrclient.Client, namespace string, vmName string) (*vmopv4.VirtualMachine, error) {
 	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}
-	vm := &vmopv5.VirtualMachine{}
+	vm := &vmopv4.VirtualMachine{}
 	err := c.Get(ctx, instanceKey, vm)
 	return vm, err
 }
