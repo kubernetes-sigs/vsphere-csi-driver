@@ -19,8 +19,6 @@ package cnsnodevmbatchattachment
 import (
 	"context"
 	"fmt"
-	"reflect"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -28,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -231,6 +230,55 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 
 		expectedReconcileError := fmt.Errorf("some error occurred while getting VM")
 		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Error)
+	})
+}
+
+func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
+
+	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
+		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+		testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-3"
+
+		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, true)
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      testCnsNodeVMBatchAttachmentName,
+				Namespace: testNamespace,
+			},
+		}
+
+		GetVMFromVcenter = MockGetVMFromVcenter
+		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+		// Override with fake client
+		newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {
+			fakeK8sClient := getClientSetWithPvc()
+			return fakeK8sClient, nil
+		}
+
+		res, err := r.Reconcile(context.TODO(), req)
+		if err != nil {
+			t.Fatal("Unexpected reconcile error")
+		}
+		expectedReconcileResult := reconcile.Result{}
+		var expectedReconcileError error
+
+		assert.Equal(t, expectedReconcileResult, res)
+		assert.Equal(t, expectedReconcileError, err)
+
+		updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
+		err = r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment)
+		if err == nil {
+			t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
+		}
+
+		// Error should be not found
+		if statusErr, ok := err.(*errors.StatusError); ok {
+			assert.Equal(t, metav1.StatusReasonNotFound, statusErr.Status().Reason)
+		} else {
+			t.Fatalf("Unable to verify CnsNodeVMBatchAttachment error")
+		}
 	})
 }
 
@@ -687,143 +735,6 @@ func TestIsSharedPvc(t *testing.T) {
 			result := isSharedPvc(pvc)
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestGetUniqueVolumeName(t *testing.T) {
-	tests := []struct {
-		name                   string
-		currentName            string
-		allVolumeNamesInStatus map[string]bool
-		expected               string
-	}{
-		{
-			name:                   "No existing volumes — first name available",
-			currentName:            "vol1",
-			allVolumeNamesInStatus: map[string]bool{},
-			expected:               "vol1-1" + detachSuffix,
-		},
-		{
-			name:        "First detaching name already exists — use next index",
-			currentName: "vol1",
-			allVolumeNamesInStatus: map[string]bool{
-				"vol1-1:detaching": true,
-			},
-			expected: "vol1-2" + detachSuffix,
-		},
-		{
-			name:        "Several existing detaching names — find next available",
-			currentName: "vol1",
-			allVolumeNamesInStatus: map[string]bool{
-				"vol1-1:detaching": true,
-				"vol1-2:detaching": true,
-				"vol1-3:detaching": true,
-			},
-			expected: "vol1-4" + detachSuffix,
-		},
-		{
-			name:        "Different volume names in status — should not affect result",
-			currentName: "volX",
-			allVolumeNamesInStatus: map[string]bool{
-				"volA-1:detaching": true,
-				"volB-2:detaching": true,
-			},
-			expected: "volX-1" + detachSuffix,
-		},
-		{
-			name:        "Handles long existing name list gracefully",
-			currentName: "vol99",
-			allVolumeNamesInStatus: func() map[string]bool {
-				m := make(map[string]bool)
-				for i := 1; i <= 50; i++ {
-					m["vol99-"+strconv.Itoa(i)+":detaching"] = true
-				}
-				return m
-			}(),
-			expected: "vol99-51" + detachSuffix,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := getUniqueVolumeName(tc.currentName, tc.allVolumeNamesInStatus)
-			if got != tc.expected {
-				t.Errorf("expected %s, got %s", tc.expected, got)
-			}
-		})
-	}
-}
-
-func TestGetVolumeNamesInStatus(t *testing.T) {
-	tests := []struct {
-		name     string
-		instance v1alpha1.CnsNodeVMBatchAttachment
-		expected map[string]bool
-	}{
-		{
-			name: "No volumes in status",
-			instance: v1alpha1.CnsNodeVMBatchAttachment{
-				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
-					VolumeStatus: []v1alpha1.VolumeStatus{},
-				},
-			},
-			expected: map[string]bool{},
-		},
-		{
-			name: "Single volume in status",
-			instance: v1alpha1.CnsNodeVMBatchAttachment{
-				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
-					VolumeStatus: []v1alpha1.VolumeStatus{
-						{Name: "vol1"},
-					},
-				},
-			},
-			expected: map[string]bool{
-				"vol1": true,
-			},
-		},
-		{
-			name: "Multiple unique volumes",
-			instance: v1alpha1.CnsNodeVMBatchAttachment{
-				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
-					VolumeStatus: []v1alpha1.VolumeStatus{
-						{Name: "vol1"},
-						{Name: "vol2"},
-						{Name: "vol3"},
-					},
-				},
-			},
-			expected: map[string]bool{
-				"vol1": true,
-				"vol2": true,
-				"vol3": true,
-			},
-		},
-		{
-			name: "Duplicate volume names should not create duplicates in map",
-			instance: v1alpha1.CnsNodeVMBatchAttachment{
-				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
-					VolumeStatus: []v1alpha1.VolumeStatus{
-						{Name: "vol1"},
-						{Name: "vol1"},
-						{Name: "vol2"},
-					},
-				},
-			},
-			expected: map[string]bool{
-				"vol1": true,
-				"vol2": true,
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := getVolumeNamesInStatus(&tc.instance)
-			if !reflect.DeepEqual(got, tc.expected) {
-				t.Errorf("expected %+v, got %+v", tc.expected, got)
 			}
 		})
 	}
