@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -358,21 +359,34 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 				cluster, masterIp, err)
 		}
 		clusDetails = nil
-		if !strings.Contains(clusterResult.Stdout, "10.") {
-			if clusterResult.Stdout != "" {
-				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
-				clusDetails = append(clusDetails, clusListTemp...)
+		// ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+		ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}$`)
+		matches := ipRegex.FindAllString(clusterResult.Stdout, -1)
+		framework.Logf("Matched IPs: %v", matches)
+		// if !ipRegex.MatchString(clusterResult.Stdout) {
+		// 	// framework.Logf("Fetching cluster details using regex")
+		// 	if clusterResult.Stdout != "" {
+		// 		clusListTemp := strings.Split(clusterResult.Stdout, "\n")
+		// 		clusDetails = append(clusDetails, clusListTemp...)
+		// 	}
+		// 	for i := 0; i < len(clusDetails)-1; i++ {
+		// 		clusterList = append(clusterList, clusDetails[i])
+		// 	}
+		// 	clusDetails = nil
+		// } else {
+		// 	for i := 0; i < len(clusterNames)-1; i++ {
+		// 		clusterList = append(clusterList, clusterNames[i])
+		// 	}
+		// 	clusDetails = nil
+		// }
+		clusListTemp := strings.Split(clusterResult.Stdout, "\n")
+		for _, clusterVal := range clusListTemp {
+			if ipRegex.MatchString(clusterVal) {
+				framework.Logf("Matching IPs found")
+				clusterList = append(clusterList, clusterVal)
 			}
-			for i := 0; i < len(clusDetails)-1; i++ {
-				clusterList = append(clusterList, clusDetails[i])
-			}
-			clusDetails = nil
-		} else {
-			for i := 0; i < len(clusterNames)-1; i++ {
-				clusterList = append(clusterList, clusterNames[i])
-			}
-			clusDetails = nil
 		}
+
 	}
 	return clusterList, nil
 }
@@ -382,7 +396,8 @@ func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluste
 	var hostsList, hostList []string
 	framework.Logf("Fetching ESXi host details")
 	for i := 0; i < len(cluster); i++ {
-		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
+		// hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
+		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " | grep -Eo '[0-9]{1,3}(\\.[0-9]{1,3}){3}'"
 		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
 		if err != nil && hostsResult.Code != 0 {
 			fssh.LogResult(hostsResult)
