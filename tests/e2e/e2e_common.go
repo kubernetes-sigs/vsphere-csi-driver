@@ -167,7 +167,7 @@ const (
 	passorwdFilePath                          = "/etc/vmware/wcp/.storageUser"
 	podContainerCreatingState                 = "ContainerCreating"
 	poll                                      = 2 * time.Second
-	pollTimeout                               = 10 * time.Minute
+	pollTimeout                               = 20 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
