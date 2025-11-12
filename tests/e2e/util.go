@@ -4755,11 +4755,13 @@ func getRestConfigClient() *rest.Config {
 	var err error
 	if restConfig == nil {
 		if supervisorCluster || vanillaCluster {
+			framework.Logf("Reading Kubeconfig for SVC or vanilla")
 			k8senv := GetAndExpectStringEnvVar("KUBECONFIG")
 			restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 		}
 		if guestCluster {
 			if k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG"); k8senv != "" {
+				framework.Logf("Reading SUPERVISOR_CLUSTER_KUBE_CONFIG for GC")
 				restConfig, err = clientcmd.BuildConfigFromFlags("", k8senv)
 			}
 		}
