@@ -811,7 +811,8 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		}
 		virtualMachine = &vmoperatorv1alpha5.VirtualMachine{}
 	}
-
+	log.Infof("check if volume attached to virtualmachine name %s, namespace %s",
+		virtualMachine.Name, virtualMachine.Namespace)
 	for _, volume := range virtualMachine.Status.Volumes {
 		if volume.Name == req.VolumeId && volume.Attached && volume.DiskUUID != "" {
 			diskUUID = volume.DiskUUID
