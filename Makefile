@@ -148,7 +148,7 @@ $(SYNCER_BIN): $(SYNCER_BIN_SRCS) syncer_manifest
 	@touch $@
 
 # The default build target.
-build build-bins: $(CSI_BIN) $(CSI_BIN_WINDOWS) $(SYNCER_BIN)
+build build-bins: $(CSI_BIN) $(CSI_BIN_WINDOWS) $(SYNCER_BIN) coverage-check
 build-with-docker:
 	hack/make.sh
 
@@ -196,7 +196,7 @@ dist: dist-csi dist-syncer
 .PHONY: deploy
 deploy: | $(DOCKER_SOCK)
 	$(MAKE) build-bins
-	$(MAKE) unit-test
+	$(MAKE) coverage-check
 	$(MAKE) push-images
 
 ################################################################################
@@ -207,7 +207,8 @@ clean:
 	@rm -f Dockerfile*
 	rm -rf $(CSI_BIN) vsphere-csi-*.tar.gz vsphere-csi-*.zip \
 		$(SYNCER_BIN) vsphere-syncer-*.tar.gz vsphere-syncer-*.zip \
-		image-*.tar image-*.d $(DIST_OUT)/* $(BIN_OUT)/* .build/windows-driver.tar
+		image-*.tar image-*.d $(DIST_OUT)/* $(BIN_OUT)/* .build/windows-driver.tar \
+		$(COVERAGE_OUT) $(COVERAGE_HTML) $(BUILD_OUT)/coverage-summary.txt cover.out
 	GO111MODULE=off go clean -i -x . ./cmd/$(CSI_BIN_NAME) ./cmd/$(SYNCER_BIN_NAME)
 
 .PHONY: clean-d
@@ -276,16 +277,48 @@ endif # ifndef X_BUILD_DISABLED
 ##                                 TESTING                                    ##
 ################################################################################
 ifndef PKGS_WITH_TESTS
-export PKGS_WITH_TESTS := $(sort $(shell find . -path ./tests -prune -o -name "*_test.go" -type f -exec dirname \{\} \;))
+export PKGS_WITH_TESTS := $(sort $(shell find . -path ./tests -prune -o -path ./e2e -prune -o -name "*_test.go" -type f -exec dirname \{\} \;))
 endif
 TEST_FLAGS ?= -v -count=1
+COVERAGE_OUT ?= $(BUILD_OUT)/coverage.out
+COVERAGE_HTML ?= $(BUILD_OUT)/coverage.html
+COVERAGE_THRESHOLD ?= 75
+
 .PHONY: unit build-unit-tests
 unit unit-test:
 	env -u VSPHERE_SERVER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE go test $(TEST_FLAGS) $(PKGS_WITH_TESTS)
+
 unit-cover:
 	env -u VSPHERE_SERVER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE go test $(TEST_FLAGS) $(PKGS_WITH_TESTS) && go tool cover -html=cover.out
+
 build-unit-tests:
 	$(foreach pkg,$(PKGS_WITH_TESTS),go test $(TEST_FLAGS) -c $(pkg); )
+
+# Coverage targets with threshold checking
+.PHONY: test-coverage coverage-report coverage-check coverage-html
+test-coverage: build-dirs
+	@echo "Running unit tests with coverage..."
+	@mkdir -p $(BUILD_OUT)
+	env -u VSPHERE_SERVER -u VSPHERE_DATACENTER -u VSPHERE_PASSWORD -u VSPHERE_USER -u VSPHERE_STORAGE_POLICY_NAME -u KUBECONFIG -u WCP_ENDPOINT -u WCP_PORT -u WCP_NAMESPACE -u TOKEN -u CERTIFICATE \
+		go test $(TEST_FLAGS) -coverprofile=$(COVERAGE_OUT) -covermode=atomic $(PKGS_WITH_TESTS)
+
+coverage-report: test-coverage
+	@echo "Generating coverage report..."
+	go tool cover -func=$(COVERAGE_OUT) | tee $(BUILD_OUT)/coverage-summary.txt
+
+coverage-html: test-coverage
+	@echo "Generating HTML coverage report..."
+	go tool cover -html=$(COVERAGE_OUT) -o $(COVERAGE_HTML)
+	@echo "HTML coverage report generated at: $(COVERAGE_HTML)"
+
+coverage-check: coverage-report
+	@echo "Analyzing coverage quality (excluding 0% functions)..."
+	@python3 scripts/check-coverage.py $(BUILD_OUT)/coverage-summary.txt $(COVERAGE_THRESHOLD)
+
+# Full coverage workflow with threshold enforcement
+.PHONY: coverage-full
+coverage-full: coverage-check coverage-html
+	@echo "Coverage analysis complete. Check $(COVERAGE_HTML) for detailed report."
 
 INTEGRATION_TEST_PKGS ?=
 .PHONY: integration-unit-test
@@ -349,7 +382,7 @@ endif
 # The default test target.
 .PHONY: test test-cover build-tests
 test: unit
-test-cover: unit-cover
+test-cover: coverage-full
 build-tests: build-unit-tests
 
 .PHONY: cover
