@@ -305,8 +305,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
+			recordEvent(batchAttachCtx, r, instance, v1.EventTypeWarning, patchErr.Error())
 			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", instance.Name, patchErr)
-			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		log.Infof("Successfully removed finalizer %s from instance %s",
 			cnsoperatortypes.CNSFinalizer, request.NamespacedName.String())
@@ -315,7 +316,10 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 
-		return r.completeReconciliationWithSuccess(batchAttachCtx, instance, request.NamespacedName, timeout)
+		msg := fmt.Sprintf("ReconcileCnsNodeVMBatchAttachment: Successfully processed instance %s",
+			request.NamespacedName.String())
+		recordEvent(batchAttachCtx, r, instance, v1.EventTypeNormal, msg)
+		return reconcile.Result{}, nil
 	}
 
 	// The CR is not being deleted, so call attach and detach for volumes.
