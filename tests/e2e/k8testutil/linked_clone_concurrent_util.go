@@ -70,7 +70,7 @@ func CreateSnapshotInParallel(ctx context.Context, e2eTestConfig *config.E2eTest
 }
 
 // Expected to create few linked clones before calling this method
-func CreateDeleteLinkedClonesInParallel(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, snapshot *snapV1.VolumeSnapshot, pvcList []*corev1.PersistentVolumeClaim, iteration int) (chan *corev1.PersistentVolumeClaim, chan []*corev1.PersistentVolume) {
+func CreateDeleteLinkedClonesInParallel(ctx context.Context, client clientset.Interface, namespace string, storageclass *storagev1.StorageClass, snapshot *snapV1.VolumeSnapshot, pvcList []*corev1.PersistentVolumeClaim, iteration int, e2eTestConfig *config.E2eTestConfig) (chan *corev1.PersistentVolumeClaim, chan []*corev1.PersistentVolume) {
 	var wg sync.WaitGroup
 
 	lcPvcCreated := make(chan *corev1.PersistentVolumeClaim, iteration)
@@ -83,7 +83,7 @@ func CreateDeleteLinkedClonesInParallel(ctx context.Context, client clientset.In
 
 		go func(id int) {
 			defer wg.Done()
-			linkdeClonePvc, lcPv := CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, snapshot.Name)
+			linkdeClonePvc, lcPv := CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, snapshot.Name, e2eTestConfig)
 			lcPvcCreated <- linkdeClonePvc
 			lcPvCreated <- lcPv
 		}(i)

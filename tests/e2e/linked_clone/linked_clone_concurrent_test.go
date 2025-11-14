@@ -134,12 +134,12 @@ var _ bool = ginkgo.Describe("[linked-clone-concurrent] Linked-Clone-concurrent"
 		var lcToDelete []*corev1.PersistentVolumeClaim
 		valSnap := <-volumeSnap
 		for range NO_OF_LC_TO_CREATE {
-			linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, valSnap.Name)
+			linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, client, namespace, storageclass, valSnap.Name, e2eTestConfig)
 			lcToDelete = append(lcToDelete, linkdeClonePvc)
 		}
 
 		//Create & delete 3 linked clones of 3 snapshots concurrently.
-		lcPvcCreated, lcPvCreated := k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, lcToDelete, NO_OF_LC_TO_CREATE)
+		lcPvcCreated, lcPvCreated := k8testutil.CreateDeleteLinkedClonesInParallel(ctx, client, namespace, storageclass, valSnap, lcToDelete, NO_OF_LC_TO_CREATE, e2eTestConfig)
 
 		// convert chan to list
 		var lcPvcList []*corev1.PersistentVolumeClaim

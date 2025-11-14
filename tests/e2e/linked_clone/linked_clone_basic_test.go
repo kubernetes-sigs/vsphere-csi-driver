@@ -134,8 +134,15 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		}
 
 		// Delete namespace
-		k8testutil.DelTestWcpNs(e2eTestConfig, vcRestSessionId, namespace)
-		gomega.Expect(k8testutil.WaitForNamespaceToGetDeleted(ctx, client, namespace, constants.Poll, constants.PollTimeout)).To(gomega.Succeed())
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			k8testutil.DelTestWcpNs(e2eTestConfig, vcRestSessionId, namespace)
+			gomega.Expect(k8testutil.WaitForNamespaceToGetDeleted(ctx, client, namespace, constants.Poll, constants.PollTimeout)).To(gomega.Succeed())
+		} else {
+			err = client.CoreV1().Namespaces().Delete(ctx, namespace, *metav1.NewDeleteOptions(0))
+			if !apierrors.IsNotFound(err) {
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+		}
 
 	})
 
@@ -175,13 +182,15 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Get the storage quota used before LC creation
 		quota := make(map[string]*resource.Quantity)
-		quota["totalQuotaUsedBefore"], _, quota["pvc_storagePolicyQuotaBefore"], _,
-			quota["pvc_storagePolicyUsageBefore"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, false)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedBefore"], _, quota["pvc_storagePolicyQuotaBefore"], _,
+				quota["pvc_storagePolicyUsageBefore"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, false)
+		}
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		lcPod, _ := k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
@@ -191,12 +200,14 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// List volume
 		k8testutil.ValidateLcInListVolume(ctx, e2eTestConfig, f.ClientSet, linkdeClonePvc, namespace)
 
-		diskSizeInMbStr := k8testutil.ConvertInt64ToStrMbFormat(constants.DiskSizeInMb)
-		sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
-			storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName,
-			[]string{diskSizeInMbStr}, quota["totalQuotaUsedBefore"], quota["pvc_storagePolicyQuotaBefore"],
-			quota["pvc_storagePolicyUsageBefore"], false)
-		gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			diskSizeInMbStr := k8testutil.ConvertInt64ToStrMbFormat(constants.DiskSizeInMb)
+			sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
+				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName,
+				[]string{diskSizeInMbStr}, quota["totalQuotaUsedBefore"], quota["pvc_storagePolicyQuotaBefore"],
+				quota["pvc_storagePolicyUsageBefore"], false)
+			gomega.Expect(sp_quota_pvc_status && sp_usage_pvc_status).NotTo(gomega.BeFalse())
+		}
 
 		// Delete Pod attached to linked-clone
 		err = fpod.DeletePodWithWait(ctx, client, lcPod)
@@ -210,14 +221,16 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		time.Sleep(constants.HealthStatusPollInterval)
 
 		// get the quota post LC deletion
-		_, _, quota["storagePolicyQuotaAfterCleanup"], _, quota["storagePolicyUsageAfterCleanup"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, false)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			_, _, quota["storagePolicyQuotaAfterCleanup"], _, quota["storagePolicyUsageAfterCleanup"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, false)
 
-		k8testutil.ExpectEqual(quota["storagePolicyQuotaAfterCleanup"], quota["pvc_storagePolicyQuotaBefore"],
-			"Before and After values of storagePolicy-Quota CR should match")
-		k8testutil.ExpectEqual(quota["storagePolicyUsageAfterCleanup"], quota["pvc_storagePolicyUsageBefore"],
-			"Before and After values of storagePolicy-Usage CR should match")
+			k8testutil.ExpectEqual(quota["storagePolicyQuotaAfterCleanup"], quota["pvc_storagePolicyQuotaBefore"],
+				"Before and After values of storagePolicy-Quota CR should match")
+			k8testutil.ExpectEqual(quota["storagePolicyUsageAfterCleanup"], quota["pvc_storagePolicyUsageBefore"],
+				"Before and After values of storagePolicy-Usage CR should match")
+		}
 
 		// TODO volume usability
 
@@ -240,42 +253,46 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, true)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
 
 		// Get the snapshot usage before creating it
 		quota := make(map[string]*resource.Quantity)
-		quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
-			quota["snap_storagePolicyUsageBefore"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
+				quota["snap_storagePolicyUsageBefore"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		}
 
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
 		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
 
 		// Check the quota usage for snapshot
-		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
-			quota["snap_storagePolicyUsageAfter"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
+				quota["snap_storagePolicyUsageAfter"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
 
-		// Get the numeric part
-		snap_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaAfter"]))
-		gomega.Expect(err1).To(gomega.BeNil())
-		snap_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageAfter"]))
-		gomega.Expect(err2).To(gomega.BeNil())
+			// Get the numeric part
+			snap_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaAfter"]))
+			gomega.Expect(err1).To(gomega.BeNil())
+			snap_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageAfter"]))
+			gomega.Expect(err2).To(gomega.BeNil())
 
-		snap_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaBefore"]))
-		gomega.Expect(err3).To(gomega.BeNil())
-		snap_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageBefore"]))
-		gomega.Expect(err4).To(gomega.BeNil())
+			snap_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaBefore"]))
+			gomega.Expect(err3).To(gomega.BeNil())
+			snap_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyUsageBefore"]))
+			gomega.Expect(err4).To(gomega.BeNil())
 
-		// Validate storageQuota increased
-		gomega.Expect(snap_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", snap_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
-		gomega.Expect(snap_storagePolicyUsageAfter).To(gomega.BeNumerically(">", snap_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+			// Validate storageQuota increased
+			gomega.Expect(snap_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", snap_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
+			gomega.Expect(snap_storagePolicyUsageAfter).To(gomega.BeNumerically(">", snap_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+		}
 
 		// TODO volume usability
 
@@ -301,7 +318,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
@@ -311,11 +328,12 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Get the snapshot usage before creating it
 		quota := make(map[string]*resource.Quantity)
-		quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
-			quota["snap_storagePolicyUsageBefore"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
-
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedBefore"], _, quota["snap_storagePolicyQuotaBefore"], _,
+				quota["snap_storagePolicyUsageBefore"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		}
 		// Create snapshot from LC_PVC
 		framework.Logf("Create snapshot from LC_PVC ")
 		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, lcPv, constants.DiskSize)
@@ -324,12 +342,14 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		time.Sleep(constants.HealthStatusPollInterval)
 
 		// Check the quota usage for snapshot
-		quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
-			quota["snap_storagePolicyUsageAfter"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedAfter"], _, quota["snap_storagePolicyQuotaAfter"], _,
+				quota["snap_storagePolicyUsageAfter"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, false)
+		}
 
-			// TODO write data to get the snap quota to increase
+		// TODO write data to get the snap quota to increase
 		/*
 			// Get the numeric part
 			snap_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["snap_storagePolicyQuotaAfter"]))
@@ -365,7 +385,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, pv, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
@@ -407,7 +427,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, pv, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
 
 		// create linked clone PVC and verify its bound
-		_, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		_, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Relocate the source PVC
 		ginkgo.By("Relocate source volume from one datastore to another datastore using" +
@@ -444,7 +464,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		srcPvc, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, false, false)
 
 		// create linked clone PVC and verify its bound
-		lcPvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		lcPvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		//create pod attaching to src-pvc and lc, expect it to fail
 		_, err = k8testutil.CreatePod(ctx, e2eTestConfig, client, namespace, nil, []*corev1.PersistentVolumeClaim{srcPvc, lcPvc}, false,
@@ -467,10 +487,10 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		//create another linked clone PVC and verify its bound
-		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
 
@@ -598,7 +618,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		volumeSnapshot, _ := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, pvc, []*corev1.PersistentVolume{pv}, constants.DiskSize)
 
 		// create linked clone PVC and verify its bound
-		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1}, constants.DiskSize)
 
@@ -638,7 +658,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// create linked clone PVC and verify its bound
-		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, staticSnapshot.Name)
+		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, staticSnapshot.Name, e2eTestConfig)
 
 		framework.Logf("Ending test: Verify linked clone can be created on the static snapshot")
 
@@ -656,7 +676,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Restore the volume using above snapshot
 		ginkgo.By("Restore snapshot to create a new volume")
@@ -667,7 +687,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		volumeSnapshot, _ := k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, restoredPvc, restoredPV, constants.DiskSize)
 
 		// create linked clone PVC and verify its bound
-		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		_, _ = k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		framework.Logf("Ending test: Validate the LC creation passes on the restored volume")
 
@@ -685,7 +705,7 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
@@ -746,10 +766,12 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// Get the storage quota used before LC creation
 		quota := make(map[string]*resource.Quantity)
-		quota["totalQuotaUsedBefore"], _, quota["pvc_storagePolicyQuotaBefore"], _,
-			quota["pvc_storagePolicyUsageBefore"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, true)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedBefore"], _, quota["pvc_storagePolicyQuotaBefore"], _,
+				quota["pvc_storagePolicyUsageBefore"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, true)
+		}
 
 		// create linked clone PVC and verify its bound
 		linkdeClonePvc, err := k8testutil.CreateLinkedClonePvc(ctx, client, namespace, storageclassWffc, volumeSnapshot.Name)
@@ -767,26 +789,27 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		_, _ = k8testutil.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, linkdeClonePvc, pvList, constants.DiskSize)
 
 		// Check the PVC usage quota increased
-		quota["totalQuotaUsedAfter"], _, quota["pvc_storagePolicyQuotaAfter"], _,
-			quota["pvc_storagePolicyUsageAfter"], _ =
-			k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-				storageclass.Name, namespace, constants.SnapshotUsage, constants.SnapshotExtensionName, true)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			quota["totalQuotaUsedAfter"], _, quota["pvc_storagePolicyQuotaAfter"], _,
+				quota["pvc_storagePolicyUsageAfter"], _ =
+				k8testutil.GetStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
+					storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName, true)
 
-		// Get the numeric part
-		pvc_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaAfter"]))
-		gomega.Expect(err1).To(gomega.BeNil())
-		pvc_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageAfter"]))
-		gomega.Expect(err2).To(gomega.BeNil())
+			// Get the numeric part
+			pvc_storagePolicyQuotaAfter, err1 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaAfter"]))
+			gomega.Expect(err1).To(gomega.BeNil())
+			pvc_storagePolicyUsageAfter, err2 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageAfter"]))
+			gomega.Expect(err2).To(gomega.BeNil())
 
-		pvc_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaBefore"]))
-		gomega.Expect(err3).To(gomega.BeNil())
-		pvc_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageBefore"]))
-		gomega.Expect(err4).To(gomega.BeNil())
+			pvc_storagePolicyQuotaBefore, err3 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyQuotaBefore"]))
+			gomega.Expect(err3).To(gomega.BeNil())
+			pvc_storagePolicyUsageBefore, err4 := k8testutil.ParseMi(fmt.Sprintf("%v", quota["pvc_storagePolicyUsageBefore"]))
+			gomega.Expect(err4).To(gomega.BeNil())
 
-		// Validate storageQuota increased
-		gomega.Expect(pvc_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", pvc_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
-		gomega.Expect(pvc_storagePolicyUsageAfter).To(gomega.BeNumerically(">", pvc_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
-
+			// Validate storageQuota increased
+			gomega.Expect(pvc_storagePolicyQuotaAfter).To(gomega.BeNumerically(">", pvc_storagePolicyQuotaBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyQuotaAfter"], quota["snap_storagePolicyQuotaBefore"])
+			gomega.Expect(pvc_storagePolicyUsageAfter).To(gomega.BeNumerically(">", pvc_storagePolicyUsageBefore), "Expected %v to be greater than %v", quota["snap_storagePolicyUsageAfter"], quota["snap_storagePolicyUsageBefore"])
+		}
 		framework.Logf("Ending test: Validate LC PVC-Pod can be created with WFFC binding")
 
 	})

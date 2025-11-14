@@ -164,7 +164,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		_, _, volumeSnapshot := k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfigvm, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfigvm)
 
 		ginkgo.By("Create vm service vm")
 		_, vm, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -207,7 +207,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfigvm)
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -267,7 +267,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfigvm)
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -315,7 +315,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfigvm)
 
 		ginkgo.By("Create vm service vm")
 		_, vmLc, _, err := vmservice_vm.CreateVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -369,7 +369,7 @@ var _ bool = ginkgo.Describe("[linked-clone-vms] Linked-Clone-vms", func() {
 			[]*corev1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfigvm)
 
 		// attch parent vm to lc-vm
 		ginkgo.By("Attach LC_PVC to vm")

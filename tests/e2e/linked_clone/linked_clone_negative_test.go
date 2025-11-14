@@ -113,7 +113,7 @@ var _ bool = ginkgo.Describe("[linked-clone-Negative] Linked-Clone-Negative", fu
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		//Perform offline expansion
 		currentPvcSize := linkdeClonePvc.Spec.Resources.Requests[corev1.ResourceStorage]
@@ -154,7 +154,7 @@ var _ bool = ginkgo.Describe("[linked-clone-Negative] Linked-Clone-Negative", fu
 		_, _, volumeSnapshot = k8testutil.CreatePvcPodAndSnapshot(ctx, e2eTestConfig, client, namespace, storageclass, true, false)
 
 		// create linked clone PVC and verify its bound
-		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name)
+		linkdeClonePvc, lcPv := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
 		// Create and attach pod to linked clone PVC
 		_, _ = k8testutil.CreatePodForPvc(ctx, e2eTestConfig, f.ClientSet, namespace, []*corev1.PersistentVolumeClaim{linkdeClonePvc}, true, false)
