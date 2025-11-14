@@ -138,7 +138,7 @@ type PersistentVolumeClaimStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=batchattach
-// +kubebuilder:printcolumn:name="NodeUUID",type="string",JSONPath=".spec.nodeUUID"
+// +kubebuilder:printcolumn:name="InstanceUUID",type="string",JSONPath=".spec.instanceUUID"
 
 // CnsNodeVMBatchAttachment is the Schema for the cnsnodevmbatchattachments API
 type CnsNodeVMBatchAttachment struct {

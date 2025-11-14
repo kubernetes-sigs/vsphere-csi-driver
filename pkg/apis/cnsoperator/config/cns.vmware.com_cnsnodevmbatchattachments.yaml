@@ -17,8 +17,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.nodeUUID
-      name: NodeUUID
+    - jsonPath: .spec.instanceUUID
+      name: InstanceUUID
       type: string
     name: v1alpha1
     schema:

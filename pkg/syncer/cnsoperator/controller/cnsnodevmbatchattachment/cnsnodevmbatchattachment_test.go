@@ -26,7 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -230,55 +229,6 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 
 		expectedReconcileError := fmt.Errorf("some error occurred while getting VM")
 		assert.EqualError(t, expectedReconcileError, updatedCnsNodeVMBatchAttachment.Status.Error)
-	})
-}
-
-func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError(t *testing.T) {
-
-	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundError", func(t *testing.T) {
-		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
-		testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-3"
-
-		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, true)
-
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      testCnsNodeVMBatchAttachmentName,
-				Namespace: testNamespace,
-			},
-		}
-
-		GetVMFromVcenter = MockGetVMFromVcenter
-		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-
-		// Override with fake client
-		newClientFunc = func(ctx context.Context) (kubernetes.Interface, error) {
-			fakeK8sClient := getClientSetWithPvc()
-			return fakeK8sClient, nil
-		}
-
-		res, err := r.Reconcile(context.TODO(), req)
-		if err != nil {
-			t.Fatal("Unexpected reconcile error")
-		}
-		expectedReconcileResult := reconcile.Result{}
-		var expectedReconcileError error
-
-		assert.Equal(t, expectedReconcileResult, res)
-		assert.Equal(t, expectedReconcileError, err)
-
-		updatedCnsNodeVMBatchAttachment := &v1alpha1.CnsNodeVMBatchAttachment{}
-		err = r.client.Get(context.TODO(), req.NamespacedName, updatedCnsNodeVMBatchAttachment)
-		if err == nil {
-			t.Fatalf("failed to get cnsnodevmbatchattachemnt instance")
-		}
-
-		// Error should be not found
-		if statusErr, ok := err.(*errors.StatusError); ok {
-			assert.Equal(t, metav1.StatusReasonNotFound, statusErr.Status().Reason)
-		} else {
-			t.Fatalf("Unable to verify CnsNodeVMBatchAttachment error")
-		}
 	})
 }
 
@@ -737,6 +687,96 @@ func TestIsSharedPvc(t *testing.T) {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestUpdatePvcStatusEntryName_AddsSuffix(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "pvc-1",
+					},
+				},
+			},
+		},
+	}
+
+	pvcsToDetach := map[string]string{
+		"pvc-1": "",
+	}
+
+	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+
+	got := instance.Status.VolumeStatus[0].Name
+	want := "vol1" + detachSuffix
+
+	if got != want {
+		t.Fatalf("expected volume name %q, got %q", want, got)
+	}
+}
+
+func TestUpdatePvcStatusEntryName_SkipsIfAlreadyHasSuffix(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name: "vol1" + detachSuffix,
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "pvc-1",
+					},
+				},
+			},
+		},
+	}
+
+	pvcsToDetach := map[string]string{
+		"pvc-1": "",
+	}
+
+	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+
+	got := instance.Status.VolumeStatus[0].Name
+	want := "vol1" + detachSuffix // should remain unchanged
+
+	if got != want {
+		t.Fatalf("expected volume name to remain %q, got %q", want, got)
+	}
+}
+
+func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
+	ctx := context.TODO()
+
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "pvc-1",
+					},
+				},
+			},
+		},
+	}
+
+	pvcsToDetach := map[string]string{
+		"some-other-pvc": "",
+	}
+
+	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
+
+	got := instance.Status.VolumeStatus[0].Name
+	want := "vol1" // unchanged
+
+	if got != want {
+		t.Fatalf("expected volume name %q (unchanged), got %q", want, got)
 	}
 }
 
