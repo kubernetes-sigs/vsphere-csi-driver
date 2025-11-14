@@ -19,6 +19,7 @@ package k8sorchestrator
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -2229,11 +2231,36 @@ func (c *K8sOrchestrator) UpdatePersistentVolumeLabel(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error getting PV %s from API server: %w", pvName, err)
 		}
-		if pv.Labels == nil {
-			pv.Labels = make(map[string]string)
+
+		oldData, err := json.Marshal(pv)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to marshal PV %s: %v", pvName, err)
+			log.Error(errMsg)
+			return err
 		}
-		pv.Labels[key] = value
-		_, err = c.k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+
+		newPV := pv.DeepCopy()
+		if newPV.Labels == nil {
+			newPV.Labels = make(map[string]string)
+		}
+		newPV.Labels[key] = value
+
+		newData, err := json.Marshal(newPV)
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to marshal updated PV %s with labels: %v", pvName, err)
+			log.Error(errMsg)
+			return err
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
+		if err != nil {
+			errMsg := fmt.Sprintf("Error creating two way merge patch for PV %s with error: %v", pvName, err)
+			log.Error(errMsg)
+			return err
+		}
+
+		_, err = c.k8sClient.CoreV1().PersistentVolumes().Patch(ctx, pv.Name, k8stypes.StrategicMergePatchType,
+			patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			errMsg := fmt.Sprintf("error updating PV %s with labels %s/%s. Error: %v", pvName, key, value, err)
 			log.Error(errMsg)

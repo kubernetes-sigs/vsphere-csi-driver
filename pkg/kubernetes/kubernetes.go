@@ -19,6 +19,7 @@ package kubernetes
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -40,6 +41,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	clientset "k8s.io/client-go/kubernetes"
@@ -728,8 +731,28 @@ func RetainPersistentVolume(ctx context.Context, k8sClient clientset.Interface, 
 		return err
 	}
 
-	pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-	_, err = k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+	oldData, err := json.Marshal(pv)
+	if err != nil {
+		log.Errorf("Failed to marshal PV: %v, Error: %v", pv, err)
+		return err
+	}
+
+	newPV := pv.DeepCopy()
+	newPV.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+	newData, err := json.Marshal(newPV)
+	if err != nil {
+		log.Errorf("Failed to marshal updated PV with reclaim policy: %v, Error: %v", newPV, err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
+	if err != nil {
+		log.Errorf("Error creating two way merge patch for PV %q with error: %v", pv.Name, err)
+		return err
+	}
+
+	_, err = k8sClient.CoreV1().PersistentVolumes().Patch(ctx, pv.Name, k8stypes.StrategicMergePatchType,
+		patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to set the reclaim policy to retain. Error: %s", err.Error())
 		return err
