@@ -142,7 +142,6 @@ var _ = ginkgo.Describe("CNS_Register_Volume_Status_Verification", func() {
 		var isRegistered bool
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		storagePolicyName := env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
 		profileID := vcutil.GetSpbmPolicyID(storagePolicyName, e2eTestConfig)
 		ginkgo.By("Creating FCD Disk with profile")
 		fcdID, err := vcutil.CreateFCDwithValidProfileID(ctx,
@@ -199,7 +198,7 @@ var _ = ginkgo.Describe("CNS_Register_Volume_Status_Verification", func() {
 		2. Verify PVC to be in pending state.
 		3. Cleanup PVC and CnsRegisterVolume.
 	*/
-	ginkgo.It("[csi-supervisor]Verify CnsRegisterVolume Status", func() {
+	ginkgo.It("[csi-supervisor]Verify CnsRegisterVolume Status with invalid fcdId", func() {
 		var err error
 		var isRegistered bool
 		ctx, cancel := context.WithCancel(context.Background())
@@ -240,7 +239,7 @@ var _ = ginkgo.Describe("CNS_Register_Volume_Status_Verification", func() {
 		2. Verify PVC to be in pending state.
 		3. Cleanup PVC and CnsRegisterVolume.
 	*/
-	ginkgo.It("[csi-supervisor]Verify CnsRegisterVolume Status", func() {
+	ginkgo.It("[csi-supervisor]Verify CnsRegisterVolume Status with invalid vmdk path", func() {
 		var err error
 		var isRegistered bool
 
