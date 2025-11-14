@@ -19,6 +19,7 @@ package kubernetes
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -40,6 +41,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	clientset "k8s.io/client-go/kubernetes"
@@ -728,8 +731,28 @@ func RetainPersistentVolume(ctx context.Context, k8sClient clientset.Interface, 
 		return err
 	}
 
-	pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-	_, err = k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+	oldData, err := json.Marshal(pv)
+	if err != nil {
+		log.Errorf("Failed to marshal PV: %v, Error: %v", pv, err)
+		return err
+	}
+
+	newPV := pv.DeepCopy()
+	newPV.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+	newData, err := json.Marshal(newPV)
+	if err != nil {
+		log.Errorf("Failed to marshal updated PV with reclaim policy: %v, Error: %v", newPV, err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pv)
+	if err != nil {
+		log.Errorf("Error creating two way merge patch for PV %q with error: %v", pv.Name, err)
+		return err
+	}
+
+	_, err = k8sClient.CoreV1().PersistentVolumes().Patch(ctx, pv.Name, k8stypes.StrategicMergePatchType,
+		patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to set the reclaim policy to retain. Error: %s", err.Error())
 		return err
@@ -809,14 +832,34 @@ func AddFinalizerOnPVC(ctx context.Context, k8sClient clientset.Interface, pvcNa
 		return err
 	}
 
+	oldData, err := json.Marshal(pvc)
+	if err != nil {
+		log.Errorf("Failed to marshal PVC: %v", err)
+		return err
+	}
+
+	newPVC := pvc.DeepCopy()
 	// If the finalizer is already present, no action is needed
-	if !controllerutil.AddFinalizer(pvc, finalizer) {
+	if !controllerutil.AddFinalizer(newPVC, finalizer) {
 		log.Info("Finalizer already present on PVC. No action needed.")
 		return nil
 	}
 
+	newData, err := json.Marshal(newPVC)
+	if err != nil {
+		log.Errorf("Failed to marshal updated PVC with finalizer: %v", err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+	if err != nil {
+		log.Errorf("Error creating two way merge patch for PVC %s/%s with error: %v", pvcNamespace, pvcName, err)
+		return err
+	}
+
 	// Update the PVC with the new finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvc.Name, k8stypes.StrategicMergePatchType,
+		patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to add finalizer on PVC. Error: %s", err.Error())
 		return err
@@ -843,14 +886,34 @@ func RemoveFinalizerFromPVC(ctx context.Context, k8sClient clientset.Interface, 
 		return err
 	}
 
+	oldData, err := json.Marshal(pvc)
+	if err != nil {
+		log.Errorf("Failed to marshal PVC: %v", err)
+		return err
+	}
+
+	newPVC := pvc.DeepCopy()
 	// If the finalizer is not present, no action is needed
-	if !controllerutil.RemoveFinalizer(pvc, finalizer) {
+	if !controllerutil.RemoveFinalizer(newPVC, finalizer) {
 		log.Info("Finalizer not present on PVC. No action needed.")
 		return nil
 	}
 
+	newData, err := json.Marshal(newPVC)
+	if err != nil {
+		log.Errorf("Failed to marshal updated PVC with finalizer removed: %v", err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+	if err != nil {
+		log.Errorf("Error creating two way merge patch for PVC %s/%s with error: %v", pvcNamespace, pvcName, err)
+		return err
+	}
+
 	// Update the PVC to remove the finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvc.Name, k8stypes.StrategicMergePatchType,
+		patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("Failed to remove finalizer from PVC. Error: %s", err.Error())
 		return err
