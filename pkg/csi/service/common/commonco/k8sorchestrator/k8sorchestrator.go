@@ -2175,15 +2175,35 @@ func (c *K8sOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNam
 			return err
 		}
 
-		if linkedClonePVC.Labels == nil {
-			linkedClonePVC.Labels = make(map[string]string)
-		}
-		// Add label
-		if _, ok := linkedClonePVC.Labels[common.AnnKeyLinkedClone]; !ok {
-			linkedClonePVC.Labels[common.LinkedClonePVCLabel] = linkedClonePVC.Annotations[common.AttributeIsLinkedClone]
+		oldData, err := json.Marshal(linkedClonePVC)
+		if err != nil {
+			log.Errorf("Failed to marshal PVC %s/%s: %v", pvcNamespace, pvcName, err)
+			return err
 		}
 
-		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, linkedClonePVC, metav1.UpdateOptions{})
+		newPVC := linkedClonePVC.DeepCopy()
+		if newPVC.Labels == nil {
+			newPVC.Labels = make(map[string]string)
+		}
+		// Add label
+		if _, ok := newPVC.Labels[common.AnnKeyLinkedClone]; !ok {
+			newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AttributeIsLinkedClone]
+		}
+
+		newData, err := json.Marshal(newPVC)
+		if err != nil {
+			log.Errorf("Failed to marshal updated PVC %s/%s with labels: %v", pvcNamespace, pvcName, err)
+			return err
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, linkedClonePVC)
+		if err != nil {
+			log.Errorf("Error creating two way merge patch for PVC %s/%s with error: %v", pvcNamespace, pvcName, err)
+			return err
+		}
+
+		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, linkedClonePVC.Name, k8stypes.StrategicMergePatchType,
+			patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			log.Errorf("failed to add linked clone label for PVC %s/%s. Error: %+v, retrying...",
 				pvcNamespace, pvcName, err)
