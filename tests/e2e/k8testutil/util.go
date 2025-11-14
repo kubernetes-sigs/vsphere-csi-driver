@@ -3919,6 +3919,34 @@ func WaitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
 }
 
+// WaitForCNSRegisterVolumeToGetCreatedWithStatus waits for a cnsRegisterVolume to get
+// created/failed with error or until timeout occurs, whichever comes first.
+func WaitForCNSRegisterVolumeToGetCreatedWithStatus(ctx context.Context, restConfig *rest.Config, namespace string,
+	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) (error, bool) {
+	framework.Logf("Waiting up to %v for CnsRegisterVolume %v, namespace: %s,  to get created",
+		timeout, cnsRegisterVolume, namespace)
+	var flag bool
+	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
+		cnsRegisterVolume = GetCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
+		flag = cnsRegisterVolume.Status.Registered
+
+		if cnsRegisterVolume.Status.Error != "" {
+			framework.Logf("CnsRegisterVolume %s is failed with %s", cnsRegisterVolumeName,
+				cnsRegisterVolume.Status.Error)
+			return fmt.Errorf("CnsRegisterVolume %s is failed with %s", cnsRegisterVolumeName,
+				cnsRegisterVolume.Status.Error), flag
+		}
+
+		if !flag {
+			continue
+		} else {
+			return nil, flag
+		}
+	}
+	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout), flag
+}
+
 // waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get
 // deleted or until timeout occurs, whichever comes first.
 func WaitForCNSRegisterVolumeToGetDeleted(ctx context.Context, restConfig *rest.Config, namespace string,

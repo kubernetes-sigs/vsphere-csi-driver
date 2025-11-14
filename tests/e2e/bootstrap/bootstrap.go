@@ -142,6 +142,7 @@ func setSShdPort(testConfig *config.TestInputData) {
 	}
 
 	if testConfig.TestBedInfo.IsPrivateNetwork {
+		testConfig.TestBedInfo.IpPortMap = make(map[string]string)
 		if testConfig.TestBedInfo.Multivc {
 			testConfig.TestBedInfo.VcIp2SshPortNum = env.GetorIgnoreStringEnvVar(constants.EnvVc2SshdPortNum)
 			testConfig.TestBedInfo.VcIp3SshPortNum = env.GetorIgnoreStringEnvVar(constants.EnvVc3SshdPortNum)
@@ -183,20 +184,20 @@ func setSShdPort(testConfig *config.TestInputData) {
 		testConfig.TestBedInfo.EsxIp9 = env.GetorIgnoreStringEnvVar(constants.EnvEsxIp9)
 		testConfig.TestBedInfo.EsxIp10 = env.GetorIgnoreStringEnvVar(constants.EnvEsxIp10)
 
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.VcAddress, constants.VcIp1SshPortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP1, constants.K8sMasterIp1PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP2, constants.K8sMasterIp2PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP3, constants.K8sMasterIp3PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp1, constants.EsxIp1PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp2, constants.EsxIp2PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp3, constants.EsxIp3PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp4, constants.EsxIp4PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp5, constants.EsxIp5PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp6, constants.EsxIp6PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp7, constants.EsxIp7PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp8, constants.EsxIp8PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp9, constants.EsxIp9PortNum)
-		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp10, constants.EsxIp10PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.VcAddress, testConfig.TestBedInfo.VcIp1SshPortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP1, testConfig.TestBedInfo.K8sMasterIp1PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP2, testConfig.TestBedInfo.K8sMasterIp2PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.MasterIP3, testConfig.TestBedInfo.K8sMasterIp3PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp1, testConfig.TestBedInfo.EsxIp1PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp2, testConfig.TestBedInfo.EsxIp2PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp3, testConfig.TestBedInfo.EsxIp3PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp4, testConfig.TestBedInfo.EsxIp4PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp5, testConfig.TestBedInfo.EsxIp5PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp6, testConfig.TestBedInfo.EsxIp6PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp7, testConfig.TestBedInfo.EsxIp7PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp8, testConfig.TestBedInfo.EsxIp8PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp9, testConfig.TestBedInfo.EsxIp9PortNum)
+		safeInsertToMap(testConfig, testConfig.TestBedInfo.EsxIp10, testConfig.TestBedInfo.EsxIp10PortNum)
 	}
 }
 
