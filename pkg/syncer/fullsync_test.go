@@ -216,9 +216,9 @@ func TestSetFileShareAnnotationsOnPVC_PVCUpdateError(t *testing.T) {
 		},
 	}
 
-	// Create fake k8s client with PV and configure it to fail on PVC update
+	// Create fake k8s client with PV and configure it to fail on PVC patch
 	k8sClient := k8sfake.NewSimpleClientset(pv)
-	k8sClient.PrependReactor("update", "persistentvolumeclaims",
+	k8sClient.PrependReactor("patch", "persistentvolumeclaims",
 		func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
 			return true, nil, errors.New("update failed")
 		})

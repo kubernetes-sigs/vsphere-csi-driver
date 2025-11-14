@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -33,6 +34,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -748,11 +751,28 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 
 	// Update pvc with new label.
+	oldData, err := json.Marshal(pvc)
+	if err != nil {
+		t.Fatalf("Failed to marshal PVC: %v", err)
+	}
+
+	newPVC := pvc.DeepCopy()
 	newPVCLabel := make(map[string]string)
 	newPVCLabel[testPVCLabelName] = newTestPVCLabelValue
-	pvc.Labels = newPVCLabel
-	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
-		ctx, pvc, metav1.UpdateOptions{}); err != nil {
+	newPVC.Labels = newPVCLabel
+
+	newData, err := json.Marshal(newPVC)
+	if err != nil {
+		t.Fatalf("Failed to marshal updated PVC with labels: %v", err)
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+	if err != nil {
+		t.Fatalf("Error creating two way merge patch for PVC: %v", err)
+	}
+
+	if pvc, err = k8sclient.CoreV1().PersistentVolumeClaims(testNamespace).Patch(
+		ctx, pvc.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitForListerSync()

@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -48,6 +49,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -622,10 +624,37 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				if finalizer == cnsoperatortypes.CNSVolumeFinalizer {
 					log.Infof("Removing %q finalizer from PersistentVolumeClaim with name: %q on namespace: %q",
 						cnsoperatortypes.CNSVolumeFinalizer, svPVC.Name, svPVC.Namespace)
-					svPVC.ObjectMeta.Finalizers = slices.Delete(svPVC.ObjectMeta.Finalizers, i, i+1)
+
+					oldData, err := json.Marshal(svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to marshal supervisor PVC %q in %q namespace. Error: %+v",
+							req.VolumeId, c.supervisorNamespace, err)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+
+					newPVC := svPVC.DeepCopy()
+					newPVC.ObjectMeta.Finalizers = slices.Delete(newPVC.ObjectMeta.Finalizers, i, i+1)
+
+					newData, err := json.Marshal(newPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to marshal updated supervisor PVC %q in %q namespace. Error: %+v",
+							req.VolumeId, c.supervisorNamespace, err)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+
+					patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("error creating two way merge patch for supervisor PVC %q in %q namespace. Error: %+v",
+							req.VolumeId, c.supervisorNamespace, err)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+
 					// Update the instance after removing finalizer
-					_, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPVC,
-						metav1.UpdateOptions{})
+					_, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Patch(ctx,
+						svPVC.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 					if err != nil {
 						msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v",
 							req.VolumeId, c.supervisorNamespace, err)
@@ -1466,14 +1495,38 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		switch (gcPvcRequestSize).Cmp(svPvcRequestSize) {
 		case 1:
 			// Update requested storage in SV PVC spec
-			svPvcClone := svPVC.DeepCopy()
-			svPvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
+			oldExpandData, err := json.Marshal(svPVC)
+			if err != nil {
+				msg := fmt.Sprintf("failed to marshal supervisor PVC for expansion %q in %q namespace. Error: %+v",
+					volumeID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
+
+			newExpandPVC := svPVC.DeepCopy()
+			newExpandPVC.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
+
+			newExpandData, err := json.Marshal(newExpandPVC)
+			if err != nil {
+				msg := fmt.Sprintf("failed to marshal updated supervisor PVC for expansion %q in %q namespace. Error: %+v",
+					volumeID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
+
+			expandPatchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldExpandData, newExpandData, svPVC)
+			if err != nil {
+				msg := fmt.Sprintf("error creating two way merge patch for supervisor PVC expansion %q in %q namespace. Error: %+v",
+					volumeID, c.supervisorNamespace, err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
 
 			// Make an update call to SV API server
 			log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s",
 				volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
-			svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(
-				ctx, svPvcClone, metav1.UpdateOptions{})
+			svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Patch(
+				ctx, svPVC.Name, types.StrategicMergePatchType, expandPatchBytes, metav1.PatchOptions{})
 			if err != nil {
 				msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v",
 					volumeID, c.supervisorNamespace, err)

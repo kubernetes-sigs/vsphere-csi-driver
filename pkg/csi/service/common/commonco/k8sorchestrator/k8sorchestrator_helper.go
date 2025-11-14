@@ -23,6 +23,7 @@ import (
 	"time"
 
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	v1 "k8s.io/api/core/v1"
@@ -83,17 +84,38 @@ func (c *K8sOrchestrator) updatePVCAnnotations(ctx context.Context,
 			return err
 		}
 
+		oldData, err := json.Marshal(pvcObj)
+		if err != nil {
+			log.Errorf("failed to marshal PVC %s/%s: %v", pvcNamespace, pvcName, err)
+			return err
+		}
+
+		newPVC := pvcObj.DeepCopy()
 		for key, val := range annotations {
 			// If value is not set, remove the annotation.
 			if val == "" {
-				delete(pvcObj.ObjectMeta.Annotations, key)
+				delete(newPVC.ObjectMeta.Annotations, key)
 				log.Debugf("Removing annotation %s on pvc %s/%s", key, pvcNamespace, pvcName)
 			} else {
-				metav1.SetMetaDataAnnotation(&pvcObj.ObjectMeta, key, val)
+				metav1.SetMetaDataAnnotation(&newPVC.ObjectMeta, key, val)
 				log.Debugf("Updating annotation %s on pvc %s/%s to value: %s", key, pvcNamespace, pvcName, val)
 			}
 		}
-		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvcObj, metav1.UpdateOptions{})
+
+		newData, err := json.Marshal(newPVC)
+		if err != nil {
+			log.Errorf("failed to marshal updated PVC %s/%s with annotations: %v", pvcNamespace, pvcName, err)
+			return err
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvcObj)
+		if err != nil {
+			log.Errorf("error creating two way merge patch for PVC %s/%s: %v", pvcNamespace, pvcName, err)
+			return err
+		}
+
+		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvcObj.Name,
+			k8stypes.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			log.Errorf("failed to update pvc annotations %s/%s with err:%+v", pvcNamespace, pvcName, err)
 			return err
