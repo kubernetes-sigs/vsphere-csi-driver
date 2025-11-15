@@ -67,6 +67,7 @@ match() {
   if [[ ${1} =~ ${REGEX} ]]; then
     echo "yay: ${1}"
   else
+    # shellcheck disable=SC2319
     exit_code="${?}"
     echo "nay: ${1}"
     return "${exit_code}"

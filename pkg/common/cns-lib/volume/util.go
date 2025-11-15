@@ -493,7 +493,7 @@ func validateSnapshotDeleted(ctx context.Context, m *defaultManager, volumeID st
 		return false
 	}
 
-	if querySnapshotResult.Entries == nil || len(querySnapshotResult.Entries) == 0 {
+	if len(querySnapshotResult.Entries) == 0 {
 		log.Infof("failed to validate for snapshot %s on volume %s as the "+
 			"querySnapshotResult.Entries is empty", snapshotID, volumeID)
 		return false

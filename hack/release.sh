@@ -129,7 +129,7 @@ function build_driver_images_windows() {
   docker buildx use vsphere-csi-builder-win || docker buildx create --driver-opt image=moby/buildkit:v0.10.6 --name vsphere-csi-builder-win --platform windows/amd64 --use
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for windows"
   # some registry do not allow uppercase tags
-  osv=$(lcase ${OSVERSION})
+  osv=$(lcase "${OSVERSION}")
   tag="${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}"
   docker buildx build \
    --platform "windows" \

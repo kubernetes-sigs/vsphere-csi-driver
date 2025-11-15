@@ -187,7 +187,7 @@ func (dc *Datacenter) GetVMMoList(ctx context.Context, vmObjList []*VirtualMachi
 	if len(vmObjList) < 1 {
 		msg := "VirtualMachine Object list is empty"
 		log.Errorf(msg+": %v", vmObjList)
-		return nil, fmt.Errorf(msg)
+		return nil, fmt.Errorf("%s", msg)
 	}
 
 	for _, vmObj := range vmObjList {

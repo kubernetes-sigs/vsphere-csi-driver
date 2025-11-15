@@ -23,6 +23,7 @@
 # shellcheck disable=2128
 if [ -n "${BASH_SOURCE}" ]; then
   # shellcheck disable=2039
+  # shellcheck disable=SC3054
   HACK_DIR="$(dirname "${BASH_SOURCE[0]}")"
 elif command -v python >/dev/null 2>&1; then
   HACK_DIR="$(python -c "import os; print(os.path.realpath('$(dirname "${0}")'))")"

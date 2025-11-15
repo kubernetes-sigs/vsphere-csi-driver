@@ -695,7 +695,7 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	}
 	errMsg := "unrecognized value set for CLUSTER_FLAVOR"
 	log.Error(errMsg)
-	return "", fmt.Errorf(errMsg)
+	return "", fmt.Errorf("%s", errMsg)
 }
 
 // GetConfig loads configuration from secret and returns config object.

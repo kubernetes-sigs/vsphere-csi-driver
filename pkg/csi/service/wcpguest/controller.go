@@ -966,13 +966,16 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal, msg)
 		}
 		log.Debugf("Found VirtualMachine for node: %q.", req.NodeId)
-
+		// Create a patch for the VM prior to modifying it with the new volumes.
+		vmPatch := client.MergeFromWithOptions(
+			virtualMachine.DeepCopy(),
+			client.MergeFromWithOptimisticLock{})
 		for index, volume := range virtualMachine.Spec.Volumes {
 			if volume.Name == req.VolumeId {
 				log.Debugf("Removing volume %q from VirtualMachine %q", volume.Name, virtualMachine.Name)
 				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
 					virtualMachine.Spec.Volumes[index+1:]...)
-				err = c.vmOperatorClient.Update(ctx, virtualMachine)
+				err = c.vmOperatorClient.Patch(ctx, virtualMachine, vmPatch)
 				break
 			}
 		}
