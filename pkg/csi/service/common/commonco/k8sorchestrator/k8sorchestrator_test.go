@@ -25,8 +25,15 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	wcpcapv1alph1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
 var (
@@ -318,4 +325,46 @@ func TestIsFileVolume(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSetWcpCapabilitiesMap_Success(t *testing.T) {
+	ctx := context.Background()
+	WcpCapabilitiesMap = nil
+
+	scheme := runtime.NewScheme()
+	gvk := schema.GroupVersionKind{
+		Group:   "wcp.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "Capabilities",
+	}
+
+	scheme.AddKnownTypeWithName(
+		gvk,
+		&wcpcapv1alph1.Capabilities{},
+	)
+	cap := &wcpcapv1alph1.Capabilities{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: common.WCPCapabilitiesCRName,
+		},
+		Status: wcpcapv1alph1.CapabilitiesStatus{
+			Supervisor: map[wcpcapv1alph1.CapabilityName]wcpcapv1alph1.CapabilityStatus{
+				"CapabilityA": {Activated: true},
+				"CapabilityB": {Activated: false},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cap).
+		Build()
+
+	err := SetWcpCapabilitiesMap(ctx, cl)
+	assert.NoError(t, err)
+
+	val, _ := WcpCapabilitiesMap.Load("CapabilityA")
+	assert.Equal(t, true, val)
+
+	val, _ = WcpCapabilitiesMap.Load("CapabilityB")
+	assert.Equal(t, false, val)
 }
