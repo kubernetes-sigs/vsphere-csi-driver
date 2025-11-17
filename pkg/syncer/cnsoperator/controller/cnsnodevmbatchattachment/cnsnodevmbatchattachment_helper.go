@@ -252,6 +252,12 @@ func updatePvcStatusEntryName(ctx context.Context,
 		if _, ok := pvcsToDetach[volume.PersistentVolumeClaim.ClaimName]; !ok {
 			continue
 		}
+		if strings.HasSuffix(instance.Status.VolumeStatus[i].Name, detachSuffix) {
+			log.Infof("VolumeName %s for PVC %s already contains suffix %s. Skipping.",
+				instance.Status.VolumeStatus[i].Name, volume.PersistentVolumeClaim.ClaimName,
+				detachSuffix)
+			continue
+		}
 		newVolumeName := instance.Status.VolumeStatus[i].Name + detachSuffix
 		instance.Status.VolumeStatus[i].Name = newVolumeName
 		log.Infof("Updating status name entry to %s for detaching PVC %s",
