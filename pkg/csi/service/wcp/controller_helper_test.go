@@ -5,13 +5,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	restclient "k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 )
 
@@ -157,4 +161,219 @@ func newMockPod(name, namespace, nodeName string, volumes []string,
 			Phase: phase,
 		},
 	}
+}
+
+func TestGetSnapshotLimitFromNamespace(t *testing.T) {
+	// Save original functions and restore after tests
+	originalGetConfig := getK8sConfig
+	originalNewK8sClientFromConfig := newK8sClientFromConfig
+	defer func() {
+		getK8sConfig = originalGetConfig
+		newK8sClientFromConfig = originalNewK8sClientFromConfig
+	}()
+
+	// Mock getK8sConfig to return a fake config
+	getK8sConfig = func() (*restclient.Config, error) {
+		return &restclient.Config{}, nil
+	}
+
+	t.Run("WhenAnnotationExists_ValidValue", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "5",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		limit, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.Nil(t, err)
+		assert.Equal(t, 5, limit)
+	})
+
+	t.Run("WhenAnnotationExists_ValueEqualsMax", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "32",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		limit, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.Nil(t, err)
+		assert.Equal(t, 32, limit)
+	})
+
+	t.Run("WhenAnnotationExists_ValueExceedsMax", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "50",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		limit, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.Nil(t, err)
+		assert.Equal(t, 32, limit) // Should be capped
+	})
+
+	t.Run("WhenAnnotationExists_ValueIsZero", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "0",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		limit, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.Nil(t, err)
+		assert.Equal(t, 0, limit) // 0 means block all snapshots
+	})
+
+	t.Run("WhenAnnotationExists_ValueIsNegative", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "-5",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		_, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.NotNil(t, err)
+		statusErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, statusErr.Code())
+		assert.Contains(t, err.Error(), "invalid snapshot limit")
+	})
+
+	t.Run("WhenAnnotationExists_InvalidFormat", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-namespace",
+				Annotations: map[string]string{
+					common.MaxSnapshotsPerVolumeAnnotationKey: "abc",
+				},
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		_, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.NotNil(t, err)
+		statusErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.Internal, statusErr.Code())
+		assert.Contains(t, err.Error(), "failed to parse annotation")
+	})
+
+	t.Run("WhenAnnotationMissing", func(t *testing.T) {
+		// Setup
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-namespace",
+				Annotations: map[string]string{}, // No annotation
+			},
+		}
+		fakeClient := fake.NewSimpleClientset(ns)
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		limit, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.Nil(t, err)
+		assert.Equal(t, common.DefaultMaxSnapshotsPerBlockVolumeInWCP, limit) // Should return default (4)
+	})
+
+	t.Run("WhenNamespaceNotFound", func(t *testing.T) {
+		// Setup
+		fakeClient := fake.NewSimpleClientset() // Empty clientset
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return fakeClient, nil
+		}
+
+		// Execute
+		_, err := getSnapshotLimitFromNamespace(context.Background(), "non-existent-namespace")
+
+		// Verify
+		assert.NotNil(t, err)
+		statusErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.Internal, statusErr.Code())
+		assert.Contains(t, err.Error(), "failed to get namespace")
+	})
+
+	t.Run("WhenK8sClientCreationFails", func(t *testing.T) {
+		// Setup
+		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+			return nil, assert.AnError
+		}
+
+		// Execute
+		_, err := getSnapshotLimitFromNamespace(context.Background(), "test-namespace")
+
+		// Verify
+		assert.NotNil(t, err)
+		statusErr, ok := status.FromError(err)
+		assert.True(t, ok)
+		assert.Equal(t, codes.Internal, statusErr.Code())
+		assert.Contains(t, err.Error(), "failed to create Kubernetes client")
+	})
 }
