@@ -34,9 +34,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -849,6 +852,15 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 
 var newK8sClient = k8s.NewClient
 
+// getK8sConfig is a variable that can be overridden for testing
+var getK8sConfig = config.GetConfig
+
+// newK8sClientFromConfig is a variable that can be overridden for testing
+// It wraps kubernetes.NewForConfig and returns Interface for easier testing
+var newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+	return kubernetes.NewForConfig(c)
+}
+
 // getPodVMUUID returns the UUID of the VM(running on the node) on which the pod that is trying to
 // use the volume is scheduled.
 func getPodVMUUID(ctx context.Context, volumeID, nodeName string) (string, error) {
@@ -949,4 +961,75 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to retrieve zones for e nil")
 	}
 	return zones, nil
+}
+
+// getSnapshotLimitForNamespace reads the snapshot limit from ConfigMap in the namespace.
+// Returns the effective limit after applying defaults and absolute max clamping.
+func getSnapshotLimitForNamespace(ctx context.Context, namespace string) (int, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get Kubernetes config
+	cfg, err := getK8sConfig()
+	if err != nil {
+		// If k8s config is not available (e.g., in test environments), use default
+		log.Infof("getSnapshotLimitForNamespace: failed to get Kubernetes config, using default: %d. Error: %v",
+			common.DefaultMaxSnapshotsPerVolume, err)
+		return common.DefaultMaxSnapshotsPerVolume, nil
+	}
+
+	// Create Kubernetes clientset
+	k8sClient, err := newK8sClientFromConfig(cfg)
+	if err != nil {
+		// If k8s client creation fails, use default
+		log.Infof("getSnapshotLimitForNamespace: failed to create Kubernetes client, using default: %d. Error: %v",
+			common.DefaultMaxSnapshotsPerVolume, err)
+		return common.DefaultMaxSnapshotsPerVolume, nil
+	}
+
+	// Get ConfigMap from the namespace
+	cm, err := k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, common.ConfigMapCSILimits, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// ConfigMap not found, use default
+			log.Infof("getSnapshotLimitForNamespace: ConfigMap %s not found in namespace %s, using default: %d",
+				common.ConfigMapCSILimits, namespace, common.DefaultMaxSnapshotsPerVolume)
+			return common.DefaultMaxSnapshotsPerVolume, nil
+		}
+		// Other error occurred
+		log.Errorf("getSnapshotLimitForNamespace: failed to get ConfigMap %s in namespace %s, err: %v",
+			common.ConfigMapCSILimits, namespace, err)
+		return 0, err
+	}
+
+	// Check if the key exists in ConfigMap data
+	limitStr, exists := cm.Data[common.ConfigMapKeyMaxSnapshotsPerVolume]
+	if !exists {
+		// Key not found in ConfigMap, fail the request
+		errMsg := fmt.Sprintf("ConfigMap %s exists in namespace %s but missing required key '%s'",
+			common.ConfigMapCSILimits, namespace, common.ConfigMapKeyMaxSnapshotsPerVolume)
+		log.Errorf("getSnapshotLimitForNamespace: %s", errMsg)
+		return 0, errors.New(errMsg)
+	}
+
+	// Parse the limit value
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 0 {
+		// Invalid value, fail the request
+		errMsg := fmt.Sprintf(
+			"ConfigMap %s in namespace %s has invalid value '%s' for key '%s': must be a non-negative integer",
+			common.ConfigMapCSILimits, namespace, limitStr, common.ConfigMapKeyMaxSnapshotsPerVolume)
+		log.Errorf("getSnapshotLimitForNamespace: %s", errMsg)
+		return 0, errors.New(errMsg)
+	}
+
+	// Clamp to absolute max if exceeded
+	if limit > common.AbsoluteMaxSnapshotsPerVolume {
+		log.Warnf(
+			"getSnapshotLimitForNamespace: namespace %s ConfigMap limit %d exceeds absolute max %d, clamping to absolute max",
+			namespace, limit, common.AbsoluteMaxSnapshotsPerVolume)
+		return common.AbsoluteMaxSnapshotsPerVolume, nil
+	}
+
+	log.Infof("getSnapshotLimitForNamespace: namespace %s snapshot limit from ConfigMap: %d", namespace, limit)
+	return limit, nil
 }

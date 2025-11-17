@@ -353,6 +353,18 @@ const (
 	// Guest cluster.
 	SupervisorVolumeSnapshotAnnotationKey = "csi.vsphere.guest-initiated-csi-snapshot"
 
+	// ConfigMapCSILimits is the ConfigMap name for CSI limits configuration
+	ConfigMapCSILimits = "cns-csi-limits"
+
+	// ConfigMapKeyMaxSnapshotsPerVolume is the ConfigMap key for snapshot limit per volume
+	ConfigMapKeyMaxSnapshotsPerVolume = "max-snapshots-per-volume"
+
+	// DefaultMaxSnapshotsPerVolume is the default maximum number of snapshots per block volume in WCP
+	DefaultMaxSnapshotsPerVolume = 4
+
+	// AbsoluteMaxSnapshotsPerVolume is the hard cap for maximum snapshots per block volume
+	AbsoluteMaxSnapshotsPerVolume = 32
+
 	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
 	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
 

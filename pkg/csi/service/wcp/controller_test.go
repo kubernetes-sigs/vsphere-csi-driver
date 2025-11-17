@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -137,6 +138,9 @@ func getControllerTest(t *testing.T) *controllerTest {
 		c := &controller{
 			manager:     manager,
 			topologyMgr: topologyMgr,
+			snapshotLockMgr: &snapshotLockManager{
+				locks: make(map[string]*volumeLock),
+			},
 		}
 
 		controllerTestInstance = &controllerTest{
@@ -673,6 +677,9 @@ func TestWCPCreateDeleteSnapshot(t *testing.T) {
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
 	}
 
 	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -748,6 +755,9 @@ func TestListSnapshots(t *testing.T) {
 		reqCreateSnapshot := &csi.CreateSnapshotRequest{
 			SourceVolumeId: volID,
 			Name:           "snapshot-" + uuid.New().String(),
+			Parameters: map[string]string{
+				common.VolumeSnapshotNamespaceKey: "default",
+			},
 		}
 
 		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -867,6 +877,9 @@ func TestListSnapshotsOnSpecificVolume(t *testing.T) {
 		reqCreateSnapshot := &csi.CreateSnapshotRequest{
 			SourceVolumeId: volID,
 			Name:           "snapshot-" + uuid.New().String(),
+			Parameters: map[string]string{
+				common.VolumeSnapshotNamespaceKey: "default",
+			},
 		}
 
 		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -987,6 +1000,9 @@ func TestListSnapshotsWithToken(t *testing.T) {
 		reqCreateSnapshot := &csi.CreateSnapshotRequest{
 			SourceVolumeId: volID,
 			Name:           "snapshot-" + uuid.New().String(),
+			Parameters: map[string]string{
+				common.VolumeSnapshotNamespaceKey: "default",
+			},
 		}
 
 		respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -1113,6 +1129,9 @@ func TestListSnapshotsOnSpecificVolumeAndSnapshot(t *testing.T) {
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
 	}
 
 	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -1270,6 +1289,9 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
 	}
 
 	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -1436,6 +1458,9 @@ func TestWCPDeleteVolumeWithSnapshots(t *testing.T) {
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
 	}
 
 	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -1541,6 +1566,9 @@ func TestWCPExpandVolumeWithSnapshots(t *testing.T) {
 	reqCreateSnapshot := &csi.CreateSnapshotRequest{
 		SourceVolumeId: volID,
 		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
 	}
 
 	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
@@ -1855,6 +1883,213 @@ func TestControllerModifyVolume(t *testing.T) {
 		// This is expected behavior, so we just verify the method can be called
 		if err != nil {
 			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+}
+
+func TestSnapshotLockManager(t *testing.T) {
+	ct := getControllerTest(t)
+
+	t.Run("AcquireAndRelease_SingleVolume", func(t *testing.T) {
+		volumeID := "test-volume-1"
+
+		// Acquire lock
+		ct.controller.acquireSnapshotLock(ctx, volumeID)
+
+		// Verify lock exists and refCount = 1
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		vLock, exists := ct.controller.snapshotLockMgr.locks[volumeID]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if !exists {
+			t.Fatal("Lock should exist after acquire")
+		}
+		if vLock.refCount != 1 {
+			t.Fatalf("Expected refCount=1, got %d", vLock.refCount)
+		}
+
+		// Release lock
+		ct.controller.releaseSnapshotLock(ctx, volumeID)
+
+		// Verify lock is removed
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		_, exists = ct.controller.snapshotLockMgr.locks[volumeID]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if exists {
+			t.Fatal("Lock should be removed after release")
+		}
+	})
+
+	t.Run("AcquireMultipleTimes_SameVolume", func(t *testing.T) {
+		volumeID := "test-volume-2"
+
+		// Use two goroutines to acquire the lock
+		var wg sync.WaitGroup
+		acquired := make(chan bool, 2)
+
+		// First goroutine acquires and holds the lock
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ct.controller.acquireSnapshotLock(ctx, volumeID)
+			acquired <- true
+			// Hold lock briefly
+			time.Sleep(100 * time.Millisecond)
+			ct.controller.releaseSnapshotLock(ctx, volumeID)
+		}()
+
+		// Wait for first goroutine to acquire
+		<-acquired
+
+		// Verify refCount = 1, lock exists
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		vLock, exists := ct.controller.snapshotLockMgr.locks[volumeID]
+		refCount1 := vLock.refCount
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if !exists {
+			t.Fatal("Lock should exist")
+		}
+		if refCount1 != 1 {
+			t.Fatalf("Expected refCount=1, got %d", refCount1)
+		}
+
+		// Second goroutine tries to acquire (will be blocked)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ct.controller.acquireSnapshotLock(ctx, volumeID)
+			acquired <- true
+			ct.controller.releaseSnapshotLock(ctx, volumeID)
+		}()
+
+		// Give second goroutine time to start waiting
+		time.Sleep(50 * time.Millisecond)
+
+		// Verify refCount increased to 2 (second goroutine is waiting)
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		vLock, exists = ct.controller.snapshotLockMgr.locks[volumeID]
+		refCount2 := vLock.refCount
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if !exists {
+			t.Fatal("Lock should exist")
+		}
+		if refCount2 != 2 {
+			t.Fatalf("Expected refCount=2, got %d", refCount2)
+		}
+
+		// Wait for both goroutines to complete
+		wg.Wait()
+
+		// Verify lock is removed after both releases
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		_, exists = ct.controller.snapshotLockMgr.locks[volumeID]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if exists {
+			t.Fatal("Lock should be removed after all releases")
+		}
+	})
+
+	t.Run("AcquireRelease_MultipleVolumes", func(t *testing.T) {
+		volume1 := "test-volume-3"
+		volume2 := "test-volume-4"
+		volume3 := "test-volume-5"
+
+		// Acquire locks for all volumes
+		ct.controller.acquireSnapshotLock(ctx, volume1)
+		ct.controller.acquireSnapshotLock(ctx, volume2)
+		ct.controller.acquireSnapshotLock(ctx, volume3)
+
+		// Verify all locks exist
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		count := len(ct.controller.snapshotLockMgr.locks)
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if count < 3 {
+			t.Fatalf("Expected at least 3 locks, got %d", count)
+		}
+
+		// Release volume2
+		ct.controller.releaseSnapshotLock(ctx, volume2)
+
+		// Verify volume2 removed, others remain
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		_, exists1 := ct.controller.snapshotLockMgr.locks[volume1]
+		_, exists2 := ct.controller.snapshotLockMgr.locks[volume2]
+		_, exists3 := ct.controller.snapshotLockMgr.locks[volume3]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if !exists1 {
+			t.Fatal("Volume1 lock should still exist")
+		}
+		if exists2 {
+			t.Fatal("Volume2 lock should be removed")
+		}
+		if !exists3 {
+			t.Fatal("Volume3 lock should still exist")
+		}
+
+		// Cleanup
+		ct.controller.releaseSnapshotLock(ctx, volume1)
+		ct.controller.releaseSnapshotLock(ctx, volume3)
+	})
+
+	t.Run("ConcurrentAccess_SameVolume", func(t *testing.T) {
+		volumeID := "test-volume-concurrent"
+		counter := 0
+		var wg sync.WaitGroup
+		goroutines := 5
+
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ct.controller.acquireSnapshotLock(ctx, volumeID)
+				defer ct.controller.releaseSnapshotLock(ctx, volumeID)
+
+				// Critical section - increment counter
+				temp := counter
+				// Simulate some work
+				for j := 0; j < 100; j++ {
+					_ = j * 2
+				}
+				counter = temp + 1
+			}()
+		}
+
+		wg.Wait()
+
+		// Verify counter = goroutines (no race condition)
+		if counter != goroutines {
+			t.Fatalf("Expected counter=%d, got %d (race condition detected)", goroutines, counter)
+		}
+
+		// Verify lock is cleaned up
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		_, exists := ct.controller.snapshotLockMgr.locks[volumeID]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if exists {
+			t.Fatal("Lock should be cleaned up after all goroutines finish")
+		}
+	})
+
+	t.Run("ReleaseNonExistentLock", func(t *testing.T) {
+		volumeID := "non-existent-volume"
+
+		// This should not panic
+		ct.controller.releaseSnapshotLock(ctx, volumeID)
+
+		// Verify no lock was created
+		ct.controller.snapshotLockMgr.mapMutex.RLock()
+		_, exists := ct.controller.snapshotLockMgr.locks[volumeID]
+		ct.controller.snapshotLockMgr.mapMutex.RUnlock()
+
+		if exists {
+			t.Fatal("Lock should not exist after releasing non-existent lock")
 		}
 	})
 }
