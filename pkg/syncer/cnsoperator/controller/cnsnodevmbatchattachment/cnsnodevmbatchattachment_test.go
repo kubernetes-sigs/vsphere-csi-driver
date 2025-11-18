@@ -894,6 +894,116 @@ func TestRemovePvcFinalizer_WhenPVCIsPresent(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
+func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-1": {ControllerKey: 1000, UnitNumber: 1, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-1"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenNothingHasCHanged(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenControllerKeyIsChanged(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenUnitNumberIsChanged(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 4, SharingMode: "None", DiskMode: "persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenSharingIsChanged(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "SharingMultiWriter",
+			DiskMode: "persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None",
+			DiskMode: "independent_persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
+}
 
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {

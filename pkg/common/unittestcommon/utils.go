@@ -142,7 +142,6 @@ func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
 func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 	pvcName string, namespace string) (*v1.PersistentVolumeClaim, error) {
 	if pvcName == "pvc-rwx" {
-
 		pvc := &v1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      pvcName,   // Name of the PVC
@@ -164,6 +163,30 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 
 	if pvcName == "not-found-error" {
 		return nil, apierrors.NewNotFound(v1.Resource("persistentvolumeclaim"), pvcName)
+	}
+
+	if pvcName == "with-used-by-annotation" {
+		mode := v1.PersistentVolumeBlock
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        pvcName,   // Name of the PVC
+				Namespace:   namespace, // Namespace to create the PVC in
+				Annotations: map[string]string{"cns.vmware.com/usedby-vm-123456": ""},
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteMany, // Set the access mode to RWO (ReadWriteOnce)
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+					},
+				},
+				VolumeMode: &mode,
+			},
+		}
+		return pvc, nil
 	}
 
 	pvc := &v1.PersistentVolumeClaim{
@@ -440,6 +463,10 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 	if strings.Contains(volumeID, "invalid") {
 		// Simulate a case where the volumeID is invalid and does not correspond to any PVC.
 		return "", "", false
+	}
+
+	if strings.Contains(volumeID, "with-used-by-annotation") {
+		return "with-used-by-annotation", "test-ns", true
 	}
 
 	// Simulate a case where the volumeID corresponds to a PVC.
