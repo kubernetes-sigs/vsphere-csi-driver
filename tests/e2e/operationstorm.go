@@ -122,7 +122,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		}
 	})
 
-	ginkgo.It("[pq-vanilla-block]create/delete pod with many volumes and verify no attach/detach call should "+
+	ginkgo.It("[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] create/delete pod with many volumes and verify no attach/detach call should "+
 		"fail", ginkgo.Label(p0, vanilla, block, windows, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 		7. Delete Namespace  and Wait for volumes to be deleted and Volume Disk to be detached from the Node.
 	*/
 
-	ginkgo.It("[stable-pq-vks][csi-file-vanilla][csi-guest][pq-vanilla-file][pq-vanilla-block][pq-vks]"+
+	ginkgo.It("[stable-pq-vks][csi-file-vanilla][csi-guest][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks]"+
 		"[pq-vks-n1][pq-vks-n2] Delete namespace to confirm all volumes and pods are deleted", ginkgo.Label(p0,
 		vanilla, block, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())

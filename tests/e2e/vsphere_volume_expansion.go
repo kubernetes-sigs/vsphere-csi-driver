@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 10. Delete PVC, PV and Storage Class.
 
 	ginkgo.It("[ef-wcp][csi-block-vanilla] [csi-supervisor] [csi-guest] [csi-block-vanilla-parallelized] [csi-vcp-mig]"+
-		"[ef-vks][cf-vanilla-block][ef-vks-n1][ef-vks-n2] Verify volume expansion with no filesystem "+
+		"[ef-vks][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-vks-n1][ef-vks-n2] Verify volume expansion with no filesystem "+
 		"before expansion", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 		invokeTestForVolumeExpansion(f, client, namespace, "", storagePolicyName, profileID)
 	})
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 13. Delete PVC, PV and Storage Class.
 
 	ginkgo.It("[csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized] [csi-vcp-mig] "+
-		"[ef-vks][ef-vks-n1][ef-vks-n2][cf-vanilla-block] Verify volume expansion with initial filesystem before "+
+		"[ef-vks][ef-vks-n1][ef-vks-n2][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify volume expansion with initial filesystem before "+
 		"expansion", ginkgo.Label(p0, block, vanilla, tkg, core, vc70), func() {
 		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, fsType, "", storagePolicyName, profileID)
 	})
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 12. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 13. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[ef-vanilla-block][cf-vks][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [cf-vks][csi-block-vanilla] [csi-guest] [csi-block-vanilla-parallelized]"+
 		"Verify offline volume expansion workflow with xfs filesystem", ginkgo.Label(p0, block, vanilla, tkg, core,
 		vc70), func() {
 		invokeTestForVolumeExpansionWithFilesystem(f, client, namespace, xfsFSType, xfsFSType, storagePolicyName, profileID)
@@ -221,7 +221,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 5. Modify PVC's size to trigger offline volume expansion.
 	// 6. Verify if the PVC expansion fails.
 
-	ginkgo.It("[cf-vks][csi-block-vanilla][csi-guest][csi-block-vanilla-parallelized][csi-vcp-mig][pq-vanilla-block] "+
+	ginkgo.It("[cf-vks][csi-block-vanilla][csi-guest][csi-block-vanilla-parallelized][csi-vcp-mig][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  "+
 		"Verify volume expansion not allowed", ginkgo.Label(p2, block, vanilla, tkg, core, vc70), func() {
 		invokeTestForInvalidVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
 	})
@@ -237,7 +237,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 5. Modify PVC's size to a smaller size.
 	// 6. Verify if the PVC expansion fails.
 
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-guest][csi-supervisor]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-block-vanilla][csi-guest][csi-supervisor]"+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks][ef-vks-n1][ef-vks-n2] Verify volume shrinking "+
 		"not allowed", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
 		invokeTestForInvalidVolumeShrink(f, client, namespace, storagePolicyName, profileID)
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 7. Delete PVC.
 	// 8. Verify PV is deleted automatically.
 
-	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][csi-block-vanilla-parallelized]Verify volume "+
+	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla-parallelized]Verify volume "+
 		"expansion is not supported for PVC using vSAN-Default-Storage-Policy", ginkgo.Label(p0,
 		block, vanilla, core, vc70), func() {
 		invokeTestForInvalidVolumeExpansionStaticProvision(f, client, namespace, storagePolicyName, profileID)
@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 9. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 10. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-guest][csi-supervisor]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-block-vanilla][csi-guest][csi-supervisor]"+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks-f]"+
 		"[ef-vks-n1-f][ef-vks-n2-f] Verify volume expansion "+
 		"can happen multiple times", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
@@ -293,7 +293,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 4. Wait for PVC's status to become Bound.
 	// 5. Modify PVC's size to a bigger size.
 	// 6. Verify if the PVC expansion fails.
-	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify file volume expansion is not "+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla][pq-n1-vanilla-file][pq-n2-vanilla-file]Verify file volume expansion is not "+
 		"supported", ginkgo.Label(p1, file, vanilla, core, vc70), func() {
 		invokeTestForUnsupportedFileVolumeExpansion(f, client, namespace, storagePolicyName, profileID)
 	})
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[ef-vanilla-block][cf-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [cf-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
 		"[csi-vcp-mig] Verify online volume expansion on dynamic volume", ginkgo.Label(p0, block, vanilla, wcp, core,
 		vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -388,7 +388,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10. Make sure file system has increased
 	*/
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized][csi-vcp-mig] Verify online "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla][csi-block-vanilla-parallelized][csi-vcp-mig] Verify online "+
 		"volume expansion workflow with xfs filesystem", ginkgo.Label(p1, block, vanilla, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -448,7 +448,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 9. Make sure data is intact on the PV mounted on the pod.
 	// 10. Make sure file system has increased.
 
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Verify online volume "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla][csi-block-vanilla-parallelized] Verify online volume "+
 		"expansion on static volume", ginkgo.Label(p1, block, vanilla, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion on statically created PVC ")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -497,7 +497,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		6. Modify PVC to be a smaller size.
 		7. Verify that the PVC size does not change because volume shrinking is not supported.
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest]"+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks][ef-vks-n1][ef-vks-n2]  Verify online volume expansion "+
 		"shrinking volume not allowed", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -574,7 +574,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			8. Verify the PVC Size should increased by 10Gi
 			9. Make sure file system has increased
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][ef-vks][csi-supervisor] [csi-guest]"+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-vks][csi-supervisor] [csi-guest]"+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks-n1][ef-vks-n2] Verify volume expansion multiple times"+
 		" on the same PVC", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 
@@ -645,7 +645,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	*/
 
 	ginkgo.It("[stable-pq-vks][pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized]"+
-		"[csi-vcp-mig][pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when VSAN-health "+
+		"[csi-vcp-mig][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when VSAN-health "+
 		"is down", ginkgo.Label(p1, block, vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -771,7 +771,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		10. Make sure data is intact on the PV mounted on the pod
 		11. Make sure file system has increased
 	*/
-	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
+	ginkgo.It("[pq-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
 		"[pq-vks][pq-vks-n1][pq-vks-n2] Verify online volume expansion when SPS-Service is down", ginkgo.Label(p1, block,
 		vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -1107,7 +1107,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.  Make sure file system has increased
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][csi-supervisor][csi-guest][csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-supervisor][csi-guest][csi-block-vanilla-parallelized]"+
 		"[csi-vcp-mig][ef-vks][ef-vks-n1][ef-vks-n2] Volume expansion on shared NFS datastore", ginkgo.Label(p0, block,
 		vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -1204,7 +1204,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		9. Make sure data is intact on the PV mounted on the pod
 		10.  Make sure file system has increased
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][ef-vks][csi-supervisor] [csi-guest] "+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-vks][csi-supervisor] [csi-guest] "+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks-n1][ef-vks-n2] Volume expansion on shared "+
 		"VMFS datastore", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -1890,7 +1890,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11.  Make sure file system has increased
 
 	*/
-	ginkgo.It("[ef-vanilla-block][pq-wcp][csi-supervisor][csi-block-vanilla][csi-guest][csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-wcp][csi-supervisor][csi-block-vanilla][csi-guest][csi-block-vanilla-parallelized]"+
 		"[csi-vcp-mig] [ef-vks][ef-vks-n1][ef-vks-n2] Verify online volume expansion when POD is deleted and "+
 		"re-created", ginkgo.Label(p1, block, wcp, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -2019,7 +2019,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		7. Delete Pod and PVC
 		8. Verify there should not be any PVC entry in CNS
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-supervisor][csi-block-vanilla][csi-guest]"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-supervisor][csi-block-vanilla][csi-guest]"+
 		"[csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks] [ef-vks-n1][ef-vks-n2] Verify online volume expansion "+
 		"when PVC is deleted", ginkgo.Label(p1, vanilla, block, wcp, tkg, core, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")
@@ -2445,7 +2445,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		11. Scale down deployment set to 0 replicas and delete all pods, PVC and SC
 
 	*/
-	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][ef-vks][csi-supervisor] [csi-guest] "+
+	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-vks][csi-supervisor] [csi-guest] "+
 		"[csi-block-vanilla-parallelized] [csi-vcp-mig][ef-vks-n1][ef-vks-n2]  Verify online volume expansion"+
 		" on deployment", ginkgo.Label(p0, vanilla, block, wcp, tkg, vc70), func() {
 		ginkgo.By("Invoking Test for Volume Expansion")

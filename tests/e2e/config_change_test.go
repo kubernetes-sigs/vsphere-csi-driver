@@ -68,7 +68,7 @@ var _ bool = ginkgo.Describe("[csi-supervisor] config-change-test", func() {
 			7. Revert the password change
 			8. Delete Storage class
 	*/
-	ginkgo.It("[pq-wcp][pq-vanilla-block] verify PVC deletion after VC password change", ginkgo.Label(p1,
+	ginkgo.It("[pq-wcp][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  verify PVC deletion after VC password change", ginkgo.Label(p1,
 		block, wcp, vc80), func() {
 		ginkgo.By("Invoking password change test")
 		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)

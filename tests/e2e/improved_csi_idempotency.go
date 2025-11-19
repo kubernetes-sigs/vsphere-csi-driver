@@ -177,8 +177,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		7. Verify no orphan volumes are left (using cnsctl tool)
 	*/
 
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] Reduce external provisioner timeout and create "+
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] Reduce external provisioner timeout and create "+
 		"volumes - idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		createVolumesByReducingProvisionerTime(namespace, client, storagePolicyName, scParameters,
 			volumeOpsScale, shortProvisionerTimeout, c)
@@ -203,8 +203,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		5. Delete PVCs and SC
 		6. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-f-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block] create volume when hostd service goes down - "+
+	ginkgo.It("[stable-f-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  create volume when hostd service goes down - "+
 		"idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = hostdServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
@@ -221,8 +221,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] create volume when CNS goes down - idempotency", ginkgo.Label(p0,
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] create volume when CNS goes down - idempotency", ginkgo.Label(p0,
 		disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = vsanhealthServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
@@ -239,8 +239,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-f-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block] create volume when VPXD goes down - "+
+	ginkgo.It("[stable-f-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  create volume when VPXD goes down - "+
 		"idempotency", ginkgo.Label(p0, disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = vpxdServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
@@ -257,8 +257,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] create volume when SPS goes down - idempotency", ginkgo.Label(p0,
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] create volume when SPS goes down - idempotency", ginkgo.Label(p0,
 		block, file, windows, wcp, tkg, vanilla, vc80), func() {
 		serviceName = spsServiceName
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
@@ -274,8 +274,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		5. Delete PVCs and SC
 		6. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] create volume when CSI restarts - idempotency", ginkgo.Label(p0,
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] create volume when CSI restarts - idempotency", ginkgo.Label(p0,
 		disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = "CSI"
 		createVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName,
@@ -292,8 +292,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		6. Delete pvcs and SC
 		7. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] extend volume when csi restarts - idempotency", ginkgo.Label(p0,
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] extend volume when csi restarts - idempotency", ginkgo.Label(p0,
 		disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = "CSI"
 		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,
@@ -311,8 +311,8 @@ var _ = ginkgo.Describe("Improved CSI Idempotency Tests", func() {
 		7. Delete pvcs and SC
 		8. Verify no orphan volumes are left
 	*/
-	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file]"+
-		"[pq-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2] extend volume when CNS goes down - idempotency", ginkgo.Label(p0,
+	ginkgo.It("[stable-pq-vks][csi-block-vanilla][csi-file-vanilla][csi-guest][csi-supervisor][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [pq-vks][pq-vks-n1][pq-vks-n2] extend volume when CNS goes down - idempotency", ginkgo.Label(p0,
 		disruptive, block, file, windows, wcp, tkg, vanilla, vc70), func() {
 		serviceName = vsanhealthServiceName
 		extendVolumeWithServiceDown(serviceName, namespace, client, storagePolicyName, scParameters,

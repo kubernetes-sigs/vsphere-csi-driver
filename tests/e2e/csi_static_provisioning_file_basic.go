@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 	// 7. Wait for the volume entry to be created in CNS.
 	// 8. Delete PV2.
 	// 9. Wait for PV2 to be deleted, and also entry is deleted from CNS.
-	ginkgo.It("[ef-file-vanilla] Verify static provisioning for file volume workflow using"+
+	ginkgo.It("[ef-file-vanilla][pq-n1-vanilla-file][pq-n2-vanilla-file] Verify static provisioning for file volume workflow using"+
 		" same PV name twice", ginkgo.Label(p1, file, vanilla, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

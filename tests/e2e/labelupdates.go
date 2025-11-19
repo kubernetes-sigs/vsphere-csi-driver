@@ -194,7 +194,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 	})
 
-	ginkgo.It("[ef-vanilla-block][csi-supervisor] verify labels are removed in CNS after removing them from pvc "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-supervisor] verify labels are removed in CNS after removing them from pvc "+
 		"and/or pv", ginkgo.Label(p0, block, vanilla, windows, wcp, core), func() {
 		ginkgo.By("Invoking test to verify labels deletion")
 		labels := make(map[string]string)
@@ -282,7 +282,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 
 	})
 
-	ginkgo.It("[cf-vanilla-block][csi-supervisor] verify podname label is created/deleted when pod with cns volume is "+
+	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-supervisor] verify podname label is created/deleted when pod with cns volume is "+
 		"created/deleted.", ginkgo.Label(p0, block, vanilla, windows, wcp, core), func() {
 		ginkgo.By("Invoking test to verify pod name label updates")
 		var sc *storagev1.StorageClass
@@ -394,7 +394,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		8. Delete SC
 	*/
 
-	ginkgo.It("[ef-vanilla-block]Verify PVC name is removed from PV entry on CNS after PVC is deleted "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] Verify PVC name is removed from PV entry on CNS after PVC is deleted "+
 		"when Reclaim Policy is set to retain.", ginkgo.Label(p0, block, vanilla, windows, core), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -524,7 +524,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		13. Delete SC
 	*/
 
-	ginkgo.It("[cf-vanilla-block] Verify label updates on statically provisioned volume.", ginkgo.Label(p0,
+	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify label updates on statically provisioned volume.", ginkgo.Label(p0,
 		block, vanilla, windows,
 		core), func() {
 		var err error
@@ -659,7 +659,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		10. Delete PVCs
 		11. Delete SC
 	*/
-	ginkgo.It("[cf-wcp][cf-vanilla-block][csi-supervisor] Verify label updates on PVC and PV"+
+	ginkgo.It("[cf-wcp][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-supervisor] Verify label updates on PVC and PV"+
 		" attached to a stateful set.", ginkgo.Label(p0, block, vanilla, windows, wcp, core), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

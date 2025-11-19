@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Verify Two Pods can read write files
 		Cleanup:
 		    1.Delete all the pvcs and storage class and verify the deletion
 	*/
-	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla]Verify provisioning of PVC fails for RWX PVC with"+
+	ginkgo.It("[csi-file-vanilla] [ef-file-vanilla][pq-n1-vanilla-file][pq-n2-vanilla-file]Verify provisioning of PVC fails for RWX PVC with"+
 		" xfs fstype", ginkgo.Label(p1, negative, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

@@ -98,7 +98,7 @@ var _ bool = ginkgo.Describe("Verify volume life_cycle operations works fine aft
 	*/
 
 	ginkgo.It("[ef-f-stretched-svc][pq-f-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized]"+
-		"[stretched-svc][pq-vanilla-block] verify volume operations on VC works fine after vc "+
+		"[stretched-svc][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  verify volume operations on VC works fine after vc "+
 		"reboots", ginkgo.Label(p1, block, wcp, vanilla, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

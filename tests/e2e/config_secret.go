@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		7. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Update user credentials in vsphere config secret "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Update user credentials in vsphere config secret "+
 		"keeping password same for both test users", ginkgo.Label(p1, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		12. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block]Change vcenter user password and restart "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] Change vcenter user password and restart "+
 		"csi controller pod", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		7. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Update user credentials in vsphere config secret keeping "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Update user credentials in vsphere config secret keeping "+
 		"password different for both test users", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -503,7 +503,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Change vcenter ip to hostname and viceversa in vsphere config "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Change vcenter ip to hostname and viceversa in vsphere config "+
 		"secret", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -619,7 +619,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Change vcenter user to wrong dummy user and later switch back to "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Change vcenter user to wrong dummy user and later switch back to "+
 		"correct one", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -748,7 +748,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Add a user without adding required roles and privileges "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Add a user without adding required roles and privileges "+
 		"and switch back to the correct one", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -869,7 +869,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		8. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Add necessary roles and privileges to the user post CSI driver "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Add necessary roles and privileges to the user post CSI driver "+
 		"creation", ginkgo.Label(p0, vsphereConfigSecret, block, file, vanilla), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -981,7 +981,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Add wrong datacenter and switch back to the "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Add wrong datacenter and switch back to the "+
 		"correct datacenter in vsphere config secret file", ginkgo.Label(p1, vsphereConfigSecret,
 		block, file, vanilla), func() {
 
@@ -1108,7 +1108,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 	    9. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] VC with Custom Port", ginkgo.Label(p1, vsphereConfigSecret,
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  VC with Custom Port", ginkgo.Label(p1, vsphereConfigSecret,
 		file, block, customPort), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1236,7 +1236,7 @@ var _ = ginkgo.Describe("Config-Secret", func() {
 		10. Cleanup all objects created during the test
 	*/
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block] Modify VC Port and validate the workloads", ginkgo.Label(p1,
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Modify VC Port and validate the workloads", ginkgo.Label(p1,
 		vsphereConfigSecret, file, block,
 		customPort), func() {
 		ctx, cancel := context.WithCancel(context.Background())

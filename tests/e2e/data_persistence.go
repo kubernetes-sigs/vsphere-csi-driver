@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 		}
 	})
 
-	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][ef-vks][csi-supervisor][csi-guest]"+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-vks][csi-supervisor][csi-guest]"+
 		"[csi-block-vanilla-parallelized][ef-vks-n1][ef-vks-n2] Should create and delete pod with the same volume"+
 		" source and data", ginkgo.Label(p0, block, vanilla, wcp, tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("Data Persistence", func() {
 	// 10. Delete pod.
 	// 11. Wait for volume to be detached.
 	// 12. Delete PVC and SC.
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Dynamic volume provisioning data"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla][csi-block-vanilla-parallelized] Dynamic volume provisioning data"+
 		" persistence test with XFS filesystem", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
