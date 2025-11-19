@@ -74,7 +74,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] st
 		fss.DeleteAllStatefulSets(ctx, client, namespace)
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Statefulset testing with XFS filesystem", func() {
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]Statefulset testing with XFS "+
+		"filesystem", func() {
 		framework.Logf("CNS_TEST: Running for vanilla k8s setup")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

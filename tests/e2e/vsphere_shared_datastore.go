@@ -87,7 +87,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	})
 
 	// Shared datastore should be provisioned successfully.
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify dynamic provisioning of PV passes with user specified shared datastore and "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify dynamic provisioning of PV passes "+
+		"with user specified shared datastore and "+
 		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -112,7 +113,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 
 	// Setting non-shared datastore in the storage class should fail dynamic
 	// volume provisioning.
-	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify dynamic provisioning of PV fails with user specified non-shared datastore and "+
+	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Verify dynamic provisioning of PV fails "+
+		"with user specified non-shared datastore and "+
 		"no storage policy specified in the storage class", ginkgo.Label(p0, block, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -154,7 +156,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 9. Delete Pod
 	// 10. Delete PVC and SC
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][cf-vks][csi-block-vanilla][csi-guest][csi-supervisor] Verify impact on "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][cf-vks][csi-block-vanilla]"+
+		"[csi-guest][csi-supervisor] Verify impact on "+
 		"existing pv pvc when sc recreated with different binding mode", ginkgo.Label(p0,
 		block, wcp, tkg, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())

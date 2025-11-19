@@ -134,8 +134,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify CNS volume is created "+
-		"after full sync when pv entry is present", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-block-vanilla]"+
+		"[csi-block-vanilla-serialized] Verify CNS volume is created after full sync"+
+		" when pv entry is present", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 		var err error
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -209,9 +210,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-supervisor] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify labels "+
-		"are created in CNS after updating pvc and/or pv with new labels", ginkgo.Label(p0, block, vanilla, wcp, core,
-		vc70), func() {
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-supervisor][csi-block-vanilla]"+
+		"[csi-block-vanilla-serialized] Verify labels are created in CNS after updating pvc"+
+		" and/or pv with new labels", ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
 		ginkgo.By("Invoking test to verify labels creation")
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -298,7 +299,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-supervisor] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify CNS "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-wcp][csi-supervisor]"+
+		"[csi-block-vanilla][csi-block-vanilla-serialized] Verify CNS "+
 		"volume is deleted after full sync when pv entry is delete", ginkgo.Label(p0, block, vanilla, wcp, core,
 		vc70), func() {
 		ginkgo.By("Invoking test to verify CNS volume creation")
@@ -403,8 +405,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	// 9. verify that pvc labels for pvclaim[2] has been updated.
 	// 10. verify that pv labels for pvs[3] has been updated.
 	// 11. cleanup to remove pvs and pvcliams.
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify Multiple PVCs are "+
-		"deleted/updated after full sync", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-block-vanilla]"+
+		"[csi-block-vanilla-serialized] Verify Multiple PVCs are deleted/updated after full sync", ginkgo.Label(p0,
+		block, vanilla, core, vc70), func() {
 		sc, err := createStorageClass(client, nil, nil, v1.PersistentVolumeReclaimRetain, "", false, "")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ctx, cancel := context.WithCancel(context.Background())
@@ -514,7 +517,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify PVC metadata is created "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-block-vanilla]"+
+		"[csi-block-vanilla-serialized] Verify PVC metadata is created "+
 		"in CNS after PVC is created in k8s", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 		var err error
 
@@ -590,7 +594,8 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla] [csi-block-vanilla-serialized] Verify PVC metadata is deleted in"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-block-vanilla]"+
+		"[csi-block-vanilla-serialized] Verify PVC metadata is deleted in"+
 		" CNS after PVC is deleted in k8s", ginkgo.Label(p0, block, vanilla, core, vc70), func() {
 		var err error
 
@@ -682,8 +687,9 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
-	ginkgo.It("[csi-block-vanilla-destructive][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Scale down driver deployment to zero replica and "+
-		"verify PV metadata is created in CNS", ginkgo.Label(p1, negative, block, vanilla, disruptive, core,
+	ginkgo.It("[csi-block-vanilla-destructive][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"Scale down driver deployment to zero replica and verify PV metadata is created in CNS", ginkgo.Label(p1,
+		negative, block, vanilla, disruptive, core,
 		vc70), func() {
 		var err error
 
@@ -781,9 +787,10 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 			8.	delete pod2
 			9.	delete pvc1
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
-		"[pq-vks][pq-vks-n1][pq-vks-n2] Attach volume to a new pod when CNS is down and verify volume metadata "+
-		"in CNS post full sync", ginkgo.Label(p1, negative, block, vanilla, wcp, tkg, core, vc70), func() {
+	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][csi-guest][csi-block-vanilla-serialized][pq-vanilla-block]"+
+		"[pq-n1-vanilla-block][pq-n2-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2]Attach volume to a new pod when CNS"+
+		" is down and verify volume metadata in CNS post full sync", ginkgo.Label(p1, negative, block, vanilla, wcp,
+		tkg, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var err error

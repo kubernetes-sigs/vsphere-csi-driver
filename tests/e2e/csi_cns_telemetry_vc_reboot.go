@@ -95,7 +95,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	// 13. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 14. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[csi-block-vanilla][csi-file-vanilla][csi-block-vanilla-serialized][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
+	ginkgo.It("[csi-block-vanilla][csi-file-vanilla][csi-block-vanilla-serialized][pq-vanilla-file]"+
+		"[pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
 		"verify volume operations while vc reboot", ginkgo.Label(p1, block, file, vanilla, disruptive,
 		negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -283,7 +284,8 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] "+
 	// 12. Wait for Disk to be attached to the node.
 	// 13. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 14. Delete PVC, PV and Storage Class.
-	ginkgo.It("[csi-block-vanilla][csi-file-vanilla][csi-block-vanilla-serialized][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
+	ginkgo.It("[csi-block-vanilla][csi-file-vanilla][csi-block-vanilla-serialized][pq-vanilla-file]"+
+		"[pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] "+
 		"verify volume operations after vc reboots", ginkgo.Label(p1, block, file, vanilla, disruptive,
 		negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
