@@ -534,7 +534,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if err != nil {
 				msg := fmt.Sprintf("failed to generate volume accessible topology for pvc with name: %s on "+
 					"namespace: %s from supervisorCluster requirements with err: %+v",
-					c.supervisorNamespace, pvc.Name, err)
+					pvc.Name, c.supervisorNamespace, err)
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
 			}
 			log.Infof("Volume %q created is accessible from zones: %+v", supervisorPVCName,
