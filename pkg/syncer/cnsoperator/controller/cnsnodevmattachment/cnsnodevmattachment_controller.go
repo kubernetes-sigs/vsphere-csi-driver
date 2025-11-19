@@ -71,6 +71,29 @@ var (
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
+// Mockable function variables for testing
+var (
+	getVirtualCenterInstance = cnsvsphere.GetVirtualCenterInstance
+	connectToVCenter         = func(ctx context.Context, vc *cnsvsphere.VirtualCenter) error {
+		return vc.Connect(ctx)
+	}
+	createDatacenterFromVC = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+		dcMoref, host string) (*cnsvsphere.Datacenter, error) {
+		return &cnsvsphere.Datacenter{
+			Datacenter: object.NewDatacenter(vc.Client.Client,
+				vimtypes.ManagedObjectReference{
+					Type:  "Datacenter",
+					Value: dcMoref,
+				}),
+			VirtualCenterHost: host,
+		}, nil
+	}
+	getVMByUUIDFromVCenter = func(ctx context.Context, dc *cnsvsphere.Datacenter,
+		nodeUUID string) (*cnsvsphere.VirtualMachine, error) {
+		return dc.GetVirtualMachineByUUID(ctx, nodeUUID, false)
+	}
+)
+
 // Add creates a new CnsNodeVmAttachment Controller and adds it to the Manager,
 // vSphereSecretConfigInfo and VirtualCenterTypes. The Manager will set fields
 // on the Controller and Start it when the Manager is Started.
@@ -289,7 +312,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		// Get node VM by nodeUUID.
 		var dc *cnsvsphere.Datacenter
-		vcenter, err := cnsvsphere.GetVirtualCenterInstance(internalCtx, r.configInfo, false)
+		vcenter, err := getVirtualCenterInstance(internalCtx, r.configInfo, false)
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 			instance.Status.Error = err.Error()
@@ -300,7 +323,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVCenterNotFoundFault, nil
 		}
-		err = vcenter.Connect(internalCtx)
+		err = connectToVCenter(internalCtx, vcenter)
 		if err != nil {
 			msg := fmt.Sprintf("failed to connect to VC with error: %v", err)
 			instance.Status.Error = err.Error()
@@ -311,17 +334,20 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 		}
-		dc = &cnsvsphere.Datacenter{
-			Datacenter: object.NewDatacenter(vcenter.Client.Client,
-				vimtypes.ManagedObjectReference{
-					Type:  "Datacenter",
-					Value: dcMoref,
-				}),
-			VirtualCenterHost: host,
+		dc, err = createDatacenterFromVC(internalCtx, vcenter, dcMoref, host)
+		if err != nil {
+			msg := fmt.Sprintf("failed to create datacenter with error: %v", err)
+			instance.Status.Error = err.Error()
+			err = k8s.UpdateStatus(internalCtx, r.client, instance)
+			if err != nil {
+				log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+			}
+			recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+			return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
 		}
 		nodeUUID := instance.Spec.NodeUUID
 		if !instance.Status.Attached && instance.DeletionTimestamp == nil {
-			nodeVM, err := dc.GetVirtualMachineByUUID(internalCtx, nodeUUID, false)
+			nodeVM, err := getVMByUUIDFromVCenter(internalCtx, dc, nodeUUID)
 			if err != nil {
 				msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment "+
 					"request with name: %q on namespace: %q. Err: %+v",
@@ -458,7 +484,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			volumeOpType = prometheus.PrometheusDetachVolumeOpType
-			nodeVM, err := dc.GetVirtualMachineByUUID(internalCtx, nodeUUID, false)
+			nodeVM, err := getVMByUUIDFromVCenter(internalCtx, dc, nodeUUID)
 			if err != nil {
 				msg := fmt.Sprintf("failed to find the VM on VC with UUID: %s for "+
 					"CnsNodeVmAttachment request with name: %q on namespace: %s. Err: %+v",
@@ -527,34 +553,26 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				return reconcile.Result{}, faulttype, nil
 			}
 			var cnsVolumeID string
+			var faulttype string
 			var ok bool
 			if cnsVolumeID, ok = instance.Status.AttachmentMetadata[v1a1.AttributeCnsVolumeID]; !ok {
 				log.Infof("CnsNodeVmAttachment does not have CNS volume ID. "+
-					"Volume was likely never attached. Checking if CR can be deleted. "+
-					"AttachedStatus: %+v, AttachmentMetadata: %+v",
-					instance.Status.Attached, instance.Status.AttachmentMetadata)
-				if !instance.Status.Attached {
-					// If volume is not attached to VM and CnsNodeVmAttachment CR is getting
-					// deleted, then proceed with the CR deletion.
-					msg := fmt.Sprintf("CnsNodeVmAttachment does not have CNS volume ID. "+
-						"Volume was likely never attached. Proceeding with deletion of "+
-						"CnsNodeVMAttachment: %s instance.", request.Name)
-					removeFinalizerFromCRDInstance(internalCtx, instance, request)
-					err = updateCnsNodeVMAttachment(internalCtx, r.client, instance)
-					if err != nil {
-						log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
-					}
-					recordEvent(internalCtx, r, instance, v1.EventTypeNormal, msg)
-					// Cleanup instance entry from backOffDuration map.
-					backOffDurationMapMutex.Lock()
-					delete(backOffDuration, request.NamespacedName)
-					backOffDurationMapMutex.Unlock()
-					return reconcile.Result{}, "", nil
-				} else {
-					msg := "CnsNodeVmAttachment does not have CNS volume ID."
+					"AttachmentMetadata: %+v. Attempting to get volumeID from PVC.",
+					instance.Status.AttachmentMetadata)
+				// Try to get volumeID using getVolumeID function
+				var err error
+				cnsVolumeID, faulttype, err = getVolumeID(internalCtx, r.client,
+					instance.Spec.VolumeName, instance.Namespace)
+				if err != nil {
+					msg := fmt.Sprintf("Failed to get CNS volume ID for PVC: %q in "+
+						"namespace: %q. Err: %+v", instance.Spec.VolumeName,
+						instance.Namespace, err)
+					log.Error(msg)
 					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
-					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+					return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 				}
+				log.Infof("Successfully retrieved CNS volume ID: %q from PVC: %q",
+					cnsVolumeID, instance.Spec.VolumeName)
 			}
 			log.Infof("vSphere CSI driver is detaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
