@@ -24,6 +24,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -131,7 +132,13 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	log.Info("identity service registered")
 
 	// Determine which of the controller/node services to register.
-	mode := os.Getenv(csitypes.EnvVarMode)
+	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
+	var mode string
+	if startupEnv, err := env.GetStartupEnv(); err == nil {
+		mode = startupEnv.CSIMode
+	} else {
+		mode = os.Getenv(csitypes.EnvVarMode)
+	}
 	if strings.EqualFold(mode, "controller") {
 		if cs == nil {
 			return logger.LogNewError(log, "controller service required when running in controller mode")

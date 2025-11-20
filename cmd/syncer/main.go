@@ -38,6 +38,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -96,7 +97,15 @@ func main() {
 		fmt.Printf("%s\n", syncer.Version)
 		return
 	}
-	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+
+	// Load startup environment variables
+	startupEnv, err := env.LoadStartupEnv(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load startup environment: %v\n", err)
+		os.Exit(1)
+	}
+
+	logType := logger.LogLevel(startupEnv.LoggerLevel)
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", syncer.Version)
@@ -473,8 +482,9 @@ func sanitizeName(name string) string {
 // the env var POD_NAMESPACE, then the file /var/run/secrets/kubernetes.io/serviceaccount/namespace.
 // if neither returns a valid namespace, the "default" namespace is returned
 func inClusterNamespace() string {
-	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
-		return ns
+	// Try to get from centralized env first
+	if startupEnv, err := env.GetStartupEnv(); err == nil && startupEnv.PodNamespace != "" {
+		return startupEnv.PodNamespace
 	}
 
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {

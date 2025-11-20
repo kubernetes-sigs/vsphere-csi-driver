@@ -27,11 +27,11 @@ import (
 	"syscall"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 var (
@@ -53,7 +53,15 @@ func main() {
 		fmt.Printf("%s\n", service.Version)
 		return
 	}
-	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
+
+	// Load startup environment variables
+	startupEnv, err := env.LoadStartupEnv(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load startup environment: %v\n", err)
+		os.Exit(1)
+	}
+
+	logType := logger.LogLevel(startupEnv.LoggerLevel)
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", service.Version)
@@ -73,13 +81,11 @@ func main() {
 	if err != nil {
 		log.Errorf("failed retrieving the cluster flavor. Error: %v", err)
 	}
-	serviceMode := os.Getenv(csitypes.EnvVarMode)
 	commonco.SetInitParams(ctx, clusterFlavor, &service.COInitParams, *supervisorFSSName, *supervisorFSSNamespace,
-		*internalFSSName, *internalFSSNamespace, serviceMode, "")
+		*internalFSSName, *internalFSSNamespace, startupEnv.CSIMode, "")
 
 	// If no endpoint is set then exit the program.
-	CSIEndpoint := os.Getenv(csitypes.EnvVarEndpoint)
-	if CSIEndpoint == "" {
+	if startupEnv.CSIEndpoint == "" {
 		log.Error("CSI endpoint cannot be empty. Please set the env variable.")
 		os.Exit(1)
 	}
@@ -106,7 +112,7 @@ func main() {
 	}()
 
 	vSphereCSIDriver := service.NewDriver()
-	vSphereCSIDriver.Run(ctx, CSIEndpoint)
+	vSphereCSIDriver.Run(ctx, startupEnv.CSIEndpoint)
 
 }
 
