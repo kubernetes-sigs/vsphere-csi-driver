@@ -526,12 +526,13 @@ func addPvcFinalizer(ctx context.Context,
 		return nil
 	}
 
+	original := pvc.DeepCopy()
 	if !controllerutil.AddFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
 		return fmt.Errorf("failed to add CNS finalizer to PVC %s in namespace %s", pvc.Name,
 			pvc.Namespace)
 	}
 
-	err = client.Update(ctx, pvc)
+	err = util.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
 			instance.Spec.PvcName, instance.Namespace)
@@ -597,6 +598,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 		return nil
 	}
 
+	original := pvc.DeepCopy()
 	if !controllerutil.RemoveFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
 		err := fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
 			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
@@ -604,7 +606,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 		return err
 	}
 
-	err = client.Update(ctx, pvc)
+	err = util.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
 			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
@@ -872,9 +874,10 @@ func setInstanceError(ctx context.Context, r *ReconcileCnsFileAccessConfig,
 func updateCnsFileAccessConfig(ctx context.Context, client client.Client,
 	instance *v1a1.CnsFileAccessConfig) error {
 	log := logger.GetLogger(ctx)
-	err := client.Update(ctx, instance)
+	original := instance.DeepCopy()
+	err := util.PatchObject(ctx, client, original, instance)
 	if err != nil {
-		log.Errorf("failed to update CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
+		log.Errorf("failed to patch CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
 			instance.Name, instance.Namespace, err)
 	}
 	return err
