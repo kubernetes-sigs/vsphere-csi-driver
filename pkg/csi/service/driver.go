@@ -77,7 +77,8 @@ type vsphereCSIDriver struct {
 func init() {
 	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
 	var sockPath string
-	if startupEnv, err := env.GetStartupEnv(); err == nil {
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.CSIEndpoint != "" {
 		sockPath = startupEnv.CSIEndpoint
 	} else {
 		sockPath = os.Getenv(csitypes.EnvVarEndpoint)
@@ -99,7 +100,8 @@ func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 	// Check which controller type to use.
 	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
 	var clusterFlavorStr string
-	if startupEnv, err := env.GetStartupEnv(); err == nil {
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.ClusterFlavor != "" {
 		clusterFlavorStr = startupEnv.ClusterFlavor
 	} else {
 		clusterFlavorStr = os.Getenv(cnsconfig.EnvClusterFlavor)
@@ -145,7 +147,8 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 
 	// Get the SP's operating mode.
 	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
-	if startupEnv, err := env.GetStartupEnv(); err == nil {
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.CSIMode != "" {
 		driver.mode = startupEnv.CSIMode
 	} else {
 		driver.mode = os.Getenv(csitypes.EnvVarMode)

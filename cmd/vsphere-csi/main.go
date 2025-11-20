@@ -55,11 +55,7 @@ func main() {
 	}
 
 	// Load startup environment variables
-	startupEnv, err := env.LoadStartupEnv(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load startup environment: %v\n", err)
-		os.Exit(1)
-	}
+	startupEnv := env.Load(context.Background())
 
 	logType := logger.LogLevel(startupEnv.LoggerLevel)
 	logger.SetLoggerLevel(logType)

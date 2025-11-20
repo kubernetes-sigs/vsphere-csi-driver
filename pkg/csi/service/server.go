@@ -134,7 +134,8 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 	// Determine which of the controller/node services to register.
 	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
 	var mode string
-	if startupEnv, err := env.GetStartupEnv(); err == nil {
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.CSIMode != "" {
 		mode = startupEnv.CSIMode
 	} else {
 		mode = os.Getenv(csitypes.EnvVarMode)

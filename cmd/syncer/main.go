@@ -99,11 +99,7 @@ func main() {
 	}
 
 	// Load startup environment variables
-	startupEnv, err := env.LoadStartupEnv(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load startup environment: %v\n", err)
-		os.Exit(1)
-	}
+	startupEnv := env.Load(context.Background())
 
 	logType := logger.LogLevel(startupEnv.LoggerLevel)
 	logger.SetLoggerLevel(logType)
@@ -483,7 +479,8 @@ func sanitizeName(name string) string {
 // if neither returns a valid namespace, the "default" namespace is returned
 func inClusterNamespace() string {
 	// Try to get from centralized env first
-	if startupEnv, err := env.GetStartupEnv(); err == nil && startupEnv.PodNamespace != "" {
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.PodNamespace != "" {
 		return startupEnv.PodNamespace
 	}
 
