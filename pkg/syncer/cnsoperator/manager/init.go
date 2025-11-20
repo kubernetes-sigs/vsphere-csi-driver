@@ -301,7 +301,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		return err
 	}
 	if err := vmoperatortypes.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to set the scheme for vm operator. Err: %+v", err)
+		log.Errorf("failed to set the scheme for vm operator v1alpha5. Err: %+v", err)
 		return err
 	}
 

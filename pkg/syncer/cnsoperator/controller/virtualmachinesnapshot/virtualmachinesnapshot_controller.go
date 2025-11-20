@@ -44,7 +44,6 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -119,7 +118,10 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Error(msg)
 		return err
 	}
-	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+
+	vmSnapVMOperatorClient, err := client.New(restClientConfig, client.Options{
+		Scheme: mgr.GetScheme(),
+	})
 	if err != nil {
 		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. error: %+v", err)
 		log.Error(msg)
@@ -136,21 +138,21 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: apis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager,
-		recorder, vmOperatorClient, volumeInfoService))
+		recorder, vmSnapVMOperatorClient, volumeInfoService))
 }
 
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
-	volumeManager volumes.Manager, recorder record.EventRecorder, vmOperatorClient client.Client,
+	volumeManager volumes.Manager, recorder record.EventRecorder, vmSnapVMOperatorClient client.Client,
 	volumeInfoService cnsvolumeinfo.VolumeInfoService) reconcile.Reconciler {
 	return &ReconcileVirtualMachineSnapshot{
-		client:            mgr.GetClient(),
-		scheme:            mgr.GetScheme(),
-		configInfo:        configInfo,
-		volumeManager:     volumeManager,
-		recorder:          recorder,
-		vmOperatorClient:  vmOperatorClient,
-		volumeInfoService: volumeInfoService,
+		client:                 mgr.GetClient(),
+		scheme:                 mgr.GetScheme(),
+		configInfo:             configInfo,
+		volumeManager:          volumeManager,
+		recorder:               recorder,
+		vmSnapVMOperatorClient: vmSnapVMOperatorClient,
+		volumeInfoService:      volumeInfoService,
 	}
 }
 
@@ -181,13 +183,13 @@ var _ reconcile.Reconciler = &ReconcileVirtualMachineSnapshot{}
 type ReconcileVirtualMachineSnapshot struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
-	client            client.Client
-	scheme            *runtime.Scheme
-	configInfo        *commonconfig.ConfigurationInfo
-	volumeManager     volumes.Manager
-	recorder          record.EventRecorder
-	volumeInfoService cnsvolumeinfo.VolumeInfoService
-	vmOperatorClient  client.Client
+	client                 client.Client
+	scheme                 *runtime.Scheme
+	configInfo             *commonconfig.ConfigurationInfo
+	volumeManager          volumes.Manager
+	recorder               record.EventRecorder
+	volumeInfoService      cnsvolumeinfo.VolumeInfoService
+	vmSnapVMOperatorClient client.Client
 }
 
 // Reconcile reads that state of the cluster for a VirtualMachineSnapshot object and
@@ -258,7 +260,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 		if controllerutil.AddFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 			log.Infof("reconcileNormal: Adding finalizer %s on virtualmachinesnapshot cr %s/%s",
 				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
-			err := r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
+			err := r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 			if err != nil {
 				log.Errorf("reconcileNormal: error while add finalizer to "+
 					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Name, vmsnapshot.Name, err)
@@ -291,8 +293,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 			Name:      vmsnapshot.Spec.VMName,
 		}
 		log.Infof("reconcileNormal: get virtulal machine %s/%s", vmKey.Namespace, vmKey.Name)
-		virtualMachine, _, err := utils.GetVirtualMachineAllApiVersions(ctx, vmKey,
-			r.vmOperatorClient)
+		virtualMachine, err := r.getVirtualMachineV1alpha5(ctx, vmKey)
 		// case when underlying virtualmachine is deleted after creating vmsnapshot cr,
 		// when delete snapshot we ignore the error, so that vmsnapshot cr does not stuck deletion pahse
 		if err != nil && !deleteVMSnapshot {
@@ -326,7 +327,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 			vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
 			if controllerutil.RemoveFinalizer(vmsnapshot, SyncVolumeFinalizer) {
-				err = r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
+				err = r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 				if err != nil {
 					log.Errorf("reconcileNormal: failed to remove finalizer for "+
 						"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Namespace,
@@ -341,7 +342,7 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 			vmsnapshot.Namespace, vmsnapshot.Name)
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
 		vmsnapshot.Annotations["csi.vsphere.volume.sync"] = "completed"
-		err = r.client.Patch(ctx, vmsnapshot, vmSnapshotPatch)
+		err = r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 		if err != nil {
 			log.Errorf("reconcileNormal: could not update virtualmachinesnapshot %s/%s. error: %v",
 				vmsnapshot.Namespace, vmsnapshot.Name, err)
@@ -497,6 +498,26 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 		}
 	}
 	return nil
+}
+
+// getVirtualMachineV1alpha5 fetches a VirtualMachine using v1alpha5 API version.
+// This function is specific to this controller to use v1alpha5 while the rest of
+// the codebase uses v1alpha2.
+func (r *ReconcileVirtualMachineSnapshot) getVirtualMachineV1alpha5(ctx context.Context,
+	vmKey apitypes.NamespacedName) (*vmoperatortypes.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	vm := &vmoperatortypes.VirtualMachine{}
+	log.Infof("getVirtualMachineV1alpha5: fetching VirtualMachine with v1alpha5 API "+
+		"name: %s, namespace: %s", vmKey.Name, vmKey.Namespace)
+	err := r.vmSnapVMOperatorClient.Get(ctx, vmKey, vm)
+	if err != nil {
+		log.Errorf("getVirtualMachineV1alpha5: failed to get VirtualMachine "+
+			"with name %s and namespace %s, error %v", vmKey.Name, vmKey.Namespace, err)
+		return nil, err
+	}
+	log.Infof("getVirtualMachineV1alpha5: successfully fetched the VirtualMachine "+
+		"with name %s and namespace %s", vmKey.Name, vmKey.Namespace)
+	return vm, nil
 }
 
 func (r *ReconcileVirtualMachineSnapshot) invokeSyncVolume(ctx context.Context, log *zap.SugaredLogger,
