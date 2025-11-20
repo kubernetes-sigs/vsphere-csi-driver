@@ -682,7 +682,7 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoptypes.CNSFinalizer {
-			log.Debugf("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
+			log.Infof("Removing %q finalizer from CnsNodeVmAttachment instance with name: %q on namespace: %q",
 				cnsoptypes.CNSFinalizer, request.Name, request.Namespace)
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
 		}
@@ -713,7 +713,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 	finalizerFound := false
 	for i, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoptypes.CNSPvcFinalizer {
-			log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
+			log.Infof("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
 				cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 			pvc.Finalizers = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
 			finalizerFound = true
@@ -721,7 +721,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 		}
 	}
 	if !finalizerFound {
-		log.Debugf("Finalizer: %q not found on PersistentVolumeClaim: %q on namespace: %q not found. Returning nil",
+		log.Infof("Finalizer: %q not found on PersistentVolumeClaim: %q on namespace: %q not found. Returning nil",
 			cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 		return "", nil
 	}
@@ -761,7 +761,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			if removeCnsPvcFinalizer {
 				for i, finalizer := range latestPVCObject.Finalizers {
 					if finalizer == cnsoptypes.CNSPvcFinalizer {
-						log.Debugf("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
+						log.Infof("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
 							cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 						latestPVCObject.Finalizers = append(latestPVCObject.Finalizers[:i], latestPVCObject.Finalizers[i+1:]...)
 						break
