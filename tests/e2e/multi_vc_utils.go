@@ -53,6 +53,11 @@ import (
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 )
 
+func backgroundDeleteOptions() metav1.DeleteOptions {
+	deletePolicy := metav1.DeletePropagationBackground
+	return metav1.DeleteOptions{PropagationPolicy: &deletePolicy}
+}
+
 /*
 createCustomisedStatefulSets util methods creates statefulset as per the user's
 specific requirement and returns the customised statefulset
@@ -176,7 +181,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		fss.WaitForStatusReplicas(ctx, c, ss, 0)
 		framework.Logf("Deleting statefulset %v", ss.Name)
 		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name,
-			metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
+			backgroundDeleteOptions()); err != nil {
 			errList = append(errList, fmt.Sprintf("%v", err))
 		}
 	}
