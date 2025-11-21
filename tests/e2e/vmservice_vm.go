@@ -1145,7 +1145,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 		10	Delete pvc1 and pvc2
 		11	Remove spbm policy attached to test namespace
 	*/
-	ginkgo.It("[pq-wcp-snpt] Create VM or attach/detach PVC to VM when vsan-health is down", ginkgo.Label(p1,
+	ginkgo.It("[pq-f-wcp-snpt] Create VM or attach/detach PVC to VM when vsan-health is down", ginkgo.Label(p1,
 		vmServiceVm, block, wcp, negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
