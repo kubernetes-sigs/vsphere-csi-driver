@@ -3784,7 +3784,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   9. Delete both deployments and. the pvcs
 	*/
 
-	ginkgo.It("[pq-wcp-neg-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot] VC reboot "+
+	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot][tkg-snapshot][supervisor-snapshot] VC reboot "+
 		"with deployment pvcs having snapshot", ginkgo.Label(p1, block, vanilla, tkg, snapshot, disruptive,
 		negative, flaky, vc90), func() {
 
@@ -4917,7 +4917,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		3. Cleanup of snapshot, pvc and sc
 	*/
 
-	ginkgo.It("[ef-f-vanilla-block][pq-wcp-snpt][block-vanilla-snapshot][tkg-snapshot]"+
+	ginkgo.It("[ef-f-vanilla-block][pq-f-wcp-snpt][block-vanilla-snapshot][tkg-snapshot]"+
 		"[supervisor-snapshot][ef-vks-snapshot-f] Volume provision and snapshot creation/restore "+
 		"on VMFS Datastore", ginkgo.Label(p0, block, vanilla, snapshot, tkg, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
