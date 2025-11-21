@@ -173,6 +173,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return logger.LogNewErrorf(log, "failed to start zone informer. Error: %v", err)
 		}
 	}
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.SharedDiskFss) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.SharedDiskFss, "", "")
+	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,

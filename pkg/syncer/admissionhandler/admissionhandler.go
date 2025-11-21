@@ -157,6 +157,10 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 				common.LinkedCloneSupport, "", "")
 		}
+		if !featureIsSharedDiskEnabled {
+			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+				common.SharedDiskFss, "", "")
+		}
 		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification,
 			containerOrchestratorUtility); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
