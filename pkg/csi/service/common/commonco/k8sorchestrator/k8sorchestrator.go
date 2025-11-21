@@ -399,7 +399,6 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				}
 			}
 
-			// Initialize the map for pvc to snapshots
 			err := initPVCToSnapshotsMap(ctx, controllerClusterFlavor)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create PVC to snapshots map. Error: %v", err)
@@ -2314,7 +2313,8 @@ func GetPVCDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1
 func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
 	log := logger.GetLogger(ctx)
 	if controllerClusterFlavor != cnstypes.CnsClusterFlavorWorkload {
-		// PVC to VolumeSnapshot mapping is only required for WCP.
+		// PVC to VolumeSnapshot cache is only required for WCP for now.
+		log.Info("non WCP cluster detected. skipping initialising PVC to Snapshot cache.")
 		return nil
 	}
 
