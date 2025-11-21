@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -50,6 +51,10 @@ type InformerManager struct {
 	client clientset.Interface
 	// main shared informer factory
 	informerFactory informers.SharedInformerFactory
+
+	// snapshotInformerFactory - TODO: update this
+	snapshotInformerFactory externalversions.SharedInformerFactory
+
 	// main signal
 	stopCh (<-chan struct{})
 
@@ -83,4 +88,7 @@ type InformerManager struct {
 
 	// volume attachment informer
 	volumeAttachmentInformer cache.SharedInformer
+
+	// snapshot informer
+	snapshotInformer cache.SharedInformer
 }

@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc/codes"
 	"k8s.io/client-go/util/retry"
 
@@ -239,6 +240,31 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 	return volumeName, found
 }
 
+type namespacedName struct {
+	namespace, name string
+}
+
+func (n namespacedName) String() string {
+	return fmt.Sprintf("%s/%s", n.namespace, n.name)
+}
+
+type snapshotInfo struct {
+	snapshotName        string
+	snapshotContentName string
+}
+
+func (s snapshotInfo) String() string {
+	return fmt.Sprintf("name: %s, content name: %s", s.snapshotName, s.snapshotContentName)
+}
+
+// pvcToSnapshotsMap maps a PVC to its snapshots.
+// Key is the namespaced name of the PVC and value is a map.
+// The key of the inner map is the namespaced name of the snapshot.
+type pvcToSnapshotsMap struct {
+	*sync.RWMutex
+	items map[namespacedName]map[namespacedName]snapshotInfo
+}
+
 // K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
 	supervisorFSS        FSSConfigMapInfo
@@ -251,6 +277,7 @@ type K8sOrchestrator struct {
 	nodeIDToNameMap      *nodeIDToNameMap
 	volumeNameToNodesMap *volumeNameToNodesMap // used when ListVolume FSS is enabled
 	volumeIDToNameMap    *volumeIDToNameMap    // used when ListVolume FSS is enabled
+	pvcToSnapshotsMap    *pvcToSnapshotsMap
 	k8sClient            clientset.Interface
 	snapshotterClient    snapshotterClientSet.Interface
 	// pvcUIDCache maps PVC UID to its namespaced name (namespace/name).
@@ -379,6 +406,12 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 						return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
 					}
 				}
+			}
+
+			// Initialize the map for pvc to snapshots
+			err := initPVCToSnapshotsMap(ctx, controllerClusterFlavor)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create PVC to snapshots map. Error: %v", err)
 			}
 
 			k8sOrchestratorInstance.informerManager.Listen()
@@ -2285,4 +2318,47 @@ func GetPVCDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1
 		return nil, nil
 	}
 	return &dataSource, nil
+}
+
+func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
+	log := logger.GetLogger(ctx)
+	if controllerClusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		// PVC to VolumeSnapshot mapping is only required for WCP.
+		return nil
+	}
+
+	log.Debugf("Initializing pvc namespaced name to volumesnapshot names map")
+	k8sOrchestratorInstance.pvcToSnapshotsMap = &pvcToSnapshotsMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[namespacedName]map[namespacedName]snapshotInfo),
+	}
+
+	snapshotAdded := func(obj interface{}) {
+		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+		if !ok || snap == nil {
+			log.Warnf("snapshotAdded: unrecognized object %+v", obj)
+			return
+		}
+
+		// TODO: implement
+		log.Infof("snapshotAdded: snapshot=%v", snap)
+	}
+
+	err := k8sOrchestratorInstance.informerManager.AddSnapshotListener(ctx,
+		func(obj interface{}) {
+			snapshotAdded(obj)
+		},
+		func(oldObj, newObj interface{}) {
+			// TODO: implement
+			log.Info("snapshotUpdated")
+		},
+		func(obj interface{}) {
+			// TODO: implement
+			log.Info("snapshotDeleted")
+		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on volumesnapshots. Error: %v", err)
+	}
+
+	return nil
 }

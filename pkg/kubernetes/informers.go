@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -74,11 +75,19 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 		informerInstance = supervisorInformerManagerInstance
 	}
 
+	// TODO: check if callers can pass this
+	snapClient, err := NewSnapshotterClient(ctx)
+	if err != nil {
+		// TODO: handle error appropriately
+		log.Fatalf("unable to initialise snapshot client")
+	}
+
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
-			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
-			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+			client:                  client,
+			stopCh:                  signals.SetupSignalHandler().Done(),
+			informerFactory:         informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+			snapshotInformerFactory: externalversions.NewSharedInformerFactory(snapClient, 0),
 		}
 
 		if inClusterClnt {
@@ -256,6 +265,28 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 	return nil
 }
 
+// AddSnapshotListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddSnapshotListener(ctx context.Context, add func(obj interface{}),
+	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
+	if im.snapshotInformer == nil {
+		im.snapshotInformer = im.snapshotInformerFactory.
+			Snapshot().V1().VolumeSnapshots().Informer()
+	}
+
+	_, err := im.snapshotInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+	if err != nil {
+		return logger.LogNewErrorf(
+			log, "failed to add event handler on snapshot listener. Error: %v", err)
+	}
+
+	return nil
+}
+
 // GetPVLister returns PV Lister for the calling informer manager.
 func (im *InformerManager) GetPVLister() corelisters.PersistentVolumeLister {
 	return im.informerFactory.Core().V1().PersistentVolumes().Lister()
@@ -286,27 +317,4 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 
 	}
 	return im.stopCh
-}
-
-// NewConfigMapListener creates a new configmap listener in the given namespace.
-// NOTE: This creates a NewSharedIndexInformer everytime and does not use the informer factory.
-// Only use this function when you need a configmap listener in a different namespace than the
-// one already present in the informer factory.
-func NewConfigMapListener(ctx context.Context, client clientset.Interface, namespace string,
-	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
-	log := logger.GetLogger(ctx)
-	configMapInformer := v1.NewFilteredConfigMapInformer(client, namespace, resyncPeriodConfigMapInformer,
-		cache.Indexers{}, nil)
-
-	_, err := configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    add,
-		UpdateFunc: update,
-		DeleteFunc: remove,
-	})
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to add event handler on configmap listener. Error: %v", err)
-	}
-	stopCh := make(chan struct{})
-	go configMapInformer.Run(stopCh)
-	return nil
 }
