@@ -616,7 +616,7 @@ var _ = ginkgo.Describe("statefulset", func() {
 			10. scale down statefulset to 0
 			11. delete statefulset and all PVC's and SC's
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
+	ginkgo.It("[ef-vanilla-block][ef-f-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
 		"[csi-vcp-mig]Verify online volume expansion on statefulset", ginkgo.Label(p1, vanilla, block, wcp,
 		vcptocsiTest, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
