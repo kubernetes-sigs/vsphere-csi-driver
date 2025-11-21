@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"testing"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -2121,4 +2123,62 @@ func contains(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestSnapshotDeleted(t *testing.T) {
+	syncer := &metadataSyncInformer{}
+
+	t.Run("NonSnapshotObject", func(tt *testing.T) {
+		assert.NotPanics(tt, func() {
+			snapshotDeleted("bad-object", syncer)
+		})
+	})
+
+	t.Run("NilObject", func(tt *testing.T) {
+		assert.NotPanics(tt, func() {
+			snapshotDeleted(nil, syncer)
+		})
+	})
+
+	t.Run("NilTypedPointer", func(tt *testing.T) {
+		var nilSnap *snapshotv1.VolumeSnapshot
+		assert.NotPanics(tt, func() {
+			snapshotDeleted(nilSnap, syncer)
+		})
+	})
+
+	t.Run("SnapshotWithNilStatus", func(tt *testing.T) {
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{Name: "snap1", Namespace: "ns1"},
+		}
+		assert.NotPanics(tt, func() {
+			snapshotDeleted(snap, syncer)
+		})
+	})
+
+	t.Run("SnapshotWithEmptyBoundContentName", func(tt *testing.T) {
+		empty := ""
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{Name: "snap1", Namespace: "ns1"},
+			Status: &snapshotv1.VolumeSnapshotStatus{
+				BoundVolumeSnapshotContentName: &empty,
+			},
+		}
+		assert.NotPanics(tt, func() {
+			snapshotDeleted(snap, syncer)
+		})
+	})
+
+	t.Run("SnapshotWithValidContentName", func(tt *testing.T) {
+		contentName := "snapcontent-xyz"
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{Name: "snap1", Namespace: "ns1"},
+			Status: &snapshotv1.VolumeSnapshotStatus{
+				BoundVolumeSnapshotContentName: &contentName,
+			},
+		}
+		assert.NotPanics(tt, func() {
+			snapshotDeleted(snap, syncer)
+		})
+	})
 }

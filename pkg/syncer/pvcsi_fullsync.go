@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -38,8 +39,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
-
-	"slices"
 
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -178,7 +177,7 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	// backfill the guest-cluster-snapshot annotation (ImprovedVolumeVisiblity FSS) on the Supervisor
 	// VolumeSnapshot which is requested from the TKC Cluster.
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) ||
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
 		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
 		if err != nil {
 			log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
@@ -528,7 +527,7 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
 			}
 
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
 				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; !ok {
 					guestPvcAnnot := common.BuildGuestPvcAnnotation(
 						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
@@ -723,7 +722,7 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 	snapshotProtectionEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
 		common.SVPVCSnapshotProtectionFinalizer)
 	improvedVisibilityEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-		common.ImprovedVolumeVisiblity)
+		common.ImprovedVolumeVisibility)
 
 	// Define the processor for supervisor snapshots. Label and finalizer mutations
 	// are gated by SVPVCSnapshotProtectionFinalizer; the guest-cluster annotation

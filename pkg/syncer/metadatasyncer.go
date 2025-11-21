@@ -32,6 +32,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-co-op/gocron"
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -784,6 +785,24 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		})
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on pods. Error: %v", err)
+	}
+
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create snapshotter client. Error: %v", err)
+		}
+
+		metadataSyncer.k8sInformerManager.SetSnapshotInformerFactory(snapshotterClient)
+		err = metadataSyncer.k8sInformerManager.AddSnapshotListener(
+			ctx, nil, nil,
+			func(obj any) {
+				snapshotDeleted(obj, metadataSyncer)
+			})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to listen on snapshot delete events. Error: %v", err)
+		}
 	}
 
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
@@ -2829,6 +2848,28 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		}
 		csiPVCUpdated(ctx, newPvc, pv, metadataSyncer)
 	}
+}
+
+func snapshotDeleted(obj interface{}, _ *metadataSyncInformer) {
+	_, log := logger.GetNewContextWithLogger()
+	log = log.With("func", "snapshotDeleted")
+	snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+	if snap == nil || !ok {
+		log.Warnf("Unrecognised object %+v", obj)
+		return
+	}
+
+	log = log.With("snapshot", snap.Name)
+	if snap.Status == nil ||
+		snap.Status.BoundVolumeSnapshotContentName == nil ||
+		*snap.Status.BoundVolumeSnapshotContentName == "" {
+		// nothing to do here
+		log.Info("snapshot doesn't have any content object created")
+		return
+	}
+
+	log.Warnf("unimplemented")
+	// TODO: implement this in a subsequent PR
 }
 
 // pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s
