@@ -162,6 +162,10 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 		return pvc, nil
 	}
 
+	if pvcName == "not-found-error" {
+		return nil, apierrors.NewNotFound(v1.Resource("persistentvolumeclaim"), pvcName)
+	}
+
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pvcName,   // Name of the PVC
