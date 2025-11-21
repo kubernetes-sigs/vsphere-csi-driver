@@ -50,6 +50,8 @@ import (
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -69,6 +71,7 @@ const (
 var (
 	backOffDuration         map[k8stypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+	isSharedDiskEnabled     bool
 )
 
 // Mockable function variables for testing
@@ -134,6 +137,10 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		log.Error(msg)
 		return err
 	}
+
+	// If the capability gets enabled at a later point, then container
+	// will be restarted and this value will be reinitialized.
+	isSharedDiskEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
@@ -347,6 +354,17 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		nodeUUID := instance.Spec.NodeUUID
 		if !instance.Status.Attached && instance.DeletionTimestamp == nil {
+
+			if isSharedDiskEnabled {
+				// If isSharedDiskEnabled is enabled, then all new attach operations should happen via the
+				// new CnsNodeVMBatchAttachment CRD.
+				err := r.updateErrorOnInstanceToDisallowAttach(ctx, instance)
+				if err != nil {
+					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+				}
+				return reconcile.Result{}, "", nil
+			}
+
 			nodeVM, err := getVMByUUIDFromVCenter(internalCtx, dc, nodeUUID)
 			if err != nil {
 				msg := fmt.Sprintf("failed to find the VM with UUID: %q for CnsNodeVmAttachment "+
@@ -815,6 +833,25 @@ func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 		vmuuid, namespace)
 	log.Info(msg)
 	return nil, nil
+}
+
+// updateErrorOnInstanceToDisallowAttach sets error on the CnsNodeVMAttachment CR
+// so that devops user can detach this volume
+// from the VM and re-attach it so that the new Batch Attach flow is triggered.
+func (r *ReconcileCnsNodeVMAttachment) updateErrorOnInstanceToDisallowAttach(ctx context.Context,
+	instance *v1a1.CnsNodeVmAttachment) error {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Attach should happen via the new CnsNodeVMBatchAttachment CRD. Skipping attach.")
+	msg := "CnsNodeVMAttachment CR is deprecated. Please detach this PVC from the VM and then reattach it."
+	instance.Status.Error = msg
+	err := k8s.UpdateStatus(ctx, r.client, instance)
+	if err != nil {
+		log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+		return err
+	}
+	recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+	return nil
 }
 
 // getVCDatacenterFromConfig returns datacenter registered for each vCenter
