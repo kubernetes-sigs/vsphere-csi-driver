@@ -18,6 +18,7 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -316,5 +317,16 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 		}
 
 	}
+
+	go im.snapshotInformerFactory.Start(im.stopCh)
+	cacheSync := im.snapshotInformerFactory.WaitForCacheSync(im.stopCh)
+	// TODO: remove
+	fmt.Print(cacheSync)
+	for _, isSynced := range cacheSync {
+		if !isSynced {
+			return
+		}
+	}
+
 	return im.stopCh
 }

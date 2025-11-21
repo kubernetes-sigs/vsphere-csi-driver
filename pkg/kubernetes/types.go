@@ -56,7 +56,7 @@ type InformerManager struct {
 	snapshotInformerFactory externalversions.SharedInformerFactory
 
 	// main signal
-	stopCh (<-chan struct{})
+	stopCh <-chan struct{}
 
 	// node informer
 	nodeInformer cache.SharedInformer
