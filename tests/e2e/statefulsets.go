@@ -170,9 +170,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 	7. clean up the statefulset
 	*/
 
-	ginkgo.It("[ef-vanilla-block][ef-stretched-svc][cf-wcp][csi-block-vanilla][csi-supervisor]"+
-		"[csi-block-vanilla-parallelized][stretched-svc] Statefulset testing with default "+
-		"podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-stretched-svc][cf-wcp]"+
+		"[csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized][stretched-svc] Statefulset testing wit"+
+		" default podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		defer cancel()
@@ -417,7 +417,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 		8. Delete all PVCs from the tests namespace.
 		9. Delete the storage class.
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized] Statefulset "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-block-vanilla]"+
+		"[csi-supervisor][csi-block-vanilla-parallelized] Statefulset "+
 		"testing with parallel podManagementPolicy", ginkgo.Label(p0, vanilla, block, wcp, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -616,8 +617,9 @@ var _ = ginkgo.Describe("statefulset", func() {
 			10. scale down statefulset to 0
 			11. delete statefulset and all PVC's and SC's
 	*/
-	ginkgo.It("[ef-vanilla-block][ef-wcp][csi-block-vanilla][csi-supervisor][csi-block-vanilla-parallelized]"+
-		"[csi-vcp-mig]Verify online volume expansion on statefulset", ginkgo.Label(p1, vanilla, block, wcp,
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][csi-block-vanilla]"+
+		"[csi-supervisor][csi-block-vanilla-parallelized][csi-vcp-mig]Verify online volume expansion on"+
+		" statefulset", ginkgo.Label(p1, vanilla, block, wcp,
 		vcptocsiTest, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -827,7 +829,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 	  12. Inncrease the CSI driver  replica to 3
 
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][pq-vanilla-block] ListVolumeResponse "+
+	ginkgo.It("[ef-wcp][csi-block-vanilla][csi-supervisor][pq-vanilla-block][pq-n1-vanilla-block]"+
+		"[pq-n2-vanilla-block]ListVolumeResponse "+
 		"Validation", ginkgo.Label(p1, listVolume, block, vanilla, wcp, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

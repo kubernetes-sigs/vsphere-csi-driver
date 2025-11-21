@@ -208,7 +208,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 	   CnsRelocateVolume API and verify the datastore of fcd after migration and volume compliance.
 	6. Delete pod,pvc and sc.
 	*/
-	ginkgo.It("[cf-vanilla-block] Online relocation of volume using cnsRelocate Volume API", ginkgo.Label(p0,
+	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Online relocation of volume "+
+		"using cnsRelocate Volume API", ginkgo.Label(p0,
 		vanilla, block, core, vc70), func() {
 		ginkgo.By("Invoking Test for offline relocation")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -370,7 +371,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 	   using CnsRelocateVolume API and verify the datastore of fcd after migration and volume compliance.
 	5. Delete pvc and sc.
 	*/
-	ginkgo.It("[cf-vanilla-block] Offline relocation of volume using cnsRelocate Volume API", ginkgo.Label(p0,
+	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Offline relocation of volume "+
+		"using cnsRelocate Volume API", ginkgo.Label(p0,
 		vanilla, block, core, vc70), func() {
 		ginkgo.By("Invoking Test for offline relocation")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -936,7 +938,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify the labels in cnsvolume metadata post relocation.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla]"+
+		"[csi-block-vanilla-parallelized] Start volume relocation and "+
 		"then update its metadata", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1143,7 +1146,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 			10. Verify snapshot creation was successful.
 			11. Delete all the objects created during the test.
 	*/
-	ginkgo.It("[ef-vanilla-block][csi-block-vanilla][csi-block-vanilla-parallelized] Start volume relocation and take"+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [csi-block-vanilla]"+
+		"[csi-block-vanilla-parallelized] Start volume relocation and take"+
 		" a snapshot", ginkgo.Label(p0, vanilla, block, core, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())

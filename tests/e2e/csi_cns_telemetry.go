@@ -102,7 +102,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 	// 7. Expect the old PVC to reflect the latest cluster-distribution value.
 
 	// Test for cluster-distribution value presence.
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block]Verify dynamic provisioning of pvc has cluster-distribution value "+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block]"+
+		"[pq-n2-vanilla-block] Verify dynamic provisioning of pvc has cluster-distribution value "+
 		"updated", ginkgo.Label(p0, block, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -284,7 +285,8 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 	// 2. Create a PVC.
 	// 3. Expect PVC to go to Pending state.
 
-	ginkgo.It("[pq-vanilla-file][pq-vanilla-block]Verify PVC goes to Pending when cluster distribution name has more"+
+	ginkgo.It("[pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file][pq-vanilla-block][pq-n1-vanilla-block]"+
+		"[pq-n2-vanilla-block] Verify PVC goes to Pending when cluster distribution name has more"+
 		" than 128 characters", ginkgo.Label(p0, block, file, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
