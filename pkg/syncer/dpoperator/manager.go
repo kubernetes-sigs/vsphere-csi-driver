@@ -85,7 +85,7 @@ func NewManager(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client for dp operator: %w", err)
 	}
-	informerManager := k8s.NewInformer(ctx, k8sClient)
+	informerManager := k8s.NewInformer(ctx, k8sClient, nil)
 	informerManager.InitVolumeAttachmentInformer()
 	informerManager.Listen()
 

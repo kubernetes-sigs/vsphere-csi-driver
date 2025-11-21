@@ -369,7 +369,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		log.Info("Initialized FileVolume Kubernetes client")
 
-		im := k8s.NewInformer(ctx, c.k8sClient)
+		im := k8s.NewInformer(ctx, c.k8sClient, nil)
 		im.InitNamespaceInformer()
 		im.Listen()
 		if nsSynced := im.NamespaceInformerSynced(); nsSynced != nil && !cache.WaitForCacheSync(ctx.Done(), nsSynced) {
