@@ -2053,7 +2053,6 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 			return
 		}
 
-		log.Infof("snapshotAdded: snapshot=%v", snap)
 		if snap.Spec.Source.PersistentVolumeClaimName == nil {
 			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
 			return
@@ -2071,7 +2070,6 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 			return
 		}
 
-		log.Infof("snapshotDeleted: snapshot=%v", snap)
 		if snap.Spec.Source.PersistentVolumeClaimName == nil {
 			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
 			return
@@ -2087,10 +2085,7 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 		func(obj any) {
 			snapshotAdded(obj)
 		},
-		func(oldObj, newObj any) {
-			// TODO: implement or remove as we probably don't need to take any action
-			log.Info("snapshotUpdated")
-		},
+		nil,
 		func(obj any) {
 			snapshotDeleted(obj)
 		})
