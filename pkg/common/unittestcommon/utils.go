@@ -516,6 +516,11 @@ func (c *FakeK8SOrchestrator) SetCSINodeTopologyInstances(instances []interface{
 	c.csiNodeTopologyInstances = instances
 }
 
+func (c *FakeK8SOrchestrator) GetSnapshotsForPVC(ctx context.Context, pvcName, namespace string) []string {
+	//TODO implement me
+	panic("implement me")
+}
+
 // configFromVCSim starts a vcsim instance and returns config for use against the
 // vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {

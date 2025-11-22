@@ -47,6 +47,11 @@ type MockCOCommonInterface struct {
 	mock.Mock
 }
 
+func (m *MockCOCommonInterface) GetSnapshotsForPVC(ctx context.Context, pvcName, namespace string) []string {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *MockCOCommonInterface) GetPVCNamespacedNameByUID(uid string) (apitypes.NamespacedName, bool) {
 	//TODO implement me
 	panic("implement me")

@@ -267,8 +267,10 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 }
 
 // AddSnapshotListener hooks up add, update, delete callbacks.
-func (im *InformerManager) AddSnapshotListener(ctx context.Context, add func(obj interface{}),
-	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+func (im *InformerManager) AddSnapshotListener(ctx context.Context,
+	add func(obj interface{}),
+	update func(oldObj, newObj interface{}),
+	remove func(obj interface{})) error {
 	log := logger.GetLogger(ctx)
 	if im.snapshotInformer == nil {
 		im.snapshotInformer = im.snapshotInformerFactory.

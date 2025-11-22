@@ -223,6 +223,11 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 
 type mockCOCommon struct{}
 
+func (m *mockCOCommon) GetSnapshotsForPVC(ctx context.Context, pvcName, namespace string) []string {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockCOCommon) GetPVCNamespacedNameByUID(uid string) (types.NamespacedName, bool) {
 	//TODO implement me
 	panic("implement me")

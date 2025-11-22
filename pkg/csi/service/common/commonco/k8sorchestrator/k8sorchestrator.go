@@ -256,6 +256,71 @@ type pvcToSnapshotsMap struct {
 	items map[namespacedName]map[namespacedName]struct{}
 }
 
+func (m *pvcToSnapshotsMap) add(pvc, snapshot, namespace string) {
+	m.Lock()
+	defer m.Unlock()
+
+	pvcKey := namespacedName{
+		namespace: namespace,
+		name:      pvc,
+	}
+	if _, ok := m.items[pvcKey]; !ok {
+		m.items[pvcKey] = make(map[namespacedName]struct{})
+	}
+	snapKey := namespacedName{
+		namespace: namespace,
+		name:      snapshot,
+	}
+	m.items[pvcKey][snapKey] = struct{}{}
+}
+
+func (m *pvcToSnapshotsMap) get(pvc, namespace string) []string {
+	m.RLock()
+	defer m.RUnlock()
+
+	pvcKey := namespacedName{
+		namespace: namespace,
+		name:      pvc,
+	}
+	snapMap, ok := m.items[pvcKey]
+	if !ok {
+		return []string{}
+	}
+
+	snaps := make([]string, 0, len(snapMap))
+	for k := range snapMap {
+		snaps = append(snaps, k.name)
+	}
+	return snaps
+}
+
+func (m *pvcToSnapshotsMap) delete(pvc, snapshot, namespace string) {
+	m.Lock()
+	defer m.Unlock()
+
+	pvcKey := namespacedName{
+		namespace: namespace,
+		name:      pvc,
+	}
+	snapMap, ok := m.items[pvcKey]
+	if !ok {
+		return
+	}
+
+	snapKey := namespacedName{
+		namespace: namespace,
+		name:      snapshot,
+	}
+	delete(snapMap, snapKey)
+	if len(snapMap) != 0 {
+		m.items[pvcKey] = snapMap
+		return
+	}
+
+	// delete pvc entry if no snapshots are present
+	delete(m.items, pvcKey)
+}
+
 // K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
 	supervisorFSS        FSSConfigMapInfo
@@ -1968,6 +2033,74 @@ func nodeRemove(obj interface{}) {
 	k8sOrchestratorInstance.nodeIDToNameMap.remove(nodeMoID)
 }
 
+func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
+	log := logger.GetLogger(ctx)
+	// TODO: check if we need to check the FSS as well
+	if controllerClusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		// PVC to VolumeSnapshot cache is only required for WCP for now.
+		log.Info("non WCP cluster detected. skipping initialising PVC to Snapshot cache.")
+		return nil
+	}
+
+	k8sOrchestratorInstance.pvcToSnapshotsMap = pvcToSnapshotsMap{
+		RWMutex: &sync.RWMutex{},
+		items:   make(map[namespacedName]map[namespacedName]struct{}),
+	}
+	snapshotAdded := func(obj any) {
+		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+		if !ok || snap == nil {
+			log.Warnf("unrecognized object %+v", obj)
+			return
+		}
+
+		log.Infof("snapshotAdded: snapshot=%v", snap)
+		if snap.Spec.Source.PersistentVolumeClaimName == nil {
+			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
+			return
+		}
+
+		k8sOrchestratorInstance.pvcToSnapshotsMap.add(
+			*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
+		log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
+			With("namespace", snap.Namespace).Debug("successfully added the snapshot to the cache")
+	}
+	snapshotDeleted := func(obj any) {
+		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+		if !ok || snap == nil {
+			log.Warnf("unrecognized object %+v", obj)
+			return
+		}
+
+		log.Infof("snapshotDeleted: snapshot=%v", snap)
+		if snap.Spec.Source.PersistentVolumeClaimName == nil {
+			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
+			return
+		}
+
+		k8sOrchestratorInstance.pvcToSnapshotsMap.delete(
+			*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
+		log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
+			With("namespace", snap.Namespace).Debug("successfully removed the snapshot from the cache")
+	}
+
+	err := k8sOrchestratorInstance.informerManager.AddSnapshotListener(ctx,
+		func(obj any) {
+			snapshotAdded(obj)
+		},
+		func(oldObj, newObj any) {
+			// TODO: implement or remove as we probably don't need to take any action
+			log.Info("snapshotUpdated")
+		},
+		func(obj any) {
+			snapshotDeleted(obj)
+		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on volumesnapshots. Error: %v", err)
+	}
+
+	return nil
+}
+
 // GetNodeIDtoNameMap returns a map containing the nodeID to node name
 func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
 	return c.nodeIDToNameMap.items
@@ -2282,6 +2415,11 @@ func (c *K8sOrchestrator) GetPVCNamespacedNameByUID(uid string) (k8stypes.Namesp
 	return nsName, true
 }
 
+// GetSnapshotsForPVC returns the names of the snapshots for the given PVC
+func (c *K8sOrchestrator) GetSnapshotsForPVC(ctx context.Context, pvc, namespace string) []string {
+	return c.pvcToSnapshotsMap.get(pvc, namespace)
+}
+
 // GetPVCDataSource Retrieves the VolumeSnapshot source when a PVC from VolumeSnapshot is being created.
 func GetPVCDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1.ObjectReference, error) {
 	var dataSource v1.ObjectReference
@@ -2308,99 +2446,4 @@ func GetPVCDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1
 		return nil, nil
 	}
 	return &dataSource, nil
-}
-
-func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
-	log := logger.GetLogger(ctx)
-	if controllerClusterFlavor != cnstypes.CnsClusterFlavorWorkload {
-		// PVC to VolumeSnapshot cache is only required for WCP for now.
-		log.Info("non WCP cluster detected. skipping initialising PVC to Snapshot cache.")
-		return nil
-	}
-
-	k8sOrchestratorInstance.pvcToSnapshotsMap = pvcToSnapshotsMap{
-		RWMutex: &sync.RWMutex{},
-		items:   make(map[namespacedName]map[namespacedName]struct{}),
-	}
-
-	snapshotAdded := func(obj any) {
-		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
-		if !ok || snap == nil {
-			log.Warnf("snapshotAdded: unrecognized object %+v", obj)
-			return
-		}
-
-		log.Infof("snapshotAdded: snapshot=%v", snap)
-		if snap.Spec.Source.PersistentVolumeClaimName == nil {
-			log.Warnf("snapshotAdded: snapshot is not associated with any PVC. Ignoring it...")
-			return
-		}
-
-		k8sOrchestratorInstance.pvcToSnapshotsMap.Lock()
-		defer k8sOrchestratorInstance.pvcToSnapshotsMap.Unlock()
-
-		pvcName := namespacedName{
-			namespace: snap.Namespace,
-			name:      *snap.Spec.Source.PersistentVolumeClaimName,
-		}
-		if _, ok := k8sOrchestratorInstance.pvcToSnapshotsMap.items[pvcName]; !ok {
-			k8sOrchestratorInstance.pvcToSnapshotsMap.items[pvcName] = make(map[namespacedName]struct{})
-		}
-		snapName := namespacedName{
-			namespace: snap.Namespace,
-			name:      snap.Name,
-		}
-		k8sOrchestratorInstance.pvcToSnapshotsMap.items[pvcName][snapName] = struct{}{}
-		log.With("pvc", pvcName).With("snapshot", snapName).Debug("successfully added the snapshot to the cache")
-	}
-
-	snapshotDeleted := func(obj any) {
-		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
-		if !ok || snap == nil {
-			log.Warnf("snapshotDeleted: unrecognized object %+v", obj)
-			return
-		}
-
-		log.Infof("snapshotDeleted: snapshot=%v", snap)
-		if snap.Spec.Source.PersistentVolumeClaimName == nil {
-			log.Warnf("snapshotDeleted: snapshot is not associated with any PVC. Ignoring it...")
-			return
-		}
-
-		k8sOrchestratorInstance.pvcToSnapshotsMap.Lock()
-		defer k8sOrchestratorInstance.pvcToSnapshotsMap.Unlock()
-
-		pvcName := namespacedName{
-			namespace: snap.Namespace,
-			name:      *snap.Spec.Source.PersistentVolumeClaimName,
-		}
-		if _, ok := k8sOrchestratorInstance.pvcToSnapshotsMap.items[pvcName]; !ok {
-			log.Infof("snapshotDeleted: associated PVC %s not found in the map. Ignoring the delete event...", pvcName)
-			return
-		}
-
-		snapName := namespacedName{
-			namespace: snap.Namespace,
-			name:      snap.Name,
-		}
-		delete(k8sOrchestratorInstance.pvcToSnapshotsMap.items[pvcName], snapName)
-		log.With("pvc", pvcName).With("snapshot", snapName).Debug("successfully removed the snapshot from the cache")
-	}
-
-	err := k8sOrchestratorInstance.informerManager.AddSnapshotListener(ctx,
-		func(obj any) {
-			snapshotAdded(obj)
-		},
-		func(oldObj, newObj any) {
-			// TODO: implement
-			log.Info("snapshotUpdated")
-		},
-		func(obj any) {
-			snapshotDeleted(obj)
-		})
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to listen on volumesnapshots. Error: %v", err)
-	}
-
-	return nil
 }
