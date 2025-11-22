@@ -34,6 +34,7 @@ import (
 	k8sFake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -41,7 +42,11 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
+	"github.com/agiledragon/gomonkey/v2"
+	"k8s.io/apimachinery/pkg/runtime"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 )
 
@@ -114,7 +119,6 @@ func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAttachment,
 	setDeletionTimestamp bool) *Reconciler {
 	cnsNodeVmBatchAttachment := testCnsNodeVMBatchAttachment.DeepCopy()
-	//objs := []runtime.Object{cnsNodeVmBatchAttachment}
 
 	if setDeletionTimestamp {
 		currentTime := time.Now()
@@ -777,6 +781,117 @@ func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("expected volume name %q (unchanged), got %q", want, got)
+	}
+}
+
+func TestRemovePvcFinalizer_WhenPVCIsAlreadyDeleted(t *testing.T) {
+	ctx := context.Background()
+
+	namespace := "test-ns"
+	pvcName := "not-found-error"
+	vmInstanceUUID := "vm-111"
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	// fake controller-runtime client (used by PatchFinalizers)
+	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects().Build()
+
+	// fake k8s clientset
+	clientset := k8sFake.NewSimpleClientset()
+
+	// ---- Monkey patches ----
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	VolumeLock = &sync.Map{}
+	// ---------------------------------------
+	// Run function
+	err := removePvcFinalizer(ctx, crClient, clientset, pvcName, namespace, vmInstanceUUID)
+	// ---------------------------------------
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestRemovePvcFinalizer_WhenPVCIsPresent(t *testing.T) {
+	ctx := context.Background()
+
+	namespace := "test-ns"
+	pvcName := "mypvc"
+	vmInstanceUUID := "vm-111"
+
+	// Prepare pvc with finalizer and shared annotation
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       pvcName,
+			Namespace:  namespace,
+			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
+			Annotations: map[string]string{
+				"cns.vmware.com/used-by": vmInstanceUUID,
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+
+	// fake controller-runtime client (used by PatchFinalizers)
+	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pvc).Build()
+
+	// fake k8s clientset
+	clientset := k8sFake.NewSimpleClientset(pvc)
+
+	// ---- Monkey patches ----
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	// removePvcAnnotation is expected to succeed
+	patches.ApplyFunc(
+		removePvcAnnotation,
+		func(ctx context.Context, k8sClient interface{}, vmID string, pvcObj *v1.PersistentVolumeClaim) error {
+			return nil
+		})
+
+	// pvcHasUsedByAnnotaion → no: this is last VM
+	patches.ApplyFunc(
+		pvcHasUsedByAnnotaion,
+		func(ctx context.Context, p *v1.PersistentVolumeClaim) bool {
+			return false
+		})
+
+	// PatchFinalizers: expect correct finalizers passed
+	patches.ApplyFunc(
+		k8s.PatchFinalizers,
+		func(ctx context.Context, c crclient.Client, obj crclient.Object, finals []string) error {
+			_, ok := obj.(*v1.PersistentVolumeClaim)
+			if !ok {
+				t.Fatalf("expected PVC object, got %T", obj)
+			}
+
+			if len(finals) != 0 {
+				t.Errorf("expected finalizers to be removed, got %v", finals)
+			}
+
+			return nil
+		},
+	)
+
+	VolumeLock = &sync.Map{}
+	// ---------------------------------------
+	// Run function
+	err := removePvcFinalizer(ctx, crClient, clientset, pvcName, namespace, vmInstanceUUID)
+	// ---------------------------------------
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 

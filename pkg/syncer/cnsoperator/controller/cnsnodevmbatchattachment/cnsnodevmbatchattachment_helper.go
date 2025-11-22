@@ -672,7 +672,6 @@ func addPvcFinalizer(ctx context.Context, client client.Client,
 	}
 
 	// Add annotation indicating that the PVC is being used by this VM.
-	log.Infof("PVC %s is shared", pvc.Name)
 	err = addPvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
 	if err != nil {
 		log.Errorf("failed to add annotation %s to PVC %s in namespace %s for VM %s", cnsoperatortypes.CNSPvcFinalizer,
@@ -732,7 +731,7 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 		}
 
 		// Verify if the PVC object itself has been deleted by querying the API server in case the cache is old.
-		pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+		pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Infof("PVC %s has already been deleted. No action to be taken", pvcName)
@@ -744,7 +743,6 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	}
 
 	// Remove usedby annotation
-	log.Infof("PVC %s is shared", pvc.Name)
 	err = removePvcAnnotation(ctx, k8sClient, vmInstanceUUID, pvc)
 	if err != nil {
 		return err
