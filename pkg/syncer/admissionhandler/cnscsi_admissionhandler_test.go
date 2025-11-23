@@ -165,6 +165,12 @@ func (m *MockCOCommonInterface) AnnotateVolumeSnapshot(ctx context.Context, volu
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockCOCommonInterface) GetVolumeSnapshotChangeIDBySnapshotID(ctx context.Context,
+	snapshotID string) (string, error) {
+	args := m.Called(ctx, snapshotID)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCOCommonInterface) GetConfigMap(ctx context.Context, name, namespace string) (map[string]string, error) {
 	args := m.Called(ctx, name, namespace)
 	if args.Get(0) == nil {

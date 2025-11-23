@@ -342,6 +342,10 @@ func (m *mockCOCommon) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapsho
 	panic("implement me")
 }
 
+func (m *mockCOCommon) GetVolumeSnapshotChangeIDBySnapshotID(ctx context.Context, snapshotID string) (string, error) {
+	return "mock-change-id", nil
+}
+
 func (m *mockCOCommon) GetConfigMap(ctx context.Context, name string, namespace string) (map[string]string, error) {
 	//TODO implement me
 	panic("implement me")

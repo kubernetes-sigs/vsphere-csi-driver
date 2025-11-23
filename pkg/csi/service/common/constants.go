@@ -422,6 +422,10 @@ const (
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
 	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
+	// CBT is the feature to support Changed Block Tracking (CBT) for efficient
+	// backup and restore operations using CSI SnapshotMetadata service.
+	// This enables GetMetadataAllocated and GetMetadataDelta RPCs.
+	CBT = "csi-changed-block-tracking"
 	// CSIWindowsSupport is the feature to support csi block volumes for windows
 	// node.
 	CSIWindowsSupport = "csi-windows-support"

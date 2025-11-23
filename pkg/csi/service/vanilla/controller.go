@@ -144,6 +144,7 @@ type controller struct {
 	authMgrs    map[string]*common.AuthManager
 	topologyMgr commoncotypes.ControllerTopologyService
 	csi.UnimplementedControllerServer
+	csi.UnimplementedSnapshotMetadataServer
 	topologyCalc TopologyCalculatorInterface
 }
 

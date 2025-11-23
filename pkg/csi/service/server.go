@@ -36,7 +36,8 @@ var (
 // NonBlockingGRPCServer defines non-blocking GRPC server interfaces.
 type NonBlockingGRPCServer interface {
 	// Start services at the endpoint.
-	Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer)
+	Start(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer,
+		sms csi.SnapshotMetadataServer)
 
 	// Stop stops the gRPC server. It immediately closes all open connections
 	// and listeners. It cancels all active RPCs on the server side and the
@@ -61,9 +62,9 @@ type nonBlockingGRPCServer struct {
 }
 
 func (s *nonBlockingGRPCServer) Start(endpoint string, ids csi.IdentityServer,
-	cs csi.ControllerServer, ns csi.NodeServer) {
+	cs csi.ControllerServer, ns csi.NodeServer, sms csi.SnapshotMetadataServer) {
 	log := logger.GetLoggerWithNoContext()
-	if err := s.serve(endpoint, ids, cs, ns); err != nil {
+	if err := s.serve(endpoint, ids, cs, ns, sms); err != nil {
 		log.Errorf("failed to start grpc server. Err: %v", err)
 	}
 }
@@ -89,7 +90,7 @@ func (s *nonBlockingGRPCServer) Stop() {
 }
 
 func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
-	cs csi.ControllerServer, ns csi.NodeServer) error {
+	cs csi.ControllerServer, ns csi.NodeServer, sms csi.SnapshotMetadataServer) error {
 	log := logger.GetLoggerWithNoContext()
 
 	const (
@@ -138,6 +139,14 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 		}
 		csi.RegisterControllerServer(s.server, cs)
 		log.Info("controller service registered")
+
+		// Register SnapshotMetadata service for controller mode if provided
+		// This service provides GetMetadataAllocated and GetMetadataDelta RPCs
+		// for efficient backup and restore operations (CBT support)
+		if sms != nil {
+			csi.RegisterSnapshotMetadataServer(s.server, sms)
+			log.Info("snapshot metadata service registered")
+		}
 	} else if strings.EqualFold(mode, "node") {
 		if ns == nil {
 			return logger.LogNewError(log, "node service required when running in node mode")
