@@ -517,8 +517,11 @@ func (c *FakeK8SOrchestrator) SetCSINodeTopologyInstances(instances []interface{
 }
 
 func (c *FakeK8SOrchestrator) GetSnapshotsForPVC(ctx context.Context, pvcName, namespace string) []string {
-	//TODO implement me
-	panic("implement me")
+	if strings.Contains(pvcName, "no-snap") {
+		return []string{}
+	}
+
+	return []string{"snap1", "snap2", "snap3"}
 }
 
 // configFromVCSim starts a vcsim instance and returns config for use against the

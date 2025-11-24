@@ -37,14 +37,23 @@ type Nodes struct {
 // Initialize helps initialize node manager and node informer manager.
 func (nodes *Nodes) Initialize(ctx context.Context) error {
 	nodes.cnsNodeManager = GetManager(ctx)
+
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
+
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log := logger.GetLogger(ctx)
+		log.Errorf("Creating Snapshotter client failed. Err: %v", err)
+		return err
+	}
+
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
-	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, true)
+	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, snapshotterClient)
 	err = nodes.informMgr.AddCSINodeListener(ctx, nodes.csiNodeAdd,
 		nodes.csiNodeUpdate, nodes.csiNodeDelete)
 	if err != nil {

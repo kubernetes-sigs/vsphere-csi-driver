@@ -18,10 +18,10 @@ package kubernetes
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
+	snapclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
@@ -46,8 +46,6 @@ const (
 )
 
 var (
-	inClusterInformerManagerInstance  *InformerManager = nil
-	inClusterInformerInstanceLock                      = &sync.Mutex{}
 	supervisorInformerManagerInstance *InformerManager = nil
 	supervisorInformerInstanceLock                     = &sync.Mutex{}
 )
@@ -56,48 +54,30 @@ func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
-// NewInformer creates a new K8S client based on a service account.
-// NOTE: This function expects caller function to pass appropriate client
+// NewInformer creates a new K8S informer manager.
+// NOTE: This function expects caller function to pass appropriate clients
 // as per config to be created Informer for.
-// This function creates shared informer factory against the client provided.
-func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt bool) *InformerManager {
+// This function creates shared informer factories against the clients provided.
+func NewInformer(ctx context.Context,
+	client clientset.Interface,
+	snapshotClient snapclientset.Interface) *InformerManager {
 	var informerInstance *InformerManager
 	log := logger.GetLogger(ctx)
 
-	if inClusterClnt {
-		inClusterInformerInstanceLock.Lock()
-		defer inClusterInformerInstanceLock.Unlock()
-
-		informerInstance = inClusterInformerManagerInstance
-	} else {
-		supervisorInformerInstanceLock.Lock()
-		defer supervisorInformerInstanceLock.Unlock()
-
-		informerInstance = supervisorInformerManagerInstance
-	}
-
-	// TODO: check if callers can pass this
-	snapClient, err := NewSnapshotterClient(ctx)
-	if err != nil {
-		// TODO: handle error appropriately
-		log.Fatalf("unable to initialise snapshot client")
-	}
+	supervisorInformerInstanceLock.Lock()
+	defer supervisorInformerInstanceLock.Unlock()
+	informerInstance = supervisorInformerManagerInstance
 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
 			client:                  client,
 			stopCh:                  signals.SetupSignalHandler().Done(),
 			informerFactory:         informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-			snapshotInformerFactory: externalversions.NewSharedInformerFactory(snapClient, 0),
+			snapshotInformerFactory: externalversions.NewSharedInformerFactory(snapshotClient, 0),
 		}
 
-		if inClusterClnt {
-			inClusterInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for in-cluster client")
-		} else {
-			supervisorInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for supervisor client")
-		}
+		supervisorInformerManagerInstance = informerInstance
+		log.Info("Created new informer factory for supervisor client")
 	}
 
 	return informerInstance
@@ -322,8 +302,6 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 
 	go im.snapshotInformerFactory.Start(im.stopCh)
 	cacheSync := im.snapshotInformerFactory.WaitForCacheSync(im.stopCh)
-	// TODO: remove
-	fmt.Print(cacheSync)
 	for _, isSynced := range cacheSync {
 		if !isSynced {
 			return
@@ -331,4 +309,27 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	}
 
 	return im.stopCh
+}
+
+// NewConfigMapListener creates a new configmap listener in the given namespace.
+// NOTE: This creates a NewSharedIndexInformer everytime and does not use the informer factory.
+// Only use this function when you need a configmap listener in a different namespace than the
+// one already present in the informer factory.
+func NewConfigMapListener(ctx context.Context, client clientset.Interface, namespace string,
+	add func(obj interface{}), update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
+	log := logger.GetLogger(ctx)
+	configMapInformer := v1.NewFilteredConfigMapInformer(client, namespace, resyncPeriodConfigMapInformer,
+		cache.Indexers{}, nil)
+
+	_, err := configMapInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to add event handler on configmap listener. Error: %v", err)
+	}
+	stopCh := make(chan struct{})
+	go configMapInformer.Run(stopCh)
+	return nil
 }

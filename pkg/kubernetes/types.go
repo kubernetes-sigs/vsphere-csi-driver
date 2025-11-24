@@ -51,7 +51,7 @@ type InformerManager struct {
 	client clientset.Interface
 	// main shared informer factory
 	informerFactory informers.SharedInformerFactory
-	
+	// snapshot informer factory
 	snapshotInformerFactory externalversions.SharedInformerFactory
 
 	// main signal

@@ -240,47 +240,35 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 	return volumeName, found
 }
 
-type namespacedName struct {
-	namespace, name string
-}
-
-func (n namespacedName) String() string {
-	return fmt.Sprintf("%s/%s", n.namespace, n.name)
-}
-
 // pvcToSnapshotsMap maps a PVC to its snapshots.
-// Key is the namespaced name of the PVC and value is a map.
-// The key of the inner map is the namespaced name of the snapshot.
+// The primary key is the namespaced name of the PVC and value is a map.
+// The key of the inner map is the name of the snapshot.
 type pvcToSnapshotsMap struct {
 	*sync.RWMutex
-	items map[namespacedName]map[namespacedName]struct{}
+	items map[k8stypes.NamespacedName]map[string]struct{}
 }
 
 func (m *pvcToSnapshotsMap) add(pvc, snapshot, namespace string) {
 	m.Lock()
 	defer m.Unlock()
 
-	pvcKey := namespacedName{
-		namespace: namespace,
-		name:      pvc,
+	pvcKey := k8stypes.NamespacedName{
+		Namespace: namespace,
+		Name:      pvc,
 	}
 	if _, ok := m.items[pvcKey]; !ok {
-		m.items[pvcKey] = make(map[namespacedName]struct{})
+		m.items[pvcKey] = make(map[string]struct{})
 	}
-	snapKey := namespacedName{
-		namespace: namespace,
-		name:      snapshot,
-	}
-	m.items[pvcKey][snapKey] = struct{}{}
+	m.items[pvcKey][snapshot] = struct{}{}
 }
 
 func (m *pvcToSnapshotsMap) get(pvc, namespace string) []string {
 	m.RLock()
 	defer m.RUnlock()
 
-	pvcKey := namespacedName{
-		namespace: namespace,
-		name:      pvc,
+	pvcKey := k8stypes.NamespacedName{
+		Namespace: namespace,
+		Name:      pvc,
 	}
 	snapMap, ok := m.items[pvcKey]
 	if !ok {
@@ -288,8 +276,8 @@ func (m *pvcToSnapshotsMap) get(pvc, namespace string) []string {
 	}
 
 	snaps := make([]string, 0, len(snapMap))
-	for k := range snapMap {
-		snaps = append(snaps, k.name)
+	for snap := range snapMap {
+		snaps = append(snaps, snap)
 	}
 	return snaps
 }
@@ -298,20 +286,16 @@ func (m *pvcToSnapshotsMap) delete(pvc, snapshot, namespace string) {
 	m.Lock()
 	defer m.Unlock()
 
-	pvcKey := namespacedName{
-		namespace: namespace,
-		name:      pvc,
+	pvcKey := k8stypes.NamespacedName{
+		Namespace: namespace,
+		Name:      pvc,
 	}
 	snapMap, ok := m.items[pvcKey]
 	if !ok {
 		return
 	}
 
-	snapKey := namespacedName{
-		namespace: namespace,
-		name:      snapshot,
-	}
-	delete(snapMap, snapKey)
+	delete(snapMap, snapshot)
 	if len(snapMap) != 0 {
 		m.items[pvcKey] = snapMap
 		return
@@ -402,7 +386,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
 			k8sOrchestratorInstance.k8sClient = k8sClient
 			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
-			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, true)
+			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
 				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
@@ -2044,7 +2028,7 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 
 	k8sOrchestratorInstance.pvcToSnapshotsMap = pvcToSnapshotsMap{
 		RWMutex: &sync.RWMutex{},
-		items:   make(map[namespacedName]map[namespacedName]struct{}),
+		items:   make(map[k8stypes.NamespacedName]map[string]struct{}),
 	}
 	snapshotAdded := func(obj any) {
 		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
@@ -2085,6 +2069,8 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 		func(obj any) {
 			snapshotAdded(obj)
 		},
+		// Since the name of PVC associated with a snapshot is immutable,
+		// update events do not have any impact on the state of the cache.
 		nil,
 		func(obj any) {
 			snapshotDeleted(obj)
