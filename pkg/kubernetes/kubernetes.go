@@ -19,6 +19,7 @@ package kubernetes
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -37,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	clientset "k8s.io/client-go/kubernetes"
@@ -826,4 +829,47 @@ func RemoveFinalizer(ctx context.Context, c client.Client, obj client.Object, fi
 
 	log.Info("Removing finalizer from object.")
 	return c.Update(ctx, obj)
+}
+
+// PatchObject patches a Kubernetes object using strategic merge patch.
+// This function creates a patch between the original and modified objects and applies it using the client.
+// It returns an error if the patch operation fails.
+func PatchObject(ctx context.Context, k8sClient client.Client, original, modified client.Object) error {
+	log := logger.GetLogger(ctx)
+
+	// Marshal the original object
+	oldData, err := json.Marshal(original)
+	if err != nil {
+		log.Errorf("PatchObject: Failed to marshal original object %s/%s: %v",
+			original.GetNamespace(), original.GetName(), err)
+		return err
+	}
+
+	// Marshal the modified object
+	newData, err := json.Marshal(modified)
+	if err != nil {
+		log.Errorf("PatchObject: Failed to marshal modified object %s/%s: %v",
+			modified.GetNamespace(), modified.GetName(), err)
+		return err
+	}
+
+	// Create strategic merge patch
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, original)
+	if err != nil {
+		log.Errorf("PatchObject: Error creating strategic merge patch for object %s/%s: %v",
+			original.GetNamespace(), original.GetName(), err)
+		return err
+	}
+
+	// Apply the patch
+	patch := client.RawPatch(apitypes.StrategicMergePatchType, patchBytes)
+	if err := k8sClient.Patch(ctx, original, patch); err != nil {
+		log.Errorf("PatchObject: Failed to patch object %s/%s: %v",
+			original.GetNamespace(), original.GetName(), err)
+		return err
+	}
+
+	log.Debugf("PatchObject: Successfully patched object %s/%s",
+		original.GetNamespace(), original.GetName())
+	return nil
 }

@@ -532,7 +532,7 @@ func addPvcFinalizer(ctx context.Context,
 			pvc.Namespace)
 	}
 
-	err = util.PatchObject(ctx, client, original, pvc)
+	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		return fmt.Errorf("failed to add finalizer %s on PVC %s in namespace %s", cnsoperatortypes.CNSPvcFinalizer,
 			instance.Spec.PvcName, instance.Namespace)
@@ -606,7 +606,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 		return err
 	}
 
-	err = util.PatchObject(ctx, client, original, pvc)
+	err = k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		return fmt.Errorf("failed to remove finalizer %s from PVC %s in namespace %s",
 			cnsoperatortypes.CNSPvcFinalizer, pvcName, pvc.Namespace)
@@ -875,7 +875,7 @@ func updateCnsFileAccessConfig(ctx context.Context, client client.Client,
 	instance *v1a1.CnsFileAccessConfig) error {
 	log := logger.GetLogger(ctx)
 	original := instance.DeepCopy()
-	err := util.PatchObject(ctx, client, original, instance)
+	err := k8s.PatchObject(ctx, client, original, instance)
 	if err != nil {
 		log.Errorf("failed to patch CnsFileAccessConfig instance: %q on namespace: %q. Error: %+v",
 			instance.Name, instance.Namespace, err)

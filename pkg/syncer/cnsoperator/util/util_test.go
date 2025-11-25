@@ -32,6 +32,7 @@ import (
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 func TestGetSnatIpFromNamespaceNetworkInfo(t *testing.T) {
@@ -345,7 +346,7 @@ func TestPatchObject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient, original, modified := tt.setupFunc()
 
-			err := PatchObject(ctx, fakeClient, original, modified)
+			err := k8s.PatchObject(ctx, fakeClient, original, modified)
 
 			if tt.expectError {
 				assert.Error(t, err)
