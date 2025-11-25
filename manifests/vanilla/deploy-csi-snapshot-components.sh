@@ -24,7 +24,7 @@ Ensure that block-volume-snapshot feature is enabled.
 1. Deploys the VolumeSnapshot CRDs
 2. Creates RBAC rules to support VolumeSnapshot
 3. Deploys snapshot-controller in kube-system namespace
-4. Cleans up the snapshot validation webhook deployment if previously deployed, since it is removed from snapshotter version v8.2.0
+4. Cleans up the snapshot validation webhook deployment if previously deployed, since it is removed from snapshotter version v8.4.0
 5. Patches vSphere CSI driver to deploy the csi-snapshotter sidecar
 
 The script fails if there is an existing snapshot-controller with unqualified versions
@@ -50,7 +50,7 @@ if ! command -v kubectl > /dev/null; then
   exit 1
 fi
 
-qualified_version="v8.2.0"
+qualified_version="v8.4.0"
 volumesnapshotclasses_crd="volumesnapshotclasses.snapshot.storage.k8s.io"
 volumesnapshotcontents_crd="volumesnapshotcontents.snapshot.storage.k8s.io"
 volumesnapshots_crd="volumesnapshots.snapshot.storage.k8s.io"
@@ -288,7 +288,7 @@ else
   deploy_snapshot_controller
 fi
 
-# Snapshot validating webhook has been deprecated and removed from v8.2.0, hence remove the webhook
+# Snapshot validating webhook has been deprecated and removed from v8.4.0, hence remove the webhook
 remove_validation_webhook
 
 # Check if vSphere CSI Driver has the snapshotter sidecar with correct version, if not patch the deployment
