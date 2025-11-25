@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -837,17 +838,39 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 		}
 		topologyAnnotation = "[" + strings.Join(segmentsArray, ",") + "]"
 
+		oldData, err := json.Marshal(pvc)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to marshal PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+		}
+
+		// Update the original PVC object's annotations first
+		// This ensures tests that expect the original PVC object to be modified work correctly
 		if pvc.Annotations == nil {
 			pvc.Annotations = make(map[string]string)
 		}
 		pvc.Annotations[common.AnnVolumeAccessibleTopology] = topologyAnnotation
 
+		newData, err := json.Marshal(pvc)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to marshal updated PVC %s/%s with topology annotation: %v",
+				pvc.Namespace, pvc.Name, err)
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+		if err != nil {
+			return logger.LogNewErrorf(log, "error creating two way merge patch for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+		}
+
 		// Update the PVC in Kubernetes to persist the topology annotation
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		updatedPVC, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+			apitypes.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to update PVC %s/%s with topology annotation: %+v",
 				pvc.Namespace, pvc.Name, err)
 		}
+
+		// Update the PVC's resource version to match the patched PVC
+		pvc.ResourceVersion = updatedPVC.ResourceVersion
 
 		log.Infof("Successfully added topology annotation %s to PVC %s/%s",
 			topologyAnnotation, pvc.Namespace, pvc.Name)

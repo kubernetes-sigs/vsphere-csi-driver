@@ -683,8 +683,17 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 			pv.Spec.CSI.VolumeHandle, err)
 		return err
 	}
+	oldData, err := json.Marshal(pvc)
+	if err != nil {
+		log.Errorf("setFileShareAnnotationsOnPVC: Failed to marshal PVC %q in namespace %q: %v", pvc.Name, pvc.Namespace, err)
+		return err
+	}
+
 	vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 	accessPoints := make(map[string]string)
+
+	// Update the original PVC object's annotations first
+	// This ensures tests that expect the original PVC object to be modified work correctly
 	for _, kv := range vSANFileBackingDetails.AccessPoints {
 		if kv.Key == common.Nfsv3AccessPointKey {
 			pvc.Annotations[common.Nfsv3ExportPathAnnotationKey] = kv.Value
@@ -696,14 +705,33 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 	log.Debugf("setFileShareAnnotationsOnPVC: Access point details for PVC: %q, namespace: %q are %+v",
 		pvc.Name, pvc.Namespace, accessPoints)
 
+	newData, err := json.Marshal(pvc)
+	if err != nil {
+		log.Errorf("setFileShareAnnotationsOnPVC: Failed to marshal updated PVC %q in namespace %q with annotations: %v",
+			pvc.Name, pvc.Namespace, err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+	if err != nil {
+		log.Errorf("setFileShareAnnotationsOnPVC: Error creating two way merge patch for PVC %q in namespace %q "+
+			"with error: %v", pvc.Name, pvc.Namespace, err)
+		return err
+	}
+
 	// Update PVC to add annotation on it
-	pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc,
-		metav1.UpdateOptions{})
+	updatedPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx,
+		pvc.Name, types.StrategicMergePatchType,
+		patchBytes, metav1.PatchOptions{})
 	if err != nil {
 		log.Errorf("setFileShareAnnotationsOnPVC: Error updating PVC %q in namespace %q, Err: %v",
 			pvc.Name, pvc.Namespace, err)
 		return err
 	}
+
+	// Update the PVC's resource version to match the patched PVC
+	pvc.ResourceVersion = updatedPVC.ResourceVersion
+
 	log.Infof("setFileShareAnnotationsOnPVC: Added file share export paths annotation successfully on PVC %q, "+
 		"namespce %q", pvc.Name, pvc.Namespace)
 	return nil
@@ -1727,9 +1755,37 @@ func RemoveCNSFinalizerFromPVCIfTKGClusterDeleted(ctx context.Context, k8sClient
 			log.Infof("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Removing %q finalizer from PVC "+
 				"with name: %q on namespace: %q in Terminating state",
 				cnsoperatortypes.CNSVolumeFinalizer, pvc.Name, pvc.Namespace)
-			controllerutil.RemoveFinalizer(pvc, finalizerToRemove)
-			_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx,
-				pvc, metav1.UpdateOptions{})
+
+			oldData, err := json.Marshal(pvc)
+			if err != nil {
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Failed to marshal PVC %q "+
+					"in namespace %q: %v", pvc.Name, pvc.Namespace, err)
+				log.Error(msg)
+				return
+			}
+
+			newPVC := pvc.DeepCopy()
+			controllerutil.RemoveFinalizer(newPVC, finalizerToRemove)
+
+			newData, err := json.Marshal(newPVC)
+			if err != nil {
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Failed to marshal updated PVC %q "+
+					"in namespace %q with finalizer removed: %v", pvc.Name, pvc.Namespace, err)
+				log.Error(msg)
+				return
+			}
+
+			patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+			if err != nil {
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Error creating two way merge patch"+
+					"for PVC %q in namespace %q with error: %v", pvc.Name, pvc.Namespace, err)
+				log.Error(msg)
+				return
+			}
+
+			_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+				types.StrategicMergePatchType,
+				patchBytes, metav1.PatchOptions{})
 			if err != nil {
 				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: failed to update "+
 					"supervisor PVC %q in %q namespace. Err: %+v", pvc.Name, pvc.Namespace, err)

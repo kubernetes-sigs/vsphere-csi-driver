@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -25,6 +26,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
@@ -134,14 +137,37 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	val, found := pvc.Annotations[annVolumeHealth]
 	_, foundAnnHealthTS := pvc.Annotations[annVolumeHealthTS]
 	if !found || val != volHealthStatus || !foundAnnHealthTS {
+		oldData, err := json.Marshal(pvc)
+		if err != nil {
+			log.Errorf("updateVolumeHealthStatus: Failed to marshal PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+			return
+		}
+
 		// VolumeHealth annotation on pvc is changed, set it to new value.
-		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealth, volHealthStatus)
+		newPVC := pvc.DeepCopy()
+		metav1.SetMetaDataAnnotation(&newPVC.ObjectMeta, annVolumeHealth, volHealthStatus)
 		timeNow := time.Now().Format(time.UnixDate)
-		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annVolumeHealthTS, timeNow)
+		metav1.SetMetaDataAnnotation(&newPVC.ObjectMeta, annVolumeHealthTS, timeNow)
 		log.Infof("updateVolumeHealthStatus: set volumehealth annotation for pvc %s/%s from old "+
 			"value %s to new value %s and volumehealthTS annotation to %s",
 			pvc.Namespace, pvc.Name, val, volHealthStatus, timeNow)
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+
+		newData, err := json.Marshal(newPVC)
+		if err != nil {
+			log.Errorf("updateVolumeHealthStatus: Failed to marshal updated PVC %s/%s with health annotations: %v",
+				pvc.Namespace, pvc.Name, err)
+			return
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+		if err != nil {
+			log.Errorf("updateVolumeHealthStatus: Error creating two way merge patch for PVC %s/%s with error: %v",
+				pvc.Namespace, pvc.Name, err)
+			return
+		}
+
+		_, err = k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name, types.StrategicMergePatchType,
+			patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				log.Debugf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
@@ -151,14 +177,36 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 				newPvc, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
 					ctx, pvc.Name, metav1.GetOptions{})
 				if err == nil {
+					oldRetryData, err := json.Marshal(newPvc)
+					if err != nil {
+						log.Errorf("updateVolumeHealthStatus: Failed to marshal retry PVC %s/%s: %v", newPvc.Namespace, newPvc.Name, err)
+						return
+					}
+
+					newRetryPVC := newPvc.DeepCopy()
 					timeUpdate := time.Now().Format(time.UnixDate)
 					log.Infof("updateVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
 						"get from API server from old value %s to new value %s and volumehealthTS annotation to %s",
 						newPvc.Namespace, newPvc.Name, val, volHealthStatus, timeUpdate)
-					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
-					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, timeUpdate)
-					_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx,
-						newPvc, metav1.UpdateOptions{})
+					metav1.SetMetaDataAnnotation(&newRetryPVC.ObjectMeta, annVolumeHealth, volHealthStatus)
+					metav1.SetMetaDataAnnotation(&newRetryPVC.ObjectMeta, annVolumeHealthTS, timeUpdate)
+
+					newRetryData, err := json.Marshal(newRetryPVC)
+					if err != nil {
+						log.Errorf("updateVolumeHealthStatus: Failed to marshal updated retry PVC %s/%s with health annotations: %v",
+							newPvc.Namespace, newPvc.Name, err)
+						return
+					}
+
+					retryPatchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldRetryData, newRetryData, newPvc)
+					if err != nil {
+						log.Errorf("updateVolumeHealthStatus: Error creating two way merge patch for retry PVC %s/%s "+
+							"with error: %v", newPvc.Namespace, newPvc.Name, err)
+						return
+					}
+
+					_, err = k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Patch(ctx, newPvc.Name,
+						types.StrategicMergePatchType, retryPatchBytes, metav1.PatchOptions{})
 					if err != nil {
 						log.Errorf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
 							newPvc.Namespace, newPvc.Name, err)

@@ -487,9 +487,35 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
-				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
-					ctx, svPVC, metav1.UpdateOptions{})
+				oldData, err := json.Marshal(svPVC)
+				if err != nil {
+					msg := fmt.Sprintf("failed to marshal supervisor PVC: %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+
+				newPVC := svPVC.DeepCopy()
+				newPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+
+				newData, err := json.Marshal(newPVC)
+				if err != nil {
+					msg := fmt.Sprintf("failed to marshal updated supervisor PVC: %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+
+				patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, svPVC)
+				if err != nil {
+					msg := fmt.Sprintf("error creating two way merge patch for supervisor PVC: %q in %q namespace. Error: %+v",
+						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+					log.Error(msg)
+					continue
+				}
+
+				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Patch(
+					ctx, svPVC.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 				if err != nil {
 					msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
 						"Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
@@ -503,11 +529,37 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 				cnsFinalizerPresent := slices.Contains(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				if !cnsFinalizerPresent {
-					svPVC.ObjectMeta.Finalizers = append(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
-				}
-				if !cnsFinalizerPresent {
-					_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
-						ctx, svPVC, metav1.UpdateOptions{})
+					oldFinalizerData, err := json.Marshal(svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to marshal supervisor PVC for finalizer: %q in %q namespace. Error: %+v",
+							pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+						log.Error(msg)
+						continue
+					}
+
+					newFinalizerPVC := svPVC.DeepCopy()
+					newFinalizerPVC.ObjectMeta.Finalizers = append(newFinalizerPVC.ObjectMeta.Finalizers,
+						cnsoperatortypes.CNSVolumeFinalizer)
+
+					newFinalizerData, err := json.Marshal(newFinalizerPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to marshal updated supervisor PVC with finalizer: %q in %q namespace. Error: %+v",
+							pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+						log.Error(msg)
+						continue
+					}
+
+					finalizerPatchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldFinalizerData, newFinalizerData, svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("error creating two way merge patch for supervisor PVC finalizer: %q "+
+							"in %q namespace. Error: %+v",
+							pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
+						log.Error(msg)
+						continue
+					}
+
+					_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Patch(
+						ctx, svPVC.Name, types.StrategicMergePatchType, finalizerPatchBytes, metav1.PatchOptions{})
 					if err != nil {
 						msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
 							" Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)

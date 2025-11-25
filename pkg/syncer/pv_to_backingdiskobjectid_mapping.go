@@ -18,12 +18,15 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
@@ -153,13 +156,37 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 	}
 
 	if !found || val != pvToBackingDiskObjectIdPair {
+		oldData, err := json.Marshal(pvc)
+		if err != nil {
+			log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to marshal PVC %s/%s: %v",
+				pvc.Namespace, pvc.Name, err)
+			return false, err
+		}
+
 		// PVToBackingDiskObjectId annotation on pvc is changed, set it to new value.
-		metav1.SetMetaDataAnnotation(&pvc.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
+		newPVC := pvc.DeepCopy()
+		metav1.SetMetaDataAnnotation(&newPVC.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
 
 		log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: set pv to backingdiskobjectid annotation for "+
 			"pvc %s/%s from old value %s to new value %s",
 			pvc.Namespace, pvc.Name, val, pvToBackingDiskObjectIdPair)
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+
+		newData, err := json.Marshal(newPVC)
+		if err != nil {
+			log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to marshal updated PVC %s/%s with annotation: %v",
+				pvc.Namespace, pvc.Name, err)
+			return false, err
+		}
+
+		patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, pvc)
+		if err != nil {
+			log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Error creating two way merge patch for PVC %s/%s: %v",
+				pvc.Namespace, pvc.Name, err)
+			return false, err
+		}
+
+		_, err = k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+			types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				log.Debugf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v, "+
@@ -175,12 +202,35 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 					return false, err
 				}
 
+				oldRetryData, err := json.Marshal(newPvc)
+				if err != nil {
+					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to marshal retry PVC %s/%s: %v",
+						newPvc.Namespace, newPvc.Name, err)
+					return false, err
+				}
+
+				newRetryPVC := newPvc.DeepCopy()
 				log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: updating pv to backingdiskobjectid annotation "+
 					"for pvc %s/%s which get from API server from old value %s to new value %s",
 					newPvc.Namespace, newPvc.Name, val, pvToBackingDiskObjectIdPair)
-				metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
-				_, err = k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx,
-					newPvc, metav1.UpdateOptions{})
+				metav1.SetMetaDataAnnotation(&newRetryPVC.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
+
+				newRetryData, err := json.Marshal(newRetryPVC)
+				if err != nil {
+					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to marshal updated retry PVC %s/%s "+
+						"with annotation: %v", newPvc.Namespace, newPvc.Name, err)
+					return false, err
+				}
+
+				retryPatchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldRetryData, newRetryData, newPvc)
+				if err != nil {
+					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Error creating two way merge patch "+
+						"for retry PVC %s/%s: %v", newPvc.Namespace, newPvc.Name, err)
+					return false, err
+				}
+
+				_, err = k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Patch(ctx, newPvc.Name,
+					types.StrategicMergePatchType, retryPatchBytes, metav1.PatchOptions{})
 				if err != nil {
 					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v",
 						newPvc.Namespace, newPvc.Name, err)
