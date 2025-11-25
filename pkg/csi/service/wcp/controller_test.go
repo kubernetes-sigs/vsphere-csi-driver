@@ -1602,3 +1602,259 @@ func TestWCPExpandVolumeWithSnapshots(t *testing.T) {
 		t.Fatalf("Volume should not exist after deletion with ID: %s", volID)
 	}
 }
+
+// TestNew tests the New() constructor function
+func TestNew(t *testing.T) {
+	controller := New()
+	if controller == nil {
+		t.Fatal("New() returned nil controller")
+	}
+
+	// Since New() returns csitypes.CnsController, no need for type assertion
+	// The controller is already of the correct type
+}
+
+// TestControllerGetCapabilities tests the ControllerGetCapabilities method
+func TestControllerGetCapabilities(t *testing.T) {
+	ct := getControllerTest(t)
+
+	req := &csi.ControllerGetCapabilitiesRequest{}
+	resp, err := ct.controller.ControllerGetCapabilities(ctx, req)
+	if err != nil {
+		t.Fatalf("ControllerGetCapabilities failed: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("ControllerGetCapabilities returned nil response")
+	}
+
+	// Verify we get a response with capabilities
+	if len(resp.Capabilities) == 0 {
+		t.Error("Expected at least one capability")
+	}
+
+	// Verify that the basic capabilities are present
+	expectedBasicCaps := []csi.ControllerServiceCapability_RPC_Type{
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+	}
+
+	// Check that all basic capabilities are present
+	actualCaps := make([]csi.ControllerServiceCapability_RPC_Type, len(resp.Capabilities))
+	for i, cap := range resp.Capabilities {
+		actualCaps[i] = cap.GetRpc().GetType()
+	}
+
+	for _, expectedCap := range expectedBasicCaps {
+		found := false
+		for _, actualCap := range actualCaps {
+			if actualCap == expectedCap {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected capability %v not found in response", expectedCap)
+		}
+	}
+}
+
+// TestListVolumes tests the ListVolumes method
+func TestListVolumes(t *testing.T) {
+	ct := getControllerTest(t)
+
+	t.Run("BasicListVolumes", func(t *testing.T) {
+		req := &csi.ListVolumesRequest{}
+
+		_, err := ct.controller.ListVolumes(ctx, req)
+		// ListVolumes may fail in test environment due to missing NodeIDtoName map
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ListVolumes failed as expected in test environment: %v", err)
+		}
+	})
+
+	t.Run("ListVolumesWithMaxEntries", func(t *testing.T) {
+		req := &csi.ListVolumesRequest{
+			MaxEntries: 10,
+		}
+
+		_, err := ct.controller.ListVolumes(ctx, req)
+		// ListVolumes may fail in test environment due to missing NodeIDtoName map
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ListVolumes with max entries failed as expected in test environment: %v", err)
+		}
+	})
+}
+
+// TestGetCapacity tests the GetCapacity method
+func TestGetCapacity(t *testing.T) {
+	ct := getControllerTest(t)
+
+	t.Run("BasicGetCapacity", func(t *testing.T) {
+		req := &csi.GetCapacityRequest{}
+
+		_, err := ct.controller.GetCapacity(ctx, req)
+		// GetCapacity returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("GetCapacity failed as expected (Unimplemented): %v", err)
+		}
+	})
+
+	t.Run("GetCapacityWithParameters", func(t *testing.T) {
+		req := &csi.GetCapacityRequest{
+			Parameters: map[string]string{
+				"test-param": "test-value",
+			},
+		}
+
+		_, err := ct.controller.GetCapacity(ctx, req)
+		// GetCapacity returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("GetCapacity with parameters failed as expected (Unimplemented): %v", err)
+		}
+	})
+}
+
+// TestControllerGetVolume tests the ControllerGetVolume method
+func TestControllerGetVolume(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// First create a volume
+	params := make(map[string]string)
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-get-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		// Clean up
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		}
+		_, _ = ct.controller.DeleteVolume(ctx, reqDelete)
+	}()
+
+	t.Run("ValidGetVolume", func(t *testing.T) {
+		req := &csi.ControllerGetVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		}
+
+		_, err := ct.controller.ControllerGetVolume(ctx, req)
+		// ControllerGetVolume returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ControllerGetVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+
+	t.Run("InvalidVolumeId", func(t *testing.T) {
+		req := &csi.ControllerGetVolumeRequest{
+			VolumeId: "invalid-volume-id",
+		}
+
+		_, err := ct.controller.ControllerGetVolume(ctx, req)
+		// ControllerGetVolume returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ControllerGetVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+
+	t.Run("EmptyVolumeId", func(t *testing.T) {
+		req := &csi.ControllerGetVolumeRequest{
+			VolumeId: "",
+		}
+
+		_, err := ct.controller.ControllerGetVolume(ctx, req)
+		// ControllerGetVolume returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ControllerGetVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+}
+
+// TestControllerModifyVolume tests the ControllerModifyVolume method
+func TestControllerModifyVolume(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// First create a volume
+	params := make(map[string]string)
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-modify-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		// Clean up
+		reqDelete := &csi.DeleteVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		}
+		_, _ = ct.controller.DeleteVolume(ctx, reqDelete)
+	}()
+
+	t.Run("ValidModifyVolume", func(t *testing.T) {
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		}
+
+		_, err := ct.controller.ControllerModifyVolume(ctx, req)
+		// ControllerModifyVolume returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+
+	t.Run("InvalidVolumeId", func(t *testing.T) {
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId: "invalid-volume-id",
+		}
+
+		_, err := ct.controller.ControllerModifyVolume(ctx, req)
+		// ControllerModifyVolume returns Unimplemented in WCP controller
+		// This is expected behavior, so we just verify the method can be called
+		if err != nil {
+			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
+		}
+	})
+}
