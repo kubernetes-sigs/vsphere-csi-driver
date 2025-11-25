@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
 	"github.com/davecgh/go-spew/spew"
@@ -55,7 +56,6 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
@@ -234,7 +234,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields with the errors per volume.
 			original := instance.DeepCopy()
-			if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+			if err = k8s.PatchObject(ctx, r.client, original, instance); err != nil {
 				msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to patch status for %q. "+
 					"Err: %v.", instance.Name, err)
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -249,7 +249,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 				log.Debugf("ReconcileCnsVolumeMetadata: Removing finalizer %q for instance %q", finalizer, instance.Name)
 				original := instance.DeepCopy()
 				instance.Finalizers = append(instance.Finalizers[:index], instance.Finalizers[index+1:]...)
-				if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+				if err = k8s.PatchObject(ctx, r.client, original, instance); err != nil {
 					msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to remove finalizer %q for %q. "+
 						"Err: %v. Requeueing request.", finalizer, instance.Name, err)
 					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -280,7 +280,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 	if !isFinalizerSet {
 		original := instance.DeepCopy()
 		instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
-		if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+		if err = k8s.PatchObject(ctx, r.client, original, instance); err != nil {
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to add finalizer %q for %q. "+
 				"Err: %v. Requeueing request.", cnsoperatortypes.CNSFinalizer, instance.Name, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -297,7 +297,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 			// Update instance.status fields on supervisor API server and requeue
 			// the request.
 			original := instance.DeepCopy()
-			_ = cnsoperatorutil.PatchObject(ctx, r.client, original, instance)
+			_ = k8s.PatchObject(ctx, r.client, original, instance)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		// Successfully updated CNS.
@@ -307,7 +307,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Update instance.status fields on supervisor API server.
 		original := instance.DeepCopy()
-		if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+		if err = k8s.PatchObject(ctx, r.client, original, instance); err != nil {
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to patch status for %q. "+
 				"Err: %v. Requeueing request.", instance.Name, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)

@@ -28,7 +28,7 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // pvcsiVolumeUpdated updates persistent volume claim and persistent volume
@@ -80,7 +80,7 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{},
 	newMetadata.ResourceVersion = currentMetadata.ResourceVersion
 	newMetadata.Namespace = supervisorNamespace
 	log.Debugf("pvCSI VolumeUpdated: Invoking patch on CnsVolumeMetadata with spec: %+v", spew.Sdump(newMetadata))
-	if err := cnsoperatorutil.PatchObject(ctx, metadataSyncer.cnsOperatorClient, currentMetadata,
+	if err := k8s.PatchObject(ctx, metadataSyncer.cnsOperatorClient, currentMetadata,
 		newMetadata); err != nil {
 		log.Errorf("pvCSI VolumeUpdated: Failed to patch CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
 		return

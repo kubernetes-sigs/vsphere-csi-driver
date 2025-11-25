@@ -41,7 +41,6 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 var (
@@ -146,7 +145,7 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 				log.Infof("FullSync: Patching CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
 				original := supervisorObject.DeepCopy()
 				supervisorObject.Spec = guestObject.Spec
-				if err := cnsoperatorutil.PatchObject(ctx, metadataSyncer.cnsOperatorClient, original,
+				if err := k8s.PatchObject(ctx, metadataSyncer.cnsOperatorClient, original,
 					supervisorObject); err != nil {
 					log.Warnf("FullSync: Failed to patch CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 				}
