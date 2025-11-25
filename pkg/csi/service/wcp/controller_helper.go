@@ -37,6 +37,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -849,6 +851,15 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 
 var newK8sClient = k8s.NewClient
 
+// getK8sConfig is a variable that can be overridden for testing
+var getK8sConfig = config.GetConfig
+
+// newK8sClientFromConfig is a variable that can be overridden for testing
+// It wraps kubernetes.NewForConfig and returns Interface for easier testing
+var newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
+	return kubernetes.NewForConfig(c)
+}
+
 // getPodVMUUID returns the UUID of the VM(running on the node) on which the pod that is trying to
 // use the volume is scheduled.
 func getPodVMUUID(ctx context.Context, volumeID, nodeName string) (string, error) {
@@ -949,4 +960,64 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 		return nil, logger.LogNewErrorCodef(log, codes.Internal, "failed to retrieve zones for e nil")
 	}
 	return zones, nil
+}
+
+// getSnapshotLimitFromNamespace retrieves the snapshot limit from the namespace annotation.
+// If the annotation is not present, it returns the default value.
+// If the annotation value exceeds the maximum allowed, it caps the value and logs a warning.
+func getSnapshotLimitFromNamespace(ctx context.Context, namespace string) (int, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get Kubernetes config
+	cfg, err := getK8sConfig()
+	if err != nil {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get Kubernetes config: %v", err)
+	}
+
+	// Create Kubernetes clientset
+	k8sClient, err := newK8sClientFromConfig(cfg)
+	if err != nil {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to create Kubernetes client: %v", err)
+	}
+
+	// Get namespace object
+	ns, err := k8sClient.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get namespace %q: %v", namespace, err)
+	}
+
+	// Check if annotation exists
+	annotationValue, exists := ns.Annotations[common.MaxSnapshotsPerVolumeAnnotationKey]
+	if !exists {
+		log.Infof("Annotation %q not found in namespace %q, using default value %d",
+			common.MaxSnapshotsPerVolumeAnnotationKey, namespace, common.DefaultMaxSnapshotsPerBlockVolumeInWCP)
+		return common.DefaultMaxSnapshotsPerBlockVolumeInWCP, nil
+	}
+
+	// Parse annotation value
+	limit, err := strconv.Atoi(annotationValue)
+	if err != nil {
+		return 0, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to parse annotation %q value %q in namespace %q: %v",
+			common.MaxSnapshotsPerVolumeAnnotationKey, annotationValue, namespace, err)
+	}
+
+	// Validate limit
+	if limit < 0 {
+		return 0, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"invalid snapshot limit %d in namespace %q: must be >= 0", limit, namespace)
+	}
+
+	// Cap to maximum allowed value
+	if limit > common.MaxAllowedSnapshotsPerBlockVolume {
+		log.Warnf("Snapshot limit %d in namespace %q exceeds maximum allowed %d, capping to %d",
+			limit, namespace, common.MaxAllowedSnapshotsPerBlockVolume, common.MaxAllowedSnapshotsPerBlockVolume)
+		return common.MaxAllowedSnapshotsPerBlockVolume, nil
+	}
+
+	log.Infof("Snapshot limit for namespace %q is set to %d", namespace, limit)
+	return limit, nil
 }

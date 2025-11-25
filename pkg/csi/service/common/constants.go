@@ -353,6 +353,16 @@ const (
 	// Guest cluster.
 	SupervisorVolumeSnapshotAnnotationKey = "csi.vsphere.guest-initiated-csi-snapshot"
 
+	// MaxSnapshotsPerVolumeAnnotationKey represents the annotation key on Namespace CR
+	// in Supervisor cluster to specify the maximum number of snapshots per volume
+	MaxSnapshotsPerVolumeAnnotationKey = "csi.vsphere.max-snapshots-per-volume"
+
+	// DefaultMaxSnapshotsPerBlockVolumeInWCP is the default maximum number of snapshots per block volume in WCP
+	DefaultMaxSnapshotsPerBlockVolumeInWCP = 4
+
+	// MaxAllowedSnapshotsPerBlockVolume is the hard cap for maximum snapshots per block volume
+	MaxAllowedSnapshotsPerBlockVolume = 32
+
 	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
 	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
 
@@ -467,6 +477,8 @@ const (
 	// WCPVMServiceVMSnapshots is a supervisor capability indicating
 	// if supports_VM_service_VM_snapshots FSS is enabled
 	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
+	// SnapshotLimitWCP is an internal FSS that enables snapshot limit enforcement in WCP
+	SnapshotLimitWCP = "snapshot-limit-wcp"
 )
 
 var WCPFeatureStates = map[string]struct{}{
