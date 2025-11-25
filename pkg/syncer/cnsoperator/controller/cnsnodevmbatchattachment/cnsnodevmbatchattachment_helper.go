@@ -54,6 +54,14 @@ const (
 	detachSuffix = ":detaching"
 )
 
+// FCDBackingDetails reflects the parameters with which a given FCD is attached to a VM.
+type FCDBackingDetails struct {
+	ControllerKey int32
+	UnitNumber    int32
+	DiskMode      string
+	SharingMode   string
+}
+
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmbatchattachment instance.
 func removeFinalizerFromCRDInstance(ctx context.Context,
@@ -76,8 +84,8 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
-	attachedFCDs map[string]bool,
-	volumeIdsInSpec map[string]string) (pvcsToDetach map[string]string, err error) {
+	attachedFCDs map[string]FCDBackingDetails,
+	volumeIdsInSpec map[string]FCDBackingDetails) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
 
 	// Map contains PVCs which need to be detached.
@@ -86,34 +94,47 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 	/// Add those volumes to to pvcsToDetach
 	// which are present in attachedFCDs list but not in
 	// instance spec.
-	for attachedFcdId := range attachedFCDs {
-		if _, ok := volumeIdsInSpec[attachedFcdId]; !ok {
-			// Get PVC name for the given FCD.
-			pvcName, pvcNs, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
-			if !exists {
-				msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
-				return pvcsToDetach, errors.New(msg)
-			}
+	for attachedFcdId, attachedFcdIdBacking := range attachedFCDs {
+		// Get PVC name for the given FCD.
+		pvcName, pvcNs, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(attachedFcdId)
+		if !exists {
+			msg := fmt.Sprintf("failed to find PVC for volumeID %s in cluster", attachedFcdId)
+			return pvcsToDetach, errors.New(msg)
+		}
 
-			// Get PVC object for the given PVC name.
-			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
-			if err != nil {
-				msg := fmt.Sprintf("failed to find PVC obj for PVC name %s in namespace %s", pvcName, pvcNs)
-				return pvcsToDetach, errors.New(msg)
-			}
+		// Get PVC object for the given PVC name.
+		pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
+		if err != nil {
+			msg := fmt.Sprintf("failed to find PVC obj for PVC name %s in namespace %s", pvcName, pvcNs)
+			return pvcsToDetach, errors.New(msg)
+		}
 
+		addPVCToDetachList := false
+
+		if volumeInSpec, ok := volumeIdsInSpec[attachedFcdId]; !ok {
+			// If PVC is not present in CR spec but is attached to the VM, then add it to PVCs to detach list.
+			addPVCToDetachList = true
+		} else if volumeInSpec.ControllerKey != attachedFcdIdBacking.ControllerKey ||
+			volumeInSpec.UnitNumber != attachedFcdIdBacking.UnitNumber ||
+			volumeInSpec.SharingMode != attachedFcdIdBacking.SharingMode ||
+			volumeInSpec.DiskMode != attachedFcdIdBacking.DiskMode {
+			// If PVC is present in spec, but its device backing has changed, then add it to PVCs to detach list.
+			addPVCToDetachList = true
+		}
+
+		if addPVCToDetachList {
 			// This check is required only for RWO volumes because before 9.1 we never supported RWX block volumes.
 			// If an RWO PVC does not have usedby-vm annotation,
 			// it means that it wasn't attached via the CnsNodeVMBatchAttachment CR.
 			// So this PVC should not be detached by CnsNodeVMNBatchAttach CR either.
 			if !isSharedPvc(*pvcObj) && !pvcHasUsedByAnnotaion(ctx, pvcObj) {
-				log.Infof("PVC %s does not have usedby-vm annotation. PVC not attached via CnsNodeVMBatchAttachment.", pvcName)
+				log.Debugf("PVC %s does not have usedby-vm annotation. PVC not attached via CnsNodeVMBatchAttachment.", pvcName)
 				continue
 			}
 			pvcsToDetach[pvcName] = attachedFcdId
 		}
 	}
-	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
+	log.Infof("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 	return pvcsToDetach, nil
 }
 
@@ -206,7 +227,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	client client.Client,
 	k8sClient kubernetes.Interface,
-	attachedFCDs map[string]bool) (map[string]string, error) {
+	attachedFCDs map[string]FCDBackingDetails) (map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
 	pvcsToDetach := make(map[string]string)
@@ -342,11 +363,11 @@ func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVMBatchAttachm
 // 1. volumeID to PVC name
 // 2. VolumeName to PVC name
 func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) (volumeIdsInSpec map[string]string,
+	instance *v1alpha1.CnsNodeVMBatchAttachment) (volumeIdsInSpec map[string]FCDBackingDetails,
 	volumeNamesInSpec map[string]string, err error) {
 	log := logger.GetLogger(ctx)
 
-	volumeIdsInSpec = make(map[string]string)
+	volumeIdsInSpec = make(map[string]FCDBackingDetails)
 	volumeNamesInSpec = make(map[string]string)
 	for _, volume := range instance.Spec.Volumes {
 		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
@@ -357,8 +378,9 @@ func getVolumeNameVolumeIdMapsInSpec(ctx context.Context,
 			err = errors.New(msg)
 			return
 		}
-		volumeNamesInSpec[volume.Name] = volume.PersistentVolumeClaim.ClaimName
-		volumeIdsInSpec[volumeId] = volume.PersistentVolumeClaim.ClaimName
+		volumeIdsInSpec[volumeId] = FCDBackingDetails{*volume.PersistentVolumeClaim.ControllerKey,
+			*volume.PersistentVolumeClaim.UnitNumber,
+			string(volume.PersistentVolumeClaim.SharingMode), string(volume.PersistentVolumeClaim.DiskMode)}
 	}
 	return
 }
@@ -395,9 +417,9 @@ func getPvcsInSpec(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachm
 // listAttachedFcdsForVM returns list of FCDs (present in the K8s cluster)
 // which are attached to given VM on vCenter.
 func listAttachedFcdsForVM(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine) (map[string]bool, error) {
+	vm *cnsvsphere.VirtualMachine) (map[string]FCDBackingDetails, error) {
 	log := logger.GetLogger(ctx)
-	attachedFCDs := make(map[string]bool)
+	attachedFCDs := make(map[string]FCDBackingDetails)
 	// Verify if the volume id is on the VM backing virtual disk devices.
 	vmDevices, err := vm.Device(ctx)
 	if err != nil {
@@ -409,20 +431,44 @@ func listAttachedFcdsForVM(ctx context.Context,
 	}
 	for _, device := range vmDevices {
 		if vmDevices.TypeName(device) == "VirtualDisk" {
-			if virtualDisk, ok := device.(*vimtypes.VirtualDisk); ok && virtualDisk.VDiskId != nil {
-				// If the given volumeID does not exist in K8s cluster,
-				// do not add it to attachedFCDs list because it is not being consumed
-				// by any PVC.
-				_, _, existsOnK8s := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(virtualDisk.VDiskId.Id)
-				if existsOnK8s {
-					log.Infof("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
-					attachedFCDs[virtualDisk.VDiskId.Id] = true
-				}
-
-			} else {
-				log.Debugf("failed to obtain virtual disk for device %+v", device)
+			virtualDisk, virtualDiskExists := device.(*vimtypes.VirtualDisk)
+			if !virtualDiskExists {
+				continue
 			}
+			if virtualDisk.VDiskId == nil {
+				log.Debugf("failed to obtain virtual disk for device %+v", device)
+				continue
+			}
+
+			// If the given volumeID does not exist in K8s cluster,
+			// do not add it to attachedFCDs list because it is not being consumed
+			// by any PVC.
+			_, _, existsOnK8s := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(virtualDisk.VDiskId.Id)
+			if !existsOnK8s {
+				continue
+			}
+
+			device := virtualDisk.GetVirtualDevice()
+
+			controllerKey := device.ControllerKey
+
+			unitNumber := int32(-1)
+			if device.UnitNumber != nil {
+				unitNumber = *device.UnitNumber
+			}
+
+			var diskMode, sharingMode string
+			if backing, ok := virtualDisk.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
+				diskMode = backing.DiskMode
+				sharingMode = backing.Sharing
+			} else {
+				log.Debugf("failed to get diskMode and sharingMode for virtual disk")
+			}
+
+			log.Infof("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
+			attachedFCDs[virtualDisk.VDiskId.Id] = FCDBackingDetails{controllerKey, unitNumber, sharingMode, diskMode}
 		}
+
 	}
 	return attachedFCDs, nil
 }
@@ -435,7 +481,7 @@ func constructBatchAttachRequest(ctx context.Context,
 	volumeIdsInSpec map[string]string,
 	batchAttachRequest []volumes.BatchAttachRequest, err error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("Constructing batch attach request for for instance %s", instance.Name)
+	log.Infof("Constructing batch attach request for instance %s", instance.Name)
 
 	batchAttachRequest = make([]volumes.BatchAttachRequest, 0)
 
