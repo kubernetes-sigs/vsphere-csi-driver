@@ -30,6 +30,7 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
 	"github.com/vmware/govmomi/vim25/types"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
@@ -1081,7 +1082,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 5. Create CNS register volume with above created FCD, AccessMode as "ReadOnlyMany".
 	// 6. verify  the error message.
 	// 7. Delete Resource quota.
-	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or "+
+	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning when AccessMode is ReadWriteMany or "+
 		"ReadOnlyMany", ginkgo.Label(p1, block, wcp, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1140,7 +1141,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 8. Verify PV is deleted automatically.
 	// 9. Verify Volume id deleted automatically.
 	// 10. Verify CRD deleted automatically.
-	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning workflow - when "+
+	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning workflow - when "+
 		"DuplicateFCD is used", ginkgo.Label(p2, block, wcp, vc70), func() {
 
 		var err error
@@ -1161,9 +1162,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		fcdID1, err := e2eVSphere.createFCDwithValidProfileID(ctx,
 			"staticfcd1"+curtimeinstring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("fcdID1 : %s", fcdID1)
 		fcdID2, err := e2eVSphere.createFCDwithValidProfileID(ctx,
 			"staticfcd2"+curtimeinstring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("fcdID2 : %s", fcdID2)
 		deleteFCDRequired = false
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
@@ -1185,28 +1188,28 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		ginkgo.By("Create CnsregisteVolume with already used FCD")
 		pvcName2 := pvcName + "duplicatefcd"
-		cnsRegisterVolume = getCNSRegisterVolumeSpec(ctx, namespace, fcdID1, "", pvcName2, v1.ReadWriteOnce)
-		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume)
+		cnsRegisterVolume2 := getCNSRegisterVolumeSpec(ctx, namespace, fcdID1, "", pvcName2, v1.ReadWriteOnce)
+		err = createCNSRegisterVolume(ctx, restConfig, cnsRegisterVolume2)
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = waitForCNSRegisterVolumeToGetCreated(ctx,
-			restConfig, namespace, cnsRegisterVolume, poll, supervisorClusterOperationsTimeout)
+			restConfig, namespace, cnsRegisterVolume2, poll, supervisorClusterOperationsTimeout)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Verify the error message, when already used FCD is used")
-		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
-		actualErrorMsg := cnsRegisterVolume.Status.Error
+		cnsRegisterVolume2 = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume2)
+		actualErrorMsg := cnsRegisterVolume2.Status.Error
 		expectedErrorMsg := "Duplicate Request"
 		gomega.Expect(strings.Contains(actualErrorMsg, expectedErrorMsg), gomega.BeTrue())
 
 		ginkgo.By("Update CRD with new FCD ID")
-		cnsRegisterVolume.Spec.VolumeID = fcdID2
-		cnsRegisterVolume = updateCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
-		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
-		framework.Logf("PVC name after updating the FCDID  :%s", cnsRegisterVolume.Spec.PvcName)
-
-		ginkgo.By("Wait for some time for the updated CRD to create PV , PVC")
-		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
-			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
+		cnsRegisterVolume2.Spec.VolumeID = fcdID2
+		cnsRegisterVolume2 = updateCNSRegistervolume(ctx, restConfig, cnsRegisterVolume2)
+		err = waitForCNSRegisterVolumeToGetCreated(ctx,
+			restConfig, namespace, cnsRegisterVolume2, poll, supervisorClusterOperationsTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		cnsRegisterVolume2 = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume2)
+		framework.Logf("PVC name after updating the FCDID  :%s", cnsRegisterVolume2.Spec.PvcName)
 
 		ginkgo.By("verify newly created PV, PVC")
 		pvc2, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName2, metav1.GetOptions{})
@@ -1617,7 +1620,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 2. Create a storage policy.
 	// 3. Create FCD with the above created storage policy.
 	// 4. Import the volume created in step 3 to namespace created in step 1.
-	ginkgo.It("[ef-f-wcp][csi-supervisor] static provisioning workflow - when tried to import volume with a storage "+
+	ginkgo.It("[ef-wcp][csi-supervisor] static provisioning workflow - when tried to import volume with a storage "+
 		"policy that doesn't belong to the namespace", ginkgo.Label(p2, block, wcp, negative, vc70), func() {
 
 		var err error
@@ -1631,24 +1634,31 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 
 		restConfig := getRestConfigClient()
 
-		storagePolicyName2 := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
-		ginkgo.By("Get storage Policy")
-		ginkgo.By(fmt.Sprintf("storagePolicyName: %s", storagePolicyName2))
-		profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName2)
-		framework.Logf("Profile ID :%s", profileID)
-		scParameters := make(map[string]string)
-		scParameters["storagePolicyID"] = profileID
+		//create Tag and Category
+		rand.New(rand.NewSource(time.Now().UnixNano()))
+		suffix := fmt.Sprintf("-%v-%v", time.Now().UnixNano(), rand.Intn(10000))
+		categoryName := "category" + suffix
+		tagName := "tag" + suffix
+		catID, tagID := createCategoryNTag(ctx, categoryName, tagName)
+		defer func() {
+			deleteCategoryNTag(ctx, catID, tagID)
+		}()
+
+		var pc *pbm.Client
+		govmomiClient := newClient(ctx, &e2eVSphere)
+		pc = newPbmClient(ctx, govmomiClient)
+
+		//Create Storage Policy
+		_, policyName := createVmfsStoragePolicy(
+			ctx, pc, "Conserve space when possible", map[string]string{categoryName: tagName})
+		profileID := e2eVSphere.GetSpbmPolicyID(policyName)
 
 		ginkgo.By("Create FCD")
-		fcdID, err := e2eVSphere.createFCDwithValidProfileID(ctx,
+		fcdID, err = e2eVSphere.createFCDwithValidProfileID(ctx,
 			"staticfcd"+curtimeinstring, profileID, diskSizeInMinMb, defaultDatastore.Reference())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}()
-
+		deleteFCDRequired = true
 		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow newly created FCD:%s to sync with pandora",
 			pandoraSyncWaitTime, fcdID))
 		time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
@@ -1668,11 +1678,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		ginkgo.By("Verify the error message, when FCD without storage policy is used")
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
 		actualErrorMsg := cnsRegisterVolume.Status.Error
-		framework.Logf("Error message :%s", actualErrorMsg)
+		framework.Logf("actualErrorMsg Error message :%s", actualErrorMsg)
 		expectedErrorMsg := fmt.Sprintf(
 			"Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
 			profileID, namespace)
-		framework.Logf("Error message :%s", expectedErrorMsg)
+		framework.Logf("expectedErrorMsg Error message :%s", expectedErrorMsg)
 		gomega.Expect(strings.Contains(actualErrorMsg, expectedErrorMsg), gomega.BeTrue())
 		pvc = nil
 

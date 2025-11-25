@@ -4015,11 +4015,11 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 	cnsRegisterVolume *cnsregistervolumev1alpha1.CnsRegisterVolume, Poll, timeout time.Duration) error {
 	framework.Logf("Waiting up to %v for CnsRegisterVolume %v, namespace: %s,  to get created",
 		timeout, cnsRegisterVolume, namespace)
-
+	var flag bool
 	cnsRegisterVolumeName := cnsRegisterVolume.GetName()
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
 		cnsRegisterVolume = getCNSRegistervolume(ctx, restConfig, cnsRegisterVolume)
-		flag := cnsRegisterVolume.Status.Registered
+		flag = cnsRegisterVolume.Status.Registered
 		if !flag {
 			continue
 		} else {
@@ -4027,21 +4027,7 @@ func waitForCNSRegisterVolumeToGetCreated(ctx context.Context, restConfig *rest.
 		}
 	}
 
-	if supervisorCluster {
-		describeCNSRegisterVolume(ctx, svcNamespace, cnsRegisterVolumeName)
-	}
-
 	return fmt.Errorf("cnsRegisterVolume %s creation is failed within %v", cnsRegisterVolumeName, timeout)
-}
-
-// describe CNS RegisterVolume
-func describeCNSRegisterVolume(ctx context.Context, namespace string, cnsRegVolName string) string {
-	// Command to write data and sync it
-	cmd := []string{"describe", "cnsregistervolumes.cns.vmware.com", cnsRegVolName}
-	output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-	framework.Logf("Describe CNSRegistervolume : %s", output)
-
-	return output
 }
 
 // waitForCNSRegisterVolumeToGetDeleted waits for a cnsRegisterVolume to get
