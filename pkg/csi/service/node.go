@@ -55,16 +55,17 @@ func (driver *vsphereCSIDriver) NodeStageVolume(
 
 	volumeID := req.GetVolumeId()
 	volCap := req.GetVolumeCapability()
+
+	if volCap == nil {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"NodeStageVolume failed: volume capability not provided")
+	}
+
 	// Check for block volume or file share.
 	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCap}) {
 		log.Infof("NodeStageVolume: Volume %q detected as a file share volume. Ignoring staging for file volumes.",
 			volumeID)
 		return &csi.NodeStageVolumeResponse{}, nil
-	}
-
-	if volCap == nil {
-		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
-			"NodeStageVolume failed: volume capability not provided")
 	}
 	if acquired := driver.volumeLocks.TryAcquire(volumeID); !acquired {
 		return nil, logger.LogNewErrorCodef(log, codes.Aborted,
@@ -250,6 +251,11 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	volID := req.GetVolumeId()
 	target := req.GetTargetPath()
 
+	if len(volID) == 0 {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"NodeUnpublishVolume: Volume ID must be provided")
+	}
+
 	if target == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 			"NodeUnpublishVolume failed: target path %q not set", target)
@@ -278,7 +284,14 @@ func (driver *vsphereCSIDriver) NodeGetVolumeStats(
 	log.Infof("NodeGetVolumeStats: called with args %+v", req)
 
 	var err error
+	volumeID := req.GetVolumeId()
 	targetPath := req.GetVolumePath()
+
+	if len(volumeID) == 0 {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"NodeGetVolumeStats: Volume ID must be provided")
+	}
+
 	if targetPath == "" {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 			"received empty targetpath %q", targetPath)
