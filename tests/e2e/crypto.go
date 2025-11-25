@@ -28,7 +28,6 @@ import (
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
-	vmopv4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -122,7 +121,6 @@ var _ = ginkgo.Describe("[csi-supervisor] [encryption] Block volume encryption",
 		gomega.Expect(vmopv1.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv2.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		gomega.Expect(vmopv3.AddToScheme(vmopScheme)).Should(gomega.Succeed())
-		gomega.Expect(vmopv4.AddToScheme(vmopScheme)).Should(gomega.Succeed())
 		vmopClient, err = ctlrclient.New(f.ClientConfig(), ctlrclient.Options{Scheme: vmopScheme})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		vmImageName := GetAndExpectStringEnvVar(envVmsvcVmImageName)
