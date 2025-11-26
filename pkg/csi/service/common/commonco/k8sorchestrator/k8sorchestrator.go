@@ -244,7 +244,7 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 // The primary key is the namespaced name of the PVC and value is a map.
 // The key of the inner map is the name of the snapshot.
 type pvcToSnapshotsMap struct {
-	*sync.RWMutex
+	sync.RWMutex
 	items map[k8stypes.NamespacedName]map[string]struct{}
 }
 
@@ -2017,6 +2017,44 @@ func nodeRemove(obj interface{}) {
 	k8sOrchestratorInstance.nodeIDToNameMap.remove(nodeMoID)
 }
 
+// handleSnapshotAdded handles the snapshot add event by adding it to the pvcToSnapshotsMap cache.
+func handleSnapshotAdded(ctx context.Context, obj any, pvcMap *pvcToSnapshotsMap) {
+	log := logger.GetLogger(ctx)
+	snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+	if !ok || snap == nil {
+		log.Warnf("unrecognized object %+v", obj)
+		return
+	}
+
+	if snap.Spec.Source.PersistentVolumeClaimName == nil {
+		log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
+		return
+	}
+
+	pvcMap.add(*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
+	log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
+		With("namespace", snap.Namespace).Debug("successfully added the snapshot to the cache")
+}
+
+// handleSnapshotDeleted handles the snapshot delete event by removing it from the pvcToSnapshotsMap cache.
+func handleSnapshotDeleted(ctx context.Context, obj any, pvcMap *pvcToSnapshotsMap) {
+	log := logger.GetLogger(ctx)
+	snap, ok := obj.(*snapshotv1.VolumeSnapshot)
+	if !ok || snap == nil {
+		log.Warnf("unrecognized object %+v", obj)
+		return
+	}
+
+	if snap.Spec.Source.PersistentVolumeClaimName == nil {
+		log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
+		return
+	}
+
+	pvcMap.delete(*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
+	log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
+		With("namespace", snap.Namespace).Debug("successfully removed the snapshot from the cache")
+}
+
 func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes.CnsClusterFlavor) error {
 	log := logger.GetLogger(ctx)
 	// TODO: check if we need to check the FSS as well
@@ -2027,53 +2065,19 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 	}
 
 	k8sOrchestratorInstance.pvcToSnapshotsMap = pvcToSnapshotsMap{
-		RWMutex: &sync.RWMutex{},
+		RWMutex: sync.RWMutex{},
 		items:   make(map[k8stypes.NamespacedName]map[string]struct{}),
-	}
-	snapshotAdded := func(obj any) {
-		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
-		if !ok || snap == nil {
-			log.Warnf("unrecognized object %+v", obj)
-			return
-		}
-
-		if snap.Spec.Source.PersistentVolumeClaimName == nil {
-			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
-			return
-		}
-
-		k8sOrchestratorInstance.pvcToSnapshotsMap.add(
-			*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
-		log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
-			With("namespace", snap.Namespace).Debug("successfully added the snapshot to the cache")
-	}
-	snapshotDeleted := func(obj any) {
-		snap, ok := obj.(*snapshotv1.VolumeSnapshot)
-		if !ok || snap == nil {
-			log.Warnf("unrecognized object %+v", obj)
-			return
-		}
-
-		if snap.Spec.Source.PersistentVolumeClaimName == nil {
-			log.Warnf("snapshot is not associated with any PVC. Ignoring it...")
-			return
-		}
-
-		k8sOrchestratorInstance.pvcToSnapshotsMap.delete(
-			*snap.Spec.Source.PersistentVolumeClaimName, snap.Name, snap.Namespace)
-		log.With("pvc", *snap.Spec.Source.PersistentVolumeClaimName).With("snapshot", snap.Name).
-			With("namespace", snap.Namespace).Debug("successfully removed the snapshot from the cache")
 	}
 
 	err := k8sOrchestratorInstance.informerManager.AddSnapshotListener(ctx,
 		func(obj any) {
-			snapshotAdded(obj)
+			handleSnapshotAdded(ctx, obj, &k8sOrchestratorInstance.pvcToSnapshotsMap)
 		},
 		// Since the name of PVC associated with a snapshot is immutable,
 		// update events do not have any impact on the state of the cache.
 		nil,
 		func(obj any) {
-			snapshotDeleted(obj)
+			handleSnapshotDeleted(ctx, obj, &k8sOrchestratorInstance.pvcToSnapshotsMap)
 		})
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on volumesnapshots. Error: %v", err)

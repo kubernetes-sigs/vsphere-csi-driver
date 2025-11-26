@@ -46,8 +46,8 @@ const (
 )
 
 var (
-	supervisorInformerManagerInstance *InformerManager = nil
-	supervisorInformerInstanceLock                     = &sync.Mutex{}
+	informerManagerInstance *InformerManager = nil
+	informerInstanceLock                     = &sync.Mutex{}
 )
 
 func noResyncPeriodFunc() time.Duration {
@@ -64,9 +64,9 @@ func NewInformer(ctx context.Context,
 	var informerInstance *InformerManager
 	log := logger.GetLogger(ctx)
 
-	supervisorInformerInstanceLock.Lock()
-	defer supervisorInformerInstanceLock.Unlock()
-	informerInstance = supervisorInformerManagerInstance
+	informerInstanceLock.Lock()
+	defer informerInstanceLock.Unlock()
+	informerInstance = informerManagerInstance
 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
@@ -76,7 +76,7 @@ func NewInformer(ctx context.Context,
 			snapshotInformerFactory: externalversions.NewSharedInformerFactory(snapshotClient, 0),
 		}
 
-		supervisorInformerManagerInstance = informerInstance
+		informerManagerInstance = informerInstance
 		log.Info("Created new informer factory for supervisor client")
 	}
 
@@ -248,9 +248,9 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 
 // AddSnapshotListener hooks up add, update, delete callbacks.
 func (im *InformerManager) AddSnapshotListener(ctx context.Context,
-	add func(obj interface{}),
-	update func(oldObj, newObj interface{}),
-	remove func(obj interface{})) error {
+	add func(obj any),
+	update func(oldObj, newObj any),
+	remove func(obj any)) error {
 	log := logger.GetLogger(ctx)
 	if im.snapshotInformer == nil {
 		im.snapshotInformer = im.snapshotInformerFactory.

@@ -23,13 +23,14 @@ import (
 	"sync"
 	"testing"
 
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	"github.com/stretchr/testify/assert"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	wcpcapv1alph1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -367,4 +368,494 @@ func TestSetWcpCapabilitiesMap_Success(t *testing.T) {
 
 	val, _ = WcpCapabilitiesMap.Load("CapabilityB")
 	assert.Equal(t, false, val)
+}
+
+func TestK8sOrchestrator_GetSnapshotsForPVC(t *testing.T) {
+	t.Run("WhenNoSnapshotsExistForPVC", func(tt *testing.T) {
+		// Setup
+		orch := K8sOrchestrator{}
+
+		// Execute
+		snaps := orch.GetSnapshotsForPVC(context.Background(), "", "")
+
+		// Assert
+		assert.Empty(tt, snaps)
+	})
+	t.Run("WhenSnapshotsExist", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		orch := K8sOrchestrator{
+			pvcToSnapshotsMap: pvcToSnapshotsMap{
+				RWMutex: sync.RWMutex{},
+				items: map[types.NamespacedName]map[string]struct{}{
+					{Namespace: ns, Name: pvc}: {
+						"snap1": struct{}{},
+						"snap2": struct{}{},
+						"snap3": struct{}{},
+					},
+				},
+			},
+		}
+		exp := []string{"snap1", "snap2", "snap3"}
+
+		// Execute
+		snaps := orch.GetSnapshotsForPVC(context.Background(), pvc, ns)
+
+		// Assert
+		assert.ElementsMatch(tt, exp, snaps)
+	})
+}
+
+func TestPvcToSnapshotsMap_Add(t *testing.T) {
+	t.Run("AddSnapshotToNewPVC", func(tt *testing.T) {
+		// Setup
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+		pvc, ns, snap := "test-pvc", "test-ns", "snap1"
+
+		// Execute
+		pvcMap.add(pvc, snap, ns)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1)
+		assert.Contains(tt, snaps, snap)
+	})
+
+	t.Run("AddMultipleSnapshotsToSamePVC", func(tt *testing.T) {
+		// Setup
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+		pvc, ns := "test-pvc", "test-ns"
+		snaps := []string{"snap1", "snap2", "snap3"}
+
+		// Execute
+		for _, snap := range snaps {
+			pvcMap.add(pvc, snap, ns)
+		}
+
+		// Assert
+		result := pvcMap.get(pvc, ns)
+		assert.Len(tt, result, 3)
+		for _, snap := range snaps {
+			assert.Contains(tt, result, snap)
+		}
+	})
+
+	t.Run("AddSameSnapshotTwice", func(tt *testing.T) {
+		// Setup
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+		pvc, ns, snap := "test-pvc", "test-ns", "snap1"
+
+		// Execute
+		pvcMap.add(pvc, snap, ns)
+		pvcMap.add(pvc, snap, ns) // Add same snapshot again
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1, "duplicate snapshot should not be added")
+		assert.Contains(tt, snaps, snap)
+	})
+}
+
+func TestPvcToSnapshotsMap_Get(t *testing.T) {
+	t.Run("GetNonExistentPVC", func(tt *testing.T) {
+		// Setup
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: "test-ns", Name: "pvc1"}: {
+					"snap1": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		snaps := pvcMap.get("non-existent-pvc", "test-ns")
+
+		// Assert
+		assert.Empty(tt, snaps)
+	})
+
+	t.Run("GetExistingPVCWithSnapshots", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: ns, Name: pvc}: {
+					"snap1": struct{}{},
+					"snap2": struct{}{},
+					"snap3": struct{}{},
+				},
+			},
+		}
+		exp := []string{"snap1", "snap2", "snap3"}
+
+		// Execute
+		snaps := pvcMap.get(pvc, ns)
+
+		// Assert
+		assert.ElementsMatch(tt, exp, snaps)
+	})
+}
+
+func TestPvcToSnapshotsMap_Delete(t *testing.T) {
+	t.Run("DeleteSnapshotFromPVC", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: ns, Name: pvc}: {
+					"snap1": struct{}{},
+					"snap2": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		pvcMap.delete(pvc, "snap1", ns)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1)
+		assert.Contains(tt, snaps, "snap2")
+		assert.NotContains(tt, snaps, "snap1")
+	})
+
+	t.Run("DeleteLastSnapshotRemovesPVCEntry", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		pvcKey := types.NamespacedName{Namespace: ns, Name: pvc}
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				pvcKey: {
+					"snap1": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		pvcMap.delete(pvc, "snap1", ns)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Empty(tt, snaps)
+		// Verify PVC entry is removed from map
+		pvcMap.RLock()
+		_, exists := pvcMap.items[pvcKey]
+		pvcMap.RUnlock()
+		assert.False(tt, exists, "PVC entry should be removed when last snapshot is deleted")
+	})
+
+	t.Run("DeleteNonExistentSnapshot", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: ns, Name: pvc}: {
+					"snap1": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		pvcMap.delete(pvc, "non-existent-snap", ns)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1)
+		assert.Contains(tt, snaps, "snap1")
+	})
+
+	t.Run("DeleteFromNonExistentPVC", func(tt *testing.T) {
+		// Setup
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute
+		pvcMap.delete("non-existent-pvc", "snap1", "test-ns")
+
+		// Assert
+		assert.Empty(tt, pvcMap.items)
+	})
+
+	t.Run("DeleteMultipleSnapshotsSequentially", func(tt *testing.T) {
+		// Setup
+		pvc, ns := "test-pvc", "test-ns"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: ns, Name: pvc}: {
+					"snap1": struct{}{},
+					"snap2": struct{}{},
+					"snap3": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		pvcMap.delete(pvc, "snap1", ns)
+		pvcMap.delete(pvc, "snap2", ns)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1)
+		assert.Contains(tt, snaps, "snap3")
+	})
+}
+
+func TestInitPVCToSnapshotsMap(t *testing.T) {
+	t.Run("SkipForNonWorkloadCluster", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+
+		// Execute
+		err := initPVCToSnapshotsMap(ctx, cnstypes.CnsClusterFlavorVanilla)
+
+		// Assert
+		assert.NoError(tt, err)
+	})
+
+	// since `k8sOrchestratorInstance.informerManager` is a struct type, testing the behaviour of
+	// AddSnapshotListener is not ideal. Since TestPVCToSnapshotsMapEventHandlers tests
+	// the event handlers, we're good for now.
+	// TODO: Add tests to verify actual informer logic
+}
+
+// Test the snapshot event handlers directly
+func TestPVCToSnapshotsMapEventHandlers(t *testing.T) {
+	// Helper to create a VolumeSnapshot object
+	createSnapshot := func(name, namespace, pvcName string) *snapshotv1.VolumeSnapshot {
+		return &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: snapshotv1.VolumeSnapshotSpec{
+				Source: snapshotv1.VolumeSnapshotSource{
+					PersistentVolumeClaimName: &pvcName,
+				},
+			},
+		}
+	}
+
+	t.Run("HandleSnapshotAdded", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvc, ns, snapName := "test-pvc", "test-ns", "test-snap"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute
+		snap := createSnapshot(snapName, ns, pvc)
+		handleSnapshotAdded(ctx, snap, &pvcMap)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 1)
+		assert.Contains(tt, snaps, snapName)
+	})
+
+	t.Run("HandleSnapshotDeleted", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvc, ns, snapName := "test-pvc", "test-ns", "test-snap"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: ns, Name: pvc}: {
+					snapName: struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		snap := createSnapshot(snapName, ns, pvc)
+		handleSnapshotDeleted(ctx, snap, &pvcMap)
+
+		// Assert
+		snaps := pvcMap.get(pvc, ns)
+		assert.Empty(tt, snaps)
+	})
+
+	t.Run("HandleSnapshotAddedWithNilPVCName", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-snap",
+				Namespace: "test-ns",
+			},
+			Spec: snapshotv1.VolumeSnapshotSpec{
+				Source: snapshotv1.VolumeSnapshotSource{
+					PersistentVolumeClaimName: nil,
+				},
+			},
+		}
+		handleSnapshotAdded(ctx, snap, &pvcMap)
+
+		// Assert - snapshot should not be added
+		assert.Empty(tt, pvcMap.items)
+	})
+
+	t.Run("HandleSnapshotAddedWithInvalidObject", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute
+		handleSnapshotAdded(ctx, "not-a-snapshot-object", &pvcMap)
+
+		// Assert - snapshot should not be added
+		assert.Empty(tt, pvcMap.items)
+	})
+
+	t.Run("HandleSnapshotAddedWithNilSnapshot", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute
+		var nilSnap *snapshotv1.VolumeSnapshot
+		handleSnapshotAdded(ctx, nilSnap, &pvcMap)
+
+		// Assert - snapshot should not be added
+		assert.Empty(tt, pvcMap.items)
+	})
+
+	t.Run("MultipleSnapshotsAddedAndDeleted", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvc, ns := "test-pvc", "test-ns"
+		snap1, snap2, snap3 := "snap1", "snap2", "snap3"
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute - Add multiple snapshots
+		handleSnapshotAdded(ctx, createSnapshot(snap1, ns, pvc), &pvcMap)
+		handleSnapshotAdded(ctx, createSnapshot(snap2, ns, pvc), &pvcMap)
+		handleSnapshotAdded(ctx, createSnapshot(snap3, ns, pvc), &pvcMap)
+
+		// Assert all added
+		snaps := pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 3)
+
+		// Execute - Delete one snapshot
+		handleSnapshotDeleted(ctx, createSnapshot(snap2, ns, pvc), &pvcMap)
+
+		// Assert only 2 remain
+		snaps = pvcMap.get(pvc, ns)
+		assert.Len(tt, snaps, 2)
+		assert.Contains(tt, snaps, snap1)
+		assert.Contains(tt, snaps, snap3)
+		assert.NotContains(tt, snaps, snap2)
+	})
+
+	t.Run("HandleSnapshotDeletedWithNilPVCName", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: "test-ns", Name: "test-pvc"}: {
+					"snap1": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-snap",
+				Namespace: "test-ns",
+			},
+			Spec: snapshotv1.VolumeSnapshotSpec{
+				Source: snapshotv1.VolumeSnapshotSource{
+					PersistentVolumeClaimName: nil,
+				},
+			},
+		}
+		handleSnapshotDeleted(ctx, snap, &pvcMap)
+
+		// Assert - map should remain unchanged
+		assert.Len(tt, pvcMap.items, 1)
+	})
+
+	t.Run("HandleSnapshotDeletedWithInvalidObject", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items: map[types.NamespacedName]map[string]struct{}{
+				{Namespace: "test-ns", Name: "test-pvc"}: {
+					"snap1": struct{}{},
+				},
+			},
+		}
+
+		// Execute
+		handleSnapshotDeleted(ctx, "not-a-snapshot-object", &pvcMap)
+
+		// Assert - map should remain unchanged
+		assert.Len(tt, pvcMap.items, 1)
+	})
+
+	t.Run("AddAndDeleteAcrossMultiplePVCsAndNamespaces", func(tt *testing.T) {
+		// Setup
+		ctx := context.Background()
+		pvcMap := pvcToSnapshotsMap{
+			RWMutex: sync.RWMutex{},
+			items:   make(map[types.NamespacedName]map[string]struct{}),
+		}
+
+		// Execute - Add snapshots for different PVCs and namespaces
+		handleSnapshotAdded(ctx, createSnapshot("snap1", "ns1", "pvc1"), &pvcMap)
+		handleSnapshotAdded(ctx, createSnapshot("snap2", "ns1", "pvc1"), &pvcMap)
+		handleSnapshotAdded(ctx, createSnapshot("snap3", "ns1", "pvc2"), &pvcMap)
+		handleSnapshotAdded(ctx, createSnapshot("snap4", "ns2", "pvc1"), &pvcMap)
+
+		// Assert all added correctly
+		assert.Len(tt, pvcMap.get("pvc1", "ns1"), 2)
+		assert.Len(tt, pvcMap.get("pvc2", "ns1"), 1)
+		assert.Len(tt, pvcMap.get("pvc1", "ns2"), 1)
+
+		// Execute - Delete snapshots
+		handleSnapshotDeleted(ctx, createSnapshot("snap1", "ns1", "pvc1"), &pvcMap)
+		handleSnapshotDeleted(ctx, createSnapshot("snap3", "ns1", "pvc2"), &pvcMap)
+
+		// Assert correct deletions
+		assert.Len(tt, pvcMap.get("pvc1", "ns1"), 1)
+		assert.Contains(tt, pvcMap.get("pvc1", "ns1"), "snap2")
+		assert.Empty(tt, pvcMap.get("pvc2", "ns1"))
+		assert.Len(tt, pvcMap.get("pvc1", "ns2"), 1)
+	})
 }
