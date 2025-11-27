@@ -267,13 +267,12 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		Status: v1.PersistentVolumeStatus{},
 	}
 
-	if isSharedDiskEnabled {
-		if volumeMode == "" {
-			// For both RWO and RWX volumes, default volumeMode is Filesystem.
-			volumeMode = v1.PersistentVolumeFilesystem
-		}
-		pv.Spec.VolumeMode = &volumeMode
+	// Set volumeMode if specified or default to Filesystem
+	if volumeMode == "" {
+		// For both RWO and RWX volumes, default volumeMode is Filesystem.
+		volumeMode = v1.PersistentVolumeFilesystem
 	}
+	pv.Spec.VolumeMode = &volumeMode
 
 	annotations := make(map[string]string)
 	annotations["pv.kubernetes.io/provisioned-by"] = cnsoperatortypes.VSphereCSIDriverName

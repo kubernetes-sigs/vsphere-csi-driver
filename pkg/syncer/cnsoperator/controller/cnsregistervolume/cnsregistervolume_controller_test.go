@@ -33,6 +33,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -796,6 +797,39 @@ var _ = Describe("checkExistingPVCDataSourceRef", func() {
 			Expect(pvc).To(BeNil())
 		})
 	})
+
+	Context("when PVC exists with DataSourceRef and volumeMode set", func() {
+		BeforeEach(func() {
+			apiGroup := "vmoperator.vmware.com"
+			volumeMode := corev1.PersistentVolumeBlock
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VirtualMachine",
+						Name:     "test-vm",
+					},
+					VolumeMode: &volumeMode,
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("should return the PVC with volumeMode set", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Name).To(Equal(pvcName))
+			Expect(pvc.Spec.DataSourceRef).ToNot(BeNil())
+			Expect(pvc.Spec.VolumeMode).ToNot(BeNil())
+			Expect(*pvc.Spec.VolumeMode).To(Equal(corev1.PersistentVolumeBlock))
+		})
+	})
 })
 
 var _ = Describe("validatePVCTopologyCompatibility", func() {
@@ -1359,4 +1393,594 @@ func TestGetPersistentVolumeSpecWithVolumeMode(t *testing.T) {
 	pv := getPersistentVolumeSpec(volumeName, volumeID,
 		int64(capacity), accessMode, volumeMode, scName, nil)
 	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
+}
+
+func TestGetPersistentVolumeSpecWhenVolumeModeIsEmptyWithoutSharedDisk(t *testing.T) {
+	var (
+		volumeName = "vol-1"
+		volumeID   = "123456"
+		capacity   = 256
+		accessMode = corev1.ReadWriteOnce
+		scName     = "testsc"
+	)
+
+	isSharedDiskEnabled = false
+	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil)
+	// volumeMode should be set to Filesystem even when isSharedDiskEnabled is false
+	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
+}
+
+func TestGetPersistentVolumeSpecWithVolumeModeWithoutSharedDisk(t *testing.T) {
+	var (
+		volumeName = "vol-1"
+		volumeID   = "123456"
+		capacity   = 256
+		accessMode = corev1.ReadWriteOnce
+		scName     = "testsc"
+		volumeMode = corev1.PersistentVolumeBlock
+	)
+
+	isSharedDiskEnabled = false
+	pv := getPersistentVolumeSpec(volumeName, volumeID,
+		int64(capacity), accessMode, volumeMode, scName, nil)
+	// volumeMode should be set to Block even when isSharedDiskEnabled is false
+	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
+	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
+}
+
+func TestVolumeModeInheritanceFromExistingPVCWithDataSourceRef(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+
+	// Create a PVC with DataSourceRef and volumeMode set to Block
+	apiGroup := "vmoperator.vmware.com"
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode: &volumeMode,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Test case 1: CnsRegisterVolume without volumeMode should inherit from PVC
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteOnce,
+			// VolumeMode is not set
+		},
+	}
+
+	// Simulate the logic from the Reconcile function
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+
+	// Apply the volumeMode validation and inheritance logic
+	mismatchDetected := false
+	if existingPVC != nil && existingPVC.Spec.DataSourceRef != nil && existingPVC.Spec.VolumeMode != nil {
+		if instance.Spec.VolumeMode == "" {
+			instance.Spec.VolumeMode = *existingPVC.Spec.VolumeMode
+		} else if instance.Spec.VolumeMode != *existingPVC.Spec.VolumeMode {
+			mismatchDetected = true
+		}
+	}
+
+	// Verify that volumeMode was inherited and no mismatch detected
+	assert.False(t, mismatchDetected)
+	assert.Equal(t, corev1.PersistentVolumeBlock, instance.Spec.VolumeMode)
+}
+
+func TestVolumeModeNotInheritedWhenAlreadySet(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+
+	// Create a PVC with DataSourceRef and volumeMode set to Block
+	apiGroup := "vmoperator.vmware.com"
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode: &volumeMode,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Test case 2: CnsRegisterVolume with volumeMode already set should NOT be overridden
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteOnce,
+			VolumeMode: corev1.PersistentVolumeFilesystem, // Already set to Filesystem
+		},
+	}
+
+	originalVolumeMode := instance.Spec.VolumeMode
+
+	// Simulate the logic from the Reconcile function
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+
+	// Apply the volumeMode validation and inheritance logic
+	mismatchDetected := false
+	if existingPVC != nil && existingPVC.Spec.DataSourceRef != nil && existingPVC.Spec.VolumeMode != nil {
+		if instance.Spec.VolumeMode == "" {
+			instance.Spec.VolumeMode = *existingPVC.Spec.VolumeMode
+		} else if instance.Spec.VolumeMode != *existingPVC.Spec.VolumeMode {
+			mismatchDetected = true
+		}
+	}
+
+	// Verify that mismatch was detected since PVC has Block but instance has Filesystem
+	assert.True(t, mismatchDetected)
+	// Verify that volumeMode was NOT changed (still has original Filesystem)
+	assert.Equal(t, originalVolumeMode, instance.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, instance.Spec.VolumeMode)
+}
+
+func TestVolumeModeNotInheritedWhenNoDataSourceRef(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+
+	// Create a PVC without DataSourceRef but with volumeMode set
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: nil, // No DataSourceRef
+			VolumeMode:    &volumeMode,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Test case 3: CnsRegisterVolume should NOT inherit volumeMode when PVC has no DataSourceRef
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteOnce,
+			// VolumeMode is not set
+		},
+	}
+
+	// Simulate the logic from the Reconcile function
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+
+	// Apply the volumeMode validation and inheritance logic
+	mismatchDetected := false
+	if existingPVC != nil && existingPVC.Spec.DataSourceRef != nil && existingPVC.Spec.VolumeMode != nil {
+		if instance.Spec.VolumeMode == "" {
+			instance.Spec.VolumeMode = *existingPVC.Spec.VolumeMode
+		} else if instance.Spec.VolumeMode != *existingPVC.Spec.VolumeMode {
+			mismatchDetected = true
+		}
+	}
+
+	// Verify that no mismatch detected and volumeMode was NOT inherited (should remain empty)
+	// because PVC has no DataSourceRef
+	assert.False(t, mismatchDetected)
+	assert.Equal(t, corev1.PersistentVolumeMode(""), instance.Spec.VolumeMode)
+}
+
+func TestVolumeModeNotInheritedWhenPVCVolumeModeIsNil(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+
+	// Create a PVC with DataSourceRef but VolumeMode is nil (not set)
+	apiGroup := "vmoperator.vmware.com"
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode: nil, // VolumeMode is nil
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Test case: CnsRegisterVolume should NOT inherit when PVC's volumeMode is nil
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteOnce,
+			// VolumeMode is not set
+		},
+	}
+
+	// Simulate the logic from the Reconcile function
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+
+	// Apply the volumeMode validation and inheritance logic
+	mismatchDetected := false
+	if existingPVC != nil && existingPVC.Spec.DataSourceRef != nil && existingPVC.Spec.VolumeMode != nil {
+		if instance.Spec.VolumeMode == "" {
+			instance.Spec.VolumeMode = *existingPVC.Spec.VolumeMode
+		} else if instance.Spec.VolumeMode != *existingPVC.Spec.VolumeMode {
+			mismatchDetected = true
+		}
+	}
+
+	// Verify that no mismatch detected and volumeMode was NOT inherited (should remain empty)
+	// because PVC's volumeMode is nil
+	assert.False(t, mismatchDetected)
+	assert.Equal(t, corev1.PersistentVolumeMode(""), instance.Spec.VolumeMode)
+}
+
+func TestVolumeModeMatchesExistingPVC(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+
+	// Create a PVC with DataSourceRef and volumeMode set to Block
+	apiGroup := "vmoperator.vmware.com"
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode: &volumeMode,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Test case: Both have volumeMode set to Block - should succeed
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   "123456",
+			AccessMode: corev1.ReadWriteOnce,
+			VolumeMode: corev1.PersistentVolumeBlock, // Matches PVC
+		},
+	}
+
+	// Simulate the logic from the Reconcile function
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+
+	// Apply the volumeMode validation logic
+	mismatchDetected := false
+	if existingPVC != nil && existingPVC.Spec.DataSourceRef != nil && existingPVC.Spec.VolumeMode != nil {
+		if instance.Spec.VolumeMode == "" {
+			instance.Spec.VolumeMode = *existingPVC.Spec.VolumeMode
+		} else if instance.Spec.VolumeMode != *existingPVC.Spec.VolumeMode {
+			mismatchDetected = true
+		}
+	}
+
+	// Verify that no mismatch was detected
+	assert.False(t, mismatchDetected)
+	assert.Equal(t, corev1.PersistentVolumeBlock, instance.Spec.VolumeMode)
+}
+
+func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+	pvName := "pvc-12345678-1234-1234-1234-123456789012"
+	volumeID := "test-volume-id"
+	storageClassName := "test-sc"
+
+	// Enable shared disk feature to ensure volumeMode is set in PV spec
+	isSharedDiskEnabled = true
+	defer func() {
+		isSharedDiskEnabled = false
+	}()
+
+	// Create a PVC with DataSourceRef and volumeMode set to Block
+	apiGroup := "vmoperator.vmware.com"
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+			UID:       "12345678-1234-1234-1234-123456789012",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode:       &volumeMode,
+			StorageClassName: &storageClassName,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Create CnsRegisterVolume with volumeMode set to Block (inherited or explicitly set)
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   volumeID,
+			AccessMode: corev1.ReadWriteOnce,
+			VolumeMode: corev1.PersistentVolumeBlock, // Expect Block
+		},
+	}
+
+	// Create an existing PV with INCORRECT volumeMode (Filesystem instead of Block)
+	incorrectVolumeMode := corev1.PersistentVolumeFilesystem
+	existingPV := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pvName,
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("1Gi"),
+			},
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       "csi.vsphere.vmware.com",
+					VolumeHandle: volumeID,
+				},
+			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			VolumeMode:       &incorrectVolumeMode, // Wrong: Filesystem instead of Block
+			StorageClassName: storageClassName,
+			ClaimRef: &corev1.ObjectReference{
+				Kind:       "PersistentVolumeClaim",
+				APIVersion: "v1",
+				Namespace:  namespace,
+				Name:       pvcName,
+			},
+		},
+	}
+	_, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, existingPV, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Verify PV exists with incorrect volumeMode
+	pvBefore, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, pvBefore.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pvBefore.Spec.VolumeMode)
+
+	// Mock volumeManager for CNS untag operation
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock DeleteVolumeUtil to simulate CNS untag (deleteDisk=false)
+	patches.ApplyFunc(common.DeleteVolumeUtil,
+		func(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string, deleteDisk bool) (string, error) {
+			// Verify deleteDisk is false (to preserve underlying disk)
+			assert.False(t, deleteDisk, "deleteDisk should be false to preserve underlying volume")
+			return "", nil
+		})
+
+	// Create a minimal reconciler with mocked volumeManager
+	reconciler := &ReconcileCnsRegisterVolume{
+		volumeManager: nil, // Will be mocked
+	}
+
+	// Call validateAndFixPVVolumeMode
+	capacityInMb := int64(1024)
+	accessMode := corev1.ReadWriteOnce
+	timeout := time.Second * 10
+
+	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
+		pvBefore, pvName, volumeID, capacityInMb, accessMode, storageClassName, nil, timeout)
+
+	// Verify the function succeeded
+	assert.NoError(t, err)
+	assert.NotNil(t, pvAfter)
+
+	// Verify the PV was recreated with correct volumeMode
+	assert.NotNil(t, pvAfter.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeBlock, *pvAfter.Spec.VolumeMode,
+		"PV should have been recreated with Block volumeMode")
+
+	// Verify the old PV with incorrect volumeMode no longer exists in the cluster
+	// (by checking that the new PV returned has the correct volumeMode)
+	pvFinal, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, pvFinal.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeBlock, *pvFinal.Spec.VolumeMode)
+
+	// Verify other PV properties are preserved
+	assert.Equal(t, volumeID, pvFinal.Spec.CSI.VolumeHandle)
+	assert.Equal(t, storageClassName, pvFinal.Spec.StorageClassName)
+	assert.Equal(t, corev1.ReadWriteOnce, pvFinal.Spec.AccessModes[0])
+}
+
+func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewSimpleClientset()
+	namespace := "test-namespace"
+	pvcName := "test-pvc"
+	pvName := "pvc-12345678-1234-1234-1234-123456789012"
+	volumeID := "test-volume-id"
+	storageClassName := "test-sc"
+
+	// Explicitly disable shared disk feature to test that volumeMode still works
+	isSharedDiskEnabled = false
+
+	// Create a PVC with DataSourceRef and volumeMode set to Block
+	apiGroup := "vmoperator.vmware.com"
+	volumeMode := corev1.PersistentVolumeBlock
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+			UID:       "12345678-1234-1234-1234-123456789012",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			VolumeMode:       &volumeMode,
+			StorageClassName: &storageClassName,
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Create CnsRegisterVolume with volumeMode set to Block
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: namespace,
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   volumeID,
+			AccessMode: corev1.ReadWriteOnce,
+			VolumeMode: corev1.PersistentVolumeBlock, // Expect Block
+		},
+	}
+
+	// Create an existing PV with INCORRECT volumeMode (Filesystem instead of Block)
+	incorrectVolumeMode := corev1.PersistentVolumeFilesystem
+	existingPV := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pvName,
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("1Gi"),
+			},
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       "csi.vsphere.vmware.com",
+					VolumeHandle: volumeID,
+				},
+			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			VolumeMode:       &incorrectVolumeMode, // Wrong: Filesystem instead of Block
+			StorageClassName: storageClassName,
+			ClaimRef: &corev1.ObjectReference{
+				Kind:       "PersistentVolumeClaim",
+				APIVersion: "v1",
+				Namespace:  namespace,
+				Name:       pvcName,
+			},
+		},
+	}
+	_, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, existingPV, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Mock volumeManager for CNS untag operation
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	// Mock DeleteVolumeUtil to simulate CNS untag (deleteDisk=false)
+	patches.ApplyFunc(common.DeleteVolumeUtil,
+		func(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string, deleteDisk bool) (string, error) {
+			assert.False(t, deleteDisk, "deleteDisk should be false to preserve underlying volume")
+			return "", nil
+		})
+
+	// Create a minimal reconciler with mocked volumeManager
+	reconciler := &ReconcileCnsRegisterVolume{
+		volumeManager: nil, // Will be mocked
+	}
+
+	// Call validateAndFixPVVolumeMode
+	capacityInMb := int64(1024)
+	accessMode := corev1.ReadWriteOnce
+	timeout := time.Second * 10
+
+	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
+		existingPV, pvName, volumeID, capacityInMb, accessMode, storageClassName, nil, timeout)
+
+	// Verify the function succeeded
+	assert.NoError(t, err)
+	assert.NotNil(t, pvAfter)
+
+	// Verify the PV was recreated with correct volumeMode even without shared disk enabled
+	assert.NotNil(t, pvAfter.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeBlock, *pvAfter.Spec.VolumeMode,
+		"PV should have been recreated with Block volumeMode even when shared disk is disabled")
+
+	// Verify the PV in cluster has correct volumeMode
+	pvFinal, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, pvFinal.Spec.VolumeMode)
+	assert.Equal(t, corev1.PersistentVolumeBlock, *pvFinal.Spec.VolumeMode)
 }
