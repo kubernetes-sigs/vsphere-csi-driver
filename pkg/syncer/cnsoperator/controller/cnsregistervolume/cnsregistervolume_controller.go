@@ -675,8 +675,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			// is bound. This happens when a new CnsRegisterVolume instance is
 			// created to import a new volume with PVC name which is already
 			// created and is bound.
-			msg := fmt.Sprintf("Another PVC: %s already exists in namespace: %s which is Bound to a different PV",
-				instance.Spec.PvcName, instance.Namespace)
+			msg := fmt.Sprintf("Another PVC: %s already exists in namespace: %s which is Bound to a different PV %s",
+				instance.Spec.PvcName, instance.Namespace, pvc.Spec.VolumeName)
 			log.Errorf(msg)
 			setInstanceError(ctx, r, instance, msg)
 			// Untag the CNS volume which was created previously.
@@ -732,111 +732,39 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
 		}
 	}
-	// Watch for PVC to be bound.
+	// Watch for PVC to be bound. If not bound, return error.
 	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(1*time.Minute))
-	if isBound {
-		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
-		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-			// Create CNSVolumeInfo CR for static pv
-			capacityInBytes := capacityInMb * common.MbInBytes
-			capacity := resource.NewQuantity(capacityInBytes, resource.BinarySI)
-			err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
-				volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity, false)
-			if err != nil {
-				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
-					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,
-					storageClassName, vc.Config.Host, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-
-			restConfig, err := clientConfig.GetConfig()
-			if err != nil {
-				log.Errorf("failed to get Kubernetes config. Err: %+v", err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			cnsOperatorClient, err := k8s.NewClientForGroup(ctx,
-				restConfig, apis.GroupName)
-			if err != nil {
-				log.Errorf("failed to create cns operator client. Err: %v", err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-
-			namespace := instance.Namespace
-			storagePolicyUsageCRName := storageClassName + "-" +
-				storagepolicyusagev1alpha2.NameSuffixForPVC
-			storagePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
-			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
-				Namespace: namespace,
-				Name:      storagePolicyUsageCRName},
-				storagePolicyUsageCR)
-			if err != nil {
-				log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-					storagepolicyusagev1alpha2.CRDSingular, storagePolicyUsageCRName,
-					namespace, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-
-			// Patch an increase of "reserved" in storagePolicyUsageCR.
-			patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
-			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
-				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved != nil {
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(*capacity)
-			} else {
-				var (
-					usedQty     resource.Quantity
-					reservedQty resource.Quantity
-				)
-				reservedQty = *resource.NewQuantity(capacity.Value(), capacity.Format)
-				patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha2.StoragePolicyUsageStatus{
-					ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha2.QuotaUsageDetails{
-						Reserved: &reservedQty,
-						Used:     &usedQty,
-					},
-				}
-			}
-			err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR, patchedStoragePolicyUsageCR)
-			if err != nil {
-				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
-					storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace, err)
-			}
-			// Retrieve the CR
-			currentStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
-			finalStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
-			key := apitypes.NamespacedName{Namespace: storagePolicyUsageCR.Namespace,
-				Name: storagePolicyUsageCR.Name}
-			err = cnsOperatorClient.Get(ctx, key, currentStoragePolicyUsageCR)
-			if err != nil {
-				log.Errorf("failed to get %s CR from supervisor namespace %q. Error: %+v",
-					storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			finalStoragePolicyUsageCR = currentStoragePolicyUsageCR.DeepCopy()
-			// Decrease the Reserved field for StoragePolicyUsageCR
-			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
-				*resource.NewQuantity(currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(),
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Format))
-			// Increase the Used field for StoragePolicyUsageCR
-			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-				*currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved)
-			err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR, finalStoragePolicyUsageCR)
-			if err != nil {
-				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
-					currentStoragePolicyUsageCR.Name, currentStoragePolicyUsageCR.Namespace, err)
-			} else {
-				log.Infof("Successfully decreased the reserved field by %v Mb "+
-					"for storagepolicyusage CR: %q in namespace: %q",
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
-					finalStoragePolicyUsageCR.Namespace)
-				log.Infof("Successfully increased the used field by %v Mb "+
-					"for storagepolicyusage CR: %q in namespace: %q",
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
-					finalStoragePolicyUsageCR.Namespace)
-			}
-		}
-	} else {
+	if !isBound {
 		log.Errorf("PVC: %s is not bound. Error: %+v", instance.Spec.PvcName, err)
 		setInstanceError(ctx, r, instance, fmt.Sprintf("PVC: %s is not bound", instance.Spec.PvcName))
 		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	log.Infof("PVC: %s is bound", instance.Spec.PvcName)
+	if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+		// Create CNSVolumeInfo CR for static pv
+		capacityInBytes := capacityInMb * common.MbInBytes
+		capacity := resource.NewQuantity(capacityInBytes, resource.BinarySI)
+		err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
+			volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity, false)
+		if err != nil {
+			log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
+				"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,
+				storageClassName, vc.Config.Host, err)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+
+		// Update storage quota for the volume
+		err = updateQuotaInStoragePolicyUsage(ctx, instance, storageClassName, capacity)
+		if err != nil {
+			// Check if the error requires setting instance error and returning
+			if strings.Contains(err.Error(), "failed to fetch StoragePolicyUsage CR") {
+				setInstanceError(ctx, r, instance, err.Error())
+			} else if strings.Contains(err.Error(), "failed to patch StoragePolicyUsage CR") {
+				setInstanceError(ctx, r, instance, err.Error())
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 	}
 
 	// Update the instance to indicate the volume registration is successful.
@@ -1260,6 +1188,127 @@ func recordEvent(ctx context.Context, r *ReconcileCnsRegisterVolume,
 		r.recorder.Event(instance, v1.EventTypeNormal, "CnsRegisterVolumeSucceeded", msg)
 		backOffDurationMapMutex.Unlock()
 	}
+}
+
+// updateQuotaInStoragePolicyUsage updates the StoragePolicyUsage CR to account for the volume's quota.
+// It performs a two-step update:
+// 1. Increases the "reserved" field (if not already done)
+// 2. Decreases the "reserved" field and increases the "used" field
+//
+// The function implements idempotency by checking instance.Status.Error for specific error messages
+// that indicate which step was completed before a failure occurred.
+func updateQuotaInStoragePolicyUsage(ctx context.Context, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	storageClassName string, capacity *resource.Quantity) error {
+	log := logger.GetLogger(ctx)
+
+	restConfig, err := clientConfig.GetConfig()
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return err
+	}
+
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, apis.GroupName)
+	if err != nil {
+		log.Errorf("failed to create cns operator client. Err: %v", err)
+		return err
+	}
+
+	return updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+}
+
+func updateQuotaInStoragePolicyUsageWithClient(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	storageClassName string, capacity *resource.Quantity, cnsOperatorClient client.Client) error {
+	log := logger.GetLogger(ctx)
+
+	// Check if quota update should be skipped (already accounted for in a previous reconcile)
+	if instance.Status.Error != "" &&
+		strings.Contains(instance.Status.Error, "Failed to update CnsRegistered instance") {
+		return nil
+	}
+
+	namespace := instance.Namespace
+	storagePolicyUsageCRName := storageClassName + "-" + storagepolicyusagev1alpha2.NameSuffixForPVC
+	storagePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+	err := cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+		Namespace: namespace,
+		Name:      storagePolicyUsageCRName},
+		storagePolicyUsageCR)
+	if err != nil {
+		log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
+			storagepolicyusagev1alpha2.CRDSingular, storagePolicyUsageCRName,
+			namespace, err)
+		return err
+	}
+
+	// Step 1: Patch an increase of "reserved" in storagePolicyUsageCR, only if not done earlier.
+	if instance.Status.Error == "" ||
+		(!strings.Contains(instance.Status.Error, "failed to fetch StoragePolicyUsage CR") &&
+			!strings.Contains(instance.Status.Error, "failed to patch StoragePolicyUsage CR")) {
+		patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
+		if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
+			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved != nil {
+			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(*capacity)
+		} else {
+			var (
+				usedQty     resource.Quantity
+				reservedQty resource.Quantity
+			)
+			reservedQty = *resource.NewQuantity(capacity.Value(), capacity.Format)
+			patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha2.StoragePolicyUsageStatus{
+				ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha2.QuotaUsageDetails{
+					Reserved: &reservedQty,
+					Used:     &usedQty,
+				},
+			}
+		}
+		err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR, patchedStoragePolicyUsageCR)
+		if err != nil {
+			log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
+				storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace, err)
+			return err
+		}
+	}
+
+	// Step 2: Retrieve the CR, decrease "reserved", and increase "used"
+	currentStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+	finalStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+	key := apitypes.NamespacedName{Namespace: storagePolicyUsageCR.Namespace,
+		Name: storagePolicyUsageCR.Name}
+	err = cnsOperatorClient.Get(ctx, key, currentStoragePolicyUsageCR)
+	if err != nil {
+		log.Errorf("failed to get %s CR from supervisor namespace %q. Error: %+v",
+			storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace, err)
+		return fmt.Errorf("failed to fetch StoragePolicyUsage CR: %q in namespace: %q",
+			storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
+	}
+
+	finalStoragePolicyUsageCR = currentStoragePolicyUsageCR.DeepCopy()
+	// Decrease the Reserved field of StoragePolicyUsage CR
+	finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
+		*resource.NewQuantity(currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(),
+			currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Format))
+	// Increase the Used field of StoragePolicyUsage CR
+	finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
+		*currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved)
+	err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR, finalStoragePolicyUsageCR)
+	if err != nil {
+		log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
+			currentStoragePolicyUsageCR.Name, currentStoragePolicyUsageCR.Namespace, err)
+		return fmt.Errorf("failed to patch StoragePolicyUsage CR: %q in namespace: %q",
+			storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace)
+	}
+
+	log.Infof("Successfully decreased the reserved field by %v Mb "+
+		"for storagepolicyusage CR: %q in namespace: %q",
+		currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
+		finalStoragePolicyUsageCR.Namespace)
+	log.Infof("Successfully increased the used field by %v Mb "+
+		"for storagepolicyusage CR: %q in namespace: %q",
+		currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
+		finalStoragePolicyUsageCR.Namespace)
+
+	return nil
 }
 
 // updateCnsRegisterVolume updates the CnsRegisterVolume instance in K8S.
