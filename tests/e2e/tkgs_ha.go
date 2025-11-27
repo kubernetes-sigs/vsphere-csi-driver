@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		9. Scale down the sts to 0
 		10.Delete PVC,POD,SC
 	*/
-	ginkgo.It("[pq-vks-tkgsha] Stateful set - storage class with Zonal storage and wffc and with parallel "+
+	ginkgo.It("Stateful set - storage class with Zonal storage and wffc and with parallel "+
 		"pod management policy", ginkgo.Label(p0, block, tkgsHA, vc80), func() {
 
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
@@ -769,7 +769,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		11.Verify the FS size on the POD
 		12.Clear all PVC,POD and sc
 	*/
-	ginkgo.It("[pq-vks-tkgsha] Verify offline Volume expansion using zonal storage", ginkgo.Label(p0,
+	ginkgo.It("Verify offline Volume expansion using zonal storage", ginkgo.Label(p0,
 		block, tkgsHA, vc80), func() {
 		var totalQuotaUsedBefore, storagePolicyQuotaBefore, storagePolicyUsageBefore *resource.Quantity
 		ctx, cancel := context.WithCancel(context.Background())
