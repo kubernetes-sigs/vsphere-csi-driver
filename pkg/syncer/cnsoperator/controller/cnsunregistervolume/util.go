@@ -21,7 +21,6 @@ import (
 	"errors"
 	"strings"
 
-	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -111,7 +110,7 @@ func _getVolumeUsageInfo(ctx context.Context, pvcName string, pvcNamespace strin
 		return &volumeUsageInfo, nil
 	}
 
-	volumeUsageInfo.snapshots, volumeUsageInfo.isInUse, err = getSnapshotsForPVC(ctx, pvcName, pvcNamespace, *cfg)
+	volumeUsageInfo.snapshots, volumeUsageInfo.isInUse, err = getSnapshotsForPVC(ctx, pvcName, pvcNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -222,35 +221,16 @@ func getPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 }
 
 // getSnapshotsForPVC returns a list of snapshots that are created for the specified PVC.
-func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
-	cfg rest.Config) ([]string, bool, error) {
+func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string) ([]string, bool, error) {
 	log := logger.GetLogger(ctx)
-	c, err := snapshotclient.NewForConfig(&cfg)
-	if err != nil {
-		log.Warnf("Failed to create snapshot client for PVC %q in namespace %q. Error: %q",
-			pvcName, pvcNamespace, err.Error())
-		return nil, false, errors.New("failed to create snapshot client")
+	if commonco.ContainerOrchestratorUtility == nil {
+		err := errors.New("ContainerOrchestratorUtility is not initialized")
+		log.Warn(err)
+		return nil, false, err
 	}
 
-	// TODO: check if we can use informer cache
-	list, err := c.SnapshotV1().VolumeSnapshots(pvcNamespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Warnf("Failed to list VolumeSnapshots in namespace %q for PVC %q. Error: %q",
-			pvcNamespace, pvcName, err.Error())
-		return nil, false, errors.New("failed to list VolumeSnapshots")
-	}
-
-	var snapshots []string
-	for _, snap := range list.Items {
-		if snap.Spec.Source.PersistentVolumeClaimName == nil ||
-			*snap.Spec.Source.PersistentVolumeClaimName != pvcName {
-			continue
-		}
-
-		snapshots = append(snapshots, snap.Name)
-	}
-
-	return snapshots, len(snapshots) > 0, nil
+	snaps := commonco.ContainerOrchestratorUtility.GetSnapshotsForPVC(ctx, pvcName, pvcNamespace)
+	return snaps, len(snaps) > 0, nil
 }
 
 // getGuestClustersForPVC returns a list of guest clusters that are using the specified PVC.
