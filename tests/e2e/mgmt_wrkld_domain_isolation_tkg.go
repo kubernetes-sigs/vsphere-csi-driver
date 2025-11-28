@@ -197,9 +197,9 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 			allowedTopologies)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Mark zone-2 for removal SVC namespace")
+		ginkgo.By("Mark zone-3 for removal SVC namespace")
 		err = markZoneForRemovalFromWcpNs(vcRestSessionId, svcNamespace,
-			zone2)
+			zone3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Increase the replica count from 3 to 6.
@@ -311,8 +311,8 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 			}
 		}()
 
-		// Now mark zone-3 also for removal.
-		statusCode := markZoneForRemovalFromNs(svcNamespace, zone3, vcRestSessionId)
+		// Now mark zone-2 also for removal.
+		statusCode := markZoneForRemovalFromNs(svcNamespace, zone2, vcRestSessionId)
 		gomega.Expect(statusCode).Should(gomega.BeNumerically("==", status_code_failure))
 
 		framework.Logf("Get volume snapshot handle from Supervisor Cluster")
@@ -395,8 +395,21 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		}()
 
 		ginkgo.By("Creating statefulset")
-		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
-			true, true, "", "", storageclass, storageclass.Name)
+		statefulset := createCustomisedStatefulSets(
+			ctx,
+			client,
+			namespace,
+			true,
+			replicas,
+			false,
+			nil,
+			false,
+			true,
+			"",
+			"",
+			storageclass,
+			storageclass.Name,
+		)
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
 		}()
@@ -437,22 +450,22 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		ginkgo.By("Creating pvc with requested topology annotation set to zone4")
-		pvclaim1, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclassWffc, "", zone3)
+		ginkgo.By("Creating pvc with requested topology annotation set to zone2")
+		pvclaim1, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclassWffc, "", zone2)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating another pvc with requested topology annotation set to zone3")
 		pvclaim2, err := createPvcWithRequestedTopology(ctx, client, namespace, nil, "", storageclass, "", zone3)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Wait for PVC to reach Bound state.")
-		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
-			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		ginkgo.By("Create Pod to attach to Pvc-1")
 		pod1, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim1}, false,
 			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for PVC to reach Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim1}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
@@ -463,6 +476,11 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		ginkgo.By("Create Pod to attach to Pvc-2")
 		pod2, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim2}, false,
 			execRWXCommandPod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for PVC to reach Bound state.")
+		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client,
+			[]*v1.PersistentVolumeClaim{pvclaim2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify svc pv affinity, pvc annotation and pod node affinity")
@@ -544,7 +562,7 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		replicas = 3
 
 		ginkgo.By("Read shared storage policy tagged to wcp namespace")
-		spWffc := zonal2StroragePolicyName + "-latebinding"
+		spWffc := sharedStoragePolicyNameWffc
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, spWffc, metav1.GetOptions{})
 		if !apierrors.IsNotFound(err) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -557,13 +575,13 @@ var _ bool = ginkgo.Describe("[tkg-domain-isolation] TKG-Management-Workload-Dom
 		}()
 
 		framework.Logf("Create StatefulSet with node selector set to zone-2")
-		topValStartIndex := 1
-		topValEndIndex := 2
-		allowedTopologies = setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
+		topValStartIndex := 0
+		topValEndIndex := 1
+		allowedTopologiesz1 := setSpecificAllowedTopology(allowedTopologies, topkeyStartIndex, topValStartIndex,
 			topValEndIndex)
 
 		ginkgo.By("Creating statefulset")
-		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologies,
+		statefulset := createCustomisedStatefulSets(ctx, client, namespace, true, replicas, true, allowedTopologiesz1,
 			false, true, "", "", storageclass, storageclass.Name)
 		defer func() {
 			fss.DeleteAllStatefulSets(ctx, client, namespace)
