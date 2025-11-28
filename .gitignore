@@ -1,5 +1,6 @@
-# Ignore unit-test coverrage report
+# Ignore unit-test coverage report
 coverage_report.out
+*.out
 
 # Ignore the generated kind-config yaml.
 /test/integration/kind-config.yaml
