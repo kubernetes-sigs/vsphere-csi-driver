@@ -264,6 +264,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	}
 
 	volumesToDetach := make(map[string]string)
+	volumesToAttach := make(map[string]string)
 	if vm == nil {
 		// If VM is nil, it means it is deleted from the vCenter.
 		if instance.DeletionTimestamp == nil {
@@ -277,8 +278,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		log.Infof("VM is deleted from vCenter and instance %s deletion timestamp. Considering all volumes as detached.",
 			request.NamespacedName)
 	} else {
-		// If VM was found on vCenter, find the volumes to be detached from it.
-		volumesToDetach, err = getVolumesToDetach(batchAttachCtx, instance, vm, r.client, k8sClient)
+		// If VM was found on vCenter, find the volumes to be attached and detached.
+		volumesToAttach, volumesToDetach, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm, r.client, k8sClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)
@@ -335,7 +336,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		}
 
 		// Call reconcile when deletion timestamp is not set on the instance.
-		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach, vm)
+		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach,
+			volumesToAttach, vm)
 		if err != nil {
 			log.Errorf("failed to reconile instance %s. Err: %s", request.NamespacedName.String(), err)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
@@ -385,6 +387,7 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	k8sClient kubernetes.Interface,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumesToDetach map[string]string,
+	volumesToAttach map[string]string,
 	vm *cnsvsphere.VirtualMachine) error {
 	log := logger.GetLogger(ctx)
 
@@ -400,7 +403,7 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	}
 
 	// Call batch attach for volumes.
-	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance)
+	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance, volumesToAttach)
 	if attachErr != nil {
 		log.Errorf("failed to attach all volumes. Err: %+v", attachErr)
 	}
@@ -497,16 +500,18 @@ func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8
 // and then calls CNS batch attach for them.
 func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernetes.Interface,
 	vm *cnsvsphere.VirtualMachine,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) error {
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumesToAttach map[string]string) error {
 	log := logger.GetLogger(ctx)
 
-	if len(instance.Spec.Volumes) == 0 {
+	if len(instance.Spec.Volumes) == 0 || len(volumesToAttach) == 0 {
 		log.Infof("No volumes to attach to VM %q", instance.Spec.InstanceUUID)
 		return nil
 	}
 
 	// Construct batch attach request
-	pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err := constructBatchAttachRequest(ctx, instance)
+	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, err := constructBatchAttachRequest(ctx,
+		volumesToAttach, instance)
 	if err != nil {
 		log.Errorf("failed to construct batch attach request. Err: %s", err)
 		return err
@@ -522,12 +527,12 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 	// Update instance based on the result of BatchAttach
 	for _, result := range batchAttachResult {
-		pvcName, ok := volumeIdsInSpec[result.VolumeID]
+		pvcName, ok := volumeIdsInAttachList[result.VolumeID]
 		if !ok {
 			log.Errorf("failed to get pvcName for volumeID %s", result.VolumeID)
 			return fmt.Errorf("failed to get pvcName for volumeID %s", result.VolumeID)
 		}
-		volumeName, ok := pvcsInSpec[pvcName]
+		volumeName, ok := pvcsInAttachList[pvcName]
 		if !ok {
 			log.Errorf("failed to get volumeName for pvc %s", pvcName)
 			return fmt.Errorf("failed to get volumeName for pvc %s", pvcName)
