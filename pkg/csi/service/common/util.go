@@ -45,6 +45,8 @@ import (
 const (
 	defaultK8sCloudOperatorServicePort = 10000
 	MissingSnapshotAggregatedCapacity  = "csi.vsphere.missing-snapshot-aggregated-capacity"
+	vmfsNamespace                      = "com.vmware.storage.volumeallocation"
+	vmfsNamespaceEztValue              = "Fully initialized"
 )
 
 var ErrAvailabilityZoneCRNotRegistered = errors.New("AvailabilityZone custom resource not registered")
@@ -534,4 +536,67 @@ func GetCNSVolumeInfoPatch(ctx context.Context, CapacityInMb int64, volumeId str
 		}
 	}
 	return patch, nil
+}
+
+// ValidateStoragePolicyForRWXVolume returns an error if the storagepolicy is not compatible
+// for RWX volumes.
+// Currently it returns an error if policy is for VMFS datastores but it is not EagerZeroedThick.
+func ValidateStoragePolicyForRWXVolume(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter, storagePolicyId string) error {
+	log := logger.GetLogger(ctx)
+
+	policies, err := vc.PbmRetrieveContent(ctx, []string{storagePolicyId})
+	if err != nil {
+		log.Errorf("failed to retrieve policy %s. Err %s", storagePolicyId, err)
+		return err
+	}
+
+	if len(policies) != 1 {
+		msg := fmt.Sprintf("Retrieved %d polciies for policyID %s", len(policies), storagePolicyId)
+		log.Errorf(msg)
+		return errors.New(msg)
+	}
+
+	return verifyStoragePolicyForVmfsWithEagerZeroedThick(ctx, policies[0], storagePolicyId)
+}
+
+// verifyStoragePolicyForVmfsWithEagerZeroedThick goes through each rule in the policy to
+// find out if it is fully intialized for VMFS datastores.
+// This check is required for RWX shared block volumes as for VMFS datastores, the policy must be EZT.
+func verifyStoragePolicyForVmfsWithEagerZeroedThick(
+	ctx context.Context,
+	policy cnsvsphere.SpbmPolicyContent,
+	storagePolicyID string,
+) error {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Validating policy %s", storagePolicyID)
+
+	for _, profile := range policy.Profiles {
+		isVmfs, isEzt := isVmfsEagerZeroed(profile)
+		if !isVmfs {
+			continue
+		}
+		if !isEzt {
+			return fmt.Errorf(
+				"policy %s is for VMFS datastores. It must be Thick Provision Eager Zero for RWX block volumes",
+				storagePolicyID)
+		}
+		log.Infof("Policy %s is for VMFS and is fully initialized", storagePolicyID)
+		return nil
+	}
+
+	return nil
+}
+
+// isVmfsEagerZeroed returns two boolean values:
+// 1. First indicates if the policy is for a VMFS datastores.
+// 2. Second indicates if the policy is eager zeroed thick or fully initialised.
+func isVmfsEagerZeroed(profile cnsvsphere.SpbmPolicySubProfile) (bool, bool) {
+	for _, rule := range profile.Rules {
+		if rule.Ns == vmfsNamespace {
+			return true, rule.Value == vmfsNamespaceEztValue
+		}
+	}
+	return false, false
 }
