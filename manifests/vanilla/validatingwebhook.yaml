@@ -40,6 +40,33 @@ webhooks:
         operations:  ["UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
+      - apiGroups:   ["snapshot.storage.k8s.io"]
+        apiVersions: ["v1"]
+        operations:  ["DELETE"]
+        resources:   ["volumesnapshots"]
+        scope: "Namespaced"
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+    failurePolicy: Fail
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: mutation.csi.vsphere.vmware.com
+webhooks:
+  - name: mutation.csi.vsphere.vmware.com
+    clientConfig:
+      service:
+        name: vsphere-webhook-svc
+        namespace: vmware-system-csi
+        path: "/mutate"
+      caBundle: ${CA_BUNDLE}
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1"]
+        operations:  ["CREATE"]
+        resources:   ["persistentvolumeclaims"]
+        scope: "Namespaced"
     sideEffects: None
     admissionReviewVersions: ["v1"]
     failurePolicy: Fail
@@ -61,6 +88,9 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "update", "patch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
