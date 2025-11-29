@@ -374,6 +374,9 @@ const (
 
 	// AnnKeyLinkedClone is the linked clone annotation on the PVC
 	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
+
+	// AnnKeyBackingDiskType is the type of the backing disk.
+	AnnKeyBackingDiskType = "cns.vmware.com.protected/disk-backing"
 )
 
 // Supported container orchestrators.
