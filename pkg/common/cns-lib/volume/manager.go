@@ -3528,9 +3528,10 @@ func constructBatchAttachSpecList(ctx context.Context, vm *cnsvsphere.VirtualMac
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: volume.VolumeID,
 			},
-			Vm:       vm.Reference(),
-			Sharing:  volume.SharingMode,
-			DiskMode: volume.DiskMode,
+			Vm:              vm.Reference(),
+			Sharing:         volume.SharingMode,
+			DiskMode:        volume.DiskMode,
+			BackingTypeName: cnstypes.CnsVolumeBackingType(volume.BackingType),
 		}
 
 		// Set controllerKey and unitNumber only if they are provided by the user.

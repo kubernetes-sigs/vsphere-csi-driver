@@ -71,6 +71,17 @@ spec:
                 description: VolumeMode can either be Block (for raw block volume) or
                   Filesystem. Default value is Filesystem.
                 type: string
+              backingType:
+                description: |
+                  BackingType enumerates types of backing for batch attach operations.
+                  The values correspond to the cns.VolumeBackingType enum.
+                  Valid values: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo,
+                  SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo,
+                  LocalPMemBackingInfo, or empty string.
+                type: string
+                x-kubernetes-validations:
+                - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
+                  message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
             required:
             - pvcName
             type: object
