@@ -742,7 +742,7 @@ func AttachVolumeUtil(ctx context.Context, volumeManager cnsvolume.Manager,
 	volumeID string, checkNVMeController bool) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("vSphere CSI driver is attaching volume: %q to vm: %q", volumeID, vm.String())
-	diskUUID, faultType, err := volumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController)
+	diskUUID, faultType, err := volumeManager.AttachVolume(ctx, vm, volumeID, checkNVMeController, "")
 	if err != nil {
 		log.Errorf("failed to attach disk %q with VM: %q. err: %+v faultType %q", volumeID, vm.String(), err, faultType)
 		return "", faultType, err

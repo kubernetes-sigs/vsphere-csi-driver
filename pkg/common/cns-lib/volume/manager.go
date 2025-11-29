@@ -86,8 +86,8 @@ type Manager interface {
 	// AttachVolume attaches a volume to a virtual machine given the spec.
 	// When AttachVolume failed, the second return value (faultType) and third return value(error) need to be set, and
 	// should not be nil.
-	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
-		volumeID string, checkNVMeController bool) (string, string, error)
+	AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string,
+		checkNVMeController bool, backingType string) (string, string, error)
 	// DetachVolume detaches a volume from the virtual machine given the spec.
 	// When DetachVolume failed, the first return value (faultType) and second return value(error) need to be set, and
 	// should not be nil.
@@ -1051,8 +1051,8 @@ func ensureOperationContextHasATimeout(ctx context.Context) (context.Context, co
 }
 
 // AttachVolume attaches a volume to a virtual machine given the spec.
-func (m *defaultManager) AttachVolume(ctx context.Context,
-	vm *cnsvsphere.VirtualMachine, volumeID string, checkNVMeController bool) (string, string, error) {
+func (m *defaultManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string,
+	checkNVMeController bool, backingType string) (string, string, error) {
 	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
 	defer cancelFunc()
 	internalAttachVolume := func() (string, string, error) {
@@ -1071,14 +1071,15 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 			return "", faultType, err
 		}
 		// Construct the CNS AttachSpec list.
-		var cnsAttachSpecList []cnstypes.CnsVolumeAttachDetachSpec
-		cnsAttachSpec := cnstypes.CnsVolumeAttachDetachSpec{
-			VolumeId: cnstypes.CnsVolumeId{
-				Id: volumeID,
+		cnsAttachSpecList := []cnstypes.CnsVolumeAttachDetachSpec{
+			{
+				VolumeId: cnstypes.CnsVolumeId{
+					Id: volumeID,
+				},
+				Vm:              vm.Reference(),
+				BackingTypeName: cnstypes.CnsVolumeBackingType(backingType),
 			},
-			Vm: vm.Reference(),
 		}
-		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachSpec)
 		// Call the CNS AttachVolume.
 		task, err := m.virtualCenter.CnsClient.AttachVolume(ctx, cnsAttachSpecList)
 		if err != nil {

@@ -66,8 +66,8 @@ func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID strin
 	return "", nil
 }
 
-func (m *mockVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
-	volumeID string, checkNVMeController bool) (string, string, error) {
+func (m *mockVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string,
+	checkNVMeController bool, backingType string) (string, string, error) {
 	//TODO implement me
 	panic("implement me")
 }

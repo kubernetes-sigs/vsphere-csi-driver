@@ -54,7 +54,7 @@ func (m MockManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeC
 }
 
 func (m MockManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID string,
-	checkNVMeController bool) (string, string, error) {
+	checkNVMeController bool, backingType string) (string, string, error) {
 	//TODO implement me
 	panic("implement me")
 }

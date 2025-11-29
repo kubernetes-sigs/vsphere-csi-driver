@@ -124,7 +124,7 @@ func (m *MockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.Cns
 
 // Implement all other required methods from cnsvolume.Manager interface
 func (m *MockVolumeManager) AttachVolume(ctx context.Context, vm *vsphere.VirtualMachine, volumeID string,
-	checkNVMeController bool) (string, string, error) {
+	checkNVMeController bool, backingType string) (string, string, error) {
 	return "", "", nil
 }
 func (m *MockVolumeManager) DetachVolume(ctx context.Context, vm *vsphere.VirtualMachine,
