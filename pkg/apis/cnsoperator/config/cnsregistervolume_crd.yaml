@@ -71,6 +71,11 @@ spec:
                 description: VolumeMode can either be Block (for raw block volume) or
                   Filesystem. Default value is Filesystem.
                 type: string
+              backingType:
+                description: |
+                  BackingType enumerates types of backing for batch attach operations.
+                  These values correspond to VirtualDevice.FileBackingInfo subclasses.
+                type: string
             required:
             - pvcName
             type: object
