@@ -58,6 +58,10 @@ type CnsRegisterVolumeSpec struct {
 	// VolumeMode can either be Block (for raw block volume) or
 	// Filesystem. Default values is Filesystem.
 	VolumeMode v1.PersistentVolumeMode `json:"volumeMode,omitempty"`
+
+	// BackingType enumerates types of backing for batch attach operations.
+	// These values correspond to VirtualDevice.FileBackingInfo subclasses.
+	BackingType string `json:"backingType,omitempty"`
 }
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume

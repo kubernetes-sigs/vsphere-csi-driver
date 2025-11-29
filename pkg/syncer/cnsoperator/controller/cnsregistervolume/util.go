@@ -292,9 +292,9 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
 
 	var (
-		segmentsArray  []string
-		pvcLabels      = make(map[string]string)
-		topoAnnotation = make(map[string]string)
+		segmentsArray []string
+		pvcLabels     = make(map[string]string)
+		annotations   = make(map[string]string)
 	)
 	if datastoreAccessibleTopology != nil {
 		for _, topologyTerm := range datastoreAccessibleTopology {
@@ -305,7 +305,7 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 			}
 			segmentsArray = append(segmentsArray, string(jsonSegment))
 		}
-		topoAnnotation[common.AnnVolumeAccessibleTopology] = "[" + strings.Join(segmentsArray, ",") + "]"
+		annotations[common.AnnVolumeAccessibleTopology] = "[" + strings.Join(segmentsArray, ",") + "]"
 	}
 
 	// Check if storage policy reservation related FSS is enabled
@@ -325,7 +325,7 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 			Name:        name,
 			Namespace:   namespace,
 			Labels:      pvcLabels,
-			Annotations: topoAnnotation,
+			Annotations: annotations,
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -345,6 +345,9 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		claim.Spec.VolumeMode = &volumeMode
 	}
 
+	if instance.Spec.BackingType != "" {
+		annotations[common.AnnKeyBackingDiskType] = instance.Spec.BackingType
+	}
 	return claim, nil
 }
 

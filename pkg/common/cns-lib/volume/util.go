@@ -49,6 +49,8 @@ type BatchAttachRequest struct {
 	ControllerKey *int32
 	//  UnitNumber of this device on its controller.
 	UnitNumber *int32
+	// BackingType enumerates types of backing for batch attach operations.
+	BackingType string
 }
 
 // BatchAttachResult is the result of calling batch CNS Attach for multiple volumes.
