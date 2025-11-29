@@ -345,7 +345,9 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		claim.Spec.VolumeMode = &volumeMode
 	}
 
-	annotations[common.AnnKeyBackingDiskType] = instance.Spec.BackingType
+	if instance.Spec.BackingType != "" {
+		annotations[common.AnnKeyBackingDiskType] = instance.Spec.BackingType
+	}
 	return claim, nil
 }
 

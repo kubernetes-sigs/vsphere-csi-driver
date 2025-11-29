@@ -75,7 +75,13 @@ spec:
                 description: |
                   BackingType enumerates types of backing for batch attach operations.
                   These values correspond to VirtualDevice.FileBackingInfo subclasses.
+                  Valid values: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo,
+                  SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo,
+                  LocalPMemBackingInfo, or empty string.
                 type: string
+                x-kubernetes-validations:
+                - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
+                  message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
             required:
             - pvcName
             type: object

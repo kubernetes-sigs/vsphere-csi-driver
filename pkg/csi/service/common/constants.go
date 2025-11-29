@@ -376,6 +376,8 @@ const (
 	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
 
 	// AnnKeyBackingDiskType is the type of the backing disk.
+	// It is added on the PVC during static volume provisioning
+	// and is used to specify the `CnsBackingType` during volume attachment.
 	AnnKeyBackingDiskType = "cns.vmware.com.protected/disk-backing"
 )
 
