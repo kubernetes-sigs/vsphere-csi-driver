@@ -19,6 +19,8 @@ package cnsnodevmbatchattachment
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -349,12 +351,14 @@ func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 			"pvc-1": "123-456",
 		}
 
+		volumesToAttach := map[string]string{}
+
 		vm := &cnsvsphere.VirtualMachine{}
 		clientset := getClientSetWithPvc()
 
 		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
 			clientset,
-			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, volumesToAttach, vm)
 		assert.NoError(t, err)
 	})
 }
@@ -371,10 +375,11 @@ func TestReconcileWithoutDeletionTimestampWithNoVolumestoAttach(t *testing.T) {
 		volumesToDetach := map[string]string{}
 		vm := &cnsvsphere.VirtualMachine{}
 		clientset := getClientSetWithPvc()
+		volumesToAttach := map[string]string{}
 
 		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
 			clientset,
-			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, volumesToAttach, vm)
 		assert.NoError(t, err)
 	})
 }
@@ -384,13 +389,12 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 	t.Run("TestReconcileWithoutDeletionTimestamp", func(t *testing.T) {
 		testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
 		r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
-		mockVolumeManager := &unittestcommon.MockVolumeManager{}
-		r.volumeManager = mockVolumeManager
 		commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 		volumesToDetach := map[string]string{
 			"pvc-1": "123-456",
 		}
+		volumesToAttach := map[string]string{"fail-attach-pvc-3": "fail-attach"}
 
 		// Update PVC to fail-attach-pvc-3 to mock failure in attach
 		for i, volume := range testCnsNodeVMBatchAttachment.Spec.Volumes {
@@ -404,9 +408,12 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 		vm := &cnsvsphere.VirtualMachine{}
 		clientset := getClientSetWithPvc()
 
+		mockVolumeManager := &unittestcommon.MockVolumeManager{}
+		r.volumeManager = mockVolumeManager
+
 		err := r.reconcileInstanceWithoutDeletionTimestamp(context.TODO(),
 			clientset,
-			&testCnsNodeVMBatchAttachment, volumesToDetach, vm)
+			&testCnsNodeVMBatchAttachment, volumesToDetach, volumesToAttach, vm)
 		if err == nil {
 			t.Fatal("Expected reconcile error")
 		}
@@ -901,11 +908,14 @@ func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-1": {ControllerKey: 1000, UnitNumber: 1, SharingMode: "None", DiskMode: "persistent"},
-		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-1": {ControllerKey: 1000, UnitNumber: 1,
+			SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2,
+			SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2,
+			SharingMode: "None", DiskMode: "persistent"},
 	}
 
 	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
@@ -913,17 +923,19 @@ func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-1"}, pvcsToDetach)
 }
 
-func TestGetVolumesToDetachFromInstanceWhenNothingHasCHanged(t *testing.T) {
+func TestGetVolumesToDetachFromInstanceWhenNothingHasChanged(t *testing.T) {
 	ctx := context.Background()
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
 	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
@@ -938,10 +950,12 @@ func TestGetVolumesToDetachFromInstanceWhenControllerKeyIsChanged(t *testing.T) 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1001, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1001,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
 	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
@@ -956,10 +970,12 @@ func TestGetVolumesToDetachFromInstanceWhenUnitNumberIsChanged(t *testing.T) {
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 4, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 4, SharingMode: "None", DiskMode: "persistent"},
 	}
 
 	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
@@ -974,10 +990,12 @@ func TestGetVolumesToDetachFromInstanceWhenSharingIsChanged(t *testing.T) {
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "SharingMultiWriter",
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "SharingMultiWriter",
 			DiskMode: "persistent"},
 	}
 
@@ -993,16 +1011,205 @@ func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
 
 	attachedFCDs := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 	volumeIdsInSpec := map[string]FCDBackingDetails{
-		"with-used-by-annotation-2": {ControllerKey: 1000, UnitNumber: 2, SharingMode: "None",
+		"with-used-by-annotation-2": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None",
 			DiskMode: "independent_persistent"},
 	}
 
 	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
+}
+func TestGetVolumesToAttach(t *testing.T) {
+	ctx := context.Background()
+
+	var controllerKey int32 = 100
+	var unitNumber int32 = 1
+
+	makeVolSpec := func(pvcName string, sharing v1alpha1.SharingMode, disk v1alpha1.DiskMode) v1alpha1.VolumeSpec {
+		return v1alpha1.VolumeSpec{
+			Name: pvcName + "-vol",
+			PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+				ClaimName:     pvcName,
+				ControllerKey: &controllerKey,
+				UnitNumber:    &unitNumber,
+				SharingMode:   sharing,
+				DiskMode:      disk,
+			},
+		}
+	}
+
+	validBacking := FCDBackingDetails{
+		ControllerKey: controllerKey,
+		UnitNumber:    unitNumber,
+		SharingMode:   string(v1alpha1.SharingNone),
+		DiskMode:      string(v1alpha1.Persistent),
+	}
+
+	tests := []struct {
+		name                    string
+		instance                *v1alpha1.CnsNodeVMBatchAttachment
+		attachedFCDs            map[string]FCDBackingDetails
+		pvcNameToVolumeIDInSpec map[string]string
+		want                    map[string]string
+		wantErr                 bool
+	}{
+		{
+			name: "missing volumeID mapping → error",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{},
+			attachedFCDs:            map[string]FCDBackingDetails{},
+			want:                    nil,
+			wantErr:                 true,
+		},
+		{
+			name: "PVC in spec but not attached → attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc1"}},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{},
+			want:                    map[string]string{"pvc1": "vol-1"},
+			wantErr:                 false,
+		},
+		{
+			name: "backing mismatch → reattach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{ClaimName: "pvc1"}},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs: map[string]FCDBackingDetails{
+				"vol-1": {
+					ControllerKey: 999, // mismatch to force reattach
+					UnitNumber:    unitNumber,
+					SharingMode:   string(v1alpha1.SharingNone),
+					DiskMode:      string(v1alpha1.Persistent),
+				},
+			},
+			want:    map[string]string{"pvc1": "vol-1"},
+			wantErr: false,
+		},
+		{
+			name: "attached and status missing → attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
+			want:                    map[string]string{"pvc1": "vol-1"},
+			wantErr:                 false,
+		},
+		{
+			name: "attached but status has error → attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc1",
+								Error:     "some-error",
+							},
+						},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
+			want:                    map[string]string{"pvc1": "vol-1"},
+			wantErr:                 false,
+		},
+		{
+			name: "attached and status OK → no attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc1",
+								Error:     "",
+							},
+						},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
+			want:                    map[string]string{},
+			wantErr:                 false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := getVolumesToAttach(ctx,
+				tc.instance,
+				tc.attachedFCDs,
+				nil, // volumeIdsInSpec param unused
+				tc.pvcNameToVolumeIDInSpec,
+			)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error but got nil")
+				}
+				if !strings.Contains(err.Error(), "failed to find volumeID") {
+					t.Errorf("unexpected error message: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("volumesToAttach mismatch: got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
 }
 
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
