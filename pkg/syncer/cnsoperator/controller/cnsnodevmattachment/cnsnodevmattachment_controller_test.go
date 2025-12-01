@@ -329,3 +329,60 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 
 	t.Logf("✓ Reconcile correctly handled getVolumeID failure and requeued for retry")
 }
+
+func TestUpdateErrorOnInstanceToDisallowAttach(t *testing.T) {
+	ctx := context.Background()
+
+	// Set up the scheme
+	SchemeGroupVersion := schema.GroupVersion{
+		Group:   "cns.vmware.com",
+		Version: "v1alpha1",
+	}
+	s := scheme.Scheme
+	s.AddKnownTypes(SchemeGroupVersion, &v1a1.CnsNodeVmAttachment{})
+	metav1.AddToGroupVersion(s, SchemeGroupVersion)
+
+	// Create CnsNodeVmAttachment instance
+	instance := &v1a1.CnsNodeVmAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-attachment",
+			Namespace: "test-ns",
+		},
+	}
+
+	// Create fake client with status subresource
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithStatusSubresource(instance).
+		WithRuntimeObjects(instance).
+		Build()
+
+	// Create reconciler
+	r := &ReconcileCnsNodeVMAttachment{
+		client:   fakeClient,
+		recorder: record.NewFakeRecorder(10),
+		scheme:   s,
+	}
+
+	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
+
+	// Call the function
+	err := r.updateErrorOnInstanceToDisallowAttach(ctx, instance)
+
+	// Assertions
+	assert.NoError(t, err, "Function should not return an error")
+	assert.Equal(t,
+		"CnsNodeVMAttachment CR is deprecated. Please detach this PVC from the VM and then reattach it.",
+		instance.Status.Error,
+		"Status.Error should be updated with the deprecation message",
+	)
+
+	// Verify that the status was persisted by fetching the object from the fake client
+	fetched := &v1a1.CnsNodeVmAttachment{}
+	err = fakeClient.Get(ctx, k8stypes.NamespacedName{
+		Name:      "test-attachment",
+		Namespace: "test-ns",
+	}, fetched)
+	assert.NoError(t, err, "Should be able to fetch the instance from fake client")
+	assert.Equal(t, instance.Status.Error, fetched.Status.Error, "Status should be persisted in fake client")
+}
