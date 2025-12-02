@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
@@ -39,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	clientset "k8s.io/client-go/kubernetes"
@@ -853,16 +853,16 @@ func PatchObject(ctx context.Context, k8sClient client.Client, original, modifie
 		return err
 	}
 
-	// Create strategic merge patch
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, original)
+	// Create merge patch (compatible with both native K8s resources and CRDs)
+	patchBytes, err := jsonpatch.CreateMergePatch(oldData, newData)
 	if err != nil {
-		log.Errorf("PatchObject: Error creating strategic merge patch for object %s/%s: %v",
+		log.Errorf("PatchObject: Error creating merge patch for object %s/%s: %v",
 			original.GetNamespace(), original.GetName(), err)
 		return err
 	}
 
 	// Apply the patch
-	patch := client.RawPatch(apitypes.StrategicMergePatchType, patchBytes)
+	patch := client.RawPatch(apitypes.MergePatchType, patchBytes)
 	if err := k8sClient.Patch(ctx, original, patch); err != nil {
 		log.Errorf("PatchObject: Failed to patch object %s/%s: %v",
 			original.GetNamespace(), original.GetName(), err)
