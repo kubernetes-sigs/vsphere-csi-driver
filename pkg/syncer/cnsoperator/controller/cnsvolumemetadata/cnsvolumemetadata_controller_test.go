@@ -29,8 +29,8 @@ import (
 
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 func TestCnsVolumeMetadata_PatchOperations(t *testing.T) {
@@ -211,7 +211,7 @@ func TestCnsVolumeMetadata_PatchOperations(t *testing.T) {
 			fakeClient, original, modified := tt.setupFunc()
 
 			// Execute the patch operation using our common utility
-			err := k8s.PatchObject(ctx, fakeClient, original, modified)
+			err := cnsoperatorutil.PatchObject(ctx, fakeClient, original, modified)
 
 			// Validate results
 			if tt.expectError {
@@ -253,7 +253,7 @@ func TestCnsVolumeMetadata_PatchErrorHandling(t *testing.T) {
 		modified.Finalizers = append(modified.Finalizers, cnsoperatortypes.CNSFinalizer)
 
 		// Execute the patch operation - should fail
-		err := k8s.PatchObject(ctx, fakeClient, original, modified)
+		err := cnsoperatorutil.PatchObject(ctx, fakeClient, original, modified)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
@@ -282,7 +282,7 @@ func TestCnsVolumeMetadata_PatchErrorHandling(t *testing.T) {
 		}
 
 		// This should succeed as the objects are valid
-		err := k8s.PatchObject(ctx, fakeClient, original, modified)
+		err := cnsoperatorutil.PatchObject(ctx, fakeClient, original, modified)
 		assert.NoError(t, err)
 
 		// Verify the patch was applied
