@@ -41,6 +41,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
@@ -1984,3 +1985,284 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	assert.NotNil(t, pvFinal.Spec.VolumeMode)
 	assert.Equal(t, corev1.PersistentVolumeBlock, *pvFinal.Spec.VolumeMode)
 }
+
+var _ = Describe("patchCnsRegisterVolumeStatus Tests", func() {
+	var (
+		ctx               context.Context
+		cnsOperatorClient *fake.ClientBuilder
+		oldInstance       *cnsregistervolumev1alpha1.CnsRegisterVolume
+		newInstance       *cnsregistervolumev1alpha1.CnsRegisterVolume
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+
+		// Create base instance
+		oldInstance = &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-volume",
+				Namespace: "test-ns",
+				UID:       "test-uid-123",
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				VolumeID: "test-volume-id",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+				Error:      "",
+			},
+		}
+
+		// Setup fake client
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{}, &cnsregistervolumev1alpha1.CnsRegisterVolumeList{})
+
+		cnsOperatorClient = fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(oldInstance).
+			WithStatusSubresource(oldInstance)
+	})
+
+	Context("patchCnsRegisterVolumeStatus function", func() {
+		It("should successfully patch status when registered changes", func() {
+			client := cnsOperatorClient.Build()
+
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Registered = true
+
+			err := patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Verify the status was updated
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Registered).To(BeTrue())
+		})
+
+		It("should successfully patch status when error message changes", func() {
+			client := cnsOperatorClient.Build()
+
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Error = "test error message"
+
+			err := patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Verify the error was updated
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Error).To(Equal("test error message"))
+		})
+
+		It("should successfully patch when both registered and error change", func() {
+			client := cnsOperatorClient.Build()
+
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Registered = true
+			newInstance.Status.Error = "partial success"
+
+			err := patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Verify both fields were updated
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Registered).To(BeTrue())
+			Expect(updated.Status.Error).To(Equal("partial success"))
+		})
+
+		It("should handle empty patch gracefully", func() {
+			client := cnsOperatorClient.Build()
+
+			// Both objects are identical
+			newInstance = oldInstance.DeepCopy()
+
+			err := patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+		})
+
+		It("should handle multiple sequential patches", func() {
+			client := cnsOperatorClient.Build()
+
+			// First patch
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Error = "first error"
+			err := patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Get updated instance
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+
+			// Second patch
+			newInstance2 := updated.DeepCopy()
+			newInstance2.Status.Error = "second error"
+			newInstance2.Status.Registered = true
+			err = patchCnsRegisterVolumeStatus(ctx, client, updated, newInstance2)
+			Expect(err).To(BeNil())
+
+			// Verify final state
+			final := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, final)
+			Expect(err).To(BeNil())
+			Expect(final.Status.Error).To(Equal("second error"))
+			Expect(final.Status.Registered).To(BeTrue())
+		})
+
+		It("should not modify metadata when patching status", func() {
+			client := cnsOperatorClient.Build()
+
+			// Add some labels to the original
+			oldInstance.Labels = map[string]string{"original": "label"}
+			err := client.Update(ctx, oldInstance)
+			Expect(err).To(BeNil())
+
+			// Patch only status
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Registered = true
+			// Try to change labels in newInstance (should not affect actual object)
+			newInstance.Labels = map[string]string{"modified": "label"}
+
+			err = patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Verify status changed but labels remain original
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Registered).To(BeTrue())
+			// Labels should remain as original since we're patching status only
+			Expect(updated.Labels).To(HaveKey("original"))
+		})
+
+		It("should handle clearing error message", func() {
+			client := cnsOperatorClient.Build()
+
+			// Set initial error
+			oldInstance.Status.Error = "initial error"
+			err := client.Status().Update(ctx, oldInstance)
+			Expect(err).To(BeNil())
+
+			// Clear the error
+			newInstance = oldInstance.DeepCopy()
+			newInstance.Status.Error = ""
+			newInstance.Status.Registered = true
+
+			err = patchCnsRegisterVolumeStatus(ctx, client, oldInstance, newInstance)
+			Expect(err).To(BeNil())
+
+			// Verify error was cleared
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Error).To(Equal(""))
+			Expect(updated.Status.Registered).To(BeTrue())
+		})
+	})
+
+	Context("setInstanceError integration", func() {
+		var (
+			reconciler  *ReconcileCnsRegisterVolume
+			broadcaster record.EventBroadcaster
+		)
+
+		BeforeEach(func() {
+			client := cnsOperatorClient.Build()
+			broadcaster = record.NewBroadcaster()
+			recorder := broadcaster.NewRecorder(clientgoscheme.Scheme, corev1.EventSource{Component: "test"})
+
+			reconciler = &ReconcileCnsRegisterVolume{
+				client:   client,
+				recorder: recorder,
+			}
+		})
+
+		It("should update instance error using patchCnsRegisterVolumeStatus", func() {
+			errorMsg := "test error from setInstanceError"
+
+			// Call setInstanceError
+			setInstanceError(ctx, reconciler, oldInstance, errorMsg)
+
+			// Verify the error was set
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err := reconciler.client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Error).To(Equal(errorMsg))
+			Expect(updated.Status.Registered).To(BeFalse())
+		})
+	})
+
+	Context("setInstanceSuccess integration", func() {
+		var (
+			reconciler  *ReconcileCnsRegisterVolume
+			broadcaster record.EventBroadcaster
+		)
+
+		BeforeEach(func() {
+			client := cnsOperatorClient.Build()
+			broadcaster = record.NewBroadcaster()
+			recorder := broadcaster.NewRecorder(clientgoscheme.Scheme, corev1.EventSource{Component: "test"})
+
+			reconciler = &ReconcileCnsRegisterVolume{
+				client:   client,
+				recorder: recorder,
+			}
+		})
+
+		It("should update instance to success using patchCnsRegisterVolumeStatus", func() {
+			pvcName := "test-pvc"
+			pvcUID := types.UID("test-pvc-uid")
+			successMsg := "Volume registered successfully"
+
+			// Call setInstanceSuccess
+			err := setInstanceSuccess(ctx, reconciler, oldInstance, pvcName, pvcUID, successMsg)
+			Expect(err).To(BeNil())
+
+			// Verify the status was updated
+			updated := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+			err = reconciler.client.Get(ctx, types.NamespacedName{
+				Name:      oldInstance.Name,
+				Namespace: oldInstance.Namespace,
+			}, updated)
+			Expect(err).To(BeNil())
+			Expect(updated.Status.Registered).To(BeTrue())
+			Expect(updated.Status.Error).To(Equal(""))
+			// Verify owner reference was set
+			Expect(updated.OwnerReferences).To(HaveLen(1))
+			Expect(updated.OwnerReferences[0].Name).To(Equal(pvcName))
+			Expect(updated.OwnerReferences[0].UID).To(Equal(pvcUID))
+		})
+	})
+})

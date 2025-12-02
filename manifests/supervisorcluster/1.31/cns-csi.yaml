@@ -59,7 +59,7 @@ rules:
     verbs: ["get", "list", "update", "create", "delete"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsregistervolumes", "cnsregistervolumes/status", "cnsunregistervolumes", "cnsunregistervolumes/status"]
-    verbs: ["get", "list", "watch", "update", "delete"]
+    verbs: ["get", "list", "watch", "update", "delete", "patch"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["triggercsifullsyncs"]
     verbs: ["create", "get", "update", "watch", "list"]
