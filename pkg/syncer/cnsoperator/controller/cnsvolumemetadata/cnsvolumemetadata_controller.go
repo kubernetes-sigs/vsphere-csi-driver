@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
 	"github.com/davecgh/go-spew/spew"
 	v1 "k8s.io/api/core/v1"
@@ -113,7 +113,7 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := cnsoperatorutil.GetMaxWorkerThreads(ctx,
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
 		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
 	c, err := controller.New("cnsvolumemetadata-controller", mgr,
@@ -233,9 +233,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 				instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields with the errors per volume.
-			original := instance.DeepCopy()
-			if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
-				msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to patch status for %q. "+
+			if err = r.client.Update(ctx, instance); err != nil {
+				msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update status for %q. "+
 					"Err: %v.", instance.Name, err)
 				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			}
@@ -247,9 +246,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 		for index, finalizer := range instance.Finalizers {
 			if finalizer == cnsoperatortypes.CNSFinalizer {
 				log.Debugf("ReconcileCnsVolumeMetadata: Removing finalizer %q for instance %q", finalizer, instance.Name)
-				original := instance.DeepCopy()
 				instance.Finalizers = append(instance.Finalizers[:index], instance.Finalizers[index+1:]...)
-				if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+				if err = r.client.Update(ctx, instance); err != nil {
 					msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to remove finalizer %q for %q. "+
 						"Err: %v. Requeueing request.", finalizer, instance.Name, err)
 					recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -278,9 +276,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 
 	// Set finalizer if it was not set already on this instance.
 	if !isFinalizerSet {
-		original := instance.DeepCopy()
 		instance.Finalizers = append(instance.Finalizers, cnsoperatortypes.CNSFinalizer)
-		if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
+		if err = r.client.Update(ctx, instance); err != nil {
 			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to add finalizer %q for %q. "+
 				"Err: %v. Requeueing request.", cnsoperatortypes.CNSFinalizer, instance.Name, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
@@ -296,8 +293,7 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			// Update instance.status fields on supervisor API server and requeue
 			// the request.
-			original := instance.DeepCopy()
-			_ = cnsoperatorutil.PatchObject(ctx, r.client, original, instance)
+			_ = r.client.Update(ctx, instance)
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		// Successfully updated CNS.
@@ -306,9 +302,8 @@ func (r *ReconcileCnsVolumeMetadata) Reconcile(ctx context.Context,
 			instance.Spec.EntityName, instance.Spec.EntityType, instance.Spec.GuestClusterID)
 		recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
 		// Update instance.status fields on supervisor API server.
-		original := instance.DeepCopy()
-		if err = cnsoperatorutil.PatchObject(ctx, r.client, original, instance); err != nil {
-			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to patch status for %q. "+
+		if err = r.client.Update(ctx, instance); err != nil {
+			msg := fmt.Sprintf("ReconcileCnsVolumeMetadata: Failed to update status for %q. "+
 				"Err: %v. Requeueing request.", instance.Name, err)
 			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
 			return reconcile.Result{RequeueAfter: timeout}, err
