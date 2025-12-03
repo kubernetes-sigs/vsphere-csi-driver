@@ -53,6 +53,8 @@ var (
 
 const (
 	detachSuffix = ":detaching"
+	// PVCEncryptionClassAnnotationName is a PVC annotation indicating the associated EncryptionClass
+	PVCEncryptionClassAnnotationName = "csi.vsphere.encryption-class"
 )
 
 // FCDBackingDetails reflects the parameters with which a given FCD is attached to a VM.
@@ -581,19 +583,37 @@ func constructBatchAttachRequest(ctx context.Context,
 				return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err
 			}
 
+			isPvcEncrypted := isPvcEncrypted(pvcObj.Annotations)
+			log.Infof("PVC %s has encryption enabled: %t", pvcName, isPvcEncrypted)
+
 			// Populate values for attach request.
 			currentBatchAttachRequest := volumes.BatchAttachRequest{
-				VolumeID:      volumeID,
-				SharingMode:   string(volume.PersistentVolumeClaim.SharingMode),
-				DiskMode:      string(volume.PersistentVolumeClaim.DiskMode),
-				ControllerKey: volume.PersistentVolumeClaim.ControllerKey,
-				UnitNumber:    volume.PersistentVolumeClaim.UnitNumber,
-				BackingType:   pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType],
+				VolumeID:        volumeID,
+				SharingMode:     string(volume.PersistentVolumeClaim.SharingMode),
+				DiskMode:        string(volume.PersistentVolumeClaim.DiskMode),
+				ControllerKey:   volume.PersistentVolumeClaim.ControllerKey,
+				UnitNumber:      volume.PersistentVolumeClaim.UnitNumber,
+				BackingType:     pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType],
+				VolumeEncrypted: &isPvcEncrypted,
 			}
 			batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)
 		}
 	}
 	return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, nil
+}
+
+// isPvcEncrypted returns true if annotation csi.vsphere.encryption-class
+// is present on the PVC.
+func isPvcEncrypted(pvcAnnotations map[string]string) bool {
+	if pvcAnnotations == nil {
+		return false
+	}
+
+	if _, exists := pvcAnnotations[PVCEncryptionClassAnnotationName]; exists {
+		return true
+	}
+
+	return false
 }
 
 // getVmObject find the VM object on vCenter.

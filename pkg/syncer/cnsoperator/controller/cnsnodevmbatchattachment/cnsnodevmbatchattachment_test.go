@@ -1212,6 +1212,48 @@ func TestGetVolumesToAttach(t *testing.T) {
 	}
 }
 
+func TestIsPvcEncrypted(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        bool
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			want:        false,
+		},
+		{
+			name:        "empty map",
+			annotations: map[string]string{},
+			want:        false,
+		},
+		{
+			name: "annotation present",
+			annotations: map[string]string{
+				PVCEncryptionClassAnnotationName: "true",
+			},
+			want: true,
+		},
+		{
+			name: "other annotations present but not encryption",
+			annotations: map[string]string{
+				"other": "value",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isPvcEncrypted(tt.annotations)
+			if got != tt.want {
+				t.Errorf("isPvcEncrypted() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
