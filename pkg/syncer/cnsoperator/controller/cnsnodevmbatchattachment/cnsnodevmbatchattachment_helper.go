@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -572,6 +573,14 @@ func constructBatchAttachRequest(ctx context.Context,
 			pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volume.Name
 			volumeIdsInSpec[volumeID] = volume.PersistentVolumeClaim.ClaimName
 
+			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, instance.Namespace)
+			if err != nil {
+				err := fmt.Errorf("failed to find the PVC object")
+				log.With("pvc", pvcName).With("namespace", instance.Namespace).
+					Error(err)
+				return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err
+			}
+
 			// Populate values for attach request.
 			currentBatchAttachRequest := volumes.BatchAttachRequest{
 				VolumeID:      volumeID,
@@ -579,9 +588,9 @@ func constructBatchAttachRequest(ctx context.Context,
 				DiskMode:      string(volume.PersistentVolumeClaim.DiskMode),
 				ControllerKey: volume.PersistentVolumeClaim.ControllerKey,
 				UnitNumber:    volume.PersistentVolumeClaim.UnitNumber,
+				BackingType:   pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType],
 			}
 			batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)
-
 		}
 	}
 	return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, nil
