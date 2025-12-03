@@ -1351,7 +1351,7 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 		}
 	}()
 
-	// Create a new volume from the snapshot with unexpected request
+	// Create a new volume from the snapshot with different size (should fail with strict equality)
 	reqCreateFromSnapshot = &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
@@ -1856,5 +1856,239 @@ func TestControllerModifyVolume(t *testing.T) {
 		if err != nil {
 			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
 		}
+	})
+}
+
+// TestCreateVolumeFromSnapshotWithDecimalUnits tests the fix for creating volumes from snapshots
+// when using decimal units (G) instead of binary units (Gi).
+// This test validates that the size comparison now works correctly after rounding.
+func TestCreateVolumeFromSnapshotWithDecimalUnits(t *testing.T) {
+	ct := getControllerTest(t)
+
+	// Create a volume with a size that will require rounding when converted to MB.
+	// Using 25G (25,000,000,000 bytes) which rounds to 23,842 MB (25,000,148,992 bytes)
+	params := make(map[string]string)
+	if v := os.Getenv("VSPHERE_DATASTORE_URL"); v != "" {
+		params[common.AttributeDatastoreURL] = v
+	}
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+
+	// Create source volume with decimal unit size (25G = 25 * 1000^3 bytes)
+	decimalGigabytes := int64(25 * 1000 * 1000 * 1000) // 25G in decimal
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-decimal-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: decimalGigabytes,
+		},
+		Parameters:         params,
+		VolumeCapabilities: capabilities,
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	// Verify the volume has been created.
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volID}},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queryResult.Volumes) != 1 || queryResult.Volumes[0].VolumeId.Id != volID {
+		t.Fatalf("failed to find the newly created volume with ID: %s", volID)
+	}
+
+	defer func() {
+		reqDelete := &csi.DeleteVolumeRequest{VolumeId: volID}
+		_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Create snapshot of the volume
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-decimal-" + uuid.New().String(),
+	}
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	snapshotSizeBytes := respCreateSnapshot.Snapshot.SizeBytes
+
+	defer func() {
+		reqDeleteSnapshot := &csi.DeleteSnapshotRequest{SnapshotId: snapID}
+		_, err = ct.controller.DeleteSnapshot(ctx, reqDeleteSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Test 1: Create volume from snapshot with same decimal size (25G)
+	// This should now SUCCEED because we compare rounded MB values
+	t.Run("SameDecimalSize", func(t *testing.T) {
+		reqCreateFromSnapshot := &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-restored-same-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: decimalGigabytes, // Same 25G
+			},
+			Parameters:         params,
+			VolumeCapabilities: capabilities,
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{
+						SnapshotId: snapID,
+					},
+				},
+			},
+		}
+
+		respRestore, err := ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+		if err != nil {
+			t.Fatalf("CreateVolume from snapshot with same decimal size should succeed but failed: %v", err)
+		}
+		restoredVolID := respRestore.Volume.VolumeId
+
+		// Cleanup
+		defer func() {
+			reqDelete := &csi.DeleteVolumeRequest{VolumeId: restoredVolID}
+			_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+			if err != nil {
+				t.Logf("Warning: failed to delete restored volume: %v", err)
+			}
+		}()
+
+		// Verify the restored volume exists
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: []cnstypes.CnsVolumeId{{Id: restoredVolID}},
+		}
+		queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &queryFilter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(queryResult.Volumes) != 1 {
+			t.Fatalf("failed to find the restored volume with ID: %s", restoredVolID)
+		}
+	})
+
+	// Test 2: Create volume from snapshot with larger size
+	// This should SUCCEED (size >= snapshot size after rounding)
+	t.Run("LargerSize", func(t *testing.T) {
+		reqCreateFromSnapshot := &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-restored-larger-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: decimalGigabytes + (2 * common.GbInBytes), // 27G
+			},
+			Parameters:         params,
+			VolumeCapabilities: capabilities,
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{
+						SnapshotId: snapID,
+					},
+				},
+			},
+		}
+
+		_, err := ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+		if err == nil {
+			t.Fatal("CreateVolume from snapshot with larger size should fail but succeeded")
+		}
+
+		statusErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if statusErr.Code() != codes.InvalidArgument {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.InvalidArgument.String(), statusErr.Code().String())
+		}
+		t.Logf("received expected error for larger size: %v", err)
+	})
+
+	// Test 3: Create volume from snapshot with smaller size
+	// This should FAIL (size < snapshot size after rounding)
+	t.Run("SmallerSize", func(t *testing.T) {
+		// Request a size that rounds to less MB than the snapshot
+		smallerSize := snapshotSizeBytes - (2 * common.MbInBytes) // 2MB less than snapshot
+		reqCreateFromSnapshot := &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-restored-smaller-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: smallerSize,
+			},
+			Parameters:         params,
+			VolumeCapabilities: capabilities,
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{
+						SnapshotId: snapID,
+					},
+				},
+			},
+		}
+
+		_, err := ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+		if err == nil {
+			t.Fatal("CreateVolume from snapshot with smaller size should fail but succeeded")
+		}
+
+		statusErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if statusErr.Code() != codes.InvalidArgument {
+			t.Fatalf("unexpected error code received, expected: %s received: %s",
+				codes.InvalidArgument.String(), statusErr.Code().String())
+		}
+		t.Logf("received expected error for smaller size: %v", err)
+	})
+
+	// Test 4: Create volume from snapshot with exact snapshot size (after rounding)
+	// This should SUCCEED
+	t.Run("ExactSnapshotSize", func(t *testing.T) {
+		reqCreateFromSnapshot := &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-restored-exact-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: snapshotSizeBytes, // Exact snapshot size
+			},
+			Parameters:         params,
+			VolumeCapabilities: capabilities,
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{
+						SnapshotId: snapID,
+					},
+				},
+			},
+		}
+
+		respRestore, err := ct.controller.CreateVolume(ctx, reqCreateFromSnapshot)
+		if err != nil {
+			t.Fatalf("CreateVolume from snapshot with exact size should succeed but failed: %v", err)
+		}
+		restoredVolID := respRestore.Volume.VolumeId
+
+		// Cleanup
+		defer func() {
+			reqDelete := &csi.DeleteVolumeRequest{VolumeId: restoredVolID}
+			_, err = ct.controller.DeleteVolume(ctx, reqDelete)
+			if err != nil {
+				t.Logf("Warning: failed to delete restored volume: %v", err)
+			}
+		}()
 	})
 }
