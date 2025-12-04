@@ -120,7 +120,15 @@ func InitStoragePoolService(ctx context.Context,
 			log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 			return
 		}
-		k8sInformerManager := k8s.NewInformer(ctx, k8sClient, true)
+
+		// Create the snapshotter client.
+		snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+		if err != nil {
+			log.Errorf("Creating Snapshotter client failed. Err: %v", err)
+			return
+		}
+
+		k8sInformerManager := k8s.NewInformer(ctx, k8sClient, snapshotterClient)
 		err = InitNodeAnnotationListener(ctx, k8sInformerManager, scWatchCntlr, spController)
 		if err != nil {
 			log.Errorf("InitNodeAnnotationListener failed. err: %v", err)

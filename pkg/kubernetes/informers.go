@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	snapclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -44,50 +46,38 @@ const (
 )
 
 var (
-	inClusterInformerManagerInstance  *InformerManager = nil
-	inClusterInformerInstanceLock                      = &sync.Mutex{}
-	supervisorInformerManagerInstance *InformerManager = nil
-	supervisorInformerInstanceLock                     = &sync.Mutex{}
+	informerManagerInstance *InformerManager = nil
+	informerInstanceLock                     = &sync.Mutex{}
 )
 
 func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
-// NewInformer creates a new K8S client based on a service account.
-// NOTE: This function expects caller function to pass appropriate client
+// NewInformer creates a new K8S informer manager.
+// NOTE: This function expects caller function to pass appropriate clients
 // as per config to be created Informer for.
-// This function creates shared informer factory against the client provided.
-func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt bool) *InformerManager {
+// This function creates shared informer factories against the clients provided.
+func NewInformer(ctx context.Context,
+	client clientset.Interface,
+	snapshotClient snapclientset.Interface) *InformerManager {
 	var informerInstance *InformerManager
 	log := logger.GetLogger(ctx)
 
-	if inClusterClnt {
-		inClusterInformerInstanceLock.Lock()
-		defer inClusterInformerInstanceLock.Unlock()
-
-		informerInstance = inClusterInformerManagerInstance
-	} else {
-		supervisorInformerInstanceLock.Lock()
-		defer supervisorInformerInstanceLock.Unlock()
-
-		informerInstance = supervisorInformerManagerInstance
-	}
+	informerInstanceLock.Lock()
+	defer informerInstanceLock.Unlock()
+	informerInstance = informerManagerInstance
 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
-			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
-			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+			client:                  client,
+			stopCh:                  signals.SetupSignalHandler().Done(),
+			informerFactory:         informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+			snapshotInformerFactory: externalversions.NewSharedInformerFactory(snapshotClient, 0),
 		}
 
-		if inClusterClnt {
-			inClusterInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for in-cluster client")
-		} else {
-			supervisorInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for supervisor client")
-		}
+		informerManagerInstance = informerInstance
+		log.Info("Created new informer factory for supervisor client")
 	}
 
 	return informerInstance
@@ -256,6 +246,30 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 	return nil
 }
 
+// AddSnapshotListener hooks up add, update, delete callbacks.
+func (im *InformerManager) AddSnapshotListener(ctx context.Context,
+	add func(obj any),
+	update func(oldObj, newObj any),
+	remove func(obj any)) error {
+	log := logger.GetLogger(ctx)
+	if im.snapshotInformer == nil {
+		im.snapshotInformer = im.snapshotInformerFactory.
+			Snapshot().V1().VolumeSnapshots().Informer()
+	}
+
+	_, err := im.snapshotInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+	if err != nil {
+		return logger.LogNewErrorf(
+			log, "failed to add event handler on snapshot listener. Error: %v", err)
+	}
+
+	return nil
+}
+
 // GetPVLister returns PV Lister for the calling informer manager.
 func (im *InformerManager) GetPVLister() corelisters.PersistentVolumeLister {
 	return im.informerFactory.Core().V1().PersistentVolumes().Lister()
@@ -285,6 +299,15 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 		}
 
 	}
+
+	go im.snapshotInformerFactory.Start(im.stopCh)
+	cacheSync := im.snapshotInformerFactory.WaitForCacheSync(im.stopCh)
+	for _, isSynced := range cacheSync {
+		if !isSynced {
+			return
+		}
+	}
+
 	return im.stopCh
 }
 

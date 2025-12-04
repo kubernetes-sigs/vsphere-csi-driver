@@ -248,6 +248,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		return err
 	}
 
+	// Create the snapshotter client.
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("Creating Snapshotter client failed. Err: %v", err)
+		return err
+	}
+
 	// Initialize the k8s orchestrator interface.
 	metadataSyncer.coCommonInterface, err = commonco.GetContainerOrchestratorInterface(ctx,
 		common.Kubernetes, clusterFlavor, COInitParams)
@@ -633,7 +640,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Set up kubernetes resource listeners for metadata syncer.
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
 	err = metadataSyncer.k8sInformerManager.AddPVCListener(
 		ctx,
 		nil, // Add.

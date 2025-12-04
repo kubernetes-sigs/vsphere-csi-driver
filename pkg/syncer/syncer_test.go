@@ -26,6 +26,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	snapshotfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -69,17 +71,18 @@ const (
 )
 
 var (
-	csiConfig        *cnsconfig.Config
-	ctx              context.Context
-	cnsVCenterConfig *cnsvsphere.VirtualCenterConfig
-	err              error
-	virtualCenter    *cnsvsphere.VirtualCenter
-	metadataSyncer   *metadataSyncInformer
-	k8sclient        clientset.Interface
-	dc               []*cnsvsphere.Datacenter
-	volumeManager    cnsvolumes.Manager
-	dsList           []vimtypes.ManagedObjectReference
-	cancel           context.CancelFunc
+	csiConfig         *cnsconfig.Config
+	ctx               context.Context
+	cnsVCenterConfig  *cnsvsphere.VirtualCenterConfig
+	err               error
+	virtualCenter     *cnsvsphere.VirtualCenter
+	metadataSyncer    *metadataSyncInformer
+	k8sclient         clientset.Interface
+	snapshotterClient versioned.Interface
+	dc                []*cnsvsphere.Datacenter
+	volumeManager     cnsvolumes.Manager
+	dsList            []vimtypes.ManagedObjectReference
+	cancel            context.CancelFunc
 )
 
 func TestSyncerWorkflows(t *testing.T) {
@@ -169,7 +172,9 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster.
 	k8sclient = testclient.NewSimpleClientset()
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, true)
+	// Create a fake snapshot client for testing.
+	snapshotterClient = snapshotfake.NewSimpleClientset()
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, snapshotterClient)
 	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
