@@ -252,6 +252,26 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		log.Infof("Reconciling CnsNodeVmAttachment with Request.Name: %q Namespace %q timeout %q seconds",
 			request.Name, request.Namespace, timeout)
 
+		if isSharedDiskEnabled {
+			pvc := &v1.PersistentVolumeClaim{}
+			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
+				Namespace: instance.Namespace}, pvc)
+			if err != nil {
+				msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
+					instance.Spec.VolumeName, instance.Namespace, err)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
+			}
+
+			err := addPvcLabelToInstance(internalCtx, r.client, instance, string(pvc.UID))
+			if err != nil {
+				msg := fmt.Sprintf("failed to add PVC UID label on instance %s for PVC %s. Err: %+v",
+					instance.Name, pvc.Name, err)
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIInternalFault, nil
+			}
+		}
+
 		// If the CnsNodeVMAttachment instance is already attached and
 		// not deleted by the user, remove the instance from the queue.
 		if instance.Status.Attached && instance.DeletionTimestamp == nil {
@@ -691,6 +711,44 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 	}
 	reconcileLog.Infof("Reconcile for request: %q End.", request.NamespacedName)
 	return resp, err
+}
+
+// addPvcLabelToInstance adds the PVC UID as a label to the CnsNodeVMAttachment instance
+// if it is not already present.
+func addPvcLabelToInstance(ctx context.Context, c client.Client,
+	instance *v1a1.CnsNodeVmAttachment,
+	pvcUID string) error {
+	log := logger.GetLogger(ctx)
+
+	// If label already exists: no-op
+	if instance.Labels != nil {
+		log.Infof("Instance %s already has %s label",
+			instance.Name, common.PvcUIDLabelKey)
+		if _, exists := instance.Labels[common.PvcUIDLabelKey]; exists {
+			return nil
+		}
+	}
+
+	// Prepare original copy for Patch diff
+	original := instance.DeepCopy()
+
+	// Mutate the label
+	if instance.Labels == nil {
+		instance.Labels = make(map[string]string)
+	}
+	instance.Labels[common.PvcUIDLabelKey] = pvcUID
+
+	// Apply merge patch
+	if err := c.Patch(ctx, instance, client.MergeFrom(original)); err != nil {
+		log.Errorf("Failed to patch label %s on instance %s: %v",
+			common.PvcUIDLabelKey, instance.Name, err)
+		return err
+	}
+
+	log.Infof("Successfully patched label %s on instance %s",
+		common.PvcUIDLabelKey, instance.Name)
+
+	return nil
 }
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,

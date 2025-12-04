@@ -379,6 +379,10 @@ const (
 	// It is added on the PVC during static volume provisioning
 	// and is used to specify the `CnsBackingType` during volume attachment.
 	AnnKeyBackingDiskType = "cns.vmware.com.protected/disk-backing"
+
+	// PvcUIDLabelKey is a label which gets added to CnsNodeVMAttachment instances
+	// to indicate the PVC that it has attached.
+	PvcUIDLabelKey = "cns.vmware.com/pvc-uid"
 )
 
 // Supported container orchestrators.

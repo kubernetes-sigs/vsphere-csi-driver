@@ -134,18 +134,27 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, "cns.vmware.com")
+	if err != nil {
+		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, cnsOperatorClient, recorder))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
+	cnsOperatorClient client.Client,
 	recorder record.EventRecorder) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
 		configInfo: *configInfo, volumeManager: volumeManager,
-		vmOperatorClient: vmOperatorClient,
-		recorder:         recorder, instanceLock: sync.Map{}}
+		vmOperatorClient:  vmOperatorClient,
+		cnsOperatorClient: cnsOperatorClient,
+		recorder:          recorder, instanceLock: sync.Map{}}
 }
 
 // add adds this package's controller to the provided manager.
@@ -177,12 +186,13 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 type Reconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client           client.Client
-	scheme           *runtime.Scheme
-	configInfo       config.ConfigurationInfo
-	volumeManager    volumes.Manager
-	vmOperatorClient client.Client
-	recorder         record.EventRecorder
+	client            client.Client
+	scheme            *runtime.Scheme
+	configInfo        config.ConfigurationInfo
+	volumeManager     volumes.Manager
+	vmOperatorClient  client.Client
+	cnsOperatorClient client.Client
+	recorder          record.EventRecorder
 	// instanceLock to ensure that for an instance we have only
 	// one reconciliation at a time.
 	instanceLock sync.Map
@@ -279,7 +289,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			request.NamespacedName)
 	} else {
 		// If VM was found on vCenter, find the volumes to be attached and detached.
-		volumesToAttach, volumesToDetach, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm, r.client, k8sClient)
+		volumesToAttach, volumesToDetach, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm, r.client, k8sClient,
+			r.cnsOperatorClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)
@@ -295,7 +306,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 		// For every PVC mentioned in instance.Spec, remove finalizer from its PVC.
 		for _, volume := range instance.Spec.Volumes {
-			err := removePvcFinalizer(ctx, r.client, k8sClient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
+			err := removePvcFinalizer(ctx, r.client, k8sClient, r.cnsOperatorClient,
+				volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
 				instance.Spec.InstanceUUID)
 			if err != nil {
 				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
@@ -454,7 +466,7 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 				log.Infof("Found a managed object not found fault for vm: %+v", vm)
 				// VM not found, so marking detach as Success and removing finalizer from PVC
 				volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient,
-					instance, pvc, volumesThatFailedToDetach)
+					r.cnsOperatorClient, instance, pvc, volumesThatFailedToDetach)
 			} else {
 				log.Errorf("failed to detach volume %s from VM %s. Fault: %s Err: %s",
 					pvc, instance.Spec.InstanceUUID, faulttype, detachErr)
@@ -464,7 +476,7 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			}
 		} else {
 			// Remove finalizer from the PVC as the detach was successful.
-			volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient,
+			volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient, r.cnsOperatorClient,
 				instance, pvc, volumesThatFailedToDetach)
 		}
 		log.Infof("Detach call ended for PVC %s in namespace %s for instance %s",
@@ -479,11 +491,12 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 // removes its entry from the instance status if it is successful.
 // If removing the finalizer fails, it adds the volume to volumesThatFailedToDetach list.
 func removeFinalizerAndStatusEntry(ctx context.Context, client client.Client, k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, pvc string,
 	volumesThatFailedToDetach []string) []string {
 	log := logger.GetLogger(ctx)
 
-	err := removePvcFinalizer(ctx, client, k8sClient, pvc, instance.Namespace, instance.Spec.InstanceUUID)
+	err := removePvcFinalizer(ctx, client, k8sClient, cnsOperatorClient, pvc, instance.Namespace, instance.Spec.InstanceUUID)
 	if err != nil {
 		log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvc, err)
 		updateInstanceWithErrorForPvc(instance, pvc, err.Error())
