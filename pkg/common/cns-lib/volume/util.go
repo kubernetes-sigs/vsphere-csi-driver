@@ -51,6 +51,8 @@ type BatchAttachRequest struct {
 	UnitNumber *int32
 	// BackingType enumerates types of backing for batch attach operations.
 	BackingType string
+
+	VolumeEncrypted *bool
 }
 
 // BatchAttachResult is the result of calling batch CNS Attach for multiple volumes.
