@@ -791,11 +791,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				"cns query volume did not return the volume: %s", cnsVolumeID)
 		}
 		snapshotSizeInMB := cnsVolumeDetailsMap[cnsVolumeID].SizeInMB
-		snapshotSizeInBytes := snapshotSizeInMB * common.MbInBytes
-		if volSizeBytes != snapshotSizeInBytes {
+		if volSizeMB != snapshotSizeInMB {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"requested volume size: %d must be the same as source snapshot size: %d",
-				volSizeBytes, snapshotSizeInBytes)
+				"requested volume size after rounding: %d MB must equal source snapshot size: %d MB",
+				volSizeMB, snapshotSizeInMB)
 		}
 	}
 
