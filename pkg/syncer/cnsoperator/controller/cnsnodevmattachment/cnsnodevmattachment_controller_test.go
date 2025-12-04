@@ -25,12 +25,15 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -385,4 +388,118 @@ func TestUpdateErrorOnInstanceToDisallowAttach(t *testing.T) {
 	}, fetched)
 	assert.NoError(t, err, "Should be able to fetch the instance from fake client")
 	assert.Equal(t, instance.Status.Error, fetched.Status.Error, "Status should be persisted in fake client")
+}
+
+func TestAddPvcLabelToInstance(t *testing.T) {
+
+	testPVCUID := "test-pvc-uid"
+	scheme := runtime.NewScheme()
+	_ = cnsopapis.AddToScheme(scheme)
+
+	// Base instance without labels
+	instance := &v1a1.CnsNodeVmAttachment{
+		Spec: v1a1.CnsNodeVmAttachmentSpec{},
+	}
+	instance.Name = "test-instance"
+
+	t.Run("adds label when not present", func(t *testing.T) {
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance.DeepCopy()).Build()
+		instanceCopy := instance.DeepCopy()
+
+		err := addPvcLabel(context.Background(), cl, instanceCopy, testPVCUID)
+		assert.NoError(t, err)
+		assert.Equal(t, testPVCUID, instanceCopy.Labels[common.PvcUIDLabelKey])
+	})
+
+	t.Run("does not patch when label already exists", func(t *testing.T) {
+		instance := instance.DeepCopy()
+		instance.Labels = map[string]string{common.PvcUIDLabelKey: testPVCUID}
+
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance.DeepCopy()).Build()
+		err := addPvcLabel(context.Background(), cl, instance, "another-uid")
+		assert.NoError(t, err)
+		// Label should not be overwritten
+		assert.Equal(t, testPVCUID, instance.Labels[common.PvcUIDLabelKey])
+	})
+}
+
+func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = cnsopapis.AddToScheme(scheme)
+	_ = v1.AddToScheme(scheme)
+
+	testPVCUID := "test-pvc-uid"
+
+	// Base instance (attached state toggled inside tests)
+	baseInstance := &v1a1.CnsNodeVmAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-instance",
+			Namespace: "default",
+		},
+		Spec: v1a1.CnsNodeVmAttachmentSpec{
+			VolumeName: "testvol",
+		},
+		Status: v1a1.CnsNodeVmAttachmentStatus{},
+	}
+
+	t.Run("does nothing when instance not attached", func(t *testing.T) {
+		instance := baseInstance.DeepCopy()
+		instance.Status.Attached = false
+
+		clientFake := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(instance).
+			Build()
+
+		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
+
+		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
+		assert.NoError(t, err)
+
+		// No labels applied, no PVC lookup
+		assert.Nil(t, instance.Labels)
+	})
+
+	t.Run("returns error when PVC fetch fails", func(t *testing.T) {
+		instance := baseInstance.DeepCopy()
+		instance.Status.Attached = true // triggers PVC lookup
+
+		clientFake := fake.NewClientBuilder().
+			WithScheme(scheme).
+			// no PVC object added → Get should fail
+			WithObjects(instance).
+			Build()
+
+		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
+
+		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("successfully sets label when PVC exists", func(t *testing.T) {
+		instance := baseInstance.DeepCopy()
+		instance.Status.Attached = true
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testvol",
+				Namespace: "default",
+				UID:       k8stypes.UID(testPVCUID),
+			},
+		}
+
+		clientFake := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(instance, pvc).
+			Build()
+
+		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
+
+		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
+		assert.NoError(t, err)
+
+		// Ensure label was applied
+		assert.Equal(t, testPVCUID, instance.Labels[common.PvcUIDLabelKey])
+	})
 }
