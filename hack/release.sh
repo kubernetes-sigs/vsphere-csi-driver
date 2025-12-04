@@ -14,16 +14,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script is used build new container images of the CAPV manager and
-# clusterctl. When invoked without arguments, the default behavior is to build
-# new ci images
+# This script is used build new container images of the vSphere CSI driver and syncer.
+# When invoked without arguments, the default behavior is to build new ci images
+# for both Linux and Windows platforms.
+#
+# Environment Variables:
+#   DO_WINDOWS_BUILD - Set to 'false' to skip Windows image builds (default: true)
+#   LINUX_BUILD      - Set to 'false' to skip Linux image builds (default: true)
+#
+# Examples:
+#   ./hack/release.sh                           # Build both Linux and Windows images
+#   DO_WINDOWS_BUILD=false ./hack/release.sh    # Build Linux images only
+#   LINUX_BUILD=false ./hack/release.sh         # Build Windows images only
 
 set -o errexit
 set -o nounset
 set -o pipefail
 set -x
 
-DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD_ENV:-true}
+DO_WINDOWS_BUILD=${DO_WINDOWS_BUILD:-${DO_WINDOWS_BUILD_ENV:-true}}
+LINUX_BUILD=${LINUX_BUILD:-true}
 
 # BASE_REPO is the root path of the image repository
 readonly BASE_IMAGE_REPO=us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere
@@ -51,7 +61,24 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 # Example: CUSTOM_REPO_FOR_GOLANG=<docker-registry>/dockerhub-proxy-cache/library/
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.25.5
 
-ARCH=amd64
+# Detect architecture automatically, default to amd64 if not detected
+ARCH=${ARCH:-$(uname -m)}
+case "$ARCH" in
+  x86_64)
+    ARCH=amd64
+    ;;
+  aarch64|arm64)
+    ARCH=arm64
+    ;;
+  armv7l)
+    ARCH=arm
+    ;;
+  *)
+    echo "Warning: Unknown architecture $ARCH, defaulting to amd64"
+    ARCH=amd64
+    ;;
+esac
+
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
@@ -136,7 +163,7 @@ function build_driver_images_linux() {
    --output "${LINUX_IMAGE_OUTPUT}" \
    --file images/driver/Dockerfile \
    --tag "${tag}" \
-   --build-arg ARCH=amd64 \
+   --build-arg ARCH=${ARCH} \
    --build-arg "VERSION=${VERSION}" \
    --build-arg "GOPROXY=${GOPROXY}" \
    --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
@@ -148,6 +175,7 @@ function build_driver_images_linux() {
 function build_syncer_image_linux() {
   echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
   docker buildx build --platform "linux/$ARCH"\
+      --output "${LINUX_IMAGE_OUTPUT}" \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
       --build-arg "VERSION=${VERSION}" \
@@ -169,11 +197,15 @@ function build_images() {
   LATEST="latest"
 
   # build images for linux platform
-  build_driver_images_linux
-  build_syncer_image_linux
+  if [ "$LINUX_BUILD" = true ]; then
+    echo "Building Linux images..."
+    build_driver_images_linux
+    build_syncer_image_linux
+  fi
 
   if [ "$DO_WINDOWS_BUILD" = true ]; then
     # build images for windows platform
+    echo "Building Windows images..."
     build_driver_images_windows
   fi
 }
@@ -326,13 +358,17 @@ if [ "${PUSH}" ]; then
     done
   fi
   # tag linux images with linux and push them to registry
-  LINUX_IMAGE_OUTPUT="type=registry"
-  build_driver_images_linux
+  if [ "$LINUX_BUILD" = true ]; then
+    echo "Pushing Linux images..."
+    LINUX_IMAGE_OUTPUT="type=registry"
+    build_driver_images_linux
+    #push syncer images
+    push_syncer_images
+  fi
+  
   if [ "$DO_WINDOWS_BUILD" = true ]; then
     #create and push manifest for driver
     push_manifest_driver
   fi
-  #push syncer images
-  push_syncer_images
 fi
 
