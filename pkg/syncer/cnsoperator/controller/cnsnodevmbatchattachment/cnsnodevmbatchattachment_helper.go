@@ -424,33 +424,23 @@ func getVolumeMetadataMaps(ctx context.Context,
 	return
 }
 
-// getPvcsInSpec returns map of PVCs and their volumeIDs.
-func getPvcsInSpec(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
-	k8sClient kubernetes.Interface) (map[string]string, error) {
+// getAllPvcsAttachedToVM returns PVC name to volumeID map for all the FCDs which are attached to the VM.
+func getAllPvcsAttachedToVM(ctx context.Context,
+	attachedFCDList map[string]FCDBackingDetails) map[string]string {
 	log := logger.GetLogger(ctx)
+	pvcsAttachedToVM := make(map[string]string)
 
-	pvcsInSpec := make(map[string]string)
-	for _, volume := range instance.Spec.Volumes {
-		volumeId, ok := commonco.ContainerOrchestratorUtility.GetVolumeIDFromPVCName(
-			instance.Namespace, volume.PersistentVolumeClaim.ClaimName)
-		if !ok {
-			pvcName := volume.PersistentVolumeClaim.ClaimName
-			_, err := k8sClient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx,
-				pvcName, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					log.Infof("PVC %s has already been deleted. No action to be taken", pvcName)
-					continue
-				}
-				return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
-			}
-			return pvcsInSpec, fmt.Errorf("failed to find volumeID for PVC %s", volume.PersistentVolumeClaim.ClaimName)
+	for volumeID := range attachedFCDList {
+		pvcName, _, found := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+		if !found {
+			// Do not fail if volumeID is not found to avoid cases where cache is not refreshed.
+			// Clean up routine in syncer will take care of the cases where finalizer was not removed from such PVCs.
+			log.Warnf("failed to find PVC name for volumeID %s", volumeID)
+			continue
 		}
-		pvcsInSpec[volume.PersistentVolumeClaim.ClaimName] = volumeId
+		pvcsAttachedToVM[pvcName] = volumeID
 	}
-
-	return pvcsInSpec, nil
-
+	return pvcsAttachedToVM
 }
 
 // listAttachedFcdsForVM returns list of FCDs (present in the K8s cluster)
@@ -504,7 +494,7 @@ func listAttachedFcdsForVM(ctx context.Context,
 				log.Debugf("failed to get diskMode and sharingMode for virtual disk")
 			}
 
-			log.Infof("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
+			log.Debugf("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
 			attachedFCDs[virtualDisk.VDiskId.Id] = FCDBackingDetails{
 				ControllerKey: controllerKey,
 				UnitNumber:    unitNumber,
@@ -572,6 +562,21 @@ func constructBatchAttachRequest(ctx context.Context,
 	return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, nil
 }
 
+// getPvcsFromSpecAndStatus returns all the PVCs in spec as well as in status of the given instance.
+func getPvcsFromSpecAndStatus(ctx context.Context,
+	instance *v1alpha1.CnsNodeVMBatchAttachment) map[string]string {
+
+	listOfPvcsToRemoveFinalzer := make(map[string]string, 0)
+
+	for _, volume := range instance.Spec.Volumes {
+		listOfPvcsToRemoveFinalzer[volume.PersistentVolumeClaim.ClaimName] = volume.Name
+	}
+	for _, volume := range instance.Status.VolumeStatus {
+		listOfPvcsToRemoveFinalzer[volume.PersistentVolumeClaim.ClaimName] = volume.Name
+	}
+	return listOfPvcsToRemoveFinalzer
+}
+
 // isPvcEncrypted returns true if annotation csi.vsphere.encryption-class
 // is present on the PVC.
 func isPvcEncrypted(pvcAnnotations map[string]string) bool {
@@ -615,17 +620,6 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 	pvcsToAttach := make(map[string]string, 0)
 	pvcsToDetach := make(map[string]string, 0)
 
-	if instance.DeletionTimestamp != nil {
-		log.Debugf("Instance %s is being deleted, adding all volumes in spec to volumesToDetach list.", instance.Name)
-		volumesToDetach, err := getPvcsInSpec(ctx, instance, k8sClient)
-		if err != nil {
-			log.Errorf("failed to get volumes to detach from instance spec. Err: %s", err)
-			return pvcsToAttach, volumesToDetach, err
-		}
-		log.Debugf("Volumes to detach list %+v for instance %s", volumesToDetach, instance.Name)
-		return pvcsToAttach, volumesToDetach, nil
-	}
-
 	// Query vCenter to find the list of FCDs which are attached to the VM.
 	attachedFcdList, err := listAttachedFcdsForVM(ctx, vm)
 	if err != nil {
@@ -633,6 +627,14 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 		return map[string]string{}, map[string]string{}, err
 	}
 	log.Infof("List of attached FCDs %+v to VM %s", attachedFcdList, instance.Spec.InstanceUUID)
+
+	if instance.DeletionTimestamp != nil {
+		log.Debugf("Instance %s is being deleted, adding all volumes attached to the VM to volumesToDetach list.",
+			instance.Name)
+		volumesToDetach := getAllPvcsAttachedToVM(ctx, attachedFcdList)
+		log.Debugf("Volumes to detach list %+v for instance %s", volumesToDetach, instance.Name)
+		return pvcsToAttach, volumesToDetach, nil
+	}
 
 	// Get all PVCs and their corresponding volumeID mapping from instance spec.
 	volumeIdsInSpec, volumeNamesInSpec, pvcNameToVolumeIDInSpec, err := getVolumeMetadataMaps(ctx, instance)
@@ -893,7 +895,7 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 		return nil
 	}
 
-	log.Infof("VM %s was the last attached VM for the PVC %s. Finalizer %s can be safely removed fromt the PVC",
+	log.Infof("VM %s was the last attached VM for the PVC %s. Finalizer %s can be safely removed from the PVC",
 		vmInstanceUUID, pvcName, cnsoperatortypes.CNSPvcFinalizer)
 
 	if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {

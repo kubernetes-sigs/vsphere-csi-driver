@@ -1254,6 +1254,178 @@ func TestIsPvcEncrypted(t *testing.T) {
 	}
 }
 
+func TestGetPvcsFromSpecAndStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		instance *v1alpha1.CnsNodeVMBatchAttachment
+		want     map[string]string
+	}{
+		{
+			name: "PVCs only in spec",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "vol-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName: "pvc-a",
+							},
+						},
+						{
+							Name: "vol-2",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName: "pvc-b",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"pvc-a": "vol-1",
+				"pvc-b": "vol-2",
+			},
+		},
+		{
+			name: "PVCs only in status",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							Name: "vol-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc-x",
+							},
+						},
+						{
+							Name: "vol-2",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc-y",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"pvc-x": "vol-1",
+				"pvc-y": "vol-2",
+			},
+		},
+		{
+			name: "PVCs in both spec and status",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "vol-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName: "pvc-a",
+							},
+						},
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							Name: "vol-2",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc-b",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"pvc-a": "vol-1",
+				"pvc-b": "vol-2",
+			},
+		},
+		{
+			name: "Duplicate PVCs across spec and status",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "vol-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName: "pvc-dup",
+							},
+						},
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							Name: "vol-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc-dup",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"pvc-dup": "vol-1",
+			},
+		},
+		{
+			name:     "Empty spec and status",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{},
+			want:     map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getPvcsFromSpecAndStatus(context.Background(), tt.instance)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getPvcsFromSpecAndStatus() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAllPvcsAttachedToVMSuccess(t *testing.T) {
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCD := map[string]FCDBackingDetails{
+		"vol-1": {},
+		"vol-2": {},
+	}
+
+	got := getAllPvcsAttachedToVM(context.Background(), attachedFCD)
+	want := map[string]string{
+		"mock-pvc-1": "vol-1",
+		"mock-pvc":   "vol-2",
+	}
+
+	assert.Equal(t, want, got)
+}
+
+func TestGetAllPvcsAttachedToVM_EmptyInput(t *testing.T) {
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCD := map[string]FCDBackingDetails{}
+
+	got := getAllPvcsAttachedToVM(context.Background(), attachedFCD)
+	want := map[string]string{}
+
+	assert.Equal(t, want, got)
+}
+
+func TestGetAllPvcsAttachedToVM_PVCNotFound(t *testing.T) {
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCD := map[string]FCDBackingDetails{
+		"invalid": {},
+	}
+	got := getAllPvcsAttachedToVM(context.Background(), attachedFCD)
+	want := map[string]string{}
+
+	assert.Equal(t, want, got)
+}
+
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
 	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
