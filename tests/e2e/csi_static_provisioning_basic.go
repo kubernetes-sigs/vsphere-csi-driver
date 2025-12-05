@@ -978,12 +978,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		curtimeinstring := strconv.FormatInt(curtime, 10)
 		pvcName := "cns-pvc-" + curtimeinstring
 
-		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName)
+		storagePolicyName2 := GetAndExpectStringEnvVar(envStoragePolicyNameForSharedDatastores2)
+		restConfig, _, profileID := staticProvisioningPreSetUpUtil(ctx, f, client, storagePolicyName2)
 
 		if isQuotaValidationSupported {
 			totalQuotaUsedBefore, _, storagePolicyQuotaBefore, _, storagePolicyUsageBefore, _ =
 				getStoragePolicyUsedAndReservedQuotaDetails(ctx, restConfig,
-					storagePolicyName, namespace, pvcUsage, volExtensionName, false)
+					storagePolicyName2, namespace, pvcUsage, volExtensionName, false)
 		}
 
 		ginkgo.By("Create FCD with valid storage policy.")
@@ -993,7 +994,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		deleteFCDRequired = false
 
 		ginkgo.By("Remove existing storage  quota")
-		removeStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace)
+		removeStoragePolicyQuota(ctx, restConfig, storagePolicyName2, namespace)
 
 		ginkgo.By("Import above created FCD")
 		cnsRegisterVolume := getCNSRegisterVolumeSpec(ctx, namespace, fcdID, "", pvcName, v1.ReadWriteOnce)
@@ -1004,7 +1005,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
-		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
+		setStoragePolicyQuota(ctx, restConfig, storagePolicyName2, namespace, rqLimit)
 		framework.Logf("Wait till the PVC creation succeeds after increasing resource quota")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
 			restConfig, namespace, cnsRegisterVolume, poll, pollTimeout))
