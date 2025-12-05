@@ -34,7 +34,9 @@ import (
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	controllerruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cnsopv1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -247,6 +249,7 @@ func isSharedPvc(pvcObj v1.PersistentVolumeClaim) bool {
 func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 	client client.Client,
 	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	pvcsToDetach map[string]string, volumeNamesInSpec map[string]string) error {
 	log := logger.GetLogger(ctx)
@@ -265,7 +268,9 @@ func removeStaleEntriesFromInstanceStatus(ctx context.Context,
 				// First ensure that the PVC does not have CNS protection finalizer.
 				// This kind of situation can happen when detach is successful but finalizer could not be removed
 				// because of which the instance is back in queue.
-				err := removePvcFinalizer(ctx, client, k8sClient, volumeStatus.PersistentVolumeClaim.ClaimName, instance.Namespace,
+				err := removePvcFinalizer(ctx, client, k8sClient,
+					cnsOperatorClient,
+					volumeStatus.PersistentVolumeClaim.ClaimName, instance.Namespace,
 					instance.Spec.InstanceUUID)
 				if err != nil {
 					log.Errorf("failed to ensure that PVC finalizers are removed.")
@@ -294,6 +299,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	client client.Client,
 	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client,
 	attachedFCDs map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails,
 	volumeNamesInSpec map[string]string) (map[string]string, error) {
@@ -311,7 +317,8 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
 
 	// Ensure that there are no extra entries in instance status from a previous detach call.
-	err = removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, instance, pvcsToDetach, volumeNamesInSpec)
+	err = removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, cnsOperatorClient,
+		instance, pvcsToDetach, volumeNamesInSpec)
 	if err != nil {
 		log.Errorf("failed to remove stale entried from instance spec. Err: %s", err)
 		return pvcsToDetach, err
@@ -638,7 +645,8 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 }
 
 func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
-	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface) (map[string]string,
+	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client) (map[string]string,
 	map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -672,7 +680,7 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 	}
 
 	// Find the volumes to detach from the vCenter.
-	pvcsToDetach, err = getVolumesToDetach(ctx, client, k8sClient, instance, vm,
+	pvcsToDetach, err = getVolumesToDetach(ctx, client, k8sClient, cnsOperatorClient, instance, vm,
 		attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to detach from the vCenter for instance %s", instance.Name)
@@ -694,6 +702,7 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 // which have to be detached from the VM.
 func getVolumesToDetach(ctx context.Context, client client.Client,
 	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, attachedFcdList map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails, volumeNamesInSpec map[string]string) (map[string]string, error) {
@@ -701,7 +710,7 @@ func getVolumesToDetach(ctx context.Context, client client.Client,
 
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
 	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient,
-		attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
+		cnsOperatorClient, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
 		return map[string]string{}, err
@@ -865,6 +874,7 @@ func addPvcFinalizer(ctx context.Context, client client.Client,
 // and then removes finalizer from the PVC if it was the last attached VM for the PVC.
 func removePvcFinalizer(ctx context.Context, client client.Client,
 	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client,
 	pvcName string, namespace string, vmInstanceUUID string) error {
 	log := logger.GetLogger(ctx)
 
@@ -920,6 +930,22 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 
 	if pvcHasUsedByAnnotaion(ctx, pvc) {
 		log.Infof("PVC %s is still being use by other VMs. Not removing finalizer.", pvcName)
+		return nil
+	}
+
+	// Also check for cnsnodevmattachment
+	cnsNodeVMAttachmentList := &cnsopv1.CnsNodeVmAttachmentList{}
+	err = cnsOperatorClient.List(ctx, cnsNodeVMAttachmentList,
+		controllerruntimeclient.InNamespace(pvc.Namespace),
+		controllerruntimeclient.MatchingLabels{common.PvcUIDLabelKey: string(pvc.UID)},
+	)
+	if err != nil {
+		log.Errorf("failed to verify if the PVC is attached via CnsNodeVMAttachment")
+		return err
+	}
+
+	if len(cnsNodeVMAttachmentList.Items) != 0 {
+		log.Infof("PVC is attached to a VM via CnsNodeVMAttachment CR. Skip removing finalizer")
 		return nil
 	}
 

@@ -38,11 +38,15 @@ import (
 	"k8s.io/client-go/tools/record"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsopv1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -800,6 +804,7 @@ func TestRemovePvcFinalizer_WhenPVCIsAlreadyDeleted(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
+	_ = cnsopapis.AddToScheme(scheme)
 
 	// fake controller-runtime client (used by PatchFinalizers)
 	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects().Build()
@@ -807,17 +812,15 @@ func TestRemovePvcFinalizer_WhenPVCIsAlreadyDeleted(t *testing.T) {
 	// fake k8s clientset
 	clientset := k8sFake.NewSimpleClientset()
 
-	// ---- Monkey patches ----
-
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
+	// fake controller-runtime client for cnsOperatorClient (empty list)
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
-
 	VolumeLock = &sync.Map{}
 	// ---------------------------------------
 	// Run function
-	err := removePvcFinalizer(ctx, crClient, clientset, pvcName, namespace, vmInstanceUUID)
+	err := removePvcFinalizer(ctx, crClient, clientset, cnsOperatorClient,
+		pvcName, namespace, vmInstanceUUID)
 	// ---------------------------------------
 
 	if err != nil {
@@ -846,12 +849,16 @@ func TestRemovePvcFinalizer_WhenPVCIsPresent(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
+	_ = cnsopapis.AddToScheme(scheme)
 
 	// fake controller-runtime client (used by PatchFinalizers)
 	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pvc).Build()
 
 	// fake k8s clientset
 	clientset := k8sFake.NewSimpleClientset(pvc)
+
+	// fake controller-runtime client for cnsOperatorClient (empty list)
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	// ---- Monkey patches ----
 
@@ -894,7 +901,7 @@ func TestRemovePvcFinalizer_WhenPVCIsPresent(t *testing.T) {
 	VolumeLock = &sync.Map{}
 	// ---------------------------------------
 	// Run function
-	err := removePvcFinalizer(ctx, crClient, clientset, pvcName, namespace, vmInstanceUUID)
+	err := removePvcFinalizer(ctx, crClient, clientset, cnsOperatorClient, pvcName, namespace, vmInstanceUUID)
 	// ---------------------------------------
 
 	if err != nil {
@@ -1251,6 +1258,73 @@ func TestIsPvcEncrypted(t *testing.T) {
 				t.Errorf("isPvcEncrypted() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRemovePvcFinalizer_WhenCnsNodeVmAttachmentExists(t *testing.T) {
+	ctx := context.Background()
+
+	namespace := "test-ns"
+	pvcName := "mypvc"
+	vmInstanceUUID := "vm-111"
+
+	// Prepare PVC with finalizer
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       pvcName,
+			Namespace:  namespace,
+			UID:        types.UID("pvc-uid-123"),
+			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
+		},
+	}
+
+	// Prepare a fake CnsNodeVmAttachment with label referencing PVC UID
+	cnsAttachment := &cnsopv1.CnsNodeVmAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "attachment-1",
+			Namespace: namespace,
+			Labels: map[string]string{
+				common.PvcUIDLabelKey: string(pvc.UID), // <-- required for matching
+			},
+		},
+	}
+
+	// Setup schemes
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	_ = cnsopapis.AddToScheme(scheme)
+
+	// Fake clients
+	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pvc).Build()
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cnsAttachment).Build()
+	clientset := k8sFake.NewSimpleClientset(pvc)
+
+	// Monkey patch removePvcAnnotation and pvcHasUsedByAnnotaion
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	patches.ApplyFunc(removePvcAnnotation, func(ctx context.Context, k8sClient interface{}, vmID string, pvcObj *v1.PersistentVolumeClaim) error {
+		return nil
+	})
+
+	patches.ApplyFunc(pvcHasUsedByAnnotaion, func(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
+		return false // last VM
+	})
+
+	VolumeLock = &sync.Map{}
+
+	// Call removePvcFinalizer
+	err := removePvcFinalizer(ctx, crClient, clientset, cnsOperatorClient, pvcName, namespace, vmInstanceUUID)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Verify PVC still has the finalizer
+	fetchedPVC, _ := clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if !controllerutil.ContainsFinalizer(fetchedPVC, cnsoperatortypes.CNSPvcFinalizer) {
+		t.Errorf("expected finalizer to remain because CnsNodeVmAttachment exists")
 	}
 }
 
