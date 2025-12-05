@@ -6771,8 +6771,8 @@ func RemoveStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	increaseLimit := spq.Spec.Limit
-	framework.Logf("Present quota Limit  %s", increaseLimit)
+	specLimit := spq.Spec.Limit
+	framework.Logf("Present quota Limit  %s", specLimit)
 	spq.Spec.Limit.Reset()
 
 	err = cnsOperatorClient.Update(ctx, spq)
@@ -6783,7 +6783,6 @@ func RemoveStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	framework.Logf("Quota after removing:  %s", spq.Spec.Limit)
-
 }
 
 // ToRef returns a pointer to t.
