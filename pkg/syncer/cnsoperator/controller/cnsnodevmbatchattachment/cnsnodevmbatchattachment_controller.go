@@ -293,12 +293,16 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
 
-		// For every PVC mentioned in instance.Spec, remove finalizer from its PVC.
-		for _, volume := range instance.Spec.Volumes {
-			err := removePvcFinalizer(ctx, r.client, k8sClient, volume.PersistentVolumeClaim.ClaimName, instance.Namespace,
+		pvcsInSpecAndStatus := getPvcsFromSpecAndStatus(ctx, instance)
+
+		// For every PVC mentioned in instance.Spec and in instance.Status, remove finalizer from it.
+		// It is important to remove the finalizer from PVCs in instance.Status also as it is possible
+		// that someone removes the PVC from spec after trriggering deletion of VM.
+		for pvcName := range pvcsInSpecAndStatus {
+			err := removePvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace,
 				instance.Spec.InstanceUUID)
 			if err != nil {
-				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", volume.PersistentVolumeClaim.ClaimName,
+				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvcName,
 					err)
 				return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 			}
@@ -307,7 +311,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
 		if patchErr != nil {
 			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: +%v", instance.Name, patchErr)
-			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
+			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, patchErr)
 		}
 		log.Infof("Successfully removed finalizer %s from instance %s",
 			cnsoperatortypes.CNSFinalizer, request.NamespacedName.String())
