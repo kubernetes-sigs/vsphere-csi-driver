@@ -602,3 +602,64 @@ func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*Datasto
 	log.Infof("Filtered list of datastores after removing suspended ones are: %+v", filteredList)
 	return filteredList, nil
 }
+
+// IsInvalidLoginError checks if the error is due to invalid credentials (*types.InvalidLogin).
+// This can occur during password rotation when WCP updates the password in vCenter
+// but the vsphere-config-secret hasn't been updated yet.
+func IsInvalidLoginError(ctx context.Context, err error) bool {
+	log := logger.GetLogger(ctx)
+	if err == nil {
+		return false
+	}
+
+	log.With("errorType", fmt.Sprintf("%T", err), "errorMsg", err.Error()).Debug("Checking if error is InvalidLogin")
+
+	// Check the unwrapped error first
+	unwrapped := errors.Unwrap(err)
+	if unwrapped != nil {
+		log.With("unwrappedType", fmt.Sprintf("%T", unwrapped)).Debug("Checking unwrapped error")
+		if soap.IsVimFault(unwrapped) {
+			vimFault := soap.ToVimFault(unwrapped)
+			log.With("vimFaultType", fmt.Sprintf("%T", vimFault)).Debug("Unwrapped error is VimFault")
+			if _, ok := vimFault.(*types.InvalidLogin); ok {
+				log.Debug("Detected InvalidLogin from unwrapped VimFault")
+				return true
+			}
+		}
+	}
+
+	// Check the original error
+	if soap.IsVimFault(err) {
+		vimFault := soap.ToVimFault(err)
+		log.With("vimFaultType", fmt.Sprintf("%T", vimFault)).Debug("Original error is VimFault")
+		if _, ok := vimFault.(*types.InvalidLogin); ok {
+			log.Debug("Detected InvalidLogin from original VimFault")
+			return true
+		}
+	}
+
+	// Check if it's a soap.soapFaultError containing InvalidLogin
+	// This handles cases where the error is wrapped in a soapFaultError
+	if soap.IsSoapFault(err) {
+		soapFault := soap.ToSoapFault(err)
+		if soapFault != nil && soapFault.VimFault() != nil {
+			vimFault := soapFault.VimFault()
+			log.With("soapFaultVimType", fmt.Sprintf("%T", vimFault)).Debug("SoapFault contains VimFault")
+			if _, ok := vimFault.(*types.InvalidLogin); ok {
+				log.Debug("Detected InvalidLogin from SoapFault VimFault")
+				return true
+			}
+		}
+	}
+
+	// Also check if the error message contains the InvalidLogin text
+	// This is a fallback for cases where type checking doesn't work
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "Cannot complete login due to an incorrect user name or password") {
+		log.Debug("Detected InvalidLogin from error message string matching")
+		return true
+	}
+
+	log.Debug("Error is not an InvalidLogin error")
+	return false
+}
