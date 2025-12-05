@@ -89,7 +89,11 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get cluster flavor. Error: %v", err)
 	}
-	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, clusterFlavor)
+	cfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get config. Error: %v", err)
+	}
+	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, clusterFlavor, cfg.Global.SupervisorID, cfg.Global.ClusterDistribution)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
