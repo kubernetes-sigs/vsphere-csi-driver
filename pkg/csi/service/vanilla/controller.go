@@ -232,7 +232,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
 			operationStore, true, true,
-			multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla)
+			multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla, config.Global.ClusterID, config.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}

@@ -254,7 +254,8 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
 	idempotencyHandlingEnabled, multivCenterEnabled,
 	multivCenterTopologyDeployment bool,
-	clusterFlavor cnstypes.CnsClusterFlavor) (Manager, error) {
+	clusterFlavor cnstypes.CnsClusterFlavor,
+	clusterId, clusterDistribution string) (Manager, error) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
@@ -269,6 +270,8 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 			operationStore:             operationStore,
 			idempotencyHandlingEnabled: idempotencyHandlingEnabled,
 			clusterFlavor:              clusterFlavor,
+			clusterId:                  clusterId,
+			clusterDistribution:        clusterDistribution,
 		}
 	} else {
 		managerInstance = managerInstanceMap[vc.Config.Host]
@@ -283,6 +286,8 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 			idempotencyHandlingEnabled:     idempotencyHandlingEnabled,
 			multivCenterTopologyDeployment: multivCenterTopologyDeployment,
 			clusterFlavor:                  clusterFlavor,
+			clusterId:                      clusterId,
+			clusterDistribution:            clusterDistribution,
 		}
 		managerInstanceMap[vc.Config.Host] = managerInstance
 	}
@@ -301,6 +306,8 @@ type defaultManager struct {
 	multivCenterTopologyDeployment bool
 	listViewIf                     ListViewIf
 	clusterFlavor                  cnstypes.CnsClusterFlavor
+	clusterId                      string
+	clusterDistribution            string
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
@@ -1121,6 +1128,18 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		if volumeOperationRes.Fault != nil {
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
 
+			// Check for CnsNotRegisteredFault and attempt to re-register the volume
+			// Only handle this for WORKLOAD cluster flavor
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+				log.Infof("observed CnsNotRegisteredFault while attaching volume: %q with vm: %q. Attempting to re-register volume", volumeID, vm.String())
+				if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+					log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+				}
+				// Continue to return the fault so the operation can be retried
+				return "", faultType, logger.LogNewErrorf(log, "failed to attach cns volume: %q to node vm: %q. fault: CnsNotRegisteredFault. opId: %q",
+					volumeID, vm.String(), taskInfo.ActivationId)
+			}
+
 			if volumeOperationRes.Fault.Fault != nil {
 				_, isResourceInUseFault := volumeOperationRes.Fault.Fault.(*vim25types.ResourceInUse)
 				if isResourceInUseFault {
@@ -1277,6 +1296,18 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
 			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
+
+			// Check for CnsNotRegisteredFault and attempt to re-register the volume
+			// Only handle this for WORKLOAD cluster flavor
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+				log.Infof("observed CnsNotRegisteredFault while detaching volume: %q from vm: %q. Attempting to re-register volume", volumeID, vm.String())
+				if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+					log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+				}
+				// Continue to return the fault so the operation can be retried
+				return faultType, logger.LogNewErrorf(log, "failed to detach cns volume: %q from node vm: %+v. fault: CnsNotRegisteredFault, opId: %q",
+					volumeID, vm, taskInfo.ActivationId)
+			}
 
 			if volumeOperationRes.Fault.Fault != nil {
 				fault, isManagedObjectNotFoundFault := volumeOperationRes.Fault.Fault.(*vim25types.ManagedObjectNotFound)
@@ -1670,6 +1701,17 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
+			// Check for CnsNotRegisteredFault and attempt to re-register the volume
+			// Only handle this for WORKLOAD cluster flavor
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+				log.Infof("observed CnsNotRegisteredFault while updating volume metadata for volume: %q. Attempting to re-register volume", spec.VolumeId.Id)
+				if err := m.reRegisterVolume(ctx, spec.VolumeId.Id); err != nil {
+					log.Errorf("failed to re-register volume %q: %v", spec.VolumeId.Id, err)
+				}
+				// Continue to return the fault so the operation can be retried
+				return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: CnsNotRegisteredFault, opID: %q",
+					spew.Sdump(spec), taskInfo.ActivationId)
+			}
 			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
 				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
@@ -1735,6 +1777,17 @@ func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.
 		}
 		volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 		if volumeOperationRes.Fault != nil {
+			// Check for CnsNotRegisteredFault and attempt to re-register the volume
+			// Only handle this for WORKLOAD cluster flavor
+			if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+				log.Infof("observed CnsNotRegisteredFault while updating volume crypto for volume: %q. Attempting to re-register volume", spec.VolumeId.Id)
+				if err := m.reRegisterVolume(ctx, spec.VolumeId.Id); err != nil {
+					log.Errorf("failed to re-register volume %q: %v", spec.VolumeId.Id, err)
+				}
+				// Continue to return the fault so the operation can be retried
+				return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: CnsNotRegisteredFault, opID: %q",
+					spew.Sdump(spec), taskInfo.ActivationId)
+			}
 			return logger.LogNewErrorf(log, "failed to update volume. updateSpec: %q, fault: %q, opID: %q",
 				spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		}
@@ -1852,6 +1905,17 @@ func (m *defaultManager) expandVolume(ctx context.Context, volumeID string, size
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
 		faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while expanding volume: %q. Attempting to re-register volume", volumeID)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: CnsNotRegisteredFault, opID: %q",
+				volumeID, taskInfo.ActivationId)
+		}
 		return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 	}
@@ -2054,6 +2118,22 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 
 	volumeOperationRes := taskResult.GetCnsVolumeOperationResult()
 	if volumeOperationRes.Fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, volumeOperationRes.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while expanding volume: %q. Attempting to re-register volume", volumeID)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			faultType = ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationRes)
+			volumeOperationDetails = createRequestDetails(instanceName, "", "",
+				volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+				task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError,
+				volumeOperationRes.Fault.LocalizedMessage)
+			return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: CnsNotRegisteredFault, opID: %q",
+				volumeID, taskInfo.ActivationId)
+		}
 		if _, ok := volumeOperationRes.Fault.Fault.(*cnstypes.CnsFault); ok {
 			log.Debugf("ExtendVolume task %s returned with CnsFault. Querying CNS to "+
 				"determine if volume with ID %s was successfully expanded.",
@@ -2258,6 +2338,9 @@ func (m *defaultManager) RelocateVolume(ctx context.Context,
 			log.Errorf("CNS RelocateVolume failed from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			return nil, err
 		}
+		// Note: RelocateVolume returns a task without waiting for completion.
+		// If the caller waits on the task and encounters CnsNotRegisteredFault,
+		// they should handle it by calling reRegisterVolume and retrying the operation.
 		return res, err
 	}
 	start := time.Now()
@@ -2751,6 +2834,23 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	// Handle snapshot operation result
 	createSnapshotsOperationRes := createSnapshotsTaskResult.GetCnsVolumeOperationResult()
 	if createSnapshotsOperationRes.Fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, createSnapshotsOperationRes.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while creating snapshot %q on volume: %q. Attempting to re-register volume", instanceName, volumeID)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			errMsg := fmt.Sprintf("failed to create snapshot %q on volume %q with fault: CnsNotRegisteredFault, opID: %q",
+				instanceName, volumeID, createSnapshotsTaskInfo.ActivationId)
+			if m.idempotencyHandlingEnabled {
+				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, nil,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
+					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+			}
+			return nil, logger.LogNewError(log, errMsg)
+		}
 		errMsg := fmt.Sprintf("failed to create snapshot %q on volume %q with fault: %q, opID: %q",
 			instanceName, volumeID, spew.Sdump(createSnapshotsOperationRes.Fault),
 			createSnapshotsTaskInfo.ActivationId)
@@ -2949,6 +3049,17 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 			"invalid task result: got %T with value %+v", createSnapshotsTaskResult, createSnapshotsTaskResult)
 	}
 	if snapshotCreateResult.Fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, snapshotCreateResult.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while creating snapshot %q on volume: %q. Attempting to re-register volume", instanceName, volumeID)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q with fault: CnsNotRegisteredFault",
+				instanceName, volumeID)
+		}
 		return nil, "", logger.LogNewErrorf(log, "failed to create snapshot %q on volume %q with fault: %+v",
 			instanceName, volumeID, snapshotCreateResult.Fault)
 	}
@@ -3269,6 +3380,24 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	// Handle snapshot operation result
 	deleteSnapshotsOperationRes := deleteSnapshotsTaskResult.GetCnsVolumeOperationResult()
 	if deleteSnapshotsOperationRes.Fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsCnsNotRegisteredFault(ctx, deleteSnapshotsOperationRes.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while deleting snapshot %q on volume: %q. Attempting to re-register volume", snapshotID, volumeID)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			errMsg := fmt.Sprintf("failed to delete snapshot %q on volume %q. fault: CnsNotRegisteredFault, opId: %q",
+				snapshotID, volumeID, deleteSnapshotsTaskInfo.ActivationId)
+			if m.idempotencyHandlingEnabled {
+				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
+					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
+					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+			}
+			return nil, logger.LogNewError(log, errMsg)
+		}
+
 		err = soap.WrapVimFault(deleteSnapshotsOperationRes.Fault.Fault)
 
 		isInvalidArgumentError := cnsvsphere.IsInvalidArgumentError(err)
@@ -3445,6 +3574,46 @@ func GetAllManagerInstances(ctx context.Context) map[string]*defaultManager {
 	return newManagerInstanceMap
 }
 
+// reRegisterVolume re-registers a volume to CNS
+func (m *defaultManager) reRegisterVolume(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	log.Infof("reRegisterVolume: Attempting to re-register volume %q to CNS", volumeID)
+
+	containerCluster := cnsvsphere.GetContainerCluster(m.clusterId,
+		m.virtualCenter.Config.Username,
+		m.clusterFlavor, m.clusterDistribution)
+	containerClusterArray := []cnstypes.CnsContainerCluster{containerCluster}
+
+	volumeName := "pvc-" + volumeID
+
+	createSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       volumeName,
+		VolumeType: string(cnstypes.CnsVolumeTypeBlock),
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: containerClusterArray,
+		},
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			BackingDiskId: volumeID,
+		},
+	}
+
+	log.Debugf("reRegisterVolume: Re-registering volume %q with spec: %+v", volumeID, spew.Sdump(createSpec))
+	_, faultType, err := m.createVolume(ctx, createSpec)
+	if err != nil {
+		// Check if it's CnsVolumeAlreadyExistsFault or CnsAlreadyRegisteredFault
+		// which means the volume is already registered (race condition or already fixed)
+		if IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+			log.Infof("reRegisterVolume: Volume %q is already registered (possibly registered by another operation)", volumeID)
+			return nil
+		}
+		return logger.LogNewErrorf(log, "failed to re-register volume %q: %v", volumeID, err)
+	}
+
+	log.Infof("reRegisterVolume: Successfully re-registered volume %q to CNS", volumeID)
+	return nil
+}
+
 func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID string) (int64, error) {
 	log := logger.GetLogger(ctx)
 	var aggregatedSnapshotCapacity int64
@@ -3476,7 +3645,7 @@ func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID
 }
 
 // compileBatchAttachTaskResult consolidates Batch AttachVolume API's task result.
-func compileBatchAttachTaskResult(ctx context.Context, result cnstypes.BaseCnsVolumeOperationResult,
+func compileBatchAttachTaskResult(ctx context.Context, m *defaultManager, result cnstypes.BaseCnsVolumeOperationResult,
 	vm *cnsvsphere.VirtualMachine, activationId string) (BatchAttachResult, error) {
 	log := logger.GetLogger(ctx)
 	volumeOperationResult := result.GetCnsVolumeOperationResult()
@@ -3492,6 +3661,14 @@ func compileBatchAttachTaskResult(ctx context.Context, result cnstypes.BaseCnsVo
 
 	fault := volumeOperationResult.Fault
 	if fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		if IsCnsNotRegisteredFault(ctx, fault) {
+			log.Infof("observed CnsNotRegisteredFault while batch attaching volume: %q to vm: %q. Attempting to re-register volume", volumeId, vm.String())
+			if err := m.reRegisterVolume(ctx, volumeId); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeId, err)
+			}
+			// Continue to set the fault so the operation can be retried
+		}
 		// In case of failure, set faultType and error.
 		faultType := ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationResult)
 		batchAttachResult.FaultType = faultType
@@ -3621,7 +3798,7 @@ func (m *defaultManager) BatchAttachVolumes(ctx context.Context,
 
 		volumesThatFailedToAttach := make([]string, 0)
 		for _, result := range taskResults {
-			currentBatchAttachResult, err := compileBatchAttachTaskResult(ctx, result, vm, taskInfo.ActivationId)
+			currentBatchAttachResult, err := compileBatchAttachTaskResult(ctx, m, result, vm, taskInfo.ActivationId)
 			if err != nil {
 				log.Errorf("failed to compile task results. Err: %s", err)
 				return []BatchAttachResult{}, csifault.CSIInternalFault, err
@@ -3816,6 +3993,21 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 
 	volOpRes := res.GetCnsVolumeOperationResult()
 	if volOpRes.Fault != nil {
+		// Check for CnsNotRegisteredFault and attempt to re-register the volume
+		// Note: CnsNotRegisteredFault only occurs when unregisterDisk is true
+		// Only handle this for WORKLOAD cluster flavor
+		if m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && unregisterDisk && IsCnsNotRegisteredFault(ctx, volOpRes.Fault) {
+			log.Infof("observed CnsNotRegisteredFault while unregistering volume: %q (unregisterDisk=%v). Attempting to re-register volume", volumeID, unregisterDisk)
+			if err := m.reRegisterVolume(ctx, volumeID); err != nil {
+				log.Errorf("failed to re-register volume %q: %v", volumeID, err)
+			}
+			// Continue to return the fault so the operation can be retried
+			msg := "volume operation result contains CnsNotRegisteredFault"
+			fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
+			log.Errorf("%s from vCenter %q. fault: %q, opId: %q", msg,
+				m.virtualCenter.Config.Host, fault, taskInfo.ActivationId)
+			return fault, errors.New(msg)
+		}
 		msg := "volume operation result contains fault"
 		fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
 		log.Errorf("%s from vCenter %q. fault: %q, opId: %q", msg,

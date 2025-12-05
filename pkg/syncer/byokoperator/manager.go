@@ -75,8 +75,9 @@ func NewManager(
 	if err != nil {
 		return nil, err
 	}
-
-	volumeManager, err := volume.GetManager(ctx, vcClient, nil, false, false, false, clusterFlavor)
+	
+	volumeManager, err := volume.GetManager(ctx, vcClient, nil, false,
+		false, false, clusterFlavor, configInfo.Cfg.Global.SupervisorID, configInfo.Cfg.Global.ClusterDistribution)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create an instance of volume manager: %w", err)
 	}
