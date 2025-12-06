@@ -24,6 +24,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -47,6 +48,8 @@ type FakeK8SOrchestrator struct {
 	featureStates     map[string]string
 	// CSINodeTopology instances for topology testing
 	csiNodeTopologyInstances []interface{}
+	// PVCs for testing
+	pvcs []*v1.PersistentVolumeClaim
 }
 
 // volumeMigration holds mocked migrated volume information

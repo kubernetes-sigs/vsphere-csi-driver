@@ -21,10 +21,15 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	batchattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -106,6 +111,79 @@ func cleanUpCnsUnregisterVolumeInstances(ctx context.Context, restClientConfig *
 			}
 			log.Infof("Successfully deleted CnsUnregisterVolume: %s on namespace: %s",
 				cnsUnregisterVolume.Name, cnsUnregisterVolume.Namespace)
+		}
+	}
+}
+
+var (
+	newClientForGroup = k8s.NewClientForGroup
+	newForConfig      = func(config *rest.Config) (kubernetes.Interface, error) {
+		return kubernetes.NewForConfig(config)
+	}
+)
+
+// cleanupPVCs removes the `CNSPvcFinalizer` from the PVCs in cases
+// where the CnsNodeVmBatchAttachment CR gets deleted before removing the finalizer.
+// This is EXTREMELY UNLIKELY to happen but still a possibility that has to be addressed.
+func cleanupPVCs(ctx context.Context, config rest.Config) {
+	log := logger.GetLogger(ctx)
+
+	pvcList := commonco.ContainerOrchestratorUtility.ListPVCs(ctx, "")
+	if len(pvcList) == 0 {
+		log.Info("no PVCs found. Exiting...")
+		return
+	}
+
+	// map to hold all the PVCs that have the finalizer added by the batch attach reconciler
+	pvcMap := make(map[string]map[string]struct{})
+	for _, pvc := range pvcList {
+		// Check if PVC has the CNS finalizer in metadata.finalizers
+		if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+			// not a PVC that is attached to or being attached to a VM. Can be ignored.
+			continue
+		}
+
+		if _, ok := pvcMap[pvc.Namespace]; !ok {
+			pvcMap[pvc.Namespace] = map[string]struct{}{}
+		}
+		pvcMap[pvc.Namespace][pvc.Name] = struct{}{}
+	}
+
+	cnsClient, err := newClientForGroup(ctx, &config, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Error("failed to create cns operator client")
+		return
+	}
+
+	batchAttachList := batchattachv1a1.CnsNodeVMBatchAttachmentList{}
+	err = cnsClient.List(ctx, &batchAttachList)
+	if err != nil {
+		log.With("kind", batchAttachList.Kind).Error("listing failed")
+		return
+	}
+
+	for _, cr := range batchAttachList.Items {
+		for _, vol := range cr.Spec.Volumes {
+			// Any PVCs that are still in the spec can be safely ignored to be processed by the reconciler.
+			delete(pvcMap[cr.Namespace], vol.PersistentVolumeClaim.ClaimName)
+		}
+	}
+
+	c, err := newForConfig(&config)
+	if err != nil {
+		log.Error("failed to create core API client")
+		return
+	}
+
+	// Remove the finalizer for the remaining PVCs
+	for namespace, pvcs := range pvcMap {
+		for name := range pvcs {
+			err := k8s.RemoveFinalizerFromPVC(ctx, c, name, namespace, cnsoperatortypes.CNSPvcFinalizer)
+			if err != nil {
+				log.With("name", name).With("namespace", namespace).
+					Error("failed to remove the finalizer")
+				continue
+			}
 		}
 	}
 }
