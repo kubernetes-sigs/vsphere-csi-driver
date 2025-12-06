@@ -194,7 +194,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
 		idempotencyHandlingEnabled, false,
-		false, cnstypes.CnsClusterFlavorWorkload)
+		false, cnstypes.CnsClusterFlavorWorkload, config.Global.SupervisorID, config.Global.ClusterDistribution)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
@@ -431,10 +431,9 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 		}
 		c.manager.VcenterConfig = newVCConfig
-
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
 			idempotencyHandlingEnabled, false,
-			false, cnstypes.CnsClusterFlavorWorkload)
+			false, cnstypes.CnsClusterFlavorWorkload, cfg.Global.SupervisorID, cfg.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
