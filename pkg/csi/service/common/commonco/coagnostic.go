@@ -128,6 +128,7 @@ type COCommonInterface interface {
 	// GetPVCNamespacedNameByUID returns the PVC's namespaced name (namespace/name) for the given UID.
 	// If the PVC is not found in the cache, it returns an empty string and false.
 	GetPVCNamespacedNameByUID(uid string) (k8stypes.NamespacedName, bool)
+	ListPVCs(ctx context.Context, namespace string) []*v1.PersistentVolumeClaim
 }
 
 // GetContainerOrchestratorInterface returns orchestrator object for a given

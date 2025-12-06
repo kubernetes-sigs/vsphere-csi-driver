@@ -547,6 +547,27 @@ func (c *FakeK8SOrchestrator) SetCSINodeTopologyInstances(instances []interface{
 	c.csiNodeTopologyInstances = instances
 }
 
+func (c *FakeK8SOrchestrator) ListPVCs(ctx context.Context, namespace string) []*v1.PersistentVolumeClaim {
+	if namespace == "" {
+		// Return all PVCs
+		return c.pvcs
+	}
+
+	// Filter by namespace
+	var filteredPVCs []*v1.PersistentVolumeClaim
+	for _, pvc := range c.pvcs {
+		if pvc.Namespace == namespace {
+			filteredPVCs = append(filteredPVCs, pvc)
+		}
+	}
+	return filteredPVCs
+}
+
+// SetPVCs sets the PVCs for testing
+func (c *FakeK8SOrchestrator) SetPVCs(pvcs []*v1.PersistentVolumeClaim) {
+	c.pvcs = pvcs
+}
+
 // configFromVCSim starts a vcsim instance and returns config for use against the
 // vcsim instance. The vcsim instance is configured with an empty tls.Config.
 func configFromVCSim(vcsimParams VcsimParams, isTopologyEnv bool) (*config.Config, func()) {

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/util/retry"
 
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
@@ -2285,4 +2286,20 @@ func GetPVCDataSource(ctx context.Context, claim *v1.PersistentVolumeClaim) (*v1
 		return nil, nil
 	}
 	return &dataSource, nil
+}
+
+// ListPVCs lists all the PVCs in the given namespace.
+// If the namespace is an empty string, PVCs across all the namespaces are returned.
+func (c *K8sOrchestrator) ListPVCs(ctx context.Context, namespace string) []*v1.PersistentVolumeClaim {
+	log := logger.GetLogger(ctx)
+
+	// Note: List only accepts filters on labels and nothing else.
+	// If required, selectors can be exposed as arguments of this method.
+	pvcs, err := c.informerManager.GetPVCLister().PersistentVolumeClaims(namespace).List(labels.Everything())
+	if err != nil {
+		log.With("namespace", namespace).Error("failed to list PVCs")
+		return []*v1.PersistentVolumeClaim{}
+	}
+
+	return pvcs
 }

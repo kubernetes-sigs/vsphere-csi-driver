@@ -68,6 +68,10 @@ const (
 	// interval after which successful CnsRegisterVolumes will be cleaned up.
 	// Current default value is set to 12 hours
 	DefaultCnsRegisterVolumesCleanupIntervalInMin = 720
+	// DefaultCnsPVCProtectionCleanupIntervalInMin is the default time interval after which
+	// orphaned PVCs will be cleaned up.
+	// Current default value is set to 10 minutes
+	DefaultCnsPVCProtectionCleanupIntervalInMin = 10
 	// DefaultVolumeMigrationCRCleanupIntervalInMin is the default time interval
 	// after which stale CnsVSphereVolumeMigration CRs will be cleaned up.
 	// Current default value is set to 2 hours.
@@ -450,6 +454,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 
 	if cfg.Global.CnsRegisterVolumesCleanupIntervalInMin == 0 {
 		cfg.Global.CnsRegisterVolumesCleanupIntervalInMin = DefaultCnsRegisterVolumesCleanupIntervalInMin
+	}
+	if cfg.Global.CnsPVCProtectionCleanupIntervalInMin == 0 {
+		cfg.Global.CnsPVCProtectionCleanupIntervalInMin = DefaultCnsPVCProtectionCleanupIntervalInMin
 	}
 	if cfg.Global.VolumeMigrationCRCleanupIntervalInMin == 0 {
 		cfg.Global.VolumeMigrationCRCleanupIntervalInMin = DefaultVolumeMigrationCRCleanupIntervalInMin
