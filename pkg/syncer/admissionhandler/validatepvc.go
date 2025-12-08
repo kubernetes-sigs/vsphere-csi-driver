@@ -319,7 +319,8 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 
 	// ValidateLinkedCloneRequest validates the various conditions necessary for a valid linkedclone request.
 	// 1. The PVC datasource needs to be of type VolumeSnapshot
-	// 2. The storageclass associated LinkedClone PVC should be the same the source PVC
+	// 2. The svStorageClass parameter in the storageclass associated with the LinkedClone PVC
+	//    should match the svStorageClass in the storageclass of the source PVC
 	// 3. The size should be the same as the source PVC
 	// 4. Should not be a second level LinkedClone
 	// 5. VS is not under deletion
@@ -462,14 +463,131 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 				},
 			}
 		}
-
-		// The storageclass associated LinkedClone PVC should be the same the source PVC
+		// The svStorageClass parameter in the storageclass associated with the LinkedClone PVC
+		// should be the same as the svStorageClass in the storageclass of the source PVC
 		sourcePVCStorageClassName := sourcePVC.Spec.StorageClassName
-		same := strings.Compare(*pvc.Spec.StorageClassName, *sourcePVCStorageClassName)
-		if same != 0 {
-			errMsg := fmt.Sprintf("StorageClass mismatch, Namespace: %s, LinkedClone StorageClass: "+
-				"%s, source PVC StorageClass: %s", sourcePVC.Namespace, *pvc.Spec.StorageClassName,
-				*sourcePVCStorageClassName)
+		linkedClonePVCStorageClassName := pvc.Spec.StorageClassName
+
+		// Validate source PVC StorageClass
+		if sourcePVCStorageClassName == nil {
+			errMsg := "source PVC does not have a StorageClass specified, " +
+				"please specify a StorageClass for linked clone creation"
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+		if *sourcePVCStorageClassName == "" {
+			errMsg := "source PVC has an empty StorageClass name and cannot be validated for linked clone creation"
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		// Validate LinkedClone PVC StorageClass
+		if linkedClonePVCStorageClassName == nil {
+			errMsg := "LinkedClone PVC does not have a StorageClass specified," +
+				"please specify a StorageClass for linked clone creation"
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+		if *linkedClonePVCStorageClassName == "" {
+			errMsg := "LinkedClone PVC has an empty StorageClass name and cannot be validated for linked clone creation"
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		// Retrieve the StorageClass objects
+		sourceStorageClass, err := k8sClient.StorageV1().StorageClasses().Get(ctx, *sourcePVCStorageClassName,
+			metav1.GetOptions{})
+		if err != nil {
+			errMsg := fmt.Sprintf("error getting source PVC StorageClass %s from api server: %v",
+				*sourcePVCStorageClassName, err)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		linkedCloneStorageClass, err := k8sClient.StorageV1().StorageClasses().Get(ctx, *linkedClonePVCStorageClassName,
+			metav1.GetOptions{})
+		if err != nil {
+			errMsg := fmt.Sprintf("error getting LinkedClone PVC StorageClass %s from api server: %v",
+				*linkedClonePVCStorageClassName, err)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		// Extract svStorageClass from StorageClass parameters (case-insensitive lookup)
+		var sourceSvStorageClass string
+		var sourceHasSvStorageClass bool
+		for param, value := range sourceStorageClass.Parameters {
+			if strings.ToLower(param) == common.AttributeSupervisorStorageClass {
+				sourceSvStorageClass = value
+				sourceHasSvStorageClass = true
+				break
+			}
+		}
+
+		var linkedCloneSvStorageClass string
+		var linkedCloneHasSvStorageClass bool
+		for param, value := range linkedCloneStorageClass.Parameters {
+			if strings.ToLower(param) == common.AttributeSupervisorStorageClass {
+				linkedCloneSvStorageClass = value
+				linkedCloneHasSvStorageClass = true
+				break
+			}
+		}
+
+		// Both storage classes must have svStorageClass parameter
+		if !sourceHasSvStorageClass {
+			errMsg := fmt.Sprintf("source PVC StorageClass %s does not have %s parameter",
+				*sourcePVCStorageClassName, common.AttributeSupervisorStorageClass)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		if !linkedCloneHasSvStorageClass {
+			errMsg := fmt.Sprintf("LinkedClone PVC StorageClass %s does not have %s parameter",
+				*linkedClonePVCStorageClassName, common.AttributeSupervisorStorageClass)
+			return &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: errMsg,
+				},
+			}
+		}
+
+		// Compare svStorageClass values
+		if sourceSvStorageClass != linkedCloneSvStorageClass {
+			errMsg := fmt.Sprintf("StorageClass svStorageClass mismatch, Namespace: %s, "+
+				"LinkedClone StorageClass: %s (svStorageClass: %s), "+
+				"source PVC StorageClass: %s (svStorageClass: %s)",
+				sourcePVC.Namespace, *linkedClonePVCStorageClassName, linkedCloneSvStorageClass,
+				*sourcePVCStorageClassName, sourceSvStorageClass)
 			return &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
