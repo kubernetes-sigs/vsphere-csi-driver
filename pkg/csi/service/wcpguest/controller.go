@@ -978,6 +978,13 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	return resp, err
 }
 
+// `:detaching` suffix is added by VM Operator to the volume name in the VM status
+// that is in the process of being detached.
+// removeDetachingSuffixFromVolumeName removes the suffix from the volume name.
+func removeDetachingSuffixFromVolumeName(volumeName string) string {
+	return strings.TrimSuffix(volumeName, ":detaching")
+}
+
 // controllerUnpublishForBlockVolume is helper method to handle ControllerPublishVolume for Block volumes
 func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
@@ -1029,7 +1036,8 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	}
 	isVolumePresentInVMStatus := false
 	for _, volume := range virtualMachine.Status.Volumes {
-		if volume.Name == req.VolumeId {
+		name := removeDetachingSuffixFromVolumeName(volume.Name)
+		if name == req.VolumeId {
 			isVolumePresentInVMStatus = true
 		}
 	}
@@ -1077,7 +1085,8 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			case watch.Added, watch.Modified:
 				isVolumeDetached = true
 				for _, volume := range vm.Status.Volumes {
-					if volume.Name == req.VolumeId {
+					name := removeDetachingSuffixFromVolumeName(volume.Name)
+					if name == req.VolumeId {
 						log.Debugf("Volume %q still exists in VirtualMachine %q status", volume.Name, virtualMachine.Name)
 						isVolumeDetached = false
 						if volume.Attached && volume.Error != "" {
