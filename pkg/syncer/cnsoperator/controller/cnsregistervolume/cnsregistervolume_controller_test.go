@@ -41,6 +41,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -2266,3 +2267,108 @@ var _ = Describe("patchCnsRegisterVolumeStatus Tests", func() {
 		})
 	})
 })
+
+func TestSetBackingDiskAnnotationNoChangeNeeded(t *testing.T) {
+	ctx := context.Background()
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnKeyBackingDiskType: "backing-disk-type-1",
+			},
+		},
+	}
+
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			BackingType: "backing-disk-type-1",
+		},
+	}
+
+	client := k8sfake.NewSimpleClientset(pvc)
+
+	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "backing-disk-type-1", out.Annotations[common.AnnKeyBackingDiskType])
+
+	// No patch should happen
+	actions := client.Actions()
+	assert.Len(t, actions, 0)
+}
+
+func TestSetBackingDiskAnnotationUpdateRequired(t *testing.T) {
+	ctx := context.Background()
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-pvc",
+			Namespace:   "default",
+			Annotations: map[string]string{common.AnnKeyBackingDiskType: "backing-disk-type-1"},
+		},
+	}
+
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			BackingType: "backing-disk-type-2",
+		},
+	}
+
+	client := k8sfake.NewSimpleClientset(pvc)
+
+	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+
+	actions := client.Actions()
+	assert.Len(t, actions, 1)
+
+	patchAction, ok := actions[0].(k8stesting.PatchAction)
+	assert.True(t, ok, "expected PatchAction")
+
+	assert.Equal(t, "persistentvolumeclaims", patchAction.GetResource().Resource)
+	assert.Equal(t, "test-pvc", patchAction.GetName())
+
+	var patch map[string]map[string]map[string]string
+	err = json.Unmarshal(patchAction.GetPatch(), &patch)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "backing-disk-type-2", patch["metadata"]["annotations"][common.AnnKeyBackingDiskType])
+}
+
+func TestSetBackingDiskAnnotationNoAnnotationsInitially(t *testing.T) {
+	ctx := context.Background()
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pvc",
+			Namespace: "default",
+		},
+	}
+
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			BackingType: "backing-disk-type-1",
+		},
+	}
+
+	client := k8sfake.NewSimpleClientset(pvc)
+
+	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
+	assert.NoError(t, err)
+	assert.NotNil(t, out)
+
+	actions := client.Actions()
+	assert.Len(t, actions, 1)
+
+	patchAction, ok := actions[0].(k8stesting.PatchAction)
+	assert.True(t, ok)
+
+	var patch map[string]map[string]map[string]string
+	err = json.Unmarshal(patchAction.GetPatch(), &patch)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "backing-disk-type-1", patch["metadata"]["annotations"][common.AnnKeyBackingDiskType])
+}

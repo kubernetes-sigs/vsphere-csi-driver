@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
@@ -390,4 +391,72 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 	}
 	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
+}
+
+// setBackingDiskAnnotation checks if the backing disk annotation on the PVC matches
+// the backing disk type mentioned on CnsRegisterVolume instance.
+func setBackingDiskAnnotation(ctx context.Context, k8sClient clientset.Interface,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	pvc *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking BackingType for PVC %s.", pvc.Name)
+
+	if instance.Spec.BackingType == "" {
+		log.Infof("BackingType on instance %s is empty.", instance.Name)
+		return pvc, nil
+	}
+
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
+	}
+
+	backingDiskType, backingDiskAnnExists := pvc.Annotations[common.AnnKeyBackingDiskType]
+	if backingDiskAnnExists {
+		if backingDiskType == instance.Spec.BackingType {
+			log.Infof("BackingType for PVC %s is up to date. Skip updating.", pvc.Name)
+			return pvc, nil
+		}
+	}
+
+	log.Infof("Updating BackingType for PVC %s to %s",
+		pvc.Name, instance.Spec.BackingType)
+
+	currentPvcAnnotations := pvc.Annotations
+
+	patchAnnotations := make(map[string]interface{})
+	for k, v := range currentPvcAnnotations {
+		patchAnnotations[k] = v
+	}
+
+	backingDiskTypeOnSpec := instance.Spec.BackingType
+	patchAnnotations[common.AnnKeyBackingDiskType] = backingDiskTypeOnSpec
+
+	// Build patch structure
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": patchAnnotations,
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("failed to marshal with annotations for PVC %s. Err: %s", pvc.Name, err)
+		return pvc, fmt.Errorf("failed to marshal patch: %v", err)
+	}
+
+	log.Infof("Patching PVC %s with updated annotation", pvc.Name)
+
+	// Apply the patch
+	updatedpvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(
+		ctx,
+		pvc.Name,
+		types.MergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		log.Errorf("failed to patch PVC %s with annotations. Err: %s", pvc.Name, err)
+		return pvc, fmt.Errorf("failed to patch PVC %s: %v", pvc.Name, err)
+	}
+
+	return updatedpvc, nil
 }
