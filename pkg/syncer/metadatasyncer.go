@@ -141,7 +141,8 @@ const (
 	ResourceKindSnapshot                 = "VolumeSnapshot"
 	PVCQuotaExtensionServiceName         = "volume.cns.vsphere.vmware.com"
 	SnapQuotaExtensionServiceName        = "snapshot.cns.vsphere.vmware.com"
-	VMServiceExtensionServiceName        = "vmware-system-vmop-webhook-service"
+	VMExtensionServiceName               = "vmware-system-vmop-webhook-service"
+	VMSnapshotExtensionServiceName       = "snapshot-vmware-system-vmop-webhook-service"
 	scParamStoragePolicyID               = "storagePolicyID"
 	StorageQuotaPeriodicSyncInstanceName = "storage-quota-periodic-sync"
 	FileVolumePrefix                     = "file:"
@@ -1196,7 +1197,8 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 	}
 	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
 	for _, storagePolicyUsage := range supList.Items {
-		if storagePolicyUsage.Spec.ResourceExtensionName == VMServiceExtensionServiceName {
+		if storagePolicyUsage.Spec.ResourceExtensionName == VMExtensionServiceName ||
+			storagePolicyUsage.Spec.ResourceExtensionName == VMSnapshotExtensionServiceName {
 			log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Processing StoragePolicyUsage"+
 				" Name: %q, Namespace: %q", storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 			if storagePolicyUsage.DeletionTimestamp != nil {
