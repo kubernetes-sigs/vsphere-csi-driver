@@ -145,7 +145,7 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 		ginkgo.By("Restore sanpshots to create new volumes")
 		restoredPvc, _, _ := csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-			vs, constants.DiskSize, true)
+			vs, constants.DiskSize, false)
 
 		// Run online expansion
 		currentPvcSize := restoredPvc.Spec.Resources.Requests[corev1.ResourceStorage]
@@ -229,7 +229,7 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			//  Restore it on different SC
 			ginkgo.By("Restore sanpshots to create new volumes")
 			restoredPvc, restoredPvList, _ := csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize, true)
+				volumeSnapshot, constants.DiskSize, false)
 
 			// create snapshot of volume created in #4
 			vsRestoredPvc, _ := csisnapshot.CreateVolumeSnapshot(ctx, e2eTestConfig, namespace, restoredPvc, restoredPvList, constants.DiskSize)
@@ -261,7 +261,7 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			//  Restore it on different SC
 			ginkgo.By("Restore sanpshots to create new volumes")
 			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize, true)
+				volumeSnapshot, constants.DiskSize, false)
 		}
 
 		framework.Logf("Ending test: Restore with a different policy on Deployment ")
@@ -307,7 +307,7 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 			//  Restore it on different SC
 			ginkgo.By("Restore sanpshots to create new volumes")
 			_, _, _ = csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-				volumeSnapshot, constants.DiskSize1GB, true)
+				volumeSnapshot, constants.DiskSize1GB, false)
 
 			break
 		}
