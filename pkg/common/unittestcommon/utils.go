@@ -469,6 +469,10 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 		return "with-used-by-annotation", "test-ns", true
 	}
 
+	if strings.Contains(volumeID, "vol-1") {
+		return "mock-pvc-1", "mock-namespace", true
+	}
+
 	// Simulate a case where the volumeID corresponds to a PVC.
 	return "mock-pvc", "mock-namespace", true
 }
