@@ -44,6 +44,8 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
 )
 
 var (
@@ -55,6 +57,7 @@ const (
 	detachSuffix = ":detaching"
 	// PVCEncryptionClassAnnotationName is a PVC annotation indicating the associated EncryptionClass
 	PVCEncryptionClassAnnotationName = "csi.vsphere.encryption-class"
+	MaxConditionMessageLength        = 32768
 )
 
 // FCDBackingDetails reflects the parameters with which a given FCD is attached to a VM.
@@ -63,6 +66,23 @@ type FCDBackingDetails struct {
 	UnitNumber    int32
 	DiskMode      string
 	SharingMode   string
+}
+
+// trimMessage safely truncates a message to the Kubernetes status.conditions max length.
+func trimMessage(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	runes := []rune(msg)
+
+	if len(runes) > MaxConditionMessageLength {
+		trimmed := string(runes[:MaxConditionMessageLength-3]) + "..."
+		return fmt.Errorf("%s", trimmed)
+	}
+
+	return err
 }
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
@@ -306,7 +326,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
 	}
-	log.Debugf("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
+	log.Infof("Obtained volumes to detach %+v for instance %s", pvcsToDetach, instance.Name)
 
 	updatePvcStatusEntryName(ctx, instance, pvcsToDetach)
 
@@ -359,56 +379,6 @@ func updateInstanceStatus(ctx context.Context, cnsoperatorclient client.Client,
 		return err
 	}
 	return nil
-}
-
-// updateInstanceWithAttachVolumeResult finds the given's volumeName's status in the instance status
-// and updates it with error.
-// It will add a new status for the volume if it does not already exist.
-func updateInstanceWithAttachVolumeResult(instance *v1alpha1.CnsNodeVMBatchAttachment,
-	volumeName string, pvc string, result volumes.BatchAttachResult) {
-
-	errMsg := ""
-	attached := true
-	if result.Error != nil {
-		attached = false
-		errMsg = result.Error.Error()
-	}
-
-	newVolumeStatus := v1alpha1.VolumeStatus{
-		Name: volumeName,
-		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
-			ClaimName:   pvc,
-			Attached:    attached,
-			Error:       errMsg,
-			CnsVolumeID: result.VolumeID,
-			DiskUUID:    result.DiskUUID,
-		},
-	}
-
-	for i, volume := range instance.Status.VolumeStatus {
-		if volume.Name != volumeName {
-			continue
-		}
-		// Update existing entry
-		instance.Status.VolumeStatus[i] = newVolumeStatus
-		return
-	}
-
-	// Add new entry instatus if it does not already exist.
-	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
-}
-
-// updateInstanceWithErrorVolumeName finds the given's PVC's status in the instance status
-// and updates it with error.
-func updateInstanceWithErrorForPvc(instance *v1alpha1.CnsNodeVMBatchAttachment,
-	pvc string, errMsg string) {
-	for i, volume := range instance.Status.VolumeStatus {
-		if volume.PersistentVolumeClaim.ClaimName != pvc {
-			continue
-		}
-		instance.Status.VolumeStatus[i].PersistentVolumeClaim.Error = errMsg
-		return
-	}
 }
 
 // deleteVolumeFromStatus finds the status of the given volumeName in an instance and deletes its entry.
@@ -954,4 +924,77 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	// Remove this PVC from volume lock store.
 	VolumeLock.Delete(namespacedVolumeName)
 	return nil
+}
+
+// updateInstanceVolumeStatus updates the status for a given volume in the instance.
+func updateInstanceVolumeStatus(
+	ctx context.Context,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumeName, pvc string,
+	volumeID, diskUUID string,
+	err error,
+	conditionType, reason string) {
+	log := logger.GetLogger(ctx)
+
+	trimmedError := trimMessage(err)
+	for i, volumeStatus := range instance.Status.VolumeStatus {
+
+		if volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
+			continue
+		}
+
+		if volumeID != "" {
+			volumeStatus.PersistentVolumeClaim.CnsVolumeID = volumeID
+		}
+		if diskUUID != "" {
+			volumeStatus.PersistentVolumeClaim.DiskUUID = diskUUID
+		}
+
+		// Ensure conditions are initialized
+		if volumeStatus.PersistentVolumeClaim.Conditions == nil {
+			volumeStatus.PersistentVolumeClaim.Conditions = []metav1.Condition{}
+		}
+
+		// Apply condition
+		if trimmedError != nil {
+			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
+			volumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
+			volumeStatus.PersistentVolumeClaim.Attached = false
+		} else {
+			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, conditionType)
+			volumeStatus.PersistentVolumeClaim.Error = ""
+			volumeStatus.PersistentVolumeClaim.Attached = true
+		}
+
+		instance.Status.VolumeStatus[i] = volumeStatus
+		return
+	}
+
+	if volumeName == "" {
+		log.Infof("VolumeName is empty for PVC %s. Skip adding a new entry.", pvc)
+		return
+	}
+
+	// Not found — create a new entry
+	newVolumeStatus := v1alpha1.VolumeStatus{
+		Name: volumeName,
+		PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+			ClaimName:   pvc,
+			CnsVolumeID: volumeID,
+			DiskUUID:    diskUUID,
+			Conditions:  []metav1.Condition{},
+		},
+	}
+
+	if trimmedError != nil {
+		conditions.MarkError(&newVolumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
+		newVolumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
+		newVolumeStatus.PersistentVolumeClaim.Attached = false
+	} else {
+		conditions.MarkTrue(&newVolumeStatus.PersistentVolumeClaim, conditionType)
+		newVolumeStatus.PersistentVolumeClaim.Error = ""
+		newVolumeStatus.PersistentVolumeClaim.Attached = true
+	}
+
+	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
 }

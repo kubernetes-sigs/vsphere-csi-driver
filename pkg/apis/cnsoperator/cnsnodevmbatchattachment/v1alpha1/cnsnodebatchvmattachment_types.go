@@ -36,6 +36,24 @@ const (
 	IndependentNonPersistent = "independent_nonpersistent"
 	// Changes to virtual disk are made to a redo log and discarded at power off.
 	NonPersistent = "nonpersistent"
+
+	// This section defines the different conditions that CnsNodeVMBatchAttachment CR can take.
+	// ConditionReady reflects the overall status of the CR.
+	ConditionReady = "Ready"
+	// ConditionAttached reflects whether the given volume was attached successfully.
+	ConditionAttached = "VolumeAttached"
+	// ConditionDetached reflects whether the given volume was detached successfully.
+	ConditionDetached = "VolumeDetached"
+
+	// This section defines the different reasons for different conditions in the CnsNodeVMBatchAttachment CR.
+	// ReasonAttachFailed reflects that the volume failed to get attached.
+	// In case of successful attachment, reason is set to True.
+	ReasonAttachFailed = "AttachFailed"
+	// ReasonDetachFailed reflects that the volume failed to get detached.
+	// In case of successful detach, the volume's entry is removed from the CR.
+	ReasonDetachFailed = "DetachFailed"
+	// ReasonFailed reflects that the CR instance is not yet ready.
+	ReasonFailed = "Failed"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
@@ -100,12 +118,19 @@ type PersistentVolumeClaimSpec struct {
 // CnsNodeVMBatchAttachmentStatus defines the observed state of CnsNodeVMBatchAttachment
 // +k8s:openapi-gen=true
 type CnsNodeVMBatchAttachmentStatus struct {
-	// Error is the overall error status for the instance.
-	Error string `json:"error,omitempty"`
+	// +optional
 	// +listType=map
 	// +listMapKey=name
 	// VolumeStatus reflects the status for each volume.
 	VolumeStatus []VolumeStatus `json:"volumes,omitempty"`
+	// +optional
+
+	// Conditions describes any conditions associated with this CnsNodeVMBatchAttachment instance.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// TODO: remove this field once VM op changes are ready.
+	// Error is the overall error status for the instance.
+	Error string `json:"error,omitempty"`
 }
 
 type VolumeStatus struct {
@@ -118,17 +143,29 @@ type VolumeStatus struct {
 type PersistentVolumeClaimStatus struct {
 	// ClaimName is the PVC name.
 	ClaimName string `json:"claimName"`
+	// +optional
+
+	// CnsVolumeID is the volume ID for the PVC.
+	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
+	// +optional
+
+	// DiskUUID is the ID obtained when volume is attached to a VM.
+	DiskUUID string `json:"diskUUID,omitempty"`
+	// +optional
+
+	// Conditions describes any conditions associated with this volume.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// TODO: remove this field once VM op changes are ready.
+	// Error indicates the error which may have occurred during attach/detach.
+	Error string `json:"error,omitempty"`
+
+	// TODO: remove this field once VM op changes are ready.
 	// Attached indicates the attach status of a PVC.
 	// If volume is not attached, Attached will be set to false.
 	// If volume is attached, Attached will be set to true.
 	// If volume is detached successfully, its entry will be removed from VolumeStatus.
 	Attached bool `json:"attached"`
-	// Error indicates the error which may have occurred during attach/detach.
-	Error string `json:"error,omitempty"`
-	// CnsVolumeID is the volume ID for the PVC.
-	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
-	// DiskUUID is the ID obtained when volume is attached to a VM.
-	DiskUUID string `json:"diskUUID,omitempty"`
 }
 
 // +genclient
@@ -156,4 +193,20 @@ type CnsNodeVMBatchAttachmentList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CnsNodeVMBatchAttachment `json:"items"`
+}
+
+func (in *CnsNodeVMBatchAttachment) GetConditions() []metav1.Condition {
+	return in.Status.Conditions
+}
+
+func (in *CnsNodeVMBatchAttachment) SetConditions(conditions []metav1.Condition) {
+	in.Status.Conditions = conditions
+}
+
+func (p *PersistentVolumeClaimStatus) GetConditions() []metav1.Condition {
+	return p.Conditions
+}
+
+func (p *PersistentVolumeClaimStatus) SetConditions(conditions []metav1.Condition) {
+	p.Conditions = conditions
 }

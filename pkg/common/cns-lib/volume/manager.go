@@ -1307,8 +1307,10 @@ func (m *defaultManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Virtua
 					}
 				}
 			}
-			return faultType, logger.LogNewErrorf(log, "failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
+			log.Errorf("failed to detach cns volume: %q from node vm: %+v. fault: %+v, opId: %q",
 				volumeID, vm, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
+			return faultType, fmt.Errorf("failed to detach cns volume: %q, Error: %s,",
+				volumeID, volumeOperationRes.Fault.LocalizedMessage)
 		}
 		log.Infof("DetachVolume: Volume detached successfully. volumeID: %q, vm: %q, opId: %q",
 			volumeID, vm.String(), taskInfo.ActivationId)
@@ -3495,8 +3497,10 @@ func compileBatchAttachTaskResult(ctx context.Context, result cnstypes.BaseCnsVo
 		// In case of failure, set faultType and error.
 		faultType := ExtractFaultTypeFromVolumeResponseResult(ctx, volumeOperationResult)
 		batchAttachResult.FaultType = faultType
-		msg := fmt.Sprintf("failed to batch attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
+		log.Errorf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
 			volumeId, vm.String(), faultType, activationId)
+		msg := fmt.Sprintf("failed to attach cns volume: %q Error: %s",
+			volumeId, volumeOperationResult.Fault.LocalizedMessage)
 		batchAttachResult.Error = errors.New(msg)
 		log.Infof("Constructed batch attach result for volume %s with failure", volumeId)
 		return batchAttachResult, nil
