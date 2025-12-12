@@ -35,6 +35,7 @@ import (
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/bootstrap"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
@@ -241,7 +242,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		3. Delete all the sts and pvcs which belong to them
 	*/
 
-	ginkgo.It("[csi-multi-svc] Workload creation on each of the clusters",
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Workload creation on each of the clusters",
 		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -299,7 +300,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		6. delete the pod and pvc created in step 6
 	*/
 
-	ginkgo.It("[csi-multi-svc] Verify volume lifecycle ops post password rotation",
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Verify volume lifecycle ops post password rotation",
 		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -402,7 +403,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		3. Delete the SVC cluster
 	*/
 
-	ginkgo.It("[csi-multi-svc] Verify permissions of the service account",
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Verify permissions of the service account",
 		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -482,7 +483,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 		7. mount nfs datastore on host1 and verify that the alarm from step 7 is gone
 	*/
 
-	ginkgo.It("[csi-multi-svc] Verify that an alarm is raised when a shared datastore "+
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Verify that an alarm is raised when a shared datastore "+
 		"becomes non-shared", ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -598,7 +599,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 	*/
 
-	ginkgo.It("[csi-multi-svc] Move a shared datastore from one SVC to another and check permission",
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Move a shared datastore from one SVC to another and check permission",
 		ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -681,7 +682,7 @@ var _ = ginkgo.Describe("[csi-multi-svc] Multi-SVC", func() {
 
 	*/
 
-	ginkgo.It("[csi-multi-svc] Kill VC session from a service account and attempt CSI ops from "+
+	ginkgo.It("[csi-multi-svc] [pq-multi-svc] Kill VC session from a service account and attempt CSI ops from "+
 		"the corresponding SVC", ginkgo.Label(constants.P0, constants.Wcp, constants.MultiSvc, constants.Vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
