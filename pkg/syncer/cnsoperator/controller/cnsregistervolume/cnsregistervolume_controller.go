@@ -433,6 +433,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	accessMode := instance.Spec.AccessMode
+	// If accessMode is not provided, set it to the default value - ReadWriteOnce.
+	if accessMode == "" {
+		accessMode = v1.ReadWriteOnce
+	}
+
+	// Here AccessMode ReadWriteMany indicates that it is a shared block volume.
+	// Validation that it does not indicate a file volume has already been done as part of
+	// isBlockVolumeRegisterRequest.
+	if isSharedDiskEnabled && accessMode == v1.ReadWriteMany {
+		log.Infof("Volume request is for shared RWX volume. Validatig if policy is compatible for VMFS datastores.")
+		err := common.ValidateStoragePolicyForRWXVolume(ctx, vc, volume.StoragePolicyId)
+		if err != nil {
+			log.Errorf("failed validation for policy %s. Err: %s", volume.StoragePolicyId, err)
+			setInstanceError(ctx, r, instance, err.Error())
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
+
 	// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
 	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
 		volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
@@ -619,11 +638,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	capacityInMb := volume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
-	accessMode := instance.Spec.AccessMode
-	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import.
-	if accessMode == "" && instance.Spec.DiskURLPath != "" {
-		accessMode = v1.ReadWriteOnce
-	}
 	pv, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
