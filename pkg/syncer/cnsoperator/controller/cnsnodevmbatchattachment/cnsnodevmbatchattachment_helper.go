@@ -928,17 +928,16 @@ func removePvcFinalizer(ctx context.Context, client client.Client,
 	return nil
 }
 
-// updateInstanceVolumeStatus updates the status for a given volume in the instance.
-func updateInstanceVolumeStatus(
+// updateInstanceVolumeStatusByVolumeName finds the PVC entry with matching PVC name.
+func updateInstanceVolumeStatusByPvc(
 	ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	volumeName, pvc string,
 	volumeID, diskUUID string,
-	err error,
+	trimmedError error,
 	conditionType, reason string) {
 	log := logger.GetLogger(ctx)
 
-	trimmedError := trimMessage(err)
 	for i, volumeStatus := range instance.Status.VolumeStatus {
 
 		if volumeStatus.PersistentVolumeClaim.ClaimName != pvc {
@@ -971,11 +970,53 @@ func updateInstanceVolumeStatus(
 		instance.Status.VolumeStatus[i] = volumeStatus
 		return
 	}
+	log.Infof("Could not find matching entry in status for PVC %s", pvc)
+}
 
-	if volumeName == "" {
-		log.Infof("VolumeName is empty for PVC %s. Skip adding a new entry.", pvc)
+// updateInstanceVolumeStatusByVolumeName finds the PVC entry with matching volumeName.
+func updateInstanceVolumeStatusByVolumeName(
+	ctx context.Context,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumeName, pvc string,
+	volumeID, diskUUID string,
+	trimmedError error,
+	conditionType, reason string) {
+	log := logger.GetLogger(ctx)
+
+	for i, volumeStatus := range instance.Status.VolumeStatus {
+
+		if volumeStatus.Name != volumeName {
+			continue
+		}
+
+		volumeStatus.PersistentVolumeClaim.ClaimName = pvc
+		if volumeID != "" {
+			volumeStatus.PersistentVolumeClaim.CnsVolumeID = volumeID
+		}
+		if diskUUID != "" {
+			volumeStatus.PersistentVolumeClaim.DiskUUID = diskUUID
+		}
+
+		// Ensure conditions are initialized
+		if volumeStatus.PersistentVolumeClaim.Conditions == nil {
+			volumeStatus.PersistentVolumeClaim.Conditions = []metav1.Condition{}
+		}
+
+		// Apply condition
+		if trimmedError != nil {
+			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
+			volumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
+			volumeStatus.PersistentVolumeClaim.Attached = false
+		} else {
+			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, conditionType)
+			volumeStatus.PersistentVolumeClaim.Error = ""
+			volumeStatus.PersistentVolumeClaim.Attached = true
+		}
+
+		instance.Status.VolumeStatus[i] = volumeStatus
 		return
 	}
+	log.Infof("Adding a new entry for volumeName %s with PVC %s", volumeName, pvc)
 
 	// Not found — create a new entry
 	newVolumeStatus := v1alpha1.VolumeStatus{
@@ -999,4 +1040,29 @@ func updateInstanceVolumeStatus(
 	}
 
 	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
+
+}
+
+// updateInstanceVolumeStatus updates the status for a given volume in the instance.
+func updateInstanceVolumeStatus(
+	ctx context.Context,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumeName, pvc string,
+	volumeID, diskUUID string,
+	err error,
+	conditionType, reason string) {
+
+	trimmedError := trimMessage(err)
+
+	// If volumeName is provided, iterate over the status using volumeName as it is unique.
+	if volumeName != "" {
+		updateInstanceVolumeStatusByVolumeName(ctx, instance, volumeName, pvc, volumeID, diskUUID,
+			trimmedError, conditionType, reason)
+		return
+	}
+
+	// The only time this will be called is during detach when the volume is removed from the spec
+	// and hence there is no way to know its volumeName.
+	updateInstanceVolumeStatusByPvc(ctx, instance, volumeName, pvc, volumeID, diskUUID,
+		trimmedError, conditionType, reason)
 }
