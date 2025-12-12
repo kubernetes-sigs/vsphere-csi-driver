@@ -194,7 +194,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 
 	volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
 		idempotencyHandlingEnabled, false,
-		false, cnstypes.CnsClusterFlavorWorkload)
+		false, cnstypes.CnsClusterFlavorWorkload, config.Global.SupervisorID, config.Global.ClusterDistribution)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
@@ -431,10 +431,9 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 			return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 		}
 		c.manager.VcenterConfig = newVCConfig
-
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
 			idempotencyHandlingEnabled, false,
-			false, cnstypes.CnsClusterFlavorWorkload)
+			false, cnstypes.CnsClusterFlavorWorkload, cfg.Global.SupervisorID, cfg.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -1726,16 +1725,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
-			if err != nil {
-				if err.Error() == common.ErrNotFound.Error() {
-					// The volume couldn't be found during query, assuming the delete operation as success
-					return &csi.DeleteVolumeResponse{}, "", nil
-				} else {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
-				}
-			}
+			cnsVolumeType = common.GetCnsVolumeType(ctx, req.VolumeId)
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
 		// Check if the volume contains CNS snapshots only for block volumes.
@@ -2437,24 +2427,13 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 		volumeID := req.GetSourceVolumeId()
 		volumeType = prometheus.PrometheusBlockVolumeType
-		// Query capacity in MB for block volume snapshot
-		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := cnsVolumeDetailsMap[volumeID]; !ok {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"cns query volume did not return the volume: %s", volumeID)
-		}
-		snapshotSizeInMB := cnsVolumeDetailsMap[volumeID].SizeInMB
 
-		if cnsVolumeDetailsMap[volumeID].VolumeType != common.BlockVolumeType {
+		cnsvolumeType := common.GetCnsVolumeType(ctx, volumeID)
+		if cnsvolumeType != common.BlockVolumeType {
 			return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-				"queried volume doesn't have the expected volume type. Expected VolumeType: %v. "+
-					"Queried VolumeType: %v", volumeType, cnsVolumeDetailsMap[volumeID].VolumeType)
+				"Expected VolumeType: %v. "+
+					"Observed VolumeType: %v", volumeType, cnsvolumeType)
 		}
-
 		// TODO: We may need to add logic to check the limit of max number of snapshots by using
 		// GlobalMaxSnapshotsPerBlockVolume etc. variables in the future.
 
@@ -2462,6 +2441,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// sign. That is, a string of "<UUID>+<UUID>". Because, all other CNS snapshot APIs still require both
 		// VolumeID and SnapshotID as the input, while corresponding snapshot APIs in upstream CSI require SnapshotID.
 		// So, we need to bridge the gap in vSphere CSI driver and return a combined SnapshotID to CSI Snapshotter.
+		var err error
 		var snapshotID string
 		var cnsSnapshotInfo *cnsvolume.CnsSnapshotInfo
 		var cnsVolumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
@@ -2517,6 +2497,17 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					"failed to create snapshot on volume %q with error: %v", volumeID, err)
 			}
 		}
+		// Query capacity in MB for block volume snapshot
+		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := cnsVolumeDetailsMap[volumeID]; !ok {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"cns query volume did not return the volume: %s", volumeID)
+		}
+		snapshotSizeInMB := cnsVolumeDetailsMap[volumeID].SizeInMB
 		snapshotCreateTimeInProto := timestamppb.New(cnsSnapshotInfo.SnapshotLatestOperationCompleteTime)
 		createSnapshotResponse := &csi.CreateSnapshotResponse{
 			Snapshot: &csi.Snapshot{
@@ -2708,11 +2699,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Later we may need to define different csi faults.
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, c.manager.VolumeManager, req.VolumeId)
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
-			}
+			cnsVolumeType = common.GetCnsVolumeType(ctx, req.VolumeId)
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
 		if cnsVolumeType == common.BlockVolumeType &&
