@@ -273,6 +273,8 @@ func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	// Set up the vc connection.
 	err := vc.connect(ctx)
 	if err != nil {
+		// If the error is due to incorrect credentials,
+		// retry with backoff here.
 		log.Errorf("Cannot connect to vCenter with err: %v", err)
 		// Logging out of the current session to make sure the retry create
 		// a new client in the next attempt.
