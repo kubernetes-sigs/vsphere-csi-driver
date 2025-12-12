@@ -51,6 +51,9 @@ type Config struct {
 		// CnsRegisterVolumesCleanupIntervalInMin specifies the interval after which
 		// successful CnsRegisterVolumes will be cleaned up.
 		CnsRegisterVolumesCleanupIntervalInMin int `gcfg:"cnsregistervolumes-cleanup-intervalinmin"`
+		// CnsPVCProtectionCleanupIntervalInMin specifies the interval after which
+		// orphaned PVCs will be cleaned up.
+		CnsPVCProtectionCleanupIntervalInMin int `gcfg:"cnspvcprotection-cleanup-intervalinmin"`
 		// VolumeMigrationCRCleanupIntervalInMin specifies the interval after which
 		// stale CnsVSphereVolumeMigration CRs will be cleaned up.
 		VolumeMigrationCRCleanupIntervalInMin int `gcfg:"volumemigration-cr-cleanup-intervalinmin"`
