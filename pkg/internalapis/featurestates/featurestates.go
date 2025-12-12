@@ -122,8 +122,15 @@ func StartSvFSSReplicationService(ctx context.Context, svFeatureStatConfigMapNam
 		return err
 	}
 
+	// Create the snapshotter client.
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("Creating Snapshotter client failed. Err: %v", err)
+		return err
+	}
+
 	// Create k8s Informer and watch on configmaps and namespaces.
-	informer := k8s.NewInformer(ctx, k8sClient, true)
+	informer := k8s.NewInformer(ctx, k8sClient, snapshotterClient)
 	// Configmap informer to watch on SV featurestate config-map.
 	err = informer.AddConfigMapListener(
 		ctx,
