@@ -37,13 +37,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -79,8 +82,7 @@ func (m *mockVolumeManager) DetachVolume(ctx context.Context, vm *cnsvsphere.Vir
 }
 
 func (m *mockVolumeManager) DeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) (string, error) {
-	//TODO implement me
-	panic("implement me")
+	return "", nil
 }
 
 func (m *mockVolumeManager) UpdateVolumeMetadata(ctx context.Context,
@@ -224,7 +226,7 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 
 type mockCOCommon struct{}
 
-func (m *mockCOCommon) GetPVCNamespacedNameByUID(uid string) (types.NamespacedName, bool) {
+func (m *mockCOCommon) GetPVCNamespacedNameByUID(uid string) (apitypes.NamespacedName, bool) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -547,7 +549,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		)
 
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
+			NamespacedName: apitypes.NamespacedName{
 				Name:      "test-volume",
 				Namespace: "test-ns",
 			},
@@ -1256,7 +1258,7 @@ func (m *mockTopologyService) ZonesWithMultipleClustersExist(ctx context.Context
 }
 
 func TestCnsRegisterVolumeController(t *testing.T) {
-	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 
 	// Set required FSS to true for unit test
 	workloadDomainIsolationEnabled = true
@@ -1984,3 +1986,167 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	assert.NotNil(t, pvFinal.Spec.VolumeMode)
 	assert.Equal(t, corev1.PersistentVolumeBlock, *pvFinal.Spec.VolumeMode)
 }
+
+var _ = Describe("Storage Quota Update Idempotency Tests", func() {
+	// Unit tests for updateQuotaInStoragePolicyUsageWithClient function
+	Context("updateQuotaInStoragePolicyUsageWithClient function tests", func() {
+		var (
+			ctx                  context.Context
+			instance             *cnsregistervolumev1alpha1.CnsRegisterVolume
+			storageClassName     string
+			capacity             *resource.Quantity
+			cnsOperatorClient    client.Client
+			storagePolicyUsageCR *storagepolicyusagev1alpha2.StoragePolicyUsage
+		)
+
+		BeforeEach(func() {
+			ctx = context.Background()
+			storageClassName = "test-storage-class"
+			capacity = resource.NewQuantity(1024*1024*1024, resource.BinarySI) // 1 GiB
+
+			instance = &cnsregistervolumev1alpha1.CnsRegisterVolume{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-volume",
+					Namespace: "test-ns",
+				},
+				Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+					Error: "",
+				},
+			}
+
+			// Create a fake client with SPU CR
+			spuScheme := runtime.NewScheme()
+			_ = apis.AddToScheme(spuScheme)
+			_ = corev1.AddToScheme(spuScheme)
+
+			storagePolicyUsageCR = &storagepolicyusagev1alpha2.StoragePolicyUsage{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      storageClassName + "-pvc-usage",
+					Namespace: "test-ns",
+				},
+				Spec: storagepolicyusagev1alpha2.StoragePolicyUsageSpec{
+					StorageClassName:      storageClassName,
+					StoragePolicyId:       "test-policy-id",
+					ResourceKind:          "PersistentVolumeClaim",
+					ResourceExtensionName: "volume.cns.vsphere.vmware.com",
+				},
+				Status: storagepolicyusagev1alpha2.StoragePolicyUsageStatus{
+					ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha2.QuotaUsageDetails{
+						Reserved: resource.NewQuantity(0, resource.BinarySI),
+						Used:     resource.NewQuantity(0, resource.BinarySI),
+					},
+				},
+			}
+
+			cnsOperatorClient = fake.NewClientBuilder().
+				WithScheme(spuScheme).
+				WithObjects(storagePolicyUsageCR).
+				WithStatusSubresource(storagePolicyUsageCR).
+				Build()
+		})
+
+		It("should successfully update quota when no errors", func() {
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).To(BeNil())
+
+			// Verify the final state
+			finalSPU := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+				Namespace: "test-ns",
+				Name:      storageClassName + "-pvc-usage",
+			}, finalSPU)
+			Expect(err).To(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Reserved.Value()).To(Equal(int64(0)))
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value()).To(Equal(capacity.Value()))
+		})
+
+		It("should skip quota update when error indicates it was already done", func() {
+			instance.Status.Error = "Failed to update CnsRegistered instance with error: timeout"
+
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).To(BeNil())
+
+			// Verify SPU was not modified
+			finalSPU := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+				Namespace: "test-ns",
+				Name:      storageClassName + "-pvc-usage",
+			}, finalSPU)
+			Expect(err).To(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Reserved.Value()).To(Equal(int64(0)))
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value()).To(Equal(int64(0)))
+		})
+
+		It("should skip reserved field update when error indicates it was already done, next get failed", func() {
+			instance.Status.Error = "failed to fetch StoragePolicyUsage CR : \"test\" in namespace: \"test-ns\""
+
+			// Update SPU to have reserved increased in last run, to simulate retry
+			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved = resource.NewQuantity(capacity.Value(),
+				resource.BinarySI)
+			_ = cnsOperatorClient.Status().Update(ctx, storagePolicyUsageCR)
+
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).To(BeNil())
+
+			// Verify reserved was moved to used (reserved becomes 0, used becomes capacity)
+			finalSPU := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+				Namespace: "test-ns",
+				Name:      storageClassName + "-pvc-usage",
+			}, finalSPU)
+			Expect(err).To(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Reserved.Value()).To(Equal(int64(0)))
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value()).To(Equal(capacity.Value()))
+		})
+
+		It("should skip reserved field update when error indicates it was already done, next patch failed", func() {
+			instance.Status.Error = "failed to patch StoragePolicyUsage CR: \"test\" in namespace: \"test-ns\""
+
+			// Update SPU to have reserved increased in last run, to simulate retry
+			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved = resource.NewQuantity(capacity.Value(),
+				resource.BinarySI)
+			_ = cnsOperatorClient.Status().Update(ctx, storagePolicyUsageCR)
+
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).To(BeNil())
+
+			// Verify reserved was moved to used (reserved becomes 0, used becomes capacity)
+			finalSPU := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+				Namespace: "test-ns",
+				Name:      storageClassName + "-pvc-usage",
+			}, finalSPU)
+			Expect(err).To(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Reserved.Value()).To(Equal(int64(0)))
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value()).To(Equal(capacity.Value()))
+		})
+
+		It("should return error when first Get fails (SPU not found)", func() {
+			// Delete the SPU to simulate Get failure
+			_ = cnsOperatorClient.Delete(ctx, storagePolicyUsageCR)
+
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).NotTo(BeNil())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+
+		It("should handle SPU with nil ResourceTypeLevelQuotaUsage", func() {
+			// Update SPU to have nil ResourceTypeLevelQuotaUsage
+			storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage = nil
+			_ = cnsOperatorClient.Status().Update(ctx, storagePolicyUsageCR)
+
+			err := updateQuotaInStoragePolicyUsageWithClient(ctx, instance, storageClassName, capacity, cnsOperatorClient)
+			Expect(err).To(BeNil())
+
+			// Verify the final state
+			finalSPU := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
+				Namespace: "test-ns",
+				Name:      storageClassName + "-pvc-usage",
+			}, finalSPU)
+			Expect(err).To(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage).NotTo(BeNil())
+			Expect(finalSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value()).To(Equal(capacity.Value()))
+		})
+	})
+})
