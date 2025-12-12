@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1085,7 +1086,7 @@ func initStorageQuotaPeriodicSync(ctx context.Context, metadataSyncer *metadataS
 func syncStorageQuotaReserved(ctx context.Context,
 	cnsOperatorClient client.Client, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
-	lastSyncTime := metav1.NewTime(time.Now())
+
 	// fetching storagepolicyquota
 	log.Info("syncStorageQuotaReserved: Sync started for storage quota")
 	spqList := &storagepolicyv1alpha2.StoragePolicyQuotaList{}
@@ -1108,11 +1109,13 @@ func syncStorageQuotaReserved(ctx context.Context,
 		return
 	}
 	var totalStoragePolicyReserved map[string]*resource.Quantity
+	var hasValidData bool
 	expectedReservedValues := []sqperiodicsyncv1alpha1.ExpectedReservedValues{}
 	log.Debug("syncStorageQuotaReserved: iterate through namespaces and calcuate reserved values")
 	// loop over namespaces and calcuate reserved values
 	for ns := range namespaces {
 		totalStoragePolicyReserved = make(map[string]*resource.Quantity)
+		hasValidData = false
 		log.Debugf("syncStorageQuotaReserved: processing storage quota sync for namespace %q", ns)
 		// calculate VM service's storagepolicyusage reserved values for given namespace
 		spuVmServiceReserved, err := calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx,
@@ -1123,6 +1126,13 @@ func syncStorageQuotaReserved(ctx context.Context,
 			continue
 		}
 		if spuVmServiceReserved != nil {
+			if !validateReservedValues(spuVmServiceReserved) {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected VmService StoragePolicyUsage"+
+					" reserved value for namespace %s, Error: %v", ns,
+					errors.New("expected reserved is negative value"))
+				continue
+			}
+			hasValidData = true
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(spuVmServiceReserved, totalStoragePolicyReserved)
 		}
 
@@ -1134,6 +1144,12 @@ func syncStorageQuotaReserved(ctx context.Context,
 			continue
 		}
 		if pvcReserved != nil {
+			if !validateReservedValues(pvcReserved) {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected PVC reserved value for"+
+					" given namespace %q, Error: %v", ns, errors.New("expected reserved is negative value"))
+				continue
+			}
+			hasValidData = true
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(pvcReserved, totalStoragePolicyReserved)
 		}
 
@@ -1145,6 +1161,12 @@ func syncStorageQuotaReserved(ctx context.Context,
 			continue
 		}
 		if vsReserved != nil {
+			if !validateReservedValues(vsReserved) {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected VolumeSnapshot reserved value for"+
+					" given namespace %q, Error: %v", ns, errors.New("expected reserved is negative value"))
+				continue
+			}
+			hasValidData = true
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(vsReserved, totalStoragePolicyReserved)
 		}
 
@@ -1158,17 +1180,36 @@ func syncStorageQuotaReserved(ctx context.Context,
 				continue
 			}
 			if sprReserved != nil {
+				if !validateReservedValues(sprReserved) {
+					log.Errorf("syncStorageQuotaReserved: error while calculating expected reserved value for"+
+						" StoragePolicyReservation in namespace %q, Error: %v", ns,
+						errors.New("expected reserved is negative value"))
+					continue
+				}
+				hasValidData = true
 				totalStoragePolicyReserved = mergeStoragePolicyReserved(sprReserved, totalStoragePolicyReserved)
 			}
 		}
+		if hasValidData && len(totalStoragePolicyReserved) > 0 {
+			expectedReservedValues = append(expectedReservedValues, sqperiodicsyncv1alpha1.ExpectedReservedValues{
+				Namespace: ns,
+				Reserved:  totalStoragePolicyReserved,
+			})
+		}
 
-		expectedReservedValues = append(expectedReservedValues, sqperiodicsyncv1alpha1.ExpectedReservedValues{
-			Namespace: ns,
-			Reserved:  totalStoragePolicyReserved,
-		})
 	}
+	lastSyncTime := metav1.NewTime(time.Now())
 	updateStorageQuotaPeriodicSyncCR(ctx, cnsOperatorClient, expectedReservedValues, lastSyncTime)
 	log.Debug("syncStorageQuotaReserved: updated the StorageQuotaPeriodicSync CR")
+}
+
+func validateReservedValues(reservedValueMap map[string]*resource.Quantity) bool {
+	for _, policyReservedValue := range reservedValueMap {
+		if policyReservedValue.Cmp(resource.MustParse("0")) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // mergeStoragePolicyReserved will sum up  and return the total reserved value
@@ -1207,7 +1248,8 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
 			}
-			if storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage == nil {
+			if storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage == nil ||
+				storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Reserved == nil {
 				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: StoragePolicyUsage"+
 					" status not populated, continue processing other PVCs Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
@@ -1265,6 +1307,11 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 				storagePolicyToReservedMap[storagePolicyID] = resource.NewQuantity(0, resource.BinarySI)
 			}
 		}
+		if pvc.Spec.Resources.Requests == nil {
+			log.Debugf("calculatePVCReservedForNamespace: pvc resources not populated, continuing processing others"+
+				" Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
+			continue
+		}
 		// check if pvc is in pending state
 		pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvc.Status.Phase == v1.ClaimPending {
@@ -1273,10 +1320,15 @@ func calculatePVCReservedForNamespace(ctx context.Context, volumeMap map[string]
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
 				storagePolicyToReservedMap[storagePolicyID].Add(pvcSize)
 			}
-		} else if pv, ok := volumeMap[pvc.Name]; ok {
+		} else if pv, ok := volumeMap[pvc.Namespace+"/"+pvc.Name]; ok {
+			if pv.Spec.Capacity == nil {
+				log.Debugf("calculatePVCReservedForNamespace: pv capacity not populated, continuing"+
+					" Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
+				continue
+			}
 			pvSize := pv.Spec.Capacity[v1.ResourceStorage]
 			// check if pvc is under expansion
-			if !pvcSize.Equal(pvSize) {
+			if pvcSize.Cmp(pvSize) > 0 {
 				log.Debugf("calculatePVCReservedForNamespace: pvc size being expanded"+
 					" Name: %q, Namespace: %q adding pvc capacity to reserved", pvc.Name, pvc.Namespace)
 				if storagePolicyID, ok := scToStoragePolicyIDMap[*pvc.Spec.StorageClassName]; ok {
@@ -1310,7 +1362,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 			" error: %v in namespace: %s", err, namespace)
 		return nil, err
 	}
-	pvcList := &v1.PersistentVolumeClaimList{}
+	pvcListFetched := false
 	volumeClaim := &v1.PersistentVolumeClaim{}
 	volumeMap := make(map[string]*v1.PersistentVolumeClaim)
 	storagePolicyIdToReservedMap := make(map[string]*resource.Quantity)
@@ -1328,7 +1380,7 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 		} else {
 			log.Debugf("calculateVolumeSnapshotReservedForNamespace: Processing VolumeSnapshot"+
 				" Name: %q, Namespace: %q", vs.Name, vs.Namespace)
-			if len(pvcList.Items) == 0 {
+			if !pvcListFetched {
 				log.Debugf("calculateVolumeSnapshotReservedForNamespace: Fetching PersistentVolumeClaim "+
 					" for Namespace: %q", vs.Namespace)
 				pvcList, err := metadataSyncer.pvcLister.PersistentVolumeClaims(namespace).List(labels.NewSelector())
@@ -1337,12 +1389,28 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 						" from namespace %q, Error %v", namespace, err)
 					return nil, err
 				}
+				pvcListFetched = true
 				for _, pvc := range pvcList {
-					volumeMap[pvc.Name] = pvc
+					volumeMap[pvc.Namespace+"/"+pvc.Name] = pvc
 				}
 			}
 			if vs.Spec.Source.PersistentVolumeClaimName != nil {
-				volumeClaim = volumeMap[*vs.Spec.Source.PersistentVolumeClaimName]
+				volumeClaim = volumeMap[vs.Namespace+"/"+*vs.Spec.Source.PersistentVolumeClaimName]
+				if volumeClaim == nil {
+					log.Debugf("calculateVolumeSnapshotReservedForNamespace: PVC not found for VolumeSnapshot"+
+						" Name: %q, Namespace: %q, PVC: %q", vs.Name, vs.Namespace, *vs.Spec.Source.PersistentVolumeClaimName)
+					continue
+				}
+				if volumeClaim.Spec.StorageClassName == nil {
+					log.Debugf("calculateVolumeSnapshotReservedForNamespace: StorageClassName is nil for PVC"+
+						" Name: %q, Namespace: %q", volumeClaim.Name, volumeClaim.Namespace)
+					continue
+				}
+				if volumeClaim.Spec.Resources.Requests == nil {
+					log.Debugf("calculateVolumeSnapshotReservedForNamespace: PVC resources not populated"+
+						" Name: %q, Namespace: %q", volumeClaim.Name, volumeClaim.Namespace)
+					continue
+				}
 				if spu, ok := scToStoragPolicyIdMap[*volumeClaim.Spec.StorageClassName]; ok {
 					if storagePolicyIdToReservedMap[spu] == nil {
 						storagePolicyIdToReservedMap[spu] = resource.NewQuantity(0, resource.BinarySI)
@@ -1567,7 +1635,7 @@ func fetchPVs(ctx context.Context, metadataSyncer *metadataSyncInformer) (map[st
 	volumeMap := make(map[string]*v1.PersistentVolume)
 	for _, pv := range pvList {
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase != v1.VolumePending {
-			volumeMap[pv.Spec.ClaimRef.Name] = pv
+			volumeMap[pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name] = pv
 		}
 	}
 	return volumeMap, nil
