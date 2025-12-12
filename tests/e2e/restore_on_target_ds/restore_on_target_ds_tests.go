@@ -145,7 +145,7 @@ var _ bool = ginkgo.Describe("[restore-on-target-ds-p0] restore-on-target-ds-p0"
 
 		ginkgo.By("Restore sanpshots to create new volumes")
 		restoredPvc, _, _ := csisnapshot.VerifyVolumeRestoreOperation(ctx, e2eTestConfig, client, namespace, restoreSc,
-			vs, constants.DiskSize, false)
+			vs, constants.DiskSize, true)
 
 		// Run online expansion
 		currentPvcSize := restoredPvc.Spec.Resources.Requests[corev1.ResourceStorage]
