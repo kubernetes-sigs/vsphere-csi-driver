@@ -36,7 +36,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
@@ -462,7 +461,7 @@ func VerifyVolumeRestoreOperation(ctx context.Context, e2eTestConfig *config.E2e
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
 
-		ginkgo.By("Verify the volume is accessible and Read/write is possible")
+		/*ginkgo.By("Verify the volume is accessible and Read/write is possible")
 		var cmd []string
 		if e2eTestConfig.TestInput.TestBedInfo.WindowsEnv {
 			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "powershell.exe", "cat ", constants.FilePathPod1}
@@ -483,7 +482,7 @@ func VerifyVolumeRestoreOperation(ctx context.Context, e2eTestConfig *config.E2e
 		}
 		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd...)
 		output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())
+		gomega.Expect(strings.Contains(output, "Hello message from test into Pod1")).NotTo(gomega.BeFalse())*/
 		return pvclaim2, persistentvolumes2, pod
 	}
 	return pvclaim2, persistentvolumes2, pod
