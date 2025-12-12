@@ -1532,3 +1532,150 @@ func TestUpdateInstanceVolume_WhenVolumeNameIsEmpty(t *testing.T) {
 
 	assert.Len(t, instance.Status.VolumeStatus, 0)
 }
+
+func TestUpdateInstanceVolumeStatusByPvc_SetsSuccessCondition_WhenNoError(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "mypvc",
+					},
+				},
+			},
+		},
+	}
+
+	updateInstanceVolumeStatusByPvc(
+		context.TODO(),
+		instance,
+		"vol1",
+		"mypvc",
+		"vol-id-123",
+		"disk-uuid-123",
+		nil,
+		v1alpha1.ConditionAttached,
+		"",
+	)
+
+	assert.Len(t, instance.Status.VolumeStatus, 1)
+	vs := instance.Status.VolumeStatus[0]
+
+	assert.Equal(t, "mypvc", vs.PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "vol-id-123", vs.PersistentVolumeClaim.CnsVolumeID)
+	assert.Equal(t, "disk-uuid-123", vs.PersistentVolumeClaim.DiskUUID)
+
+	// Condition
+	assert.Len(t, vs.PersistentVolumeClaim.Conditions, 1)
+	cond := vs.PersistentVolumeClaim.Conditions[0]
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, v1alpha1.ConditionAttached, cond.Type)
+	assert.Equal(t, "True", cond.Reason)
+	assert.Empty(t, vs.PersistentVolumeClaim.Error)
+	assert.True(t, vs.PersistentVolumeClaim.Attached)
+}
+
+func TestUpdateInstanceVolumeStatusByPvc_MarksErrorCondition_WhenErrorProvided(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "pvc2",
+					},
+				},
+			},
+		},
+	}
+
+	err := errors.New("failed to attach")
+
+	updateInstanceVolumeStatusByPvc(
+		context.TODO(),
+		instance,
+		"vol2",
+		"pvc2",
+		"",
+		"",
+		err,
+		v1alpha1.ConditionAttached,
+		v1alpha1.ReasonAttachFailed,
+	)
+
+	assert.Len(t, instance.Status.VolumeStatus, 1)
+	vs := instance.Status.VolumeStatus[0]
+
+	assert.Equal(t, "pvc2", vs.PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "failed to attach", vs.PersistentVolumeClaim.Error)
+	assert.False(t, vs.PersistentVolumeClaim.Attached)
+
+	assert.Len(t, vs.PersistentVolumeClaim.Conditions, 1)
+	cond := vs.PersistentVolumeClaim.Conditions[0]
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, v1alpha1.ConditionAttached, cond.Type)
+	assert.Equal(t, v1alpha1.ReasonAttachFailed, cond.Reason)
+	assert.Equal(t, "failed to attach", cond.Message)
+}
+
+func TestUpdateInstanceVolumeStatusByPvc_InitializesConditions_WhenNil(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName:  "mypvc",
+						Conditions: nil, // explicitly nil
+					},
+				},
+			},
+		},
+	}
+
+	updateInstanceVolumeStatusByPvc(
+		context.TODO(),
+		instance,
+		"vol",
+		"mypvc",
+		"",
+		"",
+		nil,
+		v1alpha1.ConditionAttached,
+		"",
+	)
+
+	vs := instance.Status.VolumeStatus[0]
+	assert.NotNil(t, vs.PersistentVolumeClaim.Conditions)
+	assert.NotEmpty(t, vs.PersistentVolumeClaim.Conditions)
+}
+
+func TestUpdateInstanceVolumeStatusByPvc_DoesNothing_WhenPVCNotFound(t *testing.T) {
+	instance := &v1alpha1.CnsNodeVMBatchAttachment{
+		Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []v1alpha1.VolumeStatus{
+				{
+					PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+						ClaimName: "other",
+					},
+				},
+			},
+		},
+	}
+
+	// capture original snapshot
+	original := instance.Status.VolumeStatus[0]
+
+	updateInstanceVolumeStatusByPvc(
+		context.TODO(),
+		instance,
+		"vol",
+		"nonexistent-pvc",
+		"new-id",
+		"new-disk",
+		nil,
+		v1alpha1.ConditionAttached,
+		"",
+	)
+
+	// Expect unchanged
+	assert.Equal(t, original, instance.Status.VolumeStatus[0])
+}
