@@ -224,6 +224,11 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 	return "", nil
 }
 
+func (m *mockVolumeManager) QueryBackingTypeFromVirtualDiskInfo(ctx context.Context,
+	volumeID string) (string, error) {
+	return "", nil
+}
+
 type mockCOCommon struct{}
 
 func (m *mockCOCommon) GetPVCNamespacedNameByUID(uid string) (types.NamespacedName, bool) {

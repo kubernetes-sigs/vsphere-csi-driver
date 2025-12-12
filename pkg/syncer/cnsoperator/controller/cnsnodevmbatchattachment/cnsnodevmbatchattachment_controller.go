@@ -538,7 +538,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 	// Construct batch attach request
 	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, err := constructBatchAttachRequest(ctx,
-		volumesToAttach, instance)
+		volumesToAttach, instance, r.volumeManager, k8sClient)
 	if err != nil {
 		log.Errorf("failed to construct batch attach request. Err: %s", err)
 		return err

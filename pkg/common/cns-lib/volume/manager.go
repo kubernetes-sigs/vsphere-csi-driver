@@ -160,6 +160,9 @@ type Manager interface {
 	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error)
 	// SyncVolume returns the aggregated capacity for volumes
 	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
+	// QueryBackingTypeFromVirtualDiskInfo queries the backing type of a volume using
+	// VirtualDiskManager's QueryVirtualDiskInfo API.
+	QueryBackingTypeFromVirtualDiskInfo(ctx context.Context, volumeID string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -3829,4 +3832,82 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 
 	log.Infof("volume %q unregistered successfully", volumeID)
 	return "", nil
+}
+
+// QueryBackingTypeFromVirtualDiskInfo queries the backing type of a volume using
+// VirtualDiskManager's QueryVirtualDiskInfo API.
+// It first queries the volume to get the BackingDiskPath, then uses that path to call
+// QueryVirtualDiskInfo which returns the disk type information.
+func (m *defaultManager) QueryBackingTypeFromVirtualDiskInfo(ctx context.Context,
+	volumeID string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get the datacenters
+	dcs, err := m.virtualCenter.GetDatacenters(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get datacenters: %w", err)
+	}
+	if len(dcs) == 0 {
+		return "", fmt.Errorf("no datacenters found")
+	}
+
+	// Query volume to get the backing disk path
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{string(cnstypes.QuerySelectionNameTypeBackingObjectDetails)},
+	}
+
+	queryResult, err := m.QueryVolumeAsync(ctx, queryFilter, &querySelection)
+	if err != nil {
+		return "", fmt.Errorf("failed to query volume for backing details %s: %w", volumeID, err)
+	}
+	if queryResult == nil || len(queryResult.Volumes) == 0 {
+		return "", fmt.Errorf("no volume found for volumeID %s", volumeID)
+	}
+
+	backingObjectDetails := queryResult.Volumes[0].BackingObjectDetails
+	if backingObjectDetails == nil {
+		return "", fmt.Errorf("backing object details not found for volumeID %s", volumeID)
+	}
+
+	blockBackingDetails, ok := backingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	if !ok {
+		return "", fmt.Errorf("backing object details is not of type CnsBlockBackingDetails for volumeID %s", volumeID)
+	}
+
+	backingFilePath := blockBackingDetails.BackingDiskPath
+	if backingFilePath == "" {
+		return "", fmt.Errorf("backing disk path not found for volumeID %s", volumeID)
+	}
+
+	// Get the vim25 client that uses standard vim25 namespace.
+	// This is required because QueryVirtualDiskInfo uses internal vim25 namespace
+	// which doesn't work with the vsan service version used by the main client.
+	vim25Client, err := m.virtualCenter.GetVim25Client(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vim25 client: %w", err)
+	}
+
+	// Query virtual disk info using the datacenter we already have
+	virtualDiskManager := object.NewVirtualDiskManager(vim25Client)
+	diskInfoList, err := virtualDiskManager.QueryVirtualDiskInfo(ctx, backingFilePath, dcs[0].Datacenter, false)
+	if err != nil {
+		return "", fmt.Errorf("failed to query virtual disk info for %s: %w", backingFilePath, err)
+	}
+	if len(diskInfoList) == 0 {
+		return "", fmt.Errorf("no disk info returned for %s", backingFilePath)
+	}
+
+	diskType := diskInfoList[0].DiskType
+	log.Debugf("Retrieved diskType %s for volumeID %s", diskType, volumeID)
+
+	// Convert diskType to backing type
+	backingType := ConvertDiskTypeToBackingType(diskType)
+	if backingType == "" {
+		return "", fmt.Errorf("unable to find backingType for diskType:%s for the volume %s",
+			diskType, volumeID)
+	}
+	return backingType, nil
 }

@@ -517,7 +517,9 @@ func listAttachedFcdsForVM(ctx context.Context,
 // It also validates each of the requests to make sure user input is correct.
 func constructBatchAttachRequest(ctx context.Context,
 	volumesToAttach map[string]string,
-	instance *v1alpha1.CnsNodeVMBatchAttachment) (pvcsInSpec map[string]string,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	volumeManager volumes.Manager,
+	k8sClient kubernetes.Interface) (pvcsInSpec map[string]string,
 	volumeIdsInSpec map[string]string,
 	batchAttachRequest []volumes.BatchAttachRequest, err error) {
 	log := logger.GetLogger(ctx)
@@ -552,6 +554,26 @@ func constructBatchAttachRequest(ctx context.Context,
 			isPvcEncrypted := isPvcEncrypted(pvcObj.Annotations)
 			log.Infof("PVC %s has encryption enabled: %t", pvcName, isPvcEncrypted)
 
+			// Get BackingType from PVC annotation, if not available query from VirtualDiskManager
+			backingType := pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType]
+			if backingType == "" {
+				log.Infof("BackingType annotation not found on PVC %s, querying from VirtualDiskManager", pvcName)
+				queriedBackingType, queryErr := volumeManager.QueryBackingTypeFromVirtualDiskInfo(ctx, volumeID)
+				if queryErr != nil {
+					log.With("pvc", pvcName).With("namespace", instance.Namespace).Error(queryErr)
+					return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, queryErr
+				}
+				backingType = queriedBackingType
+				log.Infof("Successfully retrieved BackingType %s for PVC %s from VirtualDiskManager",
+					backingType, pvcName)
+				// Update the PVC annotation with the queried BackingType so it can be reused in future attach operations
+				patchErr := patchPVCBackingTypeAnnotation(ctx, k8sClient, pvcObj, backingType)
+				if patchErr != nil {
+					log.With("pvc", pvcName).With("namespace", instance.Namespace).Error(patchErr)
+					return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, patchErr
+				}
+			}
+
 			// Populate values for attach request.
 			currentBatchAttachRequest := volumes.BatchAttachRequest{
 				VolumeID:        volumeID,
@@ -559,7 +581,7 @@ func constructBatchAttachRequest(ctx context.Context,
 				DiskMode:        string(volume.PersistentVolumeClaim.DiskMode),
 				ControllerKey:   volume.PersistentVolumeClaim.ControllerKey,
 				UnitNumber:      volume.PersistentVolumeClaim.UnitNumber,
-				BackingType:     pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType],
+				BackingType:     backingType,
 				VolumeEncrypted: &isPvcEncrypted,
 			}
 			batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)
@@ -760,6 +782,54 @@ func patchPVCAnnotations(ctx context.Context, k8sClient kubernetes.Interface,
 		return fmt.Errorf("failed to patch PVC %s: %v", pvc.Name, err)
 	}
 	log.Debugf("Successfully patched PVC: %s with annotations %+v", pvc.Name, updatedpvc.Annotations)
+	return nil
+}
+
+// patchPVCBackingTypeAnnotation updates the BackingType annotation on the PVC.
+// This is used to cache the backing type so it doesn't need to be queried again on future attach operations.
+func patchPVCBackingTypeAnnotation(ctx context.Context, k8sClient kubernetes.Interface,
+	pvc *v1.PersistentVolumeClaim, backingType string) error {
+	log := logger.GetLogger(ctx)
+
+	patchAnnotations := make(map[string]interface{})
+	if pvc.Annotations != nil {
+		for k, v := range pvc.Annotations {
+			patchAnnotations[k] = v
+		}
+	}
+
+	log.Infof("Setting BackingType annotation %s=%s on PVC %s",
+		common.AnnKeyBackingDiskType, backingType, pvc.Name)
+	patchAnnotations[common.AnnKeyBackingDiskType] = backingType
+
+	// Build patch structure
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": patchAnnotations,
+		},
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("failed to marshal BackingType annotation for PVC %s. Err: %s", pvc.Name, err)
+		return fmt.Errorf("failed to marshal patch: %v", err)
+	}
+
+	log.Infof("Patching PVC %s with BackingType annotation", pvc.Name)
+
+	// Apply the patch
+	updatedpvc, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(
+		ctx,
+		pvc.Name,
+		types.MergePatchType,
+		patchBytes,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		log.Errorf("failed to patch PVC %s with BackingType annotation. Err: %s", pvc.Name, err)
+		return fmt.Errorf("failed to patch PVC %s: %v", pvc.Name, err)
+	}
+	log.Infof("Successfully patched PVC: %s with BackingType annotation %+v", pvc.Name, updatedpvc.Annotations)
 	return nil
 }
 

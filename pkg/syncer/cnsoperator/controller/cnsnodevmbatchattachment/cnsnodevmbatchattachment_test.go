@@ -208,8 +208,26 @@ func getClientSetWithPvc() *k8sFake.Clientset {
 		},
 	}
 
+	// Define fail-attach-pvc-3 for attach failure tests
+	pvc3 := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "fail-attach-pvc-3",
+			Namespace: "test-ns",
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes: []v1.PersistentVolumeAccessMode{
+				v1.ReadWriteOnce,
+			},
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceStorage: resource.MustParse("3Gi"),
+				},
+			},
+		},
+	}
+
 	// Initialize fake clientset with the PVC
-	clientset := k8sFake.NewSimpleClientset(pvc1, pvc2)
+	clientset := k8sFake.NewSimpleClientset(pvc1, pvc2, pvc3)
 
 	return clientset
 }
@@ -1609,6 +1627,98 @@ func TestUpdateInstanceVolume_WhenVolumeNameIsEmpty(t *testing.T) {
 	)
 
 	assert.Len(t, instance.Status.VolumeStatus, 0)
+}
+
+func TestPatchPVCBackingTypeAnnotation(t *testing.T) {
+	ctx := context.TODO()
+	backingType := "thin"
+
+	tests := []struct {
+		name               string
+		initialAnnotations map[string]string
+		expectError        bool
+	}{
+		{
+			name:               "PVC with no annotations",
+			initialAnnotations: nil,
+			expectError:        false,
+		},
+		{
+			name:               "PVC with existing annotations",
+			initialAnnotations: map[string]string{"existing": "value"},
+			expectError:        false,
+		},
+		{
+			name: "PVC with existing BackingType annotation",
+			initialAnnotations: map[string]string{
+				"cns.vmware.com.protected/disk-backing": "thick",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := k8sFake.NewSimpleClientset()
+
+			// Create PVC in fake cluster
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-pvc",
+					Namespace:   "default",
+					Annotations: tt.initialAnnotations,
+				},
+			}
+
+			_, err := client.CoreV1().PersistentVolumeClaims("default").Create(ctx, pvc, metav1.CreateOptions{})
+			if err != nil {
+				t.Fatalf("failed to create pvc in fake client: %v", err)
+			}
+
+			// Get PVC from fake client
+			pvcFromClient, err := client.CoreV1().PersistentVolumeClaims("default").Get(ctx, "test-pvc", metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("failed to get pvc: %v", err)
+			}
+
+			err = patchPVCBackingTypeAnnotation(ctx, client, pvcFromClient, backingType)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify annotation is added/updated
+			updatedPVC, err := client.CoreV1().PersistentVolumeClaims("default").Get(ctx, "test-pvc", metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("failed to get updated pvc: %v", err)
+			}
+
+			val, ok := updatedPVC.Annotations["cns.vmware.com.protected/disk-backing"]
+			if !ok {
+				t.Errorf("expected BackingType annotation not found")
+			}
+			if val != backingType {
+				t.Errorf("expected annotation value %q, got %q", backingType, val)
+			}
+
+			// Verify existing annotations are preserved
+			if tt.initialAnnotations != nil {
+				for k, v := range tt.initialAnnotations {
+					if k == "cns.vmware.com.protected/disk-backing" {
+						continue // Skip BackingType as it's expected to be updated
+					}
+					if updatedPVC.Annotations[k] != v {
+						t.Errorf("annotation %q changed: got %q, want %q", k, updatedPVC.Annotations[k], v)
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestUpdateInstanceVolumeStatusByPvc_SetsSuccessCondition_WhenNoError(t *testing.T) {
