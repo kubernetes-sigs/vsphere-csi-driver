@@ -1073,6 +1073,7 @@ func (m *defaultManager) AttachVolume(ctx context.Context,
 		// Construct the CNS AttachSpec list.
 		var cnsAttachSpecList []cnstypes.CnsVolumeAttachDetachSpec
 		cnsAttachSpec := cnstypes.CnsVolumeAttachDetachSpec{
+			DiskMode: string(vim25types.VirtualDiskModeIndependent_persistent),
 			VolumeId: cnstypes.CnsVolumeId{
 				Id: volumeID,
 			},
