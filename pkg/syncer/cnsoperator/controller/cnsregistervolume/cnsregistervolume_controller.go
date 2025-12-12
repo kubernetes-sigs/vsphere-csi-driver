@@ -1173,10 +1173,12 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
 	log := logger.GetLogger(ctx)
+	origInstance := instance.DeepCopy()
+	instance.Status.Registered = false
 	instance.Status.Error = errMsg
-	err := k8s.UpdateStatus(ctx, r.client, instance)
+	err := patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
 	if err != nil {
-		log.Errorf("updateCnsRegisterVolume failed. err: %v", err)
+		log.Errorf("patchCnsRegisterVolumeStatus failed. err: %v", err)
 		return
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
@@ -1205,11 +1207,12 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 		return err
 	}
 	// Now update the status subresource with the fresh object
+	origInstance := instance.DeepCopy()
 	instance.Status.Registered = true
 	instance.Status.Error = ""
-	err = k8s.UpdateStatus(ctx, r.client, instance)
+	err = patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
 	if err != nil {
-		log.Errorf("updateCnsRegisterVolume status failed. err: %v", err)
+		log.Errorf("patchCnsRegisterVolumeStatus failed. err: %v", err)
 		return err
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeNormal, msg)
@@ -1272,4 +1275,62 @@ func updateCnsRegisterVolume(ctx context.Context, client client.Client,
 			instance.Name, instance.Namespace, err)
 	}
 	return err
+}
+
+// patchCnsRegisterVolumeStatus patches status field of CnsRegisterVolume instance in K8S.
+// For status subresources with required fields, we need to ensure those fields are always
+// included in the patch, even if they haven't changed. This is because Kubernetes validates
+// the patch against the CRD schema which marks 'registered' as required.
+func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	newObj *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	log := logger.GetLogger(ctx)
+
+	// For status patches with required fields, we must always include 'registered' field
+	// to satisfy CRD validation. For the 'error' field (optional with omitempty):
+	// - Include it if it has a value
+	// - Include it as empty string only if we're explicitly clearing it (oldObj had error, newObj doesn't)
+	// - Omit it if both oldObj and newObj have no error (to avoid showing error:"" in status)
+	statusMap := map[string]interface{}{
+		"registered": newObj.Status.Registered,
+	}
+
+	// Include error field if:
+	// 1. newObj has an error message, OR
+	// 2. we're clearing an error (oldObj has error, newObj doesn't)
+	if newObj.Status.Error != "" || (oldObj.Status.Error != "" && newObj.Status.Error == "") {
+		statusMap["error"] = newObj.Status.Error
+	}
+
+	statusPatch := map[string]interface{}{
+		"status": statusMap,
+	}
+
+	patchBytes, err := json.Marshal(statusPatch)
+	if err != nil {
+		log.Errorf("failed to marshal status patch. err: %v", err)
+		return err
+	}
+
+	rawPatch := client.RawPatch(apitypes.MergePatchType, patchBytes)
+
+	// Try to patch CnsRegisterVolume CR for 3 times
+	allowedRetries := 3
+	attempt := 0
+	for {
+		attempt++
+		err := cnsOperatorClient.Status().Patch(ctx, oldObj, rawPatch)
+		if err != nil && attempt >= allowedRetries {
+			log.Errorf("failed to patch CnsRegisterVolume instance %q on namespace %q, Error: %+v",
+				oldObj.Name, oldObj.Namespace, err)
+			return err
+		} else if err == nil {
+			log.Debugf("Successfully patched CnsRegisterVolume instance %q on namespace %q",
+				oldObj.Name, oldObj.Namespace)
+			return nil
+		}
+		log.Warnf("attempt %d, failed to patch CnsRegisterVolume instance %q on namespace %q with error %+v, "+
+			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
+		time.Sleep(100 * time.Millisecond)
+	}
 }
