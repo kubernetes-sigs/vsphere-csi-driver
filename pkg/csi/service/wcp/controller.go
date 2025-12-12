@@ -908,6 +908,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		attributes[common.VolumeContextAttributeLinkedCloneVolumeSnapshotSourceUID] = volumeSnapshotUID
 	}
 
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+		attributes[common.AnnKeyBackingDiskType] = common.DefaultBackingTypeForDynamicBlockVolume
+	}
+
 	resp := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeInfo.VolumeID.Id,
