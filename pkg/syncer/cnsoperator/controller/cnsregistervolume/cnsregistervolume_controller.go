@@ -669,6 +669,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
+	IsPVCCreatedByCNSRegisterVolumeReconciler := false
+
 	if pvc != nil {
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != pvName {
 			// This is handle cases where PVC with this name already exists and
@@ -730,6 +732,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		} else {
 			log.Infof("PVC: %s is created successfully", instance.Spec.PvcName)
+			IsPVCCreatedByCNSRegisterVolumeReconciler = true
 		}
 	}
 	// Watch for PVC to be bound.
@@ -837,6 +840,18 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Errorf("PVC: %s is not bound. Error: %+v", instance.Spec.PvcName, err)
 		setInstanceError(ctx, r, instance, fmt.Sprintf("PVC: %s is not bound", instance.Spec.PvcName))
 		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if isSharedDiskEnabled && !IsPVCCreatedByCNSRegisterVolumeReconciler {
+		// Ensure that the PVC has the correct backing disk annotation if PVC was already present on the cluster.
+		if pvc != nil {
+			pvc, err = setBackingDiskAnnotation(ctx, k8sclient, instance, pvc)
+			if err != nil {
+				msg := fmt.Sprintf("failed to update bakcing disk type on PVC. Error: %s", err)
+				setInstanceError(ctx, r, instance, msg)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
 	}
 
 	// Update the instance to indicate the volume registration is successful.
