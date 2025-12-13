@@ -199,3 +199,9 @@ func (m MockManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.
 	//TODO implement me
 	panic("implement me")
 }
+
+func (m MockManager) QueryBackingTypeFromVirtualDiskInfo(ctx context.Context,
+	volumeID string) (string, error) {
+	//TODO implement me
+	panic("implement me")
+}

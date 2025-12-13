@@ -76,6 +76,11 @@ type VirtualCenter struct {
 	VsanClient *vsan.Client
 	// VslmClient represents the Vslm client instance.
 	VslmClient *vslm.Client
+	// Vim25Client is a vim25.Client that uses the standard vim25 namespace.
+	// This is needed for APIs like VirtualDiskManager.QueryVirtualDiskInfo that
+	// use internal vim25 namespaces and don't work with the vsan service version.
+	// It shares the same http.Transport as the main Client but uses vim25.Path and vim25.Namespace.
+	Vim25Client *vim25.Client
 	// ClientMutex is used for exclusive connection creation.
 	ClientMutex *sync.Mutex
 }
@@ -386,7 +391,48 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		}
 		vc.VsanClient.RoundTripper = &MetricRoundTripper{"vsan", vc.VsanClient.RoundTripper}
 	}
+	// Recreate Vim25Client if created using timed out VC Client.
+	if vc.Vim25Client != nil {
+		vc.Vim25Client = vc.newVim25Client()
+	}
 	return nil
+}
+
+// newVim25Client creates a vim25.Client that uses the standard vim25 namespace.
+// This is needed for APIs like VirtualDiskManager.QueryVirtualDiskInfo that use
+// internal vim25 namespaces and don't work with the vsan service version.
+func (vc *VirtualCenter) newVim25Client() *vim25.Client {
+	soapClient := vc.Client.Client.Client
+	vimSoapClient := soapClient.NewServiceClient(vim25.Path, vim25.Namespace)
+	vimSoapClient.Version = vc.Client.Client.ServiceContent.About.ApiVersion
+	return &vim25.Client{
+		Client:         vimSoapClient,
+		ServiceContent: vc.Client.Client.ServiceContent,
+		RoundTripper:   vimSoapClient,
+	}
+}
+
+// GetVim25Client returns a vim25.Client that uses the standard vim25 namespace.
+// This client is needed for APIs like VirtualDiskManager.QueryVirtualDiskInfo that
+// use internal vim25 namespaces and don't work with the vsan service version.
+// The client is created lazily on first call and reused for subsequent calls.
+// It shares the same http.Transport as the main Client.
+func (vc *VirtualCenter) GetVim25Client(ctx context.Context) (*vim25.Client, error) {
+	log := logger.GetLogger(ctx)
+
+	// Ensure connection is established
+	if err := vc.Connect(ctx); err != nil {
+		return nil, err
+	}
+
+	vc.ClientMutex.Lock()
+	defer vc.ClientMutex.Unlock()
+
+	if vc.Vim25Client == nil {
+		log.Info("Creating Vim25Client for standard vim25 namespace operations")
+		vc.Vim25Client = vc.newVim25Client()
+	}
+	return vc.Vim25Client, nil
 }
 
 // ReadVCConfigs will ensure we are always reading the latest config

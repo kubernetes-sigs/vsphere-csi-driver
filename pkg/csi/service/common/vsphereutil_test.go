@@ -131,6 +131,12 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	return "", nil
 }
+
+func (m *mockVolumeManager) QueryBackingTypeFromVirtualDiskInfo(ctx context.Context,
+	volumeID string) (string, error) {
+	return "", nil
+}
+
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	// Skip test on ARM64 due to gomonkey limitations
 	if runtime.GOARCH == "arm64" {

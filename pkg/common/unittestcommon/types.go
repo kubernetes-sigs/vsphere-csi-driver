@@ -224,3 +224,8 @@ func (m *MockVolumeManager) SyncVolume(ctx context.Context,
 	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	return "", nil
 }
+
+func (m *MockVolumeManager) QueryBackingTypeFromVirtualDiskInfo(ctx context.Context,
+	volumeID string) (string, error) {
+	return "", nil
+}

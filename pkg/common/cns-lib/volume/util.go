@@ -632,3 +632,32 @@ func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	log.Infof("Checking fault type: %q is vim.fault.CnsVolumeAlreadyExistsFault", faultType)
 	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
 }
+
+// ConvertDiskTypeToBackingType converts the diskType returned by QueryVirtualDiskInfo
+// to the appropriate CnsVolumeBackingType string used for batch attach operations.
+// The returned values correspond to VirtualDevice.FileBackingInfo subclasses as defined in
+// github.com/vmware/govmomi/cns/types (CnsVolumeBackingType constants).
+func ConvertDiskTypeToBackingType(diskType string) string {
+	switch diskType {
+	case "thin", "preallocated", "thick", "eagerZeroedThick", "thick2Gb", "flatMonolithic":
+		// All flat/thick disk types use FlatVer2BackingInfo
+		// thin -> FlatVer2BackingInfo (thinProvisioned=true)
+		// preallocated/thick -> FlatVer2BackingInfo (thinProvisioned=false, eagerlyScrub=false)
+		// eagerZeroedThick -> FlatVer2BackingInfo (thinProvisioned=false, eagerlyScrub=true)
+		// thick2Gb/flatMonolithic -> FlatVer2BackingInfo (split variations)
+		return string(cnstypes.CnsVolumeBackingTypeFlatVer2BackingInfo)
+	case "sparse2Gb", "sparseMonolithic", "delta", "vmfsSparse":
+		// sparse types -> SparseVer2BackingInfo
+		return string(cnstypes.CnsVolumeBackingTypeSparseVer2BackingInfo)
+	case "seSparse":
+		// seSparse -> SeSparseBackingInfo
+		return string(cnstypes.CnsVolumeBackingTypeSeSparseBackingInfo)
+	case "rdm", "rdmp":
+		// rdm -> RawDiskMappingVer1BackingInfo (compatibilityMode="virtualMode")
+		// rdmp -> RawDiskMappingVer1BackingInfo (compatibilityMode="physicalMode")
+		return string(cnstypes.CnsVolumeBackingTypeRawDiskMappingVer1BackingInfo)
+	default:
+		// Unknown disk type, return empty string
+		return ""
+	}
+}
