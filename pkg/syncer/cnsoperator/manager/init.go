@@ -89,7 +89,14 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			return err
 		}
 
-		volumeManager, err = volumes.GetManager(ctx, vCenter, nil, false, false, false, clusterFlavor)
+		var clusterId string
+		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			clusterId = cnsOperator.configInfo.Cfg.Global.SupervisorID
+		} else {
+			clusterId = cnsOperator.configInfo.Cfg.Global.ClusterID
+		}
+		volumeManager, err = volumes.GetManager(ctx, vCenter, nil, false, false, false,
+			clusterFlavor, clusterId, cnsOperator.configInfo.Cfg.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
