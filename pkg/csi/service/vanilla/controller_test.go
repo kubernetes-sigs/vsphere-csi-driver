@@ -243,7 +243,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
 			fakeOpStore, true, false,
-			false, cnstypes.CnsClusterFlavorVanilla)
+			false, cnstypes.CnsClusterFlavorVanilla, "", "")
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 		}

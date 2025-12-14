@@ -1226,31 +1226,20 @@ func DeleteSnapshotUtil(ctx context.Context, volumeManager cnsvolume.Manager, cs
 }
 
 // GetCnsVolumeType is the helper function that determines the volume type based on the volume-id
-func GetCnsVolumeType(ctx context.Context, volumeManager cnsvolume.Manager, volumeId string) (string, error) {
+// GetCnsVolumeType is the helper function that determines the volume type based on the volume-id prefix.
+// If volume ID begins with "file:", it is a file volume, otherwise it is a block volume.
+func GetCnsVolumeType(ctx context.Context, volumeId string) string {
 	log := logger.GetLogger(ctx)
 	var volumeType string
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeId}},
-	}
-	querySelection := cnstypes.CnsQuerySelection{
-		Names: []string{
-			string(cnstypes.QuerySelectionNameTypeVolumeType),
-		},
-	}
-	// Select only the volume type.
-	queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
-	if err != nil {
-		return "", logger.LogNewErrorCodef(log, codes.Internal,
-			"queryVolume failed for volumeID: %q with err=%+v", volumeId, err)
+	// Determine volume type based on volume ID prefix
+	if strings.HasPrefix(volumeId, "file:") {
+		volumeType = FileVolumeType
+	} else {
+		volumeType = BlockVolumeType
 	}
 
-	if len(queryResult.Volumes) == 0 {
-		log.Infof("volume: %s not found during query while determining CNS volume type", volumeId)
-		return "", ErrNotFound
-	}
-	volumeType = queryResult.Volumes[0].VolumeType
-	log.Infof("volume: %s is of type: %s", volumeId, volumeType)
-	return volumeType, nil
+	log.Infof("volume: %s is of type: %s (determined from volume ID prefix)", volumeId, volumeType)
+	return volumeType
 }
 
 // GetNodeVMsWithAccessToDatastore finds out NodeVMs which have access to the given
