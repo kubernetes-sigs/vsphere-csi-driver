@@ -1522,7 +1522,11 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			msg := fmt.Sprintf("volumesnapshot: %s on namespace: %s in supervisor cluster was not Ready. "+
 				"Error: %+v", supervisorVolumeSnapshotName, c.supervisorNamespace, err)
 			log.Error(msg)
-			return nil, status.Errorf(codes.Internal, msg)
+			// Note: Set the return code to codes.DeadlineExceeded if VolumeSnapshot is still not ready
+			// to indicate that the snapshot creation has timed out
+			// so that external-snapshotter will keep retrying and won't leave
+			// orphan snapshots behind.
+			return nil, status.Error(codes.DeadlineExceeded, msg)
 		}
 		// Extract the fcd-id + snapshot-id annotation from the supervisor volumesnapshot CR
 		snapshotID := vs.Annotations[common.VolumeSnapshotInfoKey]
