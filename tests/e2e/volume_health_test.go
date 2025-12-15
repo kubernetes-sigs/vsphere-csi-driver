@@ -1124,7 +1124,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 7. Delete PVC from the tests namespace.
 	// 8. Delete the storage class.
 
-	ginkgo.It("[cf-vks-f][csi-guest] In Guest Cluster Verify Volume health on "+
+	ginkgo.It("[cf-f-vks][csi-guest] In Guest Cluster Verify Volume health on "+
 		"Statefulset", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
