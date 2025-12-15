@@ -369,25 +369,25 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
 	// CurrentSession field. Nil is returned if the session is not
 	// authenticated or timed out.
-	shouldLogin := false
 
 	userSession, err := sessionMgr.UserSession(ctx)
 	if err != nil {
 		log.Errorf("failed to obtain user session with err: %v", err)
-		// Login again if session is invalid
-		shouldLogin = true
-		//return err <- Check if we really want to return error here or follow with re-login
+		// An error here can mean the vcenter itself is down so
+		// we should return early with error
+		return err
 	}
 
 	restSession, err := vc.RestClient.Session(ctx)
 	if err != nil {
 		log.Errorf("failed to obtain rest user session with err: %v", err)
-		// Login again if session is invalid
-		shouldLogin = true
+		// An error here can mean the vcenter itself is down so
+		// we should return early with error
+		return err
 	}
 
 	// No need to re-login
-	if userSession != nil && restSession != nil && !shouldLogin {
+	if userSession != nil && restSession != nil {
 		return nil
 	}
 
