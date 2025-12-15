@@ -1334,7 +1334,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 	   16. Query the snapshot from CNS side - it shouldn't be available
 	   17. Delete SC and VolumeSnapshotClass
 	*/
-	ginkgo.It("[cf-vks][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][block-vanilla-snapshot]"+
+	ginkgo.It("[cf-f-vks][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][block-vanilla-snapshot]"+
 		"[tkg-snapshot]Volume snapshot creation and restoration workflow with xfs "+
 		"filesystem", ginkgo.Label(p0, block, vanilla, tkg, snapshot, stable, vc80), func() {
 
