@@ -57,7 +57,7 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 )
 
 type subscribedContentLibBasic struct {
@@ -666,7 +666,7 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 		} else {
 			pvcmap[pvc.Name] = 1
 		}
-		_, err := getCnsNodeVmAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
+		_, err := getCnsNodeVmBatchAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
 		if err != nil {
 			if !apierrors.IsNotFound(err) { // we will return false in attachmentmap check below for this case
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -696,13 +696,13 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	return match
 }
 
-// getCnsNodeVmAttachmentCR fetches the requested cnsnodevmattachment CRs
-func getCnsNodeVmAttachmentCR(
+// getCnsNodeVmBatchAttachmentCR fetches the requested cnsnodevmattachment CRs
+func getCnsNodeVmBatchAttachmentCR(
 	ctx context.Context, cnsc ctlrclient.Client, namespace string, vmName string, pvcName string) (
-	*cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, error) {
+	*cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment, error) {
 
-	instanceKey := ctlrclient.ObjectKey{Name: vmName + "-" + pvcName, Namespace: namespace}
-	cr := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}
+	cr := &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{}
 	err := cnsc.Get(ctx, instanceKey, cr)
 	return cr, err
 }
