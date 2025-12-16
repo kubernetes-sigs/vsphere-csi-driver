@@ -57,6 +57,7 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	ctlrclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 )
 
@@ -648,6 +649,7 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 
 	attachmentmap := map[string]int{}
 	pvcmap := map[string]int{}
+	var err error
 	if len(vm.Status.Volumes) != len(pvcs) {
 		framework.Logf("Found %d volumes in VM status vs %d pvcs sent to check for attachment",
 			len(vm.Status.Volumes), len(pvcs))
@@ -666,7 +668,13 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 		} else {
 			pvcmap[pvc.Name] = 1
 		}
-		_, err := getCnsNodeVmBatchAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
+		vcVersion = getVCversion(ctx, vcAddress)
+		isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+		if isBatchAttachSupported {
+			_, err = getCnsNodeVmBatchAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
+		} else {
+			_, err = getCnsNodeVmAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
+		}
 		if err != nil {
 			if !apierrors.IsNotFound(err) { // we will return false in attachmentmap check below for this case
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -694,6 +702,17 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	}
 	framework.Logf("Given PVCs '%v' are attached to VM %s", reflect.ValueOf(pvcmap).MapKeys(), vm.Name)
 	return match
+}
+
+// getCnsNodeVmAttachmentCR fetches the requested cnsnodevmattachment CRs
+func getCnsNodeVmAttachmentCR(
+	ctx context.Context, cnsc ctlrclient.Client, namespace string, vmName string, pvcName string) (
+	*cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment, error) {
+
+	instanceKey := ctlrclient.ObjectKey{Name: vmName + "-" + pvcName, Namespace: namespace}
+	cr := &cnsnodevmattachmentv1alpha1.CnsNodeVmAttachment{}
+	err := cnsc.Get(ctx, instanceKey, cr)
+	return cr, err
 }
 
 // getCnsNodeVmBatchAttachmentCR fetches the requested cnsnodevmattachment CRs
