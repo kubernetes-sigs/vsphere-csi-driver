@@ -281,6 +281,7 @@ const (
 	selectedNodeIsZone                       = "cns.vmware.com/selected-node-is-zone"
 	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
 	vmZoneLabel                              = "topology.kubernetes.io/zone"
+	batchAttachSupportedVCVersion            = "9.1.0"
 )
 
 /*
