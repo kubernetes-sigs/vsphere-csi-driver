@@ -90,6 +90,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -2734,28 +2735,88 @@ func getCnsNodeVMAttachmentByName(ctx context.Context, f *framework.Framework, e
 	return nil
 }
 
+// returns crd if found by name.
+func getCnsNodeVMBatchAttachmentByName(ctx context.Context, f *framework.Framework, expectedInstanceName string,
+	crdVersion string, crdGroup string) *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment {
+	k8senv := GetAndExpectStringEnvVar("SUPERVISOR_CLUSTER_KUBE_CONFIG")
+	cfg, err := clientcmd.BuildConfigFromFlags("", k8senv)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gvr := schema.GroupVersionResource{Group: crdGroup, Version: crdVersion, Resource: crdCNSNodeVMBatchAttachment}
+	resourceClient := dynamicClient.Resource(gvr).Namespace("")
+	list, err := resourceClient.List(ctx, metav1.ListOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	for _, crd := range list.Items {
+		instance := &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if expectedInstanceName == instance.Name {
+			ginkgo.By(fmt.Sprintf("Found CnsNodeVMBatchAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+			return instance
+		}
+	}
+	return nil
+}
+
 // verifyIsAttachedInSupervisor verifies the crd instance is attached in
 // supervisor.
 func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework,
-	expectedInstanceName string, crdVersion string, crdGroup string) {
-	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
-	if instance != nil {
+	nodeName string, volumeHandle string, crdVersion string, crdGroup string) {
+	expectedInstanceName := nodeName + "-" + volumeHandle
+	var volumeAttachmentStatus bool
+	vcVersion = getVCversion(ctx, vcAddress)
+	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+	if isBatchAttachSupported {
+		instance := getCnsNodeVMBatchAttachmentByName(ctx, f, nodeName, crdVersion, crdGroup)
+		gomega.Expect(instance).NotTo(gomega.BeNil())
+		for _, vol := range instance.Status.VolumeStatus {
+			if vol.Name == volumeHandle {
+				// Access the Attached field within the PVC status
+				volumeAttachmentStatus = vol.PersistentVolumeClaim.Attached
+				break
+			}
+		}
+		framework.Logf("instance attached found to be : %t\n", volumeAttachmentStatus)
+		gomega.Expect(volumeAttachmentStatus).To(gomega.BeTrue())
+	} else {
+		instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+		gomega.Expect(instance).NotTo(gomega.BeNil())
 		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
 		gomega.Expect(instance.Status.Attached).To(gomega.BeTrue())
 	}
-	gomega.Expect(instance).NotTo(gomega.BeNil())
+
 }
 
 // verifyIsDetachedInSupervisor verifies the crd instance is detached from
 // supervisor.
 func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework,
-	expectedInstanceName string, crdVersion string, crdGroup string) {
-	instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
-	if instance != nil {
-		framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
-		gomega.Expect(instance.Status.Attached).To(gomega.BeFalse())
+	nodeName string, volumeHandle string, crdVersion string, crdGroup string) {
+	expectedInstanceName := nodeName + "-" + volumeHandle
+	vcVersion = getVCversion(ctx, vcAddress)
+	var volumeAttachmentStatus bool
+	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+	if isBatchAttachSupported {
+		instance := getCnsNodeVMBatchAttachmentByName(ctx, f, nodeName, crdVersion, crdGroup)
+		gomega.Expect(instance).NotTo(gomega.BeNil())
+		for _, vol := range instance.Status.VolumeStatus {
+			if vol.Name == volumeHandle {
+				// Access the Attached field within the PVC status
+				volumeAttachmentStatus = vol.PersistentVolumeClaim.Attached
+				break
+			}
+		}
+		framework.Logf("instance attached found to be : %t\n", volumeAttachmentStatus)
+		gomega.Expect(volumeAttachmentStatus).To(gomega.BeFalse())
+	} else {
+		instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
+		if instance != nil {
+			framework.Logf("instance attached found to be : %t\n", instance.Status.Attached)
+			gomega.Expect(instance.Status.Attached).To(gomega.BeFalse())
+		}
+		gomega.Expect(instance).To(gomega.BeNil())
 	}
-	gomega.Expect(instance).To(gomega.BeNil())
 }
 
 // verifyPodCreation helps to create/verify and delete the pod in given
@@ -2772,10 +2833,18 @@ func verifyPodCreation(ctx context.Context, f *framework.Framework, client clien
 	// svcPVCName refers to PVC Name in the supervisor cluster.
 	svcPVCName := pv.Spec.CSI.VolumeHandle
 
-	ginkgo.By(fmt.Sprintf("Verify cnsnodevmattachment is created with name : %s ", pod.Spec.NodeName))
-	verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
+	ginkgo.By(fmt.Sprintf("Verify cnsnodevmattachment/cnsnodevmbatchattachment is created with name : %s ",
+		pod.Spec.NodeName))
+	expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
+	vcVersion = getVCversion(ctx, vcAddress)
+	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+	if isBatchAttachSupported {
+		expectedInstanceName = pod.Spec.NodeName
+	}
+	verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName,
 		crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
-	verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdVersion, crdGroup)
+	// TODO for batchAttach
+	verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
 
 	ginkgo.By("Deleting the pod")
 	err = fpod.DeletePodWithWait(ctx, client, pod)
@@ -2788,7 +2857,7 @@ func verifyPodCreation(ctx context.Context, f *framework.Framework, client clien
 		fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
 	ginkgo.By("Verify CnsNodeVmAttachment CRDs are deleted")
-	verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
+	verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName,
 		crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
 
 }
@@ -2826,8 +2895,7 @@ func verifyCRDInSupervisorWithWait(ctx context.Context, f *framework.Framework,
 						instanceFound = true
 						break
 					}
-				}
-				if crdName == "cnsvolumemetadatas" {
+				} else if crdName == "cnsvolumemetadatas" {
 					instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
 					err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2837,6 +2905,16 @@ func verifyCRDInSupervisorWithWait(ctx context.Context, f *framework.Framework,
 						instanceFound = true
 						break
 					}
+				} else if crdName == crdCNSNodeVMBatchAttachment {
+					instance := &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{}
+					err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if expectedInstanceName == instance.Name {
+						ginkgo.By(fmt.Sprintf("Found CNSNodeVMBatchAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+						instanceFound = true
+						break
+					}
+
 				}
 			}
 		}
@@ -2876,8 +2954,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 				break
 			}
 
-		}
-		if crdName == "cnsvolumemetadatas" {
+		} else if crdName == "cnsvolumemetadatas" {
 			instance := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2886,8 +2963,7 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 				instanceFound = true
 				break
 			}
-		}
-		if crdName == "cnsfileaccessconfigs" {
+		} else if crdName == "cnsfileaccessconfigs" {
 			instance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2898,6 +2974,16 @@ func verifyCRDInSupervisor(ctx context.Context, f *framework.Framework, expected
 			} else {
 				ginkgo.By(fmt.Sprintf("Expecting CNSFileAccessConfig crd: %v, found: %v", expectedInstanceName, instance))
 			}
+		} else if crdName == "cnsnodevmbatchattachments" {
+			instance := &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{}
+			err := runtime.DefaultUnstructuredConverter.FromUnstructured(crd.Object, instance)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if expectedInstanceName == instance.Name {
+				ginkgo.By(fmt.Sprintf("Found CNSNodeVMBatchAttachment crd: %v, expected: %v", instance, expectedInstanceName))
+				instanceFound = true
+				break
+			}
+
 		}
 	}
 	if isCreated {

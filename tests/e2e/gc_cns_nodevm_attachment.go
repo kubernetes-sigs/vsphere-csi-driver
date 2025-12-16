@@ -41,14 +41,16 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	f := framework.NewDefaultFramework("e2e-node-vm-attachments")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
-		client            clientset.Interface
-		clientNewGc       clientset.Interface
-		namespace         string
-		scParameters      map[string]string
-		storagePolicyName string
-		pvclaim           *v1.PersistentVolumeClaim
-		svcPVCName        string // PVC Name in the Supervisor Cluster.
-		labels_ns         map[string]string
+		client                 clientset.Interface
+		clientNewGc            clientset.Interface
+		namespace              string
+		scParameters           map[string]string
+		storagePolicyName      string
+		pvclaim                *v1.PersistentVolumeClaim
+		svcPVCName             string // PVC Name in the Supervisor Cluster.
+		labels_ns              map[string]string
+		isBatchAttachSupported bool
+		crdName                string
 	)
 	ginkgo.BeforeEach(func() {
 		client = f.ClientSet
@@ -68,6 +70,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		labels_ns = map[string]string{}
 		labels_ns[admissionapi.EnforceLevelLabel] = string(admissionapi.LevelPrivileged)
 		labels_ns["e2e-framework"] = f.BaseName
+		isBatchAttachSupported = isVersionGreaterOrEqual(getVCversion(ctx, vcAddress), batchAttachSupportedVCVersion)
+		crdName = crdCNSNodeVMAttachment
+		if isBatchAttachSupported {
+			crdName = crdCNSNodeVMBatchAttachment
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -92,7 +99,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("[cf-f-vks] Verify CnsNodeVmAttachements existence in "+
+	ginkgo.It("[cf-vks] Verify CnsNodeVmAttachements existence in "+
 		"a pod lifecycle", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -138,9 +145,12 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
-		verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdVersion, crdGroup)
+		expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
+		if isBatchAttachSupported {
+			expectedInstanceName = pod.Spec.NodeName
+		}
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
+		verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
@@ -157,8 +167,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
 
 	})
 
@@ -179,7 +188,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volumes are detached from VMs.
 	// Delete PVCs in GC.
 
-	ginkgo.It("[cf-f-vks] Verify CnsNodeVmAttachements crd existence when pods are created "+
+	ginkgo.It("[cf-vks] Verify CnsNodeVmAttachements crd existence when pods are created "+
 		"concurrently", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -254,8 +263,8 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsNodeVmAttachements crd and Pod is created "+
-		"after CSI controller comes up", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsNodeVmAttachements/CnsNodeVmBatchAttachment "+
+		"crd and Pod is created after CSI controller comes up", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -330,9 +339,12 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Verify CnsNodeVmAttachment CRD is created")
-		verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+		ginkgo.By("Verify CnsNodeVmAttachment/CnsNodeVmBatchAttachment CRD is created")
+		expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
+		if isBatchAttachSupported {
+			expectedInstanceName = pod.Spec.NodeName
+		}
+		verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
 
 		ginkgo.By("Verify Pod is still in ContainerCreating phase")
 		gomega.Expect(podContainerCreatingState == pod.Status.ContainerStatuses[0].State.Waiting.Reason).To(gomega.BeTrue())
@@ -351,7 +363,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName, crdVersion, crdGroup)
+		verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), fmt.Sprintf("Volume is not attached to the node, %s", vmUUID))
@@ -367,10 +379,10 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		gomega.Expect(isDiskDetached).To(gomega.BeTrue(),
 			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod.Spec.NodeName))
 
-		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
+		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment/CnsNodeVMBatchAttachment controller to " +
+			"reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisorWithWait(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
 
 	})
 
@@ -390,7 +402,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// 11- Delete statefulset.
 	// 13- Delete PVCs.
 
-	ginkgo.It("[cf-f-vks] Detach Statefulset testing with default "+
+	ginkgo.It("[cf-vks] Detach Statefulset testing with default "+
 		"podManagementPolicy", ginkgo.Label(p0, block, tkg, vc70), func() {
 
 		ginkgo.By("Creating StorageClass for Statefulset")
@@ -442,8 +454,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 					svcPVCName := volumeID
 					volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-					verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
-						crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+					expectedInstanceName := sspod.Spec.NodeName + "-" + svcPVCName
+					if isBatchAttachSupported {
+						expectedInstanceName = sspod.Spec.NodeName
+					}
+					verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
@@ -457,7 +472,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,
+					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName, pv.Spec.CSI.VolumeHandle,
 						crdVersion, crdGroup)
 
 				}
@@ -495,8 +510,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 					volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
 
-					verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
-						crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+					expectedInstanceName := sspod.Spec.NodeName + "-" + svcPVCName
+					if isBatchAttachSupported {
+						expectedInstanceName = sspod.Spec.NodeName
+					}
+					verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
@@ -511,7 +529,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,
+					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName, pv.Spec.CSI.VolumeHandle,
 						crdVersion, crdGroup)
 
 				}
@@ -544,7 +562,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
-						verifyIsDetachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,
+						verifyIsDetachedInSupervisor(ctx, f, sspod.Spec.NodeName, pv.Spec.CSI.VolumeHandle,
 							crdVersion, crdGroup)
 					}
 				}
@@ -565,7 +583,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify Pod is deleted from GC.
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
-	ginkgo.It("[cf-f-vks] Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks] Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -610,8 +628,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		ginkgo.By("Verifying CNSNodeVMAttachment in supervisor")
 		vmUUID, err = getVMUUIDFromNodeName(pod.Spec.NodeName)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+		expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
+		if isBatchAttachSupported {
+			expectedInstanceName = pod.Spec.NodeName
+		}
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
 
 		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -631,8 +652,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		// TODO: replace sleep with polling mechanism.
 		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, pod.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
 	})
 
 	// TC-7 Verify PVC only attached to one Pod.
@@ -799,8 +819,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 			fmt.Sprintf("Volume %q is not detached from the node %q", pv.Spec.CSI.VolumeHandle, pod1.Spec.NodeName))
 
 		ginkgo.By("Waiting to allow CnsNodeVMAttachment controller to reconcile resource")
-		verifyCRDInSupervisorWithWait(ctx, f, pod1.Spec.NodeName+"-"+svcPVCName,
-			crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
+		if isBatchAttachSupported {
+			expectedInstanceName = pod.Spec.NodeName
+		}
+		verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
 
 	})
 

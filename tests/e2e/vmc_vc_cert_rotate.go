@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("VMC VC Cert Rotate", func() {
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
-					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,
+					verifyIsAttachedInSupervisor(ctx, f, sspod.Spec.NodeName, pv.Spec.CSI.VolumeHandle,
 						crdVersion, crdGroup)
 
 				}
@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("VMC VC Cert Rotate", func() {
 						pv := getPvFromClaim(client, statefulset.Namespace, volumespec.PersistentVolumeClaim.ClaimName)
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
-						verifyIsDetachedInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+pv.Spec.CSI.VolumeHandle,
+						verifyIsDetachedInSupervisor(ctx, f, sspod.Spec.NodeName, pv.Spec.CSI.VolumeHandle,
 							crdVersion, crdGroup)
 					}
 				}
