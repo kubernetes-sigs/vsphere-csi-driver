@@ -445,6 +445,11 @@ spec:
             runAsNonRoot: true
             runAsUser: 65534
             runAsGroup: 65533
+          resources:
+            requests:
+              memory: 100Mi
+            limits:
+              memory: 5Gi
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
@@ -510,6 +515,11 @@ spec:
             runAsNonRoot: true
             runAsUser: 65534
             runAsGroup: 65533
+          resources:
+            requests:
+              memory: 100Mi
+            limits:
+              memory: 5Gi
           volumeMounts:
             - mountPath: /etc/vmware/wcp
               name: vsphere-config-volume
