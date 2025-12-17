@@ -910,6 +910,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(exists).To(gomega.BeTrue(), fmt.Sprintf("Pod doesn't have %s annotation", vmUUIDLabel))
 		_, err = e2eVSphere.getVMByUUID(ctx, vmUUID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		time.Sleep(pollTimeoutShort)
 
 		diskSizeInMbstr := convertInt64ToStrMbFormat(diskSizeInMb)
 		if isQuotaValidationSupported {
@@ -1056,6 +1057,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred(),
 			fmt.Sprintf("PodVM with vmUUID: %s still exists. So volume: %s is not detached from the PodVM",
 				vmUUID, pv.Spec.CSI.VolumeHandle))
+		time.Sleep(pollTimeoutShort)
 		defer func() {
 			testCleanUpUtil(ctx, restConfig, cnsRegisterVolume, namespace, pvc.Name, pv.Name)
 			if isQuotaValidationSupported {
