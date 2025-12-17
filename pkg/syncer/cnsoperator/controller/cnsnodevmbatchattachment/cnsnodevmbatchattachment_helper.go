@@ -162,6 +162,19 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 	return pvcsToDetach, nil
 }
 
+func isConditionFailed(conditionType string, conds []metav1.Condition) bool {
+	if conds == nil {
+		return false
+	}
+
+	for _, cond := range conds {
+		if cond.Type == conditionType {
+			return cond.Status == metav1.ConditionFalse
+		}
+	}
+	return false
+}
+
 // getVolumesToAttach adds those PVCs to attach list which satisfy either of the following:
 // 1. The volumes which are present in instance spec but not in attachedFCDs list.
 // 2. The volumes which are present in instance spec and in attachedFCDs list but have different backing details.
@@ -181,9 +194,12 @@ func getVolumesToAttach(ctx context.Context,
 	pvcsInStatus := make(map[string]bool)
 	for _, volumeStatus := range instance.Status.VolumeStatus {
 		pvcsInStatus[volumeStatus.PersistentVolumeClaim.ClaimName] = false
-		if volumeStatus.PersistentVolumeClaim.Error != "" {
+		attachedConditionType := string(v1alpha1.ConditionAttached)
+		pvcsInStatus[volumeStatus.PersistentVolumeClaim.ClaimName] = isConditionFailed(attachedConditionType,
+			volumeStatus.PersistentVolumeClaim.Conditions)
+		/*if volumeStatus.PersistentVolumeClaim.Error != "" {
 			pvcsInStatus[volumeStatus.PersistentVolumeClaim.ClaimName] = true
-		}
+		}*/
 	}
 
 	// Find volumes to pvcsToAttach list here.
@@ -984,12 +1000,8 @@ func updateInstanceVolumeStatusByPvc(
 		// Apply condition
 		if trimmedError != nil {
 			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
-			volumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
-			volumeStatus.PersistentVolumeClaim.Attached = false
 		} else {
 			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, conditionType)
-			volumeStatus.PersistentVolumeClaim.Error = ""
-			volumeStatus.PersistentVolumeClaim.Attached = true
 		}
 
 		instance.Status.VolumeStatus[i] = volumeStatus
@@ -1030,12 +1042,8 @@ func updateInstanceVolumeStatusByVolumeName(
 		// Apply condition
 		if trimmedError != nil {
 			conditions.MarkError(&volumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
-			volumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
-			volumeStatus.PersistentVolumeClaim.Attached = false
 		} else {
 			conditions.MarkTrue(&volumeStatus.PersistentVolumeClaim, conditionType)
-			volumeStatus.PersistentVolumeClaim.Error = ""
-			volumeStatus.PersistentVolumeClaim.Attached = true
 		}
 
 		instance.Status.VolumeStatus[i] = volumeStatus
@@ -1056,12 +1064,8 @@ func updateInstanceVolumeStatusByVolumeName(
 
 	if trimmedError != nil {
 		conditions.MarkError(&newVolumeStatus.PersistentVolumeClaim, conditionType, reason, trimmedError)
-		newVolumeStatus.PersistentVolumeClaim.Error = trimmedError.Error()
-		newVolumeStatus.PersistentVolumeClaim.Attached = false
 	} else {
 		conditions.MarkTrue(&newVolumeStatus.PersistentVolumeClaim, conditionType)
-		newVolumeStatus.PersistentVolumeClaim.Error = ""
-		newVolumeStatus.PersistentVolumeClaim.Attached = true
 	}
 
 	instance.Status.VolumeStatus = append(instance.Status.VolumeStatus, newVolumeStatus)
