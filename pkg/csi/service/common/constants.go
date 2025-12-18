@@ -395,9 +395,6 @@ const (
 	// PvcUIDLabelKey is a label which gets added to CnsNodeVMAttachment instances
 	// to indicate the PVC that it has attached.
 	PvcUIDLabelKey = "cns.vmware.com/pvc-uid"
-
-	// DefaultBackingTypeForDynamicBlockVolume is FlatVer2BackingInfo.
-	DefaultBackingTypeForDynamicBlockVolume = "FlatVer2BackingInfo"
 )
 
 // Supported container orchestrators.
