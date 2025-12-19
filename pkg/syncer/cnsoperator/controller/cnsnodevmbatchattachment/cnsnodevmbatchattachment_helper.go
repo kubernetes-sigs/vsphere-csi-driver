@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -552,6 +553,12 @@ func constructBatchAttachRequest(ctx context.Context,
 			isPvcEncrypted := isPvcEncrypted(pvcObj.Annotations)
 			log.Infof("PVC %s has encryption enabled: %t", pvcName, isPvcEncrypted)
 
+			diskBackingType := pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType]
+			if diskBackingType == "" {
+				diskBackingType = string(cnstypes.CnsVolumeBackingTypeFlatVer2BackingInfo)
+			}
+			log.Infof("Setting backing disk type to %s for PVC %s", diskBackingType, pvcName)
+
 			// Populate values for attach request.
 			currentBatchAttachRequest := volumes.BatchAttachRequest{
 				VolumeID:        volumeID,
@@ -559,7 +566,7 @@ func constructBatchAttachRequest(ctx context.Context,
 				DiskMode:        string(volume.PersistentVolumeClaim.DiskMode),
 				ControllerKey:   volume.PersistentVolumeClaim.ControllerKey,
 				UnitNumber:      volume.PersistentVolumeClaim.UnitNumber,
-				BackingType:     pvcObj.GetAnnotations()[common.AnnKeyBackingDiskType],
+				BackingType:     diskBackingType,
 				VolumeEncrypted: &isPvcEncrypted,
 			}
 			batchAttachRequest = append(batchAttachRequest, currentBatchAttachRequest)

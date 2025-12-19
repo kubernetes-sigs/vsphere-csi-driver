@@ -176,7 +176,31 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 			},
 			Spec: v1.PersistentVolumeClaimSpec{
 				AccessModes: []v1.PersistentVolumeAccessMode{
-					v1.ReadWriteMany, // Set the access mode to RWO (ReadWriteOnce)
+					v1.ReadWriteOnce, // Set the access mode to RWO (ReadWriteOnce)
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+					},
+				},
+				VolumeMode: &mode,
+			},
+		}
+		return pvc, nil
+	}
+
+	if pvcName == "with-sparse-backing-type" {
+		mode := v1.PersistentVolumeBlock
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        pvcName,   // Name of the PVC
+				Namespace:   namespace, // Namespace to create the PVC in
+				Annotations: map[string]string{common.AnnKeyBackingDiskType: "Sparse"},
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteOnce, // Set the access mode to RWO (ReadWriteOnce)
 				},
 				Resources: v1.VolumeResourceRequirements{
 					Requests: v1.ResourceList{
