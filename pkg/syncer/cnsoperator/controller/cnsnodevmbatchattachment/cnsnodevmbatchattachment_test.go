@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 
 	v1 "k8s.io/api/core/v1"
@@ -43,8 +44,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsopv1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
@@ -1756,4 +1759,138 @@ func TestUpdateInstanceVolumeStatusByPvc_DoesNothing_WhenPVCNotFound(t *testing.
 
 	// Expect unchanged
 	assert.Equal(t, original, instance.Status.VolumeStatus[0])
+}
+
+func TestConstructBatchAttachRequest(t *testing.T) {
+	ctx := context.Background()
+
+	volumeEncryptedFalse := false
+	tests := []struct {
+		name              string
+		volumesToAttach   map[string]string
+		instance          *v1alpha1.CnsNodeVMBatchAttachment
+		expectError       bool
+		expectedPvcs      map[string]string
+		expectedVolumeIDs map[string]string
+		expectedRequests  []volumes.BatchAttachRequest
+	}{
+		{
+			name: "successfully construct batch attach request",
+			volumesToAttach: map[string]string{
+				"with-sparse-backing-type": "vol-id-1",
+			},
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-instance",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "volume-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName:     "with-sparse-backing-type",
+								SharingMode:   v1alpha1.SharingNone,
+								DiskMode:      v1alpha1.IndependentPersistent,
+								ControllerKey: vim25types.NewInt32(1000),
+								UnitNumber:    vim25types.NewInt32(1),
+							},
+						},
+					},
+				},
+			},
+			expectedPvcs: map[string]string{
+				"with-sparse-backing-type": "volume-1",
+			},
+			expectedVolumeIDs: map[string]string{
+				"vol-id-1": "with-sparse-backing-type",
+			},
+			expectedRequests: []volumes.BatchAttachRequest{
+				{
+					VolumeID:        "vol-id-1",
+					SharingMode:     string(v1alpha1.SharingNone),
+					DiskMode:        string(v1alpha1.IndependentPersistent),
+					ControllerKey:   vim25types.NewInt32(1000),
+					UnitNumber:      vim25types.NewInt32(1),
+					BackingType:     "Sparse",
+					VolumeEncrypted: &volumeEncryptedFalse,
+				},
+			},
+		},
+		{
+			name: "successfully construct batch attach request when backingdisktype is missing",
+			volumesToAttach: map[string]string{
+				"pvc-1": "vol-id-1",
+			},
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-instance",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						{
+							Name: "volume-1",
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimSpec{
+								ClaimName:     "pvc-1",
+								SharingMode:   v1alpha1.SharingNone,
+								DiskMode:      v1alpha1.IndependentPersistent,
+								ControllerKey: vim25types.NewInt32(1000),
+								UnitNumber:    vim25types.NewInt32(1),
+							},
+						},
+					},
+				},
+			},
+			expectedPvcs: map[string]string{
+				"pvc-1": "volume-1",
+			},
+			expectedVolumeIDs: map[string]string{
+				"vol-id-1": "pvc-1",
+			},
+			expectedRequests: []volumes.BatchAttachRequest{
+				{
+					VolumeID:        "vol-id-1",
+					SharingMode:     string(v1alpha1.SharingNone),
+					DiskMode:        string(v1alpha1.IndependentPersistent),
+					ControllerKey:   vim25types.NewInt32(1000),
+					UnitNumber:      vim25types.NewInt32(1),
+					BackingType:     string(cnstypes.CnsVolumeBackingTypeFlatVer2BackingInfo),
+					VolumeEncrypted: &volumeEncryptedFalse,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+			pvcs, volumeIDs, requests, err :=
+				constructBatchAttachRequest(ctx, tt.volumesToAttach, tt.instance)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !reflect.DeepEqual(pvcs, tt.expectedPvcs) {
+				t.Errorf("pvcsInSpec = %v, want %v", pvcs, tt.expectedPvcs)
+			}
+
+			if !reflect.DeepEqual(volumeIDs, tt.expectedVolumeIDs) {
+				t.Errorf("volumeIdsInSpec = %v, want %v", volumeIDs, tt.expectedVolumeIDs)
+			}
+
+			assert.EqualValues(t, tt.expectedRequests, requests)
+
+		})
+	}
 }
