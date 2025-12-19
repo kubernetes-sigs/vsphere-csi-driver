@@ -41,6 +41,7 @@ const (
 	contollerClusterKubeConfig                 = "CONTROLLER_CLUSTER_KUBECONFIG"
 	controlPlaneLabel                          = "node-role.kubernetes.io/control-plane"
 	crdCNSNodeVMAttachment                     = "cnsnodevmattachments"
+	crdCNSNodeVMBatchAttachment                = "cnsnodevmbatchattachments"
 	crdCNSVolumeMetadatas                      = "cnsvolumemetadatas"
 	crdCNSFileAccessConfig                     = "cnsfileaccessconfigs"
 	crdtriggercsifullsyncsName                 = "csifullsync"
