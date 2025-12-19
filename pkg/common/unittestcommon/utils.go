@@ -213,7 +213,7 @@ func (c *FakeK8SOrchestrator) MarkFakeAttached(ctx context.Context, volumeID str
 	// TODO - This can be implemented if we add WCP controller tests for attach volume
 	log := logger.GetLogger(ctx)
 	return logger.LogNewErrorCode(log, codes.Unimplemented,
-		"MarkFakeAttached for FakeK8SOrchestrator is not yet implemented.")
+		"MarkFakeAttached TESTING for FakeK8SOrchestrator is not yet implemented.")
 }
 
 // ClearFakeAttached checks if the volume was fake attached, and unmark it as not fake attached.
