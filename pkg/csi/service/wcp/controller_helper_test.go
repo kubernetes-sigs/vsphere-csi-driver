@@ -186,7 +186,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "5",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -210,7 +210,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "32",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -234,7 +234,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "50",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -258,7 +258,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "0",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -282,7 +282,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "-5",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -307,7 +307,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 				common.ConfigMapKeyMaxSnapshotsPerVolume: "abc",
 			},
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -330,7 +330,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 			},
 			Data: map[string]string{}, // ConfigMap exists but key is missing
 		}
-		fakeClient := fake.NewSimpleClientset(cm)
+		fakeClient := fake.NewClientset(cm)
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}
@@ -345,7 +345,7 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 
 	t.Run("WhenConfigMapNotFound", func(t *testing.T) {
 		// Setup
-		fakeClient := fake.NewSimpleClientset() // Empty clientset
+		fakeClient := fake.NewClientset() // Empty clientset
 		newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
 			return fakeClient, nil
 		}

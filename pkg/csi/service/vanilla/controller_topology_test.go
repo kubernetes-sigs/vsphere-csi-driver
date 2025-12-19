@@ -475,7 +475,7 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 				t.Fatal(err)
 			}
 		} else {
-			k8sClient = testclient.NewSimpleClientset()
+			k8sClient = testclient.NewClientset()
 		}
 
 		nodeManager := &FakeNodeManagerTopology{

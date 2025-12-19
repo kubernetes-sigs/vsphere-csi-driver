@@ -110,7 +110,7 @@ func TestPVCStateTransitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorClient := testclient.NewSimpleClientset()
+			supervisorClient := testclient.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 			pvcName := "test-pvc-" + tt.name
 
@@ -220,7 +220,7 @@ func TestPVCLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorClient := testclient.NewSimpleClientset()
+			supervisorClient := testclient.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 
 			// Create PVC
@@ -318,7 +318,7 @@ func TestIdempotentOperations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorClient := testclient.NewSimpleClientset()
+			supervisorClient := testclient.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 
 			// Create PVC

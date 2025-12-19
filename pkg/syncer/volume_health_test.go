@@ -94,7 +94,7 @@ func TestUpdateVolumeHealthStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create fake client with the PVC
-			k8sclient := testclient.NewSimpleClientset(tt.pvc)
+			k8sclient := testclient.NewClientset(tt.pvc)
 
 			// Call updateVolumeHealthStatus with correct parameter order
 			updateVolumeHealthStatus(ctx, k8sclient, tt.pvc, tt.volumeHealthStatus)
@@ -136,7 +136,7 @@ func TestVolumeHealthTimestamp(t *testing.T) {
 		},
 	}
 
-	k8sclient := testclient.NewSimpleClientset(pvc)
+	k8sclient := testclient.NewClientset(pvc)
 
 	// Record time before update
 	beforeUpdate := time.Now()
@@ -181,7 +181,7 @@ func TestVolumeHealthStatusUpdate_ExistingAnnotations(t *testing.T) {
 		},
 	}
 
-	k8sclient := testclient.NewSimpleClientset(pvc)
+	k8sclient := testclient.NewClientset(pvc)
 
 	// Update to accessible status
 	updateVolumeHealthStatus(ctx, k8sclient, pvc, "accessible")
@@ -215,7 +215,7 @@ func TestVolumeHealthStatusUpdate_EmptyStatus(t *testing.T) {
 		},
 	}
 
-	k8sclient := testclient.NewSimpleClientset(pvc)
+	k8sclient := testclient.NewClientset(pvc)
 
 	// Update with empty status
 	updateVolumeHealthStatus(ctx, k8sclient, pvc, "")

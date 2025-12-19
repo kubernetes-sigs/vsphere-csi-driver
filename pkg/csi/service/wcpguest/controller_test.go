@@ -65,7 +65,7 @@ type controllerTest struct {
 
 func configFromSim() (clientset.Interface, error) {
 	isUnitTest = true
-	supervisorClient := testclient.NewSimpleClientset()
+	supervisorClient := testclient.NewClientset()
 	supervisorNamespace = testNamespace
 	return supervisorClient, nil
 }

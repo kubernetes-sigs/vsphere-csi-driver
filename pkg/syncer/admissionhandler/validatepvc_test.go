@@ -601,7 +601,7 @@ func TestValidatePVC(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
-			kubeClient := fake.NewSimpleClientset(test.kubeObjs...)
+			kubeClient := fake.NewClientset(test.kubeObjs...)
 
 			var patches *gomonkey.Patches
 			patches = gomonkey.ApplyFunc(
@@ -1096,7 +1096,7 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Create fake clients
-			kubeClient := fake.NewSimpleClientset(test.kubeObjs...)
+			kubeClient := fake.NewClientset(test.kubeObjs...)
 			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
 
 			// Patch k8s client functions

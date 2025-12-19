@@ -254,7 +254,7 @@ func TestValidateSnapshotOperationSupervisorRequestWithNamespaceDeletion(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create fake k8s client with the test namespace
-			k8sClient := fake.NewSimpleClientset(tt.namespace)
+			k8sClient := fake.NewClientset(tt.namespace)
 
 			// Patch the k8s.NewClient function to return our fake client
 			patches := gomonkey.ApplyFunc(
@@ -349,9 +349,9 @@ func TestIsNamespaceBeingDeleted(t *testing.T) {
 			// Create fake k8s client
 			var k8sClient kubernetes.Interface
 			if tt.namespace != nil {
-				k8sClient = fake.NewSimpleClientset(tt.namespace)
+				k8sClient = fake.NewClientset(tt.namespace)
 			} else {
-				k8sClient = fake.NewSimpleClientset()
+				k8sClient = fake.NewClientset()
 			}
 
 			// Patch the k8s.NewClient function to return our fake client
@@ -466,7 +466,7 @@ func TestValidateSnapshotOperationGuestRequestWithNamespaceDeletion(t *testing.T
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create fake k8s client with the test namespace
-			k8sClient := fake.NewSimpleClientset(tt.namespace)
+			k8sClient := fake.NewClientset(tt.namespace)
 
 			// Patch the k8s.NewClient function to return our fake client
 			patches := gomonkey.ApplyFunc(
