@@ -85,7 +85,7 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{},
 		log.Errorf("pvCSI VolumeUpdated: Failed to patch CnsVolumeMetadata: %v. Error: %v", newMetadata.Name, err)
 		return
 	}
-	log.Infof("pvCSI VolumeUpdated: Successfully updated CnsVolumeMetadata: %v", currentMetadata.Name)
+	log.Infof("pvCSI VolumeUpdated: Successfully patched CnsVolumeMetadata: %v", currentMetadata.Name)
 }
 
 // pvcsiVolumeDeleted deletes pvc/pv CnsVolumeMetadata on supervisor cluster
