@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("[cf-vks] Verify CnsNodeVmAttachements existence in "+
+	ginkgo.It("[f-cf-vks] Verify CnsNodeVmAttachements existence in "+
 		"a pod lifecycle", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -583,7 +583,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify Pod is deleted from GC.
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
-	ginkgo.It("[cf-vks] Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[f-cf-vks] Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
