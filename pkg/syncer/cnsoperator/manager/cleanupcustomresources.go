@@ -18,13 +18,20 @@ package manager
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	batchattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -106,6 +113,124 @@ func cleanUpCnsUnregisterVolumeInstances(ctx context.Context, restClientConfig *
 			}
 			log.Infof("Successfully deleted CnsUnregisterVolume: %s on namespace: %s",
 				cnsUnregisterVolume.Name, cnsUnregisterVolume.Namespace)
+		}
+	}
+}
+
+var (
+	newClientForGroup = k8s.NewClientForGroup
+	newForConfig      = func(config *rest.Config) (kubernetes.Interface, error) {
+		return kubernetes.NewForConfig(config)
+	}
+)
+
+// cleanupOrphanedBatchAttachPVCs removes the `CNSPvcFinalizer` from the PVCs in cases
+// where the CnsNodeVmBatchAttachment CR gets deleted before the PVCs.
+// This is EXTREMELY UNLIKELY to happen but in case of concurrent updates and deletes of the CR,
+// it was observed that the CRs could sometime lose track of the PVCs that could lead to this.
+// Even though #3784(https://github.com/kubernetes-sigs/vsphere-csi-driver/pull/3784) addressed the root cause,
+// this routine is a SAFETY GUARDRAIL to avoid situations where namespaced could remain stuck in terminating state.
+// This routine usually runs every 10 minutes.
+func cleanupOrphanedBatchAttachPVCs(ctx context.Context, config rest.Config) {
+	log := logger.GetLogger(ctx)
+
+	pvcList := commonco.ContainerOrchestratorUtility.ListPVCs(ctx, "")
+	if len(pvcList) == 0 {
+		log.Debug("no PVCs found in cluster, skipping cleanup cycle")
+		return
+	}
+
+	// map to hold all the PVCs that are orphaned by CnsNodeVmBatchAttachment reconciler.
+	// structure of the map follows the logical grouping kubernetes uses.
+	// namespace -> pvc -> struct{}{}
+	orphanPVCs := make(map[string]map[string]struct{})
+	// prefix for the annotation that indicates the PVC is used by a VM.
+	usedByVmAnnotationPrefix := "cns.vmware.com/usedby-vm-"
+	for _, pvc := range pvcList {
+		if pvc.DeletionTimestamp == nil {
+			// PVC is not being deleted. Can be ignored.
+			continue
+		}
+
+		if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+			// not a PVC that is attached to or being attached to a VM. Can be ignored.
+			continue
+		}
+
+		isBatchAttachPVC := false
+		for key := range pvc.GetAnnotations() {
+			if !strings.HasPrefix(key, usedByVmAnnotationPrefix) {
+				continue
+			}
+
+			// only PVCs that are attached to VMs by CnsNodeVmBatchAttachment CR have the annotation set.
+			// Example: `cns.vmware.com/usedby-vm-ae6c8201-b485-462c-a93b-d4342b16cd68: ""`
+			isBatchAttachPVC = true
+			break
+		}
+
+		if !isBatchAttachPVC {
+			// not a PVC that was processed by CnsNodeVmBatchAttachment. Can be ignored.
+			continue
+		}
+
+		if _, ok := orphanPVCs[pvc.Namespace]; !ok {
+			orphanPVCs[pvc.Namespace] = map[string]struct{}{}
+		}
+		orphanPVCs[pvc.Namespace][pvc.Name] = struct{}{}
+	}
+
+	if len(orphanPVCs) == 0 {
+		log.Debug("no orphan PVCs found in cluster, skipping cleanup cycle")
+		return
+	}
+
+	cnsClient, err := newClientForGroup(ctx, &config, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Error("failed to create cns operator client")
+		return
+	}
+
+	// Iterate over namespaces that have candidate orphan PVCs
+	for namespace := range orphanPVCs {
+		batchAttachList := batchattachv1a1.CnsNodeVMBatchAttachmentList{}
+		err = cnsClient.List(ctx, &batchAttachList, ctrlclient.InNamespace(namespace))
+		if err != nil {
+			log.With("kind", batchAttachList.Kind).With("namespace", namespace).Error("listing failed")
+			continue
+		}
+
+		for _, cr := range batchAttachList.Items {
+			for _, vol := range cr.Spec.Volumes {
+				// Any PVCs that are still in the spec can be safely ignored by this routine
+				// to be processed by the reconciler.
+				delete(orphanPVCs[cr.Namespace], vol.PersistentVolumeClaim.ClaimName)
+			}
+
+			for _, vol := range cr.Status.VolumeStatus {
+				// Any PVCs that are still in the status can be safely ignored by this routine
+				// to be processed by the reconciler.
+				delete(orphanPVCs[cr.Namespace], vol.PersistentVolumeClaim.ClaimName)
+			}
+		}
+	}
+
+	c, err := newForConfig(&config)
+	if err != nil {
+		log.Error("failed to create core API client")
+		return
+	}
+
+	// All the PVCs that are remaining in the map are eligible orphans whose finalizer can be removed.
+	for namespace, pvcs := range orphanPVCs {
+		for name := range pvcs {
+			err := k8s.RemoveFinalizerFromPVC(ctx, c, name, namespace, cnsoperatortypes.CNSPvcFinalizer)
+			if err != nil {
+				log.With("name", name).With("namespace", namespace).
+					Error("failed to remove the finalizer")
+				// safe to continue as failure to remove finalizer of a pvc doesn't influence others
+				continue
+			}
 		}
 	}
 }
