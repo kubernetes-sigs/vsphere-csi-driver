@@ -142,9 +142,11 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 			// Update the supervisor cluster API server if an object is stale.
 			if guestObject.Spec.EntityType != cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD &&
 				!compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec) {
-				log.Infof("FullSync: Updating CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
-				if err := metadataSyncer.cnsOperatorClient.Update(ctx, supervisorObject); err != nil {
-					log.Warnf("FullSync: Failed to update CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
+				log.Infof("FullSync: Patching CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
+				original := supervisorObject.DeepCopy()
+				supervisorObject.Spec = guestObject.Spec
+				if err := k8s.PatchObject(ctx, metadataSyncer.cnsOperatorClient, original, supervisorObject); err != nil {
+					log.Warnf("FullSync: Failed to patch CnsVolumeMetadata %v. Err: %v", supervisorObject.Name, err)
 				}
 			}
 		}
