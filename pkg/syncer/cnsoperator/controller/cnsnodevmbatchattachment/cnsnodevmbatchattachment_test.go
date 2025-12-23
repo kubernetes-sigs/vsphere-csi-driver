@@ -212,7 +212,7 @@ func getClientSetWithPvc() *k8sFake.Clientset {
 	}
 
 	// Initialize fake clientset with the PVC
-	clientset := k8sFake.NewSimpleClientset(pvc1, pvc2)
+	clientset := k8sFake.NewClientset(pvc1, pvc2)
 
 	return clientset
 }
@@ -457,7 +457,7 @@ func TestAddPvcAnnotation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := k8sFake.NewSimpleClientset()
+			client := k8sFake.NewClientset()
 
 			// Create PVC in fake cluster
 			pvc := &v1.PersistentVolumeClaim{
@@ -545,7 +545,7 @@ func TestRemovePvcAnnotation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := k8sFake.NewSimpleClientset()
+			client := k8sFake.NewClientset()
 
 			// Create PVC in fake cluster
 			pvc := &v1.PersistentVolumeClaim{
@@ -817,7 +817,7 @@ func TestRemovePvcFinalizer_WhenPVCIsAlreadyDeleted(t *testing.T) {
 	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects().Build()
 
 	// fake k8s clientset
-	clientset := k8sFake.NewSimpleClientset()
+	clientset := k8sFake.NewClientset()
 
 	// fake controller-runtime client for cnsOperatorClient (empty list)
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -862,7 +862,7 @@ func TestRemovePvcFinalizer_WhenPVCIsPresent(t *testing.T) {
 	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pvc).Build()
 
 	// fake k8s clientset
-	clientset := k8sFake.NewSimpleClientset(pvc)
+	clientset := k8sFake.NewClientset(pvc)
 
 	// fake controller-runtime client for cnsOperatorClient (empty list)
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1475,7 +1475,7 @@ func TestRemovePvcFinalizer_WhenCnsNodeVmAttachmentExists(t *testing.T) {
 	// Fake clients
 	crClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pvc).Build()
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cnsAttachment).Build()
-	clientset := k8sFake.NewSimpleClientset(pvc)
+	clientset := k8sFake.NewClientset(pvc)
 
 	// Monkey patch removePvcAnnotation and pvcHasUsedByAnnotaion
 	patches := gomonkey.NewPatches()

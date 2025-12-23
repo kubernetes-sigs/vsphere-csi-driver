@@ -65,7 +65,7 @@ func TestSetFileShareAnnotationsOnPVC_Success(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and PVC
-	k8sClient := k8sfake.NewSimpleClientset(pv, pvc)
+	k8sClient := k8sfake.NewClientset(pv, pvc)
 
 	// Create expected volume response with file share backing details
 	expectedVolume := &cnstypes.CnsVolume{
@@ -124,7 +124,7 @@ func TestSetFileShareAnnotationsOnPVC_PVNotFound(t *testing.T) {
 	}
 
 	// Create fake k8s client without the PV
-	k8sClient := k8sfake.NewSimpleClientset()
+	k8sClient := k8sfake.NewClientset()
 
 	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
@@ -168,7 +168,7 @@ func TestSetFileShareAnnotationsOnPVC_QueryVolumeError(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and PVC
-	k8sClient := k8sfake.NewSimpleClientset(pv, pvc)
+	k8sClient := k8sfake.NewClientset(pv, pvc)
 
 	// Mock the QueryVolumeUtil function to return error using gomonkey
 	expectedError := errors.New("query volume failed")
@@ -217,7 +217,7 @@ func TestSetFileShareAnnotationsOnPVC_PVCUpdateError(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and configure it to fail on PVC update
-	k8sClient := k8sfake.NewSimpleClientset(pv)
+	k8sClient := k8sfake.NewClientset(pv)
 	k8sClient.PrependReactor("update", "persistentvolumeclaims",
 		func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
 			return true, nil, errors.New("update failed")
@@ -294,7 +294,7 @@ func TestSetFileShareAnnotationsOnPVC_OnlyNFSv4AccessPoint(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and PVC
-	k8sClient := k8sfake.NewSimpleClientset(pv, pvc)
+	k8sClient := k8sfake.NewClientset(pv, pvc)
 
 	// Create expected volume response with only NFSv4 access point
 	expectedVolume := &cnstypes.CnsVolume{
@@ -360,7 +360,7 @@ func TestSetFileShareAnnotationsOnPVC_EmptyAccessPoints(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and PVC
-	k8sClient := k8sfake.NewSimpleClientset(pv, pvc)
+	k8sClient := k8sfake.NewClientset(pv, pvc)
 
 	// Create expected volume response with empty access points
 	expectedVolume := &cnstypes.CnsVolume{
@@ -423,7 +423,7 @@ func TestSetFileShareAnnotationsOnPVC_ExistingAnnotations(t *testing.T) {
 	}
 
 	// Create fake k8s client with PV and PVC
-	k8sClient := k8sfake.NewSimpleClientset(pv, pvc)
+	k8sClient := k8sfake.NewClientset(pv, pvc)
 
 	// Create expected volume response with file share backing details
 	expectedVolume := &cnstypes.CnsVolume{

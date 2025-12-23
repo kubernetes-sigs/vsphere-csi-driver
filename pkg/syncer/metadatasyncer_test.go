@@ -795,7 +795,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				// Note: We create a new informer factory directly instead of using
 				// the singleton InformerManager to avoid interference with other tests.
 				// The listers work fine without starting the informers.
-				k8sClient := testclient.NewSimpleClientset()
+				k8sClient := testclient.NewClientset()
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				return &metadataSyncInformer{
 					pvLister:  informerFactory.Core().V1().PersistentVolumes().Lister(),
@@ -828,7 +828,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				// Note: We create a new informer factory directly instead of using
 				// the singleton InformerManager to avoid interference with other tests.
 				// The listers work fine without starting the informers.
-				k8sClient := testclient.NewSimpleClientset()
+				k8sClient := testclient.NewClientset()
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				return &metadataSyncInformer{
 					pvLister:  informerFactory.Core().V1().PersistentVolumes().Lister(),
@@ -868,7 +868,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				// Note: We create a new informer factory directly instead of using
 				// the singleton InformerManager to avoid interference with other tests.
 				// The listers work fine without starting the informers.
-				k8sClient := testclient.NewSimpleClientset()
+				k8sClient := testclient.NewClientset()
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				return &metadataSyncInformer{
 					pvLister:  informerFactory.Core().V1().PersistentVolumes().Lister(),
@@ -914,7 +914,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				// Note: We create a new informer factory directly instead of using
 				// the singleton InformerManager to avoid interference with other tests.
 				// The listers work fine without starting the informers.
-				k8sClient := testclient.NewSimpleClientset()
+				k8sClient := testclient.NewClientset()
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				return &metadataSyncInformer{
 					pvLister:  informerFactory.Core().V1().PersistentVolumes().Lister(),
@@ -976,7 +976,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				// Mock fetchStorageClassToStoragePolicyMapping
 				fetchStorageClassToStoragePolicyMapping = fakeFetchStorageClassToStoragePolicyMapping
 
-				k8sClient := testclient.NewSimpleClientset()
+				k8sClient := testclient.NewClientset()
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				return &metadataSyncInformer{
 					pvLister:  informerFactory.Core().V1().PersistentVolumes().Lister(),
@@ -1064,7 +1064,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 					},
 				}
 
-				k8sClient := testclient.NewSimpleClientset(pvc1, pvc2)
+				k8sClient := testclient.NewClientset(pvc1, pvc2)
 				informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
 				// Start the informer factory to populate the cache
 				stopCh := make(chan struct{})

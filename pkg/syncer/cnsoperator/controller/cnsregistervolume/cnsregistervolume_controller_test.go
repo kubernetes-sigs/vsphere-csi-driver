@@ -658,7 +658,7 @@ var _ = Describe("checkExistingPVCDataSourceRef", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		k8sclient = k8sfake.NewSimpleClientset()
+		k8sclient = k8sfake.NewClientset()
 		namespace = "test-namespace"
 		pvcName = "test-pvc"
 	})
@@ -867,7 +867,7 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 		}
 
 		// Create a fake Kubernetes client
-		mockK8sClient = k8sfake.NewSimpleClientset()
+		mockK8sClient = k8sfake.NewClientset()
 	})
 
 	Context("when PVC has no topology annotation", func() {
@@ -1438,7 +1438,7 @@ func TestGetPersistentVolumeSpecWithVolumeModeWithoutSharedDisk(t *testing.T) {
 
 func TestVolumeModeInheritanceFromExistingPVCWithDataSourceRef(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 
@@ -1498,7 +1498,7 @@ func TestVolumeModeInheritanceFromExistingPVCWithDataSourceRef(t *testing.T) {
 
 func TestVolumeModeNotInheritedWhenAlreadySet(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 
@@ -1562,7 +1562,7 @@ func TestVolumeModeNotInheritedWhenAlreadySet(t *testing.T) {
 
 func TestVolumeModeNotInheritedWhenNoDataSourceRef(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 
@@ -1618,7 +1618,7 @@ func TestVolumeModeNotInheritedWhenNoDataSourceRef(t *testing.T) {
 
 func TestVolumeModeNotInheritedWhenPVCVolumeModeIsNil(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 
@@ -1678,7 +1678,7 @@ func TestVolumeModeNotInheritedWhenPVCVolumeModeIsNil(t *testing.T) {
 
 func TestVolumeModeMatchesExistingPVC(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 
@@ -1738,7 +1738,7 @@ func TestVolumeModeMatchesExistingPVC(t *testing.T) {
 
 func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 	pvName := "pvc-12345678-1234-1234-1234-123456789012"
@@ -1874,7 +1874,7 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 
 func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	ctx := context.Background()
-	k8sclient := k8sfake.NewSimpleClientset()
+	k8sclient := k8sfake.NewClientset()
 	namespace := "test-namespace"
 	pvcName := "test-pvc"
 	pvName := "pvc-12345678-1234-1234-1234-123456789012"
@@ -2292,7 +2292,7 @@ func TestSetBackingDiskAnnotationNoChangeNeeded(t *testing.T) {
 		},
 	}
 
-	client := k8sfake.NewSimpleClientset(pvc)
+	client := k8sfake.NewClientset(pvc)
 
 	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
 
@@ -2321,7 +2321,7 @@ func TestSetBackingDiskAnnotationUpdateRequired(t *testing.T) {
 		},
 	}
 
-	client := k8sfake.NewSimpleClientset(pvc)
+	client := k8sfake.NewClientset(pvc)
 
 	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
 	assert.NoError(t, err)
@@ -2359,7 +2359,7 @@ func TestSetBackingDiskAnnotationNoAnnotationsInitially(t *testing.T) {
 		},
 	}
 
-	client := k8sfake.NewSimpleClientset(pvc)
+	client := k8sfake.NewClientset(pvc)
 
 	out, err := setBackingDiskAnnotation(ctx, client, instance, pvc)
 	assert.NoError(t, err)

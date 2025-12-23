@@ -45,7 +45,7 @@ import (
 	cnsop "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 )
 
-var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
+var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() {
 
 	f := framework.NewDefaultFramework("vmsvc")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
@@ -746,7 +746,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi vol tests", func() {
 	   8   delete pvc1, pvc2
 	   9   Remove spbm policy attached to test namespace in step1
 	*/
-	ginkgo.It("[ef-f-stretched-svc][stretched-svc] VM and PVC both belong to same zone", ginkgo.Label(p0,
+	ginkgo.It("[ef-f-stretched-svc][stretched-svc] VM and PVC both belong to the same zone", ginkgo.Label(p0,
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

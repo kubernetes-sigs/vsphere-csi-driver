@@ -143,7 +143,7 @@ func TestCleanupPVCs(t *testing.T) {
 		for _, pvc := range pvcs {
 			k8sObjects = append(k8sObjects, pvc)
 		}
-		fakeK8sClient := k8sfake.NewSimpleClientset(k8sObjects...)
+		fakeK8sClient := k8sfake.NewClientset(k8sObjects...)
 
 		// Setup fake controller-runtime client for batch attach CRs
 		scheme := runtime.NewScheme()

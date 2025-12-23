@@ -150,9 +150,9 @@ func TestAddNodeAffinityRulesOnPVTopologyAnnotationPresent(t *testing.T) {
 	}
 
 	// Setup supervisor client with PVC
-	supervisorClient := k8sfake.NewSimpleClientset(supPVC)
+	supervisorClient := k8sfake.NewClientset(supPVC)
 	// Setup guest client with PV
-	guestClient := k8sfake.NewSimpleClientset(guestPV)
+	guestClient := k8sfake.NewClientset(guestPV)
 
 	// Setup metadataSyncer
 	metadataSyncer := &metadataSyncInformer{
@@ -233,8 +233,8 @@ func TestAddNodeAffinityRulesOnPVTopologyAnnotationAbsent(t *testing.T) {
 		},
 	}
 
-	supervisorClient := k8sfake.NewSimpleClientset(supPVC)
-	guestClient := k8sfake.NewSimpleClientset(guestPV)
+	supervisorClient := k8sfake.NewClientset(supPVC)
+	guestClient := k8sfake.NewClientset(guestPV)
 
 	// Setup metadataSyncer
 	metadataSyncer := &metadataSyncInformer{

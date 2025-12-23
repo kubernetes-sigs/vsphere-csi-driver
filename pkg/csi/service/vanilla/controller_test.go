@@ -270,7 +270,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 				t.Fatal(err)
 			}
 		} else {
-			k8sClient = testclient.NewSimpleClientset()
+			k8sClient = testclient.NewClientset()
 		}
 
 		nodeManager := &FakeNodeManager{
