@@ -233,6 +233,25 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Info("CnsNodeVmAttachment resource not found. Ignoring since object must be deleted.")
+
+				// Remove PVC protection finalizer when CnsNodeVmAttachment is deleted
+				// Since the instance is not found, we need to list PVCs in the namespace
+				// and remove the CNS PVC finalizer from any PVC that might be associated
+				pvcList := &v1.PersistentVolumeClaimList{}
+				err := r.client.List(internalCtx, pvcList, client.InNamespace(request.Namespace))
+				if err != nil {
+					log.Errorf("Failed to list PVCs in namespace %q. Err: %+v", request.Namespace, err)
+				} else {
+					for _, pvc := range pvcList.Items {
+						log.Infof("Attempting to remove %q finalizer from PVC %q in namespace %q due to CnsNodeVmAttachment deletion",
+							cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+						_, err := removeFinalizerFromPVC(internalCtx, r.client, &pvc)
+						if err != nil {
+							log.Errorf("Failed to remove finalizer from PVC %q. Err: %+v", pvc.Name, err)
+						}
+					}
+				}
+
 				return reconcile.Result{}, "", nil
 			}
 			log.Errorf("Error reading the CnsNodeVmAttachment with name: %q on namespace: %q. Err: %+v",
