@@ -8,16 +8,11 @@ import (
 
 // InMemoryMapIf is used to not provide direct access to internal mutex or map to methods in the same pkg
 type InMemoryMapIf interface {
-	// Upsert : if task exists in the map, the taskDetails will be overwritten.
-	// if the task doesn't exist, the taskDetails will be stored
-	Upsert(types.ManagedObjectReference, TaskDetails)
-	// Delete task from map
+	// Upsert adds or updates a task. Returns old TaskDetails and whether it existed.
+	Upsert(types.ManagedObjectReference, TaskDetails) (TaskDetails, bool)
 	Delete(types.ManagedObjectReference)
-	// Get retrieves a single item from a map
 	Get(types.ManagedObjectReference) (TaskDetails, bool)
-	// GetAll retrieves all map items
 	GetAll() []TaskDetails
-	// Count returns the count of all items present in the map
 	Count() int
 }
 
@@ -33,28 +28,26 @@ type TaskMap struct {
 	m map[types.ManagedObjectReference]TaskDetails
 }
 
-// NewTaskMap returns a new instance of TaskMap
 func NewTaskMap() InMemoryMapIf {
 	return &TaskMap{
 		m: make(map[types.ManagedObjectReference]TaskDetails),
 	}
 }
 
-// Upsert adds/updates items and requires an exclusive write lock
-func (t *TaskMap) Upsert(task types.ManagedObjectReference, taskDetails TaskDetails) {
+func (t *TaskMap) Upsert(task types.ManagedObjectReference, taskDetails TaskDetails) (TaskDetails, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	oldDetails, existed := t.m[task]
 	t.m[task] = taskDetails
+	return oldDetails, existed
 }
 
-// Delete deletes items from the map and requires an exclusive write lock
 func (t *TaskMap) Delete(task types.ManagedObjectReference) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.m, task)
 }
 
-// Get retrieves a single item from the map and requires a read lock
 func (t *TaskMap) Get(task types.ManagedObjectReference) (TaskDetails, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -62,7 +55,6 @@ func (t *TaskMap) Get(task types.ManagedObjectReference) (TaskDetails, bool) {
 	return taskDetails, ok
 }
 
-// GetAll retrieves all tasks from the map and requires a read lock
 func (t *TaskMap) GetAll() []TaskDetails {
 	var allTasks []TaskDetails
 	t.mu.RLock()
@@ -73,7 +65,8 @@ func (t *TaskMap) GetAll() []TaskDetails {
 	return allTasks
 }
 
-// Count returns the number of tasks present in the map
 func (t *TaskMap) Count() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return len(t.m)
 }
