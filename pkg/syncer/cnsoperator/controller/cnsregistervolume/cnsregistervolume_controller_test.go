@@ -224,6 +224,10 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 	return "", nil
 }
 
+func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	return nil
+}
+
 type mockCOCommon struct{}
 
 func (m *mockCOCommon) ListPVCs(ctx context.Context, namespace string) []*corev1.PersistentVolumeClaim {

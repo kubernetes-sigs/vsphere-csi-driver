@@ -199,3 +199,11 @@ func (m MockManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.
 	//TODO implement me
 	panic("implement me")
 }
+
+func (m MockManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	if m.failRequest {
+		return m.err
+	}
+
+	return nil
+}

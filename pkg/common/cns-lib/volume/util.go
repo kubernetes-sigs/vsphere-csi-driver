@@ -632,3 +632,17 @@ func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	log.Infof("Checking fault type: %q is vim.fault.CnsVolumeAlreadyExistsFault", faultType)
 	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
 }
+
+// IsCnsNotRegisteredFault checks if the fault is CnsNotRegisteredFault
+func IsCnsNotRegisteredFault(ctx context.Context, fault *types.LocalizedMethodFault) bool {
+	log := logger.GetLogger(ctx)
+	if fault == nil || fault.Fault == nil {
+		log.Infof("fault is nil or fault.Fault is nil. Not a CnsNotRegisteredFault")
+		return false
+	}
+	if _, ok := fault.Fault.(*cnstypes.CnsNotRegisteredFault); ok {
+		log.Infof("observed CnsNotRegisteredFault")
+		return true
+	}
+	return false
+}
