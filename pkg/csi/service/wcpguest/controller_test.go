@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -637,4 +638,29 @@ func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
 	if a, e := vm3.Spec.Volumes[0].Name, "my-vol-2"; a != e {
 		t.Fatalf("invalid volume name: a=%s, e=%s", a, e)
 	}
+}
+
+func TestRemoveDetachingSuffixFromVolumeName(t *testing.T) {
+	t.Run("WhenSuffixExists", func(tt *testing.T) {
+		// Setup
+		volumeName := "pvc:detaching"
+		exp := "pvc"
+
+		// Execute
+		act := removeDetachingSuffixFromVolumeName(volumeName)
+
+		// Assert
+		assert.Equal(tt, exp, act)
+	})
+	t.Run("WhenSuffixDoesNotExist", func(tt *testing.T) {
+		// Setup
+		volumeName := "pvc"
+		exp := "pvc"
+
+		// Execute
+		act := removeDetachingSuffixFromVolumeName(volumeName)
+
+		// Assert
+		assert.Equal(tt, exp, act)
+	})
 }
