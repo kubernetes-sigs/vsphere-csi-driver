@@ -622,7 +622,6 @@ func (r *Reconciler) completeReconciliationWithSuccess(ctx context.Context, inst
 	log := logger.GetLogger(ctx)
 
 	conditions.MarkTrue(instance, v1alpha1.ConditionReady)
-	instance.Status.Error = ""
 
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
@@ -648,7 +647,6 @@ func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instan
 
 	trimmedError := trimMessage(err)
 	conditions.MarkError(instance, v1alpha1.ConditionReady, v1alpha1.ReasonFailed, trimmedError)
-	instance.Status.Error = err.Error()
 
 	updateErr := updateInstanceStatus(ctx, r.client, instance)
 	if updateErr != nil {
