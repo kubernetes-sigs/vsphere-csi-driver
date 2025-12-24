@@ -982,6 +982,7 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		pvcConditions := pvclaim.Status.Conditions
 		expectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+		time.Sleep(pollTimeoutShort)
 
 		ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
 		fsSize, err = getFileSystemSizeForOsType(f, client, pod)
