@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -105,11 +106,21 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
 			if _, ok := svPVC.Labels[key]; ok {
+				original := svPVC.DeepCopy()
 				delete(svPVC.Labels, key)
-				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
-					ctx, svPVC, metav1.UpdateOptions{})
+
+				// Create controller-runtime client for supervisor cluster
+				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
 				if err != nil {
-					log.Errorf("failed to update supervisor PVC: %q in %q namespace. Error: %+v",
+					log.Errorf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+					return
+				}
+
+				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
+				if err != nil {
+					log.Errorf("failed to patch supervisor PVC: %q in %q namespace. Error: %+v",
 						pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
 				}
 			}
