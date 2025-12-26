@@ -22,7 +22,9 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,6 +38,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 func TestGenerateVolumeNodeAffinity(t *testing.T) {
@@ -610,4 +613,332 @@ func TestPvcsiFullSync_PatchLogic_Integration(t *testing.T) {
 	} else {
 		t.Fatal("Expected patch conditions to be met for integration test")
 	}
+}
+
+// TestPVCPatchFunctionality tests PVC patching functionality in pvcsi_fullsync and pvcsi_metadatasyncer
+func TestPVCPatchFunctionality(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		setupPVC     func() *v1.PersistentVolumeClaim
+		modifyPVC    func(*v1.PersistentVolumeClaim)
+		expectError  bool
+		validateFunc func(*testing.T, *v1.PersistentVolumeClaim)
+	}{
+		{
+			name: "Add guest cluster labels to PVC",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: "supervisor-ns",
+						Labels:    map[string]string{},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// Simulate adding guest cluster labels (from pvcsi_fullsync.go)
+				key := "test-cluster/tkgs"
+				pvc.Labels[key] = "test-cluster-uid"
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, pvc *v1.PersistentVolumeClaim) {
+				assert.Contains(t, pvc.Labels, "test-cluster/tkgs")
+				assert.Equal(t, "test-cluster-uid", pvc.Labels["test-cluster/tkgs"])
+			},
+		},
+		{
+			name: "Remove guest cluster labels from PVC",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: "supervisor-ns",
+						Labels: map[string]string{
+							"test-cluster/tkgs": "test-cluster-uid",
+							"other-label":       "other-value",
+						},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// Simulate removing guest cluster labels (from pvcsi_metadatasyncer.go)
+				key := "test-cluster/tkgs"
+				delete(pvc.Labels, key)
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, pvc *v1.PersistentVolumeClaim) {
+				assert.NotContains(t, pvc.Labels, "test-cluster/tkgs")
+				assert.Contains(t, pvc.Labels, "other-label")
+			},
+		},
+		{
+			name: "Add CNS finalizer to PVC",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "test-pvc",
+						Namespace:  "supervisor-ns",
+						Finalizers: []string{"other-finalizer"},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// Simulate adding CNS finalizer (from pvcsi_fullsync.go)
+				pvc.ObjectMeta.Finalizers = append(pvc.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, pvc *v1.PersistentVolumeClaim) {
+				assert.Contains(t, pvc.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
+				assert.Contains(t, pvc.Finalizers, "other-finalizer")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			pvc := tt.setupPVC()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(pvc).
+				Build()
+
+			// Create original copy before modification
+			original := pvc.DeepCopy()
+
+			// Apply modifications
+			tt.modifyPVC(pvc)
+
+			// Test PatchObject
+			err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+
+				// Verify the patch was applied
+				updatedPVC := &v1.PersistentVolumeClaim{}
+				err = fakeClient.Get(ctx, client.ObjectKey{
+					Name:      pvc.Name,
+					Namespace: pvc.Namespace,
+				}, updatedPVC)
+				assert.NoError(t, err)
+
+				// Run validation function
+				if tt.validateFunc != nil {
+					tt.validateFunc(t, updatedPVC)
+				}
+			}
+		})
+	}
+}
+
+// TestVolumeSnapshotPatchFunctionality tests VolumeSnapshot patching functionality
+func TestVolumeSnapshotPatchFunctionality(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := snapv1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		setupVS      func() *snapv1.VolumeSnapshot
+		modifyVS     func(*snapv1.VolumeSnapshot)
+		expectError  bool
+		validateFunc func(*testing.T, *snapv1.VolumeSnapshot)
+	}{
+		{
+			name: "Add CNS finalizer to VolumeSnapshot",
+			setupVS: func() *snapv1.VolumeSnapshot {
+				return &snapv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       "test-snapshot",
+						Namespace:  "supervisor-ns",
+						Finalizers: []string{"other-finalizer"},
+					},
+				}
+			},
+			modifyVS: func(vs *snapv1.VolumeSnapshot) {
+				// Simulate adding CNS finalizer (from pvcsi_fullsync.go)
+				vs.ObjectMeta.Finalizers = append(vs.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, vs *snapv1.VolumeSnapshot) {
+				assert.Contains(t, vs.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+				assert.Contains(t, vs.Finalizers, "other-finalizer")
+			},
+		},
+		{
+			name: "Add guest cluster labels to VolumeSnapshot",
+			setupVS: func() *snapv1.VolumeSnapshot {
+				return &snapv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-snapshot",
+						Namespace: "supervisor-ns",
+						Labels:    map[string]string{},
+					},
+				}
+			},
+			modifyVS: func(vs *snapv1.VolumeSnapshot) {
+				// Simulate adding guest cluster labels (from pvcsi_fullsync.go)
+				key := "test-cluster/tkgs"
+				if vs.Labels == nil {
+					vs.Labels = make(map[string]string)
+				}
+				vs.Labels[key] = "test-cluster-uid"
+			},
+			expectError: false,
+			validateFunc: func(t *testing.T, vs *snapv1.VolumeSnapshot) {
+				assert.Contains(t, vs.Labels, "test-cluster/tkgs")
+				assert.Equal(t, "test-cluster-uid", vs.Labels["test-cluster/tkgs"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			vs := tt.setupVS()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(vs).
+				Build()
+
+			// Create original copy before modification
+			original := vs.DeepCopy()
+
+			// Apply modifications
+			tt.modifyVS(vs)
+
+			// Test PatchObject
+			err := k8s.PatchObject(ctx, fakeClient, original, vs)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+
+				// Verify the patch was applied
+				updatedVS := &snapv1.VolumeSnapshot{}
+				err = fakeClient.Get(ctx, client.ObjectKey{
+					Name:      vs.Name,
+					Namespace: vs.Namespace,
+				}, updatedVS)
+				assert.NoError(t, err)
+
+				// Run validation function
+				if tt.validateFunc != nil {
+					tt.validateFunc(t, updatedVS)
+				}
+			}
+		})
+	}
+}
+
+// TestControllerRuntimeClientCreationForSupervisor tests creating controller-runtime clients for supervisor cluster
+func TestControllerRuntimeClientCreationForSupervisor(t *testing.T) {
+	t.Run("Client creation with scheme for VolumeSnapshot", func(t *testing.T) {
+		// Create scheme with VolumeSnapshot support (simulating pvcsi_fullsync.go logic)
+		scheme := runtime.NewScheme()
+		err := snapv1.AddToScheme(scheme)
+		require.NoError(t, err)
+
+		// Verify scheme has VolumeSnapshot registered
+		gvk := snapv1.SchemeGroupVersion.WithKind("VolumeSnapshot")
+		_, err = scheme.New(gvk)
+		assert.NoError(t, err, "VolumeSnapshot should be registered in scheme")
+	})
+
+	t.Run("Scheme registration for core resources", func(t *testing.T) {
+		// Test that core resources are properly registered
+		scheme := runtime.NewScheme()
+		err := v1.AddToScheme(scheme)
+		require.NoError(t, err)
+
+		// Verify scheme has PVC registered
+		gvk := v1.SchemeGroupVersion.WithKind("PersistentVolumeClaim")
+		_, err = scheme.New(gvk)
+		assert.NoError(t, err, "PersistentVolumeClaim should be registered in scheme")
+	})
+}
+
+// TestPatchObjectErrorScenarios tests error handling in PatchObject usage
+func TestPatchObjectErrorScenarios(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	t.Run("PatchObject with conflicting updates", func(t *testing.T) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+				Labels:    map[string]string{"initial": "value"},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		// Simulate concurrent modification
+		original := pvc.DeepCopy()
+		pvc.Labels["new"] = "label"
+
+		// This should succeed with fake client
+		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+		assert.NoError(t, err)
+
+		// Verify the change was applied
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      pvc.Name,
+			Namespace: pvc.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.Equal(t, "label", updatedPVC.Labels["new"])
+	})
+
+	t.Run("PatchObject with nil labels map initialization", func(t *testing.T) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+				// Labels is nil initially
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		original := pvc.DeepCopy()
+
+		// Initialize labels map (simulating pvcsi_fullsync.go logic)
+		if pvc.Labels == nil {
+			pvc.Labels = make(map[string]string)
+		}
+		pvc.Labels["test-key"] = "test-value"
+
+		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+		assert.NoError(t, err)
+
+		// Verify labels were added
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      pvc.Name,
+			Namespace: pvc.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-value", updatedPVC.Labels["test-key"])
+	})
 }

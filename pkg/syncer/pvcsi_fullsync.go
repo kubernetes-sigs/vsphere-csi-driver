@@ -25,9 +25,11 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -486,14 +488,25 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
 			val, ok := svPVC.Labels[key]
 			if !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+				original := svPVC.DeepCopy()
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
 				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-				_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
-					ctx, svPVC, metav1.UpdateOptions{})
+
+				// Create controller-runtime client for supervisor cluster
+				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
 				if err != nil {
-					msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
+					msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+					log.Error(msg)
+					continue
+				}
+
+				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
+				if err != nil {
+					msg := fmt.Sprintf("failed to patch supervisor PVC: %q with guest cluster labels in %q namespace."+
 						"Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
 					log.Error(msg)
 					continue
@@ -505,13 +518,22 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 				cnsFinalizerPresent := slices.Contains(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
 				if !cnsFinalizerPresent {
+					original := svPVC.DeepCopy()
 					svPVC.ObjectMeta.Finalizers = append(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
-				}
-				if !cnsFinalizerPresent {
-					_, err = metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).Update(
-						ctx, svPVC, metav1.UpdateOptions{})
+
+					// Create controller-runtime client for supervisor cluster
+					supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+						metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+					supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
 					if err != nil {
-						msg := fmt.Sprintf("failed to update supervisor PVC: %q with guest cluster labels in %q namespace."+
+						msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+						log.Error(msg)
+						continue
+					}
+
+					err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to patch supervisor PVC: %q with guest cluster labels in %q namespace."+
 							" Error: %+v", pv.Spec.CSI.VolumeHandle, supervisorNamespace, err)
 						log.Error(msg)
 						continue
@@ -587,14 +609,34 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 			// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present already,
 			// to prevent accidental deletion from supervisor cluster
 			cnsFinalizerPresent := slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-			if !cnsFinalizerPresent {
-				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-			}
 			if !cnsFinalizerPresent || !tkcLabelPresent {
-				_, err = supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).Update(
-					ctx, svVS, metav1.UpdateOptions{})
+				original := svVS.DeepCopy()
+				if !cnsFinalizerPresent {
+					svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+				}
+
+				// Create controller-runtime client for supervisor cluster with VolumeSnapshot scheme
+				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+
+				// Create scheme with VolumeSnapshot support
+				scheme := runtime.NewScheme()
+				if err := snapv1.AddToScheme(scheme); err != nil {
+					msg := fmt.Sprintf("failed to add VolumeSnapshot scheme: %+v", err)
+					log.Error(msg)
+					continue
+				}
+
+				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{Scheme: scheme})
 				if err != nil {
-					msg := fmt.Sprintf("failed to update supervisor Snapshot: %q with guest cluster labels "+
+					msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+					log.Error(msg)
+					continue
+				}
+
+				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS)
+				if err != nil {
+					msg := fmt.Sprintf("failed to patch supervisor Snapshot: %q with guest cluster labels "+
 						"in %q namespace. Error: %+v", *vsc.Status.SnapshotHandle, supervisorNamespace, err)
 					log.Error(msg)
 					continue
