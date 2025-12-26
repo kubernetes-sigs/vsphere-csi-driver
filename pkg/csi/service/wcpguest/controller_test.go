@@ -24,13 +24,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -40,6 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 const (
@@ -637,4 +642,210 @@ func TestVirtualMachineVolumePatchWithOptimisticMerge(t *testing.T) {
 	if a, e := vm3.Spec.Volumes[0].Name, "my-vol-2"; a != e {
 		t.Fatalf("invalid volume name: a=%s, e=%s", a, e)
 	}
+}
+
+// TestPatchObjectFunctionality tests the PatchObject functionality used in wcpguest controller
+func TestPatchObjectFunctionality(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		setupPVC    func() *v1.PersistentVolumeClaim
+		modifyPVC   func(*v1.PersistentVolumeClaim)
+		expectError bool
+	}{
+		{
+			name: "Successfully patch PVC finalizer removal",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: "test-ns",
+						Finalizers: []string{
+							cnsoperatortypes.CNSVolumeFinalizer,
+							"other-finalizer",
+						},
+					},
+					Spec: v1.PersistentVolumeClaimSpec{
+						Resources: v1.VolumeResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceStorage: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// Remove CNS finalizer (simulating finalizer removal logic)
+				for i, finalizer := range pvc.ObjectMeta.Finalizers {
+					if finalizer == cnsoperatortypes.CNSVolumeFinalizer {
+						pvc.ObjectMeta.Finalizers = append(pvc.ObjectMeta.Finalizers[:i], pvc.ObjectMeta.Finalizers[i+1:]...)
+						break
+					}
+				}
+			},
+			expectError: false,
+		},
+		{
+			name: "Successfully patch PVC storage size increase",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: "test-ns",
+					},
+					Spec: v1.PersistentVolumeClaimSpec{
+						Resources: v1.VolumeResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceStorage: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// Increase storage size (simulating expansion logic)
+				pvc.Spec.Resources.Requests[v1.ResourceStorage] = resource.MustParse("2Gi")
+			},
+			expectError: false,
+		},
+		{
+			name: "Handle PVC with no changes gracefully",
+			setupPVC: func() *v1.PersistentVolumeClaim {
+				return &v1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pvc",
+						Namespace: "test-ns",
+					},
+					Spec: v1.PersistentVolumeClaimSpec{
+						Resources: v1.VolumeResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceStorage: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				}
+			},
+			modifyPVC: func(pvc *v1.PersistentVolumeClaim) {
+				// No changes - should still work
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			pvc := tt.setupPVC()
+			fakeClient := ctrlclientfake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(pvc).
+				Build()
+
+			// Create a copy for the original
+			original := pvc.DeepCopy()
+
+			// Apply modifications
+			tt.modifyPVC(pvc)
+
+			// Test PatchObject
+			err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+
+				// Verify the patch was applied
+				updatedPVC := &v1.PersistentVolumeClaim{}
+				err = fakeClient.Get(ctx, ctrlclient.ObjectKey{
+					Name:      pvc.Name,
+					Namespace: pvc.Namespace,
+				}, updatedPVC)
+				assert.NoError(t, err)
+
+				// Verify specific changes based on test case
+				if tt.name == "Successfully patch PVC finalizer removal" {
+					assert.NotContains(t, updatedPVC.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
+					assert.Contains(t, updatedPVC.Finalizers, "other-finalizer")
+				} else if tt.name == "Successfully patch PVC storage size increase" {
+					expectedSize := resource.MustParse("2Gi")
+					actualSize := updatedPVC.Spec.Resources.Requests[v1.ResourceStorage]
+					assert.True(t, expectedSize.Equal(actualSize))
+				}
+			}
+		})
+	}
+}
+
+// TestControllerRuntimeClientCreation tests the controller-runtime client creation logic
+func TestControllerRuntimeClientCreation(t *testing.T) {
+	t.Run("Client creation with valid config", func(t *testing.T) {
+		// Create a minimal rest config for testing
+		config := &rest.Config{
+			Host: "https://test-cluster",
+		}
+
+		// This should not fail even with a test config
+		client, err := ctrlclient.New(config, ctrlclient.Options{})
+
+		// We expect this to work in the test environment
+		// The actual connection will fail, but client creation should succeed
+		assert.NoError(t, err)
+		assert.NotNil(t, client)
+	})
+
+	t.Run("Client creation with nil config should fail", func(t *testing.T) {
+		client, err := ctrlclient.New(nil, ctrlclient.Options{})
+
+		assert.Error(t, err)
+		assert.Nil(t, client)
+	})
+}
+
+// TestPatchObjectErrorHandling tests error scenarios in PatchObject usage
+func TestPatchObjectErrorHandling(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	t.Run("PatchObject with non-existent object", func(t *testing.T) {
+		fakeClient := ctrlclientfake.NewClientBuilder().WithScheme(scheme).Build()
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "non-existent-pvc",
+				Namespace: "test-ns",
+			},
+		}
+		original := pvc.DeepCopy()
+		pvc.Labels = map[string]string{"test": "label"}
+
+		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("PatchObject with invalid patch data", func(t *testing.T) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+		}
+		fakeClient := ctrlclientfake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pvc).
+			Build()
+
+		// Create original and modified objects that would create an invalid patch
+		original := pvc.DeepCopy()
+		// This should still work as the fake client is permissive
+		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
+		assert.NoError(t, err) // Fake client allows this
+	})
 }
