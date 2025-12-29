@@ -41,6 +41,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -1097,4 +1098,29 @@ func updateInstanceVolumeStatus(
 	// and hence there is no way to know its volumeName.
 	updateInstanceVolumeStatusByPvc(ctx, instance, volumeName, pvc, volumeID, diskUUID,
 		trimmedError, conditionType, reason)
+}
+
+// isVmInSameNamespace checks whether the VM with the given instanceUUID is in the
+// same namespace as the batchattach instance and the PVCs.
+func isVmInSameNamespace(ctx context.Context, vmOperatorClient client.Client,
+	instanceUUID string, namespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, namespace)
+	if err != nil {
+		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
+		log.Error(msg)
+		return false, err
+	}
+	for _, vmInstance := range vmList.Items {
+		if vmInstance.Status.InstanceUUID == instanceUUID {
+			msg := fmt.Sprintf("VM CR with instance UUID: %s found in namespace: %s",
+				instanceUUID, namespace)
+			log.Infof(msg)
+			return true, nil
+		}
+	}
+	msg := fmt.Sprintf("VM CR with InstanceUUID: %s not found in namespace: %s",
+		instanceUUID, namespace)
+	log.Info(msg)
+	return false, nil
 }

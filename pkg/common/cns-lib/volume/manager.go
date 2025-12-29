@@ -3549,7 +3549,7 @@ func constructBatchAttachSpecList(ctx context.Context, vm *cnsvsphere.VirtualMac
 		cnsAttachSpecList = append(cnsAttachSpecList, cnsAttachDetachSpec)
 	}
 
-	log.Infof("Constucted CnsVolumeAttachDetachSpec for VM %s", vm.UUID)
+	log.Infof("Constructed CnsVolumeAttachDetachSpec for VM %s", vm.UUID)
 	return cnsAttachSpecList, nil
 
 }
