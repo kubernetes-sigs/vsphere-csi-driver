@@ -162,6 +162,22 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			}()
 		}
 
+		// Start cleanup routine to remove orphaned PVC finalizers from CnsNodeVmAttachment.
+		// This handles cases where CnsNodeVmAttachment CRs are deleted before
+		// removing finalizers from their associated PVCs.
+		log.Info("Starting go routine to cleanup orphaned PVC finalizers from node attach.")
+		go func() {
+			for {
+				ctx, log = logger.GetNewContextWithLogger()
+				log.Info("Triggering node attach PVC finalizer cleanup routine")
+				cleanupOrphanedNodeAttachPVCs(ctx, *restConfig)
+				log.Info("Completed node attach PVC finalizer cleanup")
+				for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsPVCProtectionCleanupIntervalInMin; i++ {
+					time.Sleep(1 * time.Minute)
+				}
+			}
+		}()
+
 		// Create CnsVolumeMetadata CRD
 		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsVolumeMetadataCRFile,
 			cnsoperatorconfig.EmbedCnsVolumeMetadataCRFileName)

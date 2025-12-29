@@ -32,6 +32,7 @@ import (
 	runtimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	nodeattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -497,5 +498,201 @@ func TestCleanupPVCs(t *testing.T) {
 				"pvc-5": true, // Referenced in CR
 			},
 		})
+	})
+}
+
+// createTestNodeAttachCR creates a test CnsNodeVmAttachment CR
+func createTestNodeAttachCR(name, namespace, volumeName string) *nodeattachv1a1.CnsNodeVmAttachment {
+	return &nodeattachv1a1.CnsNodeVmAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: nodeattachv1a1.CnsNodeVmAttachmentSpec{
+			NodeUUID:   "test-node-uuid",
+			VolumeName: volumeName,
+		},
+	}
+}
+
+func TestCleanupNodeAttachPVCs(t *testing.T) {
+	// Save original function variables
+	coUtilOrig := commonco.ContainerOrchestratorUtility
+	newClientForGroupOrig := newClientForGroup
+	newForConfigOrig := newForConfig
+
+	// Restore original functions after test
+	defer func() {
+		commonco.ContainerOrchestratorUtility = coUtilOrig
+		newClientForGroup = newClientForGroupOrig
+		newForConfig = newForConfigOrig
+	}()
+
+	setupNodeAttach := func(tt *testing.T, pvcs []*corev1.PersistentVolumeClaim,
+		nodeAttachCRs []*nodeattachv1a1.CnsNodeVmAttachment) kubernetes.Interface {
+		// Setup fake k8s client
+		k8sClient := k8sfake.NewClientset()
+		for _, pvc := range pvcs {
+			_, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(
+				context.Background(), pvc, metav1.CreateOptions{})
+			assert.NoError(tt, err)
+		}
+
+		// Setup fake controller-runtime client
+		scheme := runtime.NewScheme()
+		err := cnsoperatorapis.AddToScheme(scheme)
+		assert.NoError(tt, err)
+
+		var objects []client.Object
+		for _, cr := range nodeAttachCRs {
+			objects = append(objects, cr)
+		}
+		runtimeClient := runtimefake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+
+		// Mock functions
+		fakeOrch := &unittestcommon.FakeK8SOrchestrator{}
+		fakeOrch.SetPVCs(pvcs)
+		commonco.ContainerOrchestratorUtility = fakeOrch
+
+		newClientForGroup = func(ctx context.Context, config *rest.Config, groupName string) (client.Client, error) {
+			return runtimeClient, nil
+		}
+
+		newForConfig = func(config *rest.Config) (kubernetes.Interface, error) {
+			return k8sClient, nil
+		}
+
+		return k8sClient
+	}
+
+	t.Run("WhenNoPVCsExist", func(tt *testing.T) {
+		k8sClient := setupNodeAttach(tt, []*corev1.PersistentVolumeClaim{}, []*nodeattachv1a1.CnsNodeVmAttachment{})
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert - no PVCs should exist
+		pvcs, err := k8sClient.CoreV1().PersistentVolumeClaims("").List(context.Background(), metav1.ListOptions{})
+		assert.NoError(tt, err)
+		assert.Empty(tt, pvcs.Items)
+	})
+
+	t.Run("WhenAllPVCsWithoutDeletionTimestamp", func(tt *testing.T) {
+		pvcs := []*corev1.PersistentVolumeClaim{
+			createTestPVC("pvc-1", "ns-1", true),
+			createTestPVC("pvc-2", "ns-1", true),
+		}
+		k8sClient := setupNodeAttach(tt, pvcs, []*nodeattachv1a1.CnsNodeVmAttachment{})
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert - all PVCs should still have finalizers (no cleanup should happen)
+		for _, pvc := range pvcs {
+			updatedPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
+				context.Background(), pvc.Name, metav1.GetOptions{})
+			assert.NoError(tt, err)
+			assert.True(tt, controllerutil.ContainsFinalizer(updatedPVC, cnsoperatortypes.CNSPvcFinalizer))
+		}
+	})
+
+	t.Run("WhenPVCsWithoutFinalizer", func(tt *testing.T) {
+		pvcs := []*corev1.PersistentVolumeClaim{
+			createTestPVCWithDeletion("pvc-1", "ns-1", false, false),
+			createTestPVCWithDeletion("pvc-2", "ns-1", false, false),
+		}
+		k8sClient := setupNodeAttach(tt, pvcs, []*nodeattachv1a1.CnsNodeVmAttachment{})
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert - PVCs without finalizers should be ignored
+		for _, pvc := range pvcs {
+			updatedPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
+				context.Background(), pvc.Name, metav1.GetOptions{})
+			assert.NoError(tt, err)
+			assert.False(tt, controllerutil.ContainsFinalizer(updatedPVC, cnsoperatortypes.CNSPvcFinalizer))
+		}
+	})
+
+	t.Run("WhenOrphanedNodeAttachPVCsExist", func(tt *testing.T) {
+		pvcs := []*corev1.PersistentVolumeClaim{
+			createTestPVCWithDeletion("pvc-1", "ns-1", true, false),
+			createTestPVCWithDeletion("pvc-2", "ns-1", true, false),
+			createTestPVCWithDeletion("pvc-3", "ns-2", true, false),
+		}
+		k8sClient := setupNodeAttach(tt, pvcs, []*nodeattachv1a1.CnsNodeVmAttachment{})
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert - all orphaned PVCs should have finalizers removed
+		for _, pvc := range pvcs {
+			updatedPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
+				context.Background(), pvc.Name, metav1.GetOptions{})
+			assert.NoError(tt, err)
+			assert.False(tt, controllerutil.ContainsFinalizer(updatedPVC, cnsoperatortypes.CNSPvcFinalizer))
+		}
+	})
+
+	t.Run("WhenNodeAttachCRsExistInNamespace", func(tt *testing.T) {
+		pvcs := []*corev1.PersistentVolumeClaim{
+			createTestPVCWithDeletion("pvc-1", "ns-1", true, false),
+			createTestPVCWithDeletion("pvc-2", "ns-2", true, false),
+		}
+		nodeAttachCRs := []*nodeattachv1a1.CnsNodeVmAttachment{
+			createTestNodeAttachCR("attach-1", "ns-1", "volume-1"),
+		}
+		k8sClient := setupNodeAttach(tt, pvcs, nodeAttachCRs)
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert
+		// PVC in ns-1 should keep finalizer (CR exists in namespace)
+		pvc1, err := k8sClient.CoreV1().PersistentVolumeClaims("ns-1").Get(
+			context.Background(), "pvc-1", metav1.GetOptions{})
+		assert.NoError(tt, err)
+		assert.True(tt, controllerutil.ContainsFinalizer(pvc1, cnsoperatortypes.CNSPvcFinalizer))
+
+		// PVC in ns-2 should have finalizer removed (no CR in namespace)
+		pvc2, err := k8sClient.CoreV1().PersistentVolumeClaims("ns-2").Get(
+			context.Background(), "pvc-2", metav1.GetOptions{})
+		assert.NoError(tt, err)
+		assert.False(tt, controllerutil.ContainsFinalizer(pvc2, cnsoperatortypes.CNSPvcFinalizer))
+	})
+
+	t.Run("WhenMultipleNamespacesWithMixedStates", func(tt *testing.T) {
+		pvcs := []*corev1.PersistentVolumeClaim{
+			createTestPVCWithDeletion("pvc-1", "ns-1", true, false),
+			createTestPVCWithDeletion("pvc-2", "ns-2", true, false),
+			createTestPVCWithDeletion("pvc-3", "ns-3", true, false),
+		}
+		nodeAttachCRs := []*nodeattachv1a1.CnsNodeVmAttachment{
+			createTestNodeAttachCR("attach-1", "ns-2", "volume-1"),
+		}
+		k8sClient := setupNodeAttach(tt, pvcs, nodeAttachCRs)
+
+		// Execute
+		cleanupOrphanedNodeAttachPVCs(context.Background(), rest.Config{})
+
+		// Assert
+		// PVC in ns-1 should have finalizer removed (no CR in namespace)
+		pvc1, err := k8sClient.CoreV1().PersistentVolumeClaims("ns-1").Get(
+			context.Background(), "pvc-1", metav1.GetOptions{})
+		assert.NoError(tt, err)
+		assert.False(tt, controllerutil.ContainsFinalizer(pvc1, cnsoperatortypes.CNSPvcFinalizer))
+
+		// PVC in ns-2 should keep finalizer (CR exists in namespace)
+		pvc2, err := k8sClient.CoreV1().PersistentVolumeClaims("ns-2").Get(
+			context.Background(), "pvc-2", metav1.GetOptions{})
+		assert.NoError(tt, err)
+		assert.True(tt, controllerutil.ContainsFinalizer(pvc2, cnsoperatortypes.CNSPvcFinalizer))
+
+		// PVC in ns-3 should have finalizer removed (no CR in namespace)
+		pvc3, err := k8sClient.CoreV1().PersistentVolumeClaims("ns-3").Get(
+			context.Background(), "pvc-3", metav1.GetOptions{})
+		assert.NoError(tt, err)
+		assert.False(tt, controllerutil.ContainsFinalizer(pvc3, cnsoperatortypes.CNSPvcFinalizer))
 	})
 }
