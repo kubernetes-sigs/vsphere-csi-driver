@@ -360,7 +360,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 		err := r.reconcileInstanceWithoutDeletionTimestamp(batchAttachCtx, k8sClient, instance, volumesToDetach,
 			volumesToAttach, vm)
 		if err != nil {
-			log.Errorf("failed to reconile instance %s. Err: %s", request.NamespacedName.String(), err)
+			log.Errorf("failed to reconcile instance %s. Err: %s", request.NamespacedName.String(), err)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
 		}
 		return r.completeReconciliationWithSuccess(batchAttachCtx, instance, request.NamespacedName, timeout)
@@ -536,6 +536,19 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		return nil
 	}
 
+	// Validate if the VM is present in the same namespace as the batchattach instance/volumes.
+	// This is to prevent any cross namespace attacks.
+	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Spec.InstanceUUID,
+		instance.Namespace)
+	if err != nil {
+		return err
+	}
+
+	if !isPresentInSameNamespace {
+		return fmt.Errorf("failed to find VM with instance UUID %s in namespace %s", instance.Spec.InstanceUUID,
+			instance.Namespace)
+	}
+
 	// Construct batch attach request
 	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, err := constructBatchAttachRequest(ctx,
 		volumesToAttach, instance)
@@ -547,7 +560,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 	// Call CNS AttachVolume
 	batchAttachResult, faultType, attachErr := r.volumeManager.BatchAttachVolumes(ctx, vm, batchAttachRequest)
 	if attachErr != nil {
-		log.Errorf("failed to attach all volumes. Fault: %s Err: %s", faultType, attachErr)
+		log.Errorf("failed to attach all volumes. Fault: %s", faultType)
 	} else {
 		log.Infof("Successfully attached all volumes")
 	}

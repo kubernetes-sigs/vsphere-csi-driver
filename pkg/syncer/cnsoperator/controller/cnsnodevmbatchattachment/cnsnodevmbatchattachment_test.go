@@ -57,6 +57,7 @@ import (
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 
 	"github.com/agiledragon/gomonkey/v2"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"k8s.io/apimachinery/pkg/runtime"
 	v1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 )
@@ -70,7 +71,7 @@ var (
 // setupTestCnsNodeVMBatchAttachment created CnsNodeVMBatchAttachment CR with volumes for testing.
 func setupTestCnsNodeVMBatchAttachment() v1alpha1.CnsNodeVMBatchAttachment {
 	var (
-		testNodeUUID                 = "test-1"
+		testNodeUUID                 = "test-uuid"
 		disk1                        = "disk-1"
 		disk2                        = "disk-2"
 		pvc1                         = "pvc-1"
@@ -148,8 +149,24 @@ func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAtt
 	s.AddKnownTypes(SchemeGroupVersion, cnsNodeVmBatchAttachment)
 	metav1.AddToGroupVersion(s, SchemeGroupVersion)
 	_ = cnsopapis.AddToScheme(s)
+	_ = vmoperatortypes.AddToScheme(s)
 
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects().Build()
+
+	vm1 := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-vm",
+			Namespace: testNamespace,
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			InstanceUUID: "test-uuid",
+		},
+	}
+
+	vmClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(vm1).
+		Build()
 
 	VolumeLock = &sync.Map{}
 
@@ -166,6 +183,7 @@ func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAtt
 		recorder:          record.NewFakeRecorder(testBufferSize),
 		instanceLock:      sync.Map{},
 		cnsOperatorClient: cnsOperatorClient,
+		vmOperatorClient:  vmClient,
 	}
 
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
@@ -1892,5 +1910,79 @@ func TestConstructBatchAttachRequest(t *testing.T) {
 			assert.EqualValues(t, tt.expectedRequests, requests)
 
 		})
+	}
+}
+
+func TestIsVmInSameNamespace_Found(t *testing.T) {
+	ctx := context.Background()
+
+	namespace := "test-ns"
+	instanceUUID := "uuid-123"
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-vm",
+			Namespace: namespace,
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			InstanceUUID: instanceUUID,
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
+
+	vmClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(vm).
+		Build()
+
+	found, err := isVmInSameNamespace(ctx, vmClient, instanceUUID, namespace)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !found {
+		t.Fatalf("expected VM to be found, got false")
+	}
+}
+
+func TestIsVmInSameNamespace_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	namespace := "test-ns"
+	instanceUUID := "missing-uuid"
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-vm",
+			Namespace: namespace,
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			InstanceUUID: "different-uuid",
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
+
+	vmClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(vm).
+		Build()
+
+	found, err := isVmInSameNamespace(ctx, vmClient, instanceUUID, namespace)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if found {
+		t.Fatalf("expected VM not to be found, got true")
 	}
 }
