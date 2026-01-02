@@ -177,6 +177,12 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 				ip, vmNamespace, vmName)
 		}
 	} else if network_provider_type == VDSNetworkProvider {
+
+		if virtualMachineInstance.Status.Network == nil {
+			log.Errorf("network details not set for VM %s", vmName)
+			return "", fmt.Errorf("network details not set for VM %s", vmName)
+		}
+
 		ip = virtualMachineInstance.Status.Network.PrimaryIP4
 		if ip == "" {
 			ip = virtualMachineInstance.Status.Network.PrimaryIP6
