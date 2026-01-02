@@ -715,10 +715,24 @@ func (r *ReconcileCnsNodeVMAttachment) applyAttachedPvcLabelToInstance(ctx conte
 		return nil
 	}
 
+	// If label already exists: no-op
+	if instance.Labels != nil {
+		if labelVal, exists := instance.Labels[common.PvcUIDLabelKey]; exists {
+			log.Infof("Instance %s already has %s label with value %s",
+				instance.Name, common.PvcUIDLabelKey, labelVal)
+			return nil
+		}
+	}
+
 	pvc := &v1.PersistentVolumeClaim{}
 	err := r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
 		Namespace: instance.Namespace}, pvc)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("PVC %s is already deleted. Skip adding label to instance %s", instance.Spec.VolumeName,
+				instance.Name)
+			return nil
+		}
 		return err
 	}
 
@@ -736,15 +750,6 @@ func addPvcLabel(ctx context.Context, c client.Client,
 	instance *v1a1.CnsNodeVmAttachment,
 	pvcUID string) error {
 	log := logger.GetLogger(ctx)
-
-	// If label already exists: no-op
-	if instance.Labels != nil {
-		log.Infof("Instance %s already has %s label",
-			instance.Name, common.PvcUIDLabelKey)
-		if _, exists := instance.Labels[common.PvcUIDLabelKey]; exists {
-			return nil
-		}
-	}
 
 	original := instance.DeepCopy()
 
