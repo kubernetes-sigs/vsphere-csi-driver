@@ -27,6 +27,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	nodeattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	batchattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
@@ -231,6 +232,102 @@ func cleanupOrphanedBatchAttachPVCs(ctx context.Context, config rest.Config) {
 				// safe to continue as failure to remove finalizer of a pvc doesn't influence others
 				continue
 			}
+		}
+	}
+}
+
+// cleanupOrphanedNodeAttachPVCs removes the `CNSPvcFinalizer` from the PVCs in cases
+// where the CnsNodeVmAttachment CR gets deleted before the PVCs.
+// This is EXTREMELY UNLIKELY to happen but in case of concurrent updates and deletes of the CR,
+// it was observed that the CRs could sometime lose track of the PVCs that could lead to this.
+// This routine is a SAFETY GUARDRAIL to avoid situations where namespaces could remain stuck in terminating state.
+// This routine usually runs every 10 minutes.
+func cleanupOrphanedNodeAttachPVCs(ctx context.Context, config rest.Config) {
+	log := logger.GetLogger(ctx)
+
+	pvcList := commonco.ContainerOrchestratorUtility.ListPVCs(ctx, "")
+	if len(pvcList) == 0 {
+		log.Debug("no PVCs found in cluster, skipping node attach cleanup cycle")
+		return
+	}
+
+	// map to hold all the PVCs that are orphaned by CnsNodeVmAttachment reconciler.
+	// structure of the map follows the logical grouping kubernetes uses.
+	// namespace -> pvc -> struct{}{}
+	orphanPVCs := make(map[string]map[string]struct{})
+
+	for _, pvc := range pvcList {
+		if pvc.DeletionTimestamp == nil {
+			// PVC is not being deleted. Can be ignored.
+			continue
+		}
+
+		if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+			// not a PVC that is attached to or being attached to a VM. Can be ignored.
+			continue
+		}
+
+		// For CnsNodeVmAttachment, we need to check if there's a corresponding CR
+		// that references this PVC. Unlike batch attach, node attach doesn't use
+		// specific annotations, so we'll identify orphaned PVCs by checking if
+		// any CnsNodeVmAttachment CR exists that could be managing this PVC.
+
+		if _, ok := orphanPVCs[pvc.Namespace]; !ok {
+			orphanPVCs[pvc.Namespace] = map[string]struct{}{}
+		}
+		orphanPVCs[pvc.Namespace][pvc.Name] = struct{}{}
+	}
+
+	if len(orphanPVCs) == 0 {
+		log.Debug("no orphan PVCs found in cluster, skipping node attach cleanup cycle")
+		return
+	}
+
+	cnsClient, err := newClientForGroup(ctx, &config, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Error("failed to create cns operator client")
+		return
+	}
+
+	// Iterate over namespaces that have candidate orphan PVCs
+	for namespace := range orphanPVCs {
+		nodeAttachList := nodeattachv1a1.CnsNodeVmAttachmentList{}
+		err = cnsClient.List(ctx, &nodeAttachList, ctrlclient.InNamespace(namespace))
+		if err != nil {
+			log.With("kind", nodeAttachList.Kind).With("namespace", namespace).Error("listing failed")
+			continue
+		}
+
+		// If there are any CnsNodeVmAttachment CRs in the namespace, we need to be careful
+		// about which PVCs to clean up. For now, we'll take a conservative approach:
+		// Only clean up PVCs if there are NO CnsNodeVmAttachment CRs in the namespace.
+		// This ensures we don't accidentally remove finalizers from PVCs that might
+		// still be managed by existing CRs.
+		if len(nodeAttachList.Items) > 0 {
+			log.With("namespace", namespace).With("nodeAttachCRCount", len(nodeAttachList.Items)).
+				Debug("skipping PVC cleanup in namespace with existing CnsNodeVmAttachment CRs")
+			delete(orphanPVCs, namespace)
+		}
+	}
+
+	c, err := newForConfig(&config)
+	if err != nil {
+		log.Error("failed to create core API client")
+		return
+	}
+
+	// All the PVCs that are remaining in the map are eligible orphans whose finalizer can be removed.
+	for namespace, pvcs := range orphanPVCs {
+		for name := range pvcs {
+			err := k8s.RemoveFinalizerFromPVC(ctx, c, name, namespace, cnsoperatortypes.CNSPvcFinalizer)
+			if err != nil {
+				log.With("name", name).With("namespace", namespace).
+					Error("failed to remove the finalizer")
+				// safe to continue as failure to remove finalizer of a pvc doesn't influence others
+				continue
+			}
+			log.With("name", name).With("namespace", namespace).
+				Info("successfully removed CNS PVC finalizer from orphaned PVC")
 		}
 	}
 }
