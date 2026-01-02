@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 		err = client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 

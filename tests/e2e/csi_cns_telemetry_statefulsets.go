@@ -92,6 +92,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor]
 			dumpSvcNsEventsOnTestFailure(client, namespace)
 		} else {
 			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})

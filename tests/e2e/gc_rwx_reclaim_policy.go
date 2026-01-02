@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("File Volume Test for Reclaim Policy", ginkgo.Label(p1, 
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 

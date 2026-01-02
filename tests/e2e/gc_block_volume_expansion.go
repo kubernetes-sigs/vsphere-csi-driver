@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		svcClient, svNamespace = getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 
 		if isGCCSIDeploymentPODdown {
 			_ = updateDeploymentReplica(client, 3, vSphereCSIControllerPodNamePrefix, csiSystemNamespace)

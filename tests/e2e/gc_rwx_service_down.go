@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("File Volume Test on Service down", ginkgo.Label(p1, tkg
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)

@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		// Set resource quota.
 		ginkgo.By("Set Resource quota for GC")
 		svcClient, svcNamespace = getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svcNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svcNamespace, rqLimit)
 	})
 
 	ginkgo.AfterEach(func() {

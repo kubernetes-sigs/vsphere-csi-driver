@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("File Volume Test with security context", ginkgo.Label(p
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 
