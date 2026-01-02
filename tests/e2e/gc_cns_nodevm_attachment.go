@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
 
-	ginkgo.It("Verify CnsNodeVmAttachements existence in "+
+	ginkgo.It("[cf-vks]Verify CnsNodeVmAttachements existence in "+
 		"a pod lifecycle", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
@@ -167,7 +167,10 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 
 		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, isBatchAttachSupported)
+		if isBatchAttachSupported {
+			verifyIsDetachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
+		}
 
 	})
 
@@ -583,7 +586,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	// Verify Pod is deleted from GC.
 	// Verify volume is detached from VM.
 	// Delete PVC in GC.
-	ginkgo.It("Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
+	ginkgo.It("[cf-vks]Create a Pod mounted with multiple PVC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var sc *storagev1.StorageClass
 		var pvc *v1.PersistentVolumeClaim
 		var err error
@@ -652,7 +655,10 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		// TODO: replace sleep with polling mechanism.
 		ginkgo.By("Waiting for 30 seconds to allow CnsNodeVMAttachment controller to reconcile resource")
 		time.Sleep(waitTimeForCNSNodeVMAttachmentReconciler)
-		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, false)
+		verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, isBatchAttachSupported)
+		if isBatchAttachSupported {
+			verifyIsDetachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
+		}
 	})
 
 	// TC-7 Verify PVC only attached to one Pod.
