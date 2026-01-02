@@ -89,42 +89,69 @@ func (m *migrationController) relocateCNSVolume(ctx context.Context, volumeID st
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get cluster flavor. Error: %v", err)
 	}
-	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false, clusterFlavor)
+	cfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to get config. Error: %v", err)
+	}
+	volManager, err := volume.GetManager(ctx, m.vc, nil, false, false, false,
+		clusterFlavor, cfg.Global.SupervisorID, cfg.Global.ClusterDistribution)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 	}
 
 	relocateSpec := cnstypes.NewCnsBlockVolumeRelocateSpec(volumeID, dsInfo.Reference())
 
-	task, err := volManager.RelocateVolume(ctx, relocateSpec)
-	log.Infof("Return from CNS Relocate API, task: %v, Error: %v", task, err)
-	if err != nil {
-		// Handle case when target DS is same as source DS, i.e. volume has
-		// already relocated.
-		if soap.IsSoapFault(err) {
-			soapFault := soap.ToSoapFault(err)
-			log.Debugf("type of fault: %v. SoapFault Info: %v", reflect.TypeOf(soapFault.VimFault()), soapFault)
-			_, isAlreadyExistErr := soapFault.VimFault().(vim25types.AlreadyExists)
-			if isAlreadyExistErr {
-				// Volume already exists in the target SP, hence return success.
-				return nil
+	var internalRelocateVolume func(hasRetriedAfterReregister bool) error
+	internalRelocateVolume = func(hasRetriedAfterReregister bool) error {
+		task, err := volManager.RelocateVolume(ctx, relocateSpec)
+		log.Infof("Return from CNS Relocate API, task: %v, Error: %v", task, err)
+		if err != nil {
+			// Handle case when target DS is same as source DS, i.e. volume has
+			// already relocated.
+			if soap.IsSoapFault(err) {
+				soapFault := soap.ToSoapFault(err)
+				log.Debugf("type of fault: %v. SoapFault Info: %v", reflect.TypeOf(soapFault.VimFault()), soapFault)
+				_, isAlreadyExistErr := soapFault.VimFault().(vim25types.AlreadyExists)
+				if isAlreadyExistErr {
+					// Volume already exists in the target SP, hence return success.
+					return nil
+				}
+			}
+			return err
+		}
+		taskInfo, err := task.WaitForResultEx(ctx)
+		if err != nil {
+			return err
+		}
+		results := taskInfo.Result.(cnstypes.CnsVolumeOperationBatchResult)
+		for _, result := range results.VolumeResults {
+			fault := result.GetCnsVolumeOperationResult().Fault
+			if fault != nil {
+				// Check for CnsNotRegisteredFault and attempt to re-register the volume
+				if volume.IsCnsNotRegisteredFault(ctx, fault) {
+					// If we've already retried once after re-registration, return error
+					if hasRetriedAfterReregister {
+						return fmt.Errorf("failed to relocate volume after re-registration. "+
+							"volumeID: %q, fault: CnsNotRegisteredFault", volumeID)
+					}
+					log.Infof("observed CnsNotRegisteredFault while relocating volume: %q. "+
+						"Attempting to re-register volume", volumeID)
+					if reRegErr := volManager.ReRegisterVolume(ctx, volumeID); reRegErr != nil {
+						log.Errorf("failed to re-register volume %q: %v", volumeID, reRegErr)
+						return fmt.Errorf("failed to re-register volume %q: %v", volumeID, reRegErr)
+					}
+					log.Infof("Successfully re-registered volume %q. Retrying RelocateVolume", volumeID)
+					// Retry the operation after successful re-registration
+					return internalRelocateVolume(true)
+				}
+				log.Errorf("Fault: %+v encountered while relocating volume %v", fault, volumeID)
+				return fmt.Errorf("fault: %+v", fault.LocalizedMessage)
 			}
 		}
-		return err
+		return nil
 	}
-	taskInfo, err := task.WaitForResultEx(ctx)
-	if err != nil {
-		return err
-	}
-	results := taskInfo.Result.(cnstypes.CnsVolumeOperationBatchResult)
-	for _, result := range results.VolumeResults {
-		fault := result.GetCnsVolumeOperationResult().Fault
-		if fault != nil {
-			log.Errorf("Fault: %+v encountered while relocating volume %v", fault, volumeID)
-			return fmt.Errorf("fault: %+v", fault.LocalizedMessage)
-		}
-	}
-	return nil
+
+	return internalRelocateVolume(false)
 }
 
 func (m *migrationController) migrateVolume(ctx context.Context,

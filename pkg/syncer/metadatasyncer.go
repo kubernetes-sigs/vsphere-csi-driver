@@ -438,7 +438,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 		volumeManager, err := volumes.GetManager(ctx, vCenter,
-			nil, false, false, false, metadataSyncer.clusterFlavor)
+			nil, false, false, false,
+			metadataSyncer.clusterFlavor, configInfo.Cfg.Global.SupervisorID, configInfo.Cfg.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -509,7 +510,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			volumeManager, err := volumes.GetManager(ctx, vCenter,
 				nil, false, true,
-				multivCenterTopologyDeployment, metadataSyncer.clusterFlavor)
+				multivCenterTopologyDeployment, metadataSyncer.clusterFlavor, configInfo.Cfg.Global.ClusterID,
+				configInfo.Cfg.Global.ClusterDistribution)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}
@@ -2475,7 +2477,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}
 			volumeManager, err := volumes.GetManager(ctx, vcenter, nil, false, false, false,
-				metadataSyncer.clusterFlavor)
+				metadataSyncer.clusterFlavor, cfg.Global.SupervisorID, cfg.Global.ClusterDistribution)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}

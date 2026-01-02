@@ -415,7 +415,7 @@ func getControllerTestWithTopology(t *testing.T) *controllerTestTopology {
 
 		volumeManager, err := cnsvolume.GetManager(ctxtopology, vcenter,
 			fakeOpStore, true, false,
-			false, cnstypes.CnsClusterFlavorVanilla)
+			false, cnstypes.CnsClusterFlavorVanilla, "", "")
 		if err != nil {
 			t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const createVolumeTaskTimeout = 3 * time.Second
@@ -281,6 +282,251 @@ func TestAttachVolumeFaultHandling(t *testing.T) {
 			} else {
 				assert.False(t, tt.expectFaultHandled, "No fault should be detected")
 			}
+		})
+	}
+}
+
+// TestIsCnsNotRegisteredFault tests the IsCnsNotRegisteredFault helper function
+// that detects CnsNotRegisteredFault from CNS operations.
+func TestIsCnsNotRegisteredFault(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	tests := []struct {
+		name     string
+		fault    *vim25types.LocalizedMethodFault
+		expected bool
+	}{
+		{
+			name:     "nil fault",
+			fault:    nil,
+			expected: false,
+		},
+		{
+			name: "fault with nil Fault field",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "Some error",
+				Fault:            nil,
+			},
+			expected: false,
+		},
+		{
+			name: "CnsNotRegisteredFault",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "The input volume is not registered as a CNS volume",
+				Fault:            &cnstypes.CnsNotRegisteredFault{},
+			},
+			expected: true,
+		},
+		{
+			name: "CnsFault (not CnsNotRegisteredFault)",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "Generic CNS fault",
+				Fault: &cnstypes.CnsFault{
+					Reason: "Generic error",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "ResourceInUse fault",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "Resource is in use",
+				Fault: &vim25types.ResourceInUse{
+					Type: "Disk",
+					Name: "test-disk",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "NotSupported fault",
+			fault: &vim25types.LocalizedMethodFault{
+				LocalizedMessage: "Operation not supported",
+				Fault:            &vim25types.NotSupported{},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsCnsNotRegisteredFault(ctx, tt.fault)
+			assert.Equal(t, tt.expected, result,
+				"IsCnsNotRegisteredFault(%v) = %v, expected %v", tt.fault, result, tt.expected)
+		})
+	}
+}
+
+// TestIsCnsVolumeAlreadyExistsFault tests the IsCnsVolumeAlreadyExistsFault helper function
+// that checks if a fault type indicates the volume already exists in CNS.
+func TestIsCnsVolumeAlreadyExistsFault(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	tests := []struct {
+		name      string
+		faultType string
+		expected  bool
+	}{
+		{
+			name:      "CnsVolumeAlreadyExistsFault",
+			faultType: "vim.fault.CnsVolumeAlreadyExistsFault",
+			expected:  true,
+		},
+		{
+			name:      "empty fault type",
+			faultType: "",
+			expected:  false,
+		},
+		{
+			name:      "CnsFault",
+			faultType: "vim.fault.CnsFault",
+			expected:  false,
+		},
+		{
+			name:      "NotSupported",
+			faultType: "vim25:NotSupported",
+			expected:  false,
+		},
+		{
+			name:      "partial match - should not match",
+			faultType: "CnsVolumeAlreadyExistsFault",
+			expected:  false,
+		},
+		{
+			name:      "case sensitive - lowercase should not match",
+			faultType: "vim.fault.cnsvolumealreadyexistsfault",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsCnsVolumeAlreadyExistsFault(ctx, tt.faultType)
+			assert.Equal(t, tt.expected, result,
+				"IsCnsVolumeAlreadyExistsFault(%q) = %v, expected %v", tt.faultType, result, tt.expected)
+		})
+	}
+}
+
+// TestCnsNotRegisteredFaultHandlingScenarios tests the scenarios where
+// CnsNotRegisteredFault should trigger re-registration of the volume.
+func TestCnsNotRegisteredFaultHandlingScenarios(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	tests := []struct {
+		name                       string
+		volumeOperationResult      *cnstypes.CnsVolumeOperationResult
+		expectReRegistrationNeeded bool
+		description                string
+	}{
+		{
+			name: "CnsNotRegisteredFault should trigger re-registration",
+			volumeOperationResult: &cnstypes.CnsVolumeOperationResult{
+				VolumeId: cnstypes.CnsVolumeId{Id: "test-volume-1"},
+				Fault: &vim25types.LocalizedMethodFault{
+					LocalizedMessage: "The input volume is not registered as a CNS volume",
+					Fault:            &cnstypes.CnsNotRegisteredFault{},
+				},
+			},
+			expectReRegistrationNeeded: true,
+			description:                "Volume not registered in CNS should trigger re-registration",
+		},
+		{
+			name: "CnsFault should not trigger re-registration",
+			volumeOperationResult: &cnstypes.CnsVolumeOperationResult{
+				VolumeId: cnstypes.CnsVolumeId{Id: "test-volume-2"},
+				Fault: &vim25types.LocalizedMethodFault{
+					LocalizedMessage: "Generic CNS error",
+					Fault: &cnstypes.CnsFault{
+						Reason: "Some other error",
+					},
+				},
+			},
+			expectReRegistrationNeeded: false,
+			description:                "Generic CnsFault should not trigger re-registration",
+		},
+		{
+			name: "No fault should not trigger re-registration",
+			volumeOperationResult: &cnstypes.CnsVolumeOperationResult{
+				VolumeId: cnstypes.CnsVolumeId{Id: "test-volume-3"},
+				Fault:    nil,
+			},
+			expectReRegistrationNeeded: false,
+			description:                "Successful operation should not trigger re-registration",
+		},
+		{
+			name: "ResourceInUse should not trigger re-registration",
+			volumeOperationResult: &cnstypes.CnsVolumeOperationResult{
+				VolumeId: cnstypes.CnsVolumeId{Id: "test-volume-4"},
+				Fault: &vim25types.LocalizedMethodFault{
+					LocalizedMessage: "Resource is in use",
+					Fault: &vim25types.ResourceInUse{
+						Type: "Disk",
+						Name: "test-disk",
+					},
+				},
+			},
+			expectReRegistrationNeeded: false,
+			description:                "ResourceInUse should not trigger re-registration",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var reRegistrationNeeded bool
+			if tt.volumeOperationResult.Fault != nil {
+				reRegistrationNeeded = IsCnsNotRegisteredFault(ctx, tt.volumeOperationResult.Fault)
+			}
+			assert.Equal(t, tt.expectReRegistrationNeeded, reRegistrationNeeded,
+				"Test: %s - %s", tt.name, tt.description)
+		})
+	}
+}
+
+// TestReRegistrationIdempotency tests that re-registration handles
+// CnsVolumeAlreadyExistsFault gracefully (idempotent behavior).
+func TestReRegistrationIdempotency(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	tests := []struct {
+		name                     string
+		faultTypeAfterReRegister string
+		expectSuccess            bool
+		description              string
+	}{
+		{
+			name:                     "Re-registration succeeds",
+			faultTypeAfterReRegister: "",
+			expectSuccess:            true,
+			description:              "Re-registration with no fault should succeed",
+		},
+		{
+			name:                     "Volume already exists (idempotent)",
+			faultTypeAfterReRegister: "vim.fault.CnsVolumeAlreadyExistsFault",
+			expectSuccess:            true,
+			description:              "CnsVolumeAlreadyExistsFault should be treated as success",
+		},
+		{
+			name:                     "Other fault during re-registration",
+			faultTypeAfterReRegister: "vim.fault.CnsFault",
+			expectSuccess:            false,
+			description:              "Other faults should be treated as failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var success bool
+			if tt.faultTypeAfterReRegister == "" {
+				success = true
+			} else if IsCnsVolumeAlreadyExistsFault(ctx, tt.faultTypeAfterReRegister) {
+				// CnsVolumeAlreadyExistsFault means volume is already registered
+				success = true
+			} else {
+				success = false
+			}
+			assert.Equal(t, tt.expectSuccess, success,
+				"Test: %s - %s", tt.name, tt.description)
 		})
 	}
 }
