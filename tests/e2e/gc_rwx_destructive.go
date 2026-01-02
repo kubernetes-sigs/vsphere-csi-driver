@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("[rwm-csi-destructive-tkg] Statefulsets with File Volume
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 

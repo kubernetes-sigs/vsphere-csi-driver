@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2]File Share on
 
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 

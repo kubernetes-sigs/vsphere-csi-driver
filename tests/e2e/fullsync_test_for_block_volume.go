@@ -130,6 +130,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})

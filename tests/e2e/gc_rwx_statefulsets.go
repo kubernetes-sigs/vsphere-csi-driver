@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Provision with Statefulsets",
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		svcClient, svNamespace := getSvcClientAndNamespace()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 	})
 

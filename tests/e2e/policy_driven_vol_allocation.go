@@ -114,6 +114,10 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -124,6 +128,7 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 		if wcpVsanDirectCluster && supervisorCluster {

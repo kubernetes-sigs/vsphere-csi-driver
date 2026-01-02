@@ -80,6 +80,7 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 	ginkgo.AfterEach(func() {
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 	})
 
 	// Test-1 (Attach/Detach)

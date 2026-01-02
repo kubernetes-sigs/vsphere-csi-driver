@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] File Volume Test for label updates", gink
 		svcClient, svNamespace := getSvcClientAndNamespace()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		setResourceQuota(svcClient, svNamespace, defaultrqLimit)
+		setResourceQuota(svcClient, svNamespace, rqLimit)
 		if isVsanHealthServiceStopped {
 			ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)

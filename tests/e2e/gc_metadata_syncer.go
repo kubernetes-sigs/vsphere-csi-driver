@@ -94,6 +94,11 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		pvlabelKey = "pvapp"
 		pvlabelValue = "e2e-labels-pv"
 		isVsanHealthServiceStopped = false
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
 	})
 
 	ginkgo.AfterEach(func() {

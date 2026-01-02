@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("Scale Test", func() {
 
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimitScaleTest)
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
 
 	})

@@ -84,6 +84,7 @@ var _ = ginkgo.Describe("[ef-wcp][ef-vks] [csi-block-vanilla] [csi-file-vanilla]
 		}
 		if guestCluster {
 			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
 			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
 		}
 	})
