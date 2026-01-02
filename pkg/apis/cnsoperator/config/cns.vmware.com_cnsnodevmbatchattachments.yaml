@@ -183,11 +183,6 @@ spec:
                   - type
                   type: object
                 type: array
-              error:
-                description: |-
-                  TODO: remove this field once VM op changes are ready.
-                  Error is the overall error status for the instance.
-                type: string
               volumes:
                 description: VolumeStatus reflects the status for each volume.
                 items:
@@ -199,14 +194,6 @@ spec:
                       description: PersistentVolumeClaim contains details about the
                         volume's current state.
                       properties:
-                        attached:
-                          description: |-
-                            TODO: remove this field once VM op changes are ready.
-                            Attached indicates the attach status of a PVC.
-                            If volume is not attached, Attached will be set to false.
-                            If volume is attached, Attached will be set to true.
-                            If volume is detached successfully, its entry will be removed from VolumeStatus.
-                          type: boolean
                         claimName:
                           description: ClaimName is the PVC name.
                           type: string
@@ -291,13 +278,7 @@ spec:
                           description: DiskUUID is the ID obtained when volume is
                             attached to a VM.
                           type: string
-                        error:
-                          description: |-
-                            TODO: remove this field once VM op changes are ready.
-                            Error indicates the error which may have occurred during attach/detach.
-                          type: string
                       required:
-                      - attached
                       - claimName
                       type: object
                   required:
