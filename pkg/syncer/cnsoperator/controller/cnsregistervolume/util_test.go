@@ -25,6 +25,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/vim25/types"
+	v1 "k8s.io/api/core/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
@@ -201,4 +202,155 @@ func TestIsDatastoreAccessibleToAZClusters(t *testing.T) {
 		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
 		assert.False(t, result)
 	})
+}
+
+func TestGetPersistentVolumeSpec_VolumeModeEmpty(t *testing.T) {
+	volumeName := "test-pv"
+	volumeID := "volume-123"
+	capacity := int64(1024)
+	accessMode := v1.ReadWriteOnce
+	var volumeMode v1.PersistentVolumeMode // empty value
+	scName := "test-sc"
+
+	claimRef := &v1.ObjectReference{
+		Kind:      "PersistentVolumeClaim",
+		Namespace: "default",
+		Name:      "test-pvc",
+	}
+
+	pv := getPersistentVolumeSpec(
+		volumeName,
+		volumeID,
+		capacity,
+		accessMode,
+		volumeMode,
+		scName,
+		claimRef,
+	)
+
+	if pv == nil {
+		t.Fatalf("expected PersistentVolume, got nil")
+	}
+
+	if pv.Spec.VolumeMode == nil {
+		t.Fatalf("expected VolumeMode to be set, got nil")
+	}
+
+	if *pv.Spec.VolumeMode != v1.PersistentVolumeFilesystem {
+		t.Errorf(
+			"expected VolumeMode to default to %q, got %q",
+			v1.PersistentVolumeFilesystem,
+			*pv.Spec.VolumeMode,
+		)
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI == nil {
+		t.Fatalf("expected CSI source to be set")
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI.FSType != "ext4" {
+		t.Errorf(
+			"expected FSType to be 'ext4' when VolumeMode is Filesystem, got %q",
+			pv.Spec.PersistentVolumeSource.CSI.FSType,
+		)
+	}
+
+}
+
+func TestGetPersistentVolumeSpec_VolumeModeBlock(t *testing.T) {
+	volumeName := "test-pv"
+	volumeID := "volume-123"
+	capacity := int64(1024)
+	accessMode := v1.ReadWriteOnce
+	volumeMode := v1.PersistentVolumeBlock
+	scName := "test-sc"
+
+	claimRef := &v1.ObjectReference{
+		Kind:      "PersistentVolumeClaim",
+		Namespace: "default",
+		Name:      "test-pvc",
+	}
+
+	pv := getPersistentVolumeSpec(
+		volumeName,
+		volumeID,
+		capacity,
+		accessMode,
+		volumeMode,
+		scName,
+		claimRef,
+	)
+
+	if pv == nil {
+		t.Fatalf("expected PersistentVolume, got nil")
+	}
+
+	if pv.Spec.VolumeMode == nil {
+		t.Fatalf("expected VolumeMode to be set, got nil")
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI == nil {
+		t.Fatalf("expected CSI source to be set")
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI.FSType != "" {
+		t.Errorf(
+			"expected FSType to be empty when VolumeMode is Filesystem, got %q",
+			pv.Spec.PersistentVolumeSource.CSI.FSType,
+		)
+	}
+
+}
+
+func TestGetPersistentVolumeSpec_VolumeModeFilesystem(t *testing.T) {
+	volumeName := "test-pv"
+	volumeID := "volume-123"
+	capacity := int64(1024)
+	accessMode := v1.ReadWriteOnce
+	volumeMode := v1.PersistentVolumeFilesystem // empty value
+	scName := "test-sc"
+
+	claimRef := &v1.ObjectReference{
+		Kind:      "PersistentVolumeClaim",
+		Namespace: "default",
+		Name:      "test-pvc",
+	}
+
+	pv := getPersistentVolumeSpec(
+		volumeName,
+		volumeID,
+		capacity,
+		accessMode,
+		volumeMode,
+		scName,
+		claimRef,
+	)
+
+	if pv == nil {
+		t.Fatalf("expected PersistentVolume, got nil")
+	}
+
+	if pv.Spec.VolumeMode == nil {
+		t.Fatalf("expected VolumeMode to be set, got nil")
+	}
+
+	if *pv.Spec.VolumeMode != v1.PersistentVolumeFilesystem {
+		t.Errorf(
+			"expected VolumeMode to default to %q, got %q",
+			v1.PersistentVolumeFilesystem,
+			*pv.Spec.VolumeMode,
+		)
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI == nil {
+		t.Fatalf("expected CSI source to be set")
+	}
+
+	if pv.Spec.PersistentVolumeSource.CSI.FSType != "ext4" {
+		t.Errorf(
+			"expected FSType to be 'ext4' when VolumeMode is Filesystem, got %q",
+			pv.Spec.PersistentVolumeSource.CSI.FSType,
+		)
+	}
+
 }

@@ -256,7 +256,6 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 					Driver:       cnsoperatortypes.VSphereCSIDriverName,
 					VolumeHandle: volumeID,
 					ReadOnly:     false,
-					FSType:       "ext4",
 				},
 			},
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -274,6 +273,11 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		volumeMode = v1.PersistentVolumeFilesystem
 	}
 	pv.Spec.VolumeMode = &volumeMode
+
+	// FStype should be set only when volumeMode for PVC is FileSystem.
+	if *pv.Spec.VolumeMode == v1.PersistentVolumeFilesystem {
+		pv.Spec.PersistentVolumeSource.CSI.FSType = "ext4"
+	}
 
 	annotations := make(map[string]string)
 	annotations["pv.kubernetes.io/provisioned-by"] = cnsoperatortypes.VSphereCSIDriverName
