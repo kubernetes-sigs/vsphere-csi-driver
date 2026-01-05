@@ -389,7 +389,7 @@ func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.Persi
 			return true, nil
 		}
 	}
-	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
+	return false, fmt.Errorf("random persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
