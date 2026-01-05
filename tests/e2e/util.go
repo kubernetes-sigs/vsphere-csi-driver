@@ -7025,8 +7025,17 @@ func checkVcServicesHealthPostReboot(ctx context.Context, host string, timeout .
 	addr := ip + ":" + portNum
 
 	//list of default stopped services in VC
-	var defaultStoppedServicesList = []string{"vc-salt", "vmcam", "vmware-imagebuilder", "vmware-netdumper",
-		"vmware-rbd-watchdog", "vmware-vcha"}
+	baseServices := []string{"vmcam", "vmware-imagebuilder", "vmware-netdumper", "vmware-rbd-watchdog", "vmware-vcha"}
+
+	var defaultStoppedServicesList []string
+
+	if isVersionGreaterOrEqual(getVCversion(ctx, vcAddress), batchAttachSupportedVCVersion) {
+		// Combine the new services with the base ones
+		defaultStoppedServicesList = append([]string{"liagent", "vc-salt"}, baseServices...)
+	} else {
+		defaultStoppedServicesList = baseServices
+	}
+
 	waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTime, true,
 		func(ctx context.Context) (bool, error) {
 			var pendingServiceslist []string
