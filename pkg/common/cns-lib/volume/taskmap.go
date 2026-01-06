@@ -75,5 +75,7 @@ func (t *TaskMap) GetAll() []TaskDetails {
 
 // Count returns the number of tasks present in the map
 func (t *TaskMap) Count() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return len(t.m)
 }
