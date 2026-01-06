@@ -197,10 +197,10 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 
 		// TODO: write some data on LC-PVC and validate
 
-		// List volume
-		k8testutil.ValidateLcInListVolume(ctx, e2eTestConfig, f.ClientSet, linkdeClonePvc, namespace)
-
 		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			// List volume
+			k8testutil.ValidateLcInListVolume(ctx, e2eTestConfig, f.ClientSet, linkdeClonePvc, namespace)
+
 			diskSizeInMbStr := k8testutil.ConvertInt64ToStrMbFormat(constants.DiskSizeInMb)
 			sp_quota_pvc_status, sp_usage_pvc_status := k8testutil.ValidateQuotaUsageAfterResourceCreation(ctx, restConfig,
 				storageclass.Name, namespace, constants.PvcUsage, constants.VolExtensionName,
