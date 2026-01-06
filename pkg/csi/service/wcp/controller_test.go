@@ -32,6 +32,8 @@ import (
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -135,12 +137,25 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatalf("failed to initialize topology service. Error: %+v", err)
 		}
 
+		// Initialize a fake k8s client for tests with a default ConfigMap for snapshot limits
+		defaultConfigMap := &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      common.ConfigMapCSILimits,
+				Namespace: "default",
+			},
+			Data: map[string]string{
+				common.ConfigMapKeyMaxSnapshotsPerVolume: "32",
+			},
+		}
+		fakeK8sClient := fake.NewClientset(defaultConfigMap)
+
 		c := &controller{
 			manager:     manager,
 			topologyMgr: topologyMgr,
 			snapshotLockMgr: &snapshotLockManager{
 				locks: make(map[string]*volumeLock),
 			},
+			k8sClient: fakeK8sClient,
 		}
 
 		controllerTestInstance = &controllerTest{
