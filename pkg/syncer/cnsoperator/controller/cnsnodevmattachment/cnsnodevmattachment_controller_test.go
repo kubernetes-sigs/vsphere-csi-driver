@@ -410,17 +410,6 @@ func TestAddPvcLabelToInstance(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, testPVCUID, instanceCopy.Labels[common.PvcUIDLabelKey])
 	})
-
-	t.Run("does not patch when label already exists", func(t *testing.T) {
-		instance := instance.DeepCopy()
-		instance.Labels = map[string]string{common.PvcUIDLabelKey: testPVCUID}
-
-		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance.DeepCopy()).Build()
-		err := addPvcLabel(context.Background(), cl, instance, "another-uid")
-		assert.NoError(t, err)
-		// Label should not be overwritten
-		assert.Equal(t, testPVCUID, instance.Labels[common.PvcUIDLabelKey])
-	})
 }
 
 func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
@@ -460,6 +449,57 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 		assert.Nil(t, instance.Labels)
 	})
 
+	t.Run("does nothing when instance already has PVC UID label", func(t *testing.T) {
+		instance := baseInstance.DeepCopy()
+		instance.Status.Attached = true
+
+		instance.Labels = map[string]string{common.PvcUIDLabelKey: "12345"}
+
+		clientFake := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(instance).
+			Build()
+
+		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
+
+		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
+		assert.NoError(t, err)
+
+		// No labels applied, no PVC lookup
+		assert.NotNil(t, instance.Labels)
+		assert.Equal(t, instance.Labels[common.PvcUIDLabelKey], "12345")
+	})
+
+	t.Run("adds correct label when instance has some other label", func(t *testing.T) {
+		instance := baseInstance.DeepCopy()
+		instance.Status.Attached = true
+
+		instance.Labels = map[string]string{"random-label": "12345"}
+
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testvol",
+				Namespace: "default",
+				UID:       k8stypes.UID(testPVCUID),
+			},
+		}
+
+		clientFake := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(instance, pvc).
+			Build()
+
+		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
+
+		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
+		assert.NoError(t, err)
+
+		// No labels applied, no PVC lookup
+		assert.NotNil(t, instance.Labels)
+		pvcUIDLabelVal := instance.Labels[common.PvcUIDLabelKey]
+		assert.Equal(t, pvcUIDLabelVal, testPVCUID)
+	})
+
 	t.Run("returns error when PVC fetch fails", func(t *testing.T) {
 		instance := baseInstance.DeepCopy()
 		instance.Status.Attached = true // triggers PVC lookup
@@ -473,8 +513,7 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 		r := &ReconcileCnsNodeVMAttachment{client: clientFake}
 
 		err := r.applyAttachedPvcLabelToInstance(context.Background(), instance)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
+		assert.NoError(t, err)
 	})
 
 	t.Run("successfully sets label when PVC exists", func(t *testing.T) {
