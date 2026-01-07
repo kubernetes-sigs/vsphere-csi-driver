@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 var mapVolumePathToID map[string]map[string]string
@@ -144,8 +145,9 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 	if pvcName == "pvc-rwx" {
 		pvc := &v1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      pvcName,   // Name of the PVC
-				Namespace: namespace, // Namespace to create the PVC in
+				Name:       pvcName,   // Name of the PVC
+				Namespace:  namespace, // Namespace to create the PVC in
+				Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
 			},
 			Spec: v1.PersistentVolumeClaimSpec{
 				AccessModes: []v1.PersistentVolumeAccessMode{
@@ -173,6 +175,7 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 				Name:        pvcName,   // Name of the PVC
 				Namespace:   namespace, // Namespace to create the PVC in
 				Annotations: map[string]string{"cns.vmware.com/usedby-vm-123456": ""},
+				Finalizers:  []string{cnsoperatortypes.CNSPvcFinalizer},
 			},
 			Spec: v1.PersistentVolumeClaimSpec{
 				AccessModes: []v1.PersistentVolumeAccessMode{
@@ -197,6 +200,7 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 				Name:        pvcName,   // Name of the PVC
 				Namespace:   namespace, // Namespace to create the PVC in
 				Annotations: map[string]string{common.AnnKeyBackingDiskType: "Sparse"},
+				Finalizers:  []string{cnsoperatortypes.CNSPvcFinalizer},
 			},
 			Spec: v1.PersistentVolumeClaimSpec{
 				AccessModes: []v1.PersistentVolumeAccessMode{
@@ -213,10 +217,54 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 		return pvc, nil
 	}
 
+	if pvcName == "no-finalizer-1" {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        pvcName,   // Name of the PVC
+				Namespace:   namespace, // Namespace to create the PVC in
+				Annotations: map[string]string{"cns.vmware.com/usedby-vm-123456": ""},
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteOnce, // Set the access mode to RWO (ReadWriteOnce)
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+					},
+				},
+			},
+		}
+
+		return pvc, nil
+	}
+
+	if pvcName == "no-finalizer-no-usedby-1" {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,   // Name of the PVC
+				Namespace: namespace, // Namespace to create the PVC in
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{
+					v1.ReadWriteOnce, // Set the access mode to RWO (ReadWriteOnce)
+				},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: *resource.NewQuantity(5*1024*1024*1024, resource.BinarySI), // 5Gi of storage
+					},
+				},
+			},
+		}
+
+		return pvc, nil
+	}
+
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName,   // Name of the PVC
-			Namespace: namespace, // Namespace to create the PVC in
+			Name:       pvcName,   // Name of the PVC
+			Namespace:  namespace, // Namespace to create the PVC in
+			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{
@@ -495,6 +543,14 @@ func (c *FakeK8SOrchestrator) GetPVCNameFromCSIVolumeID(volumeID string) (string
 
 	if strings.Contains(volumeID, "vol-1") {
 		return "mock-pvc-1", "mock-namespace", true
+	}
+
+	if strings.Contains(volumeID, "no-finalizer-no-usedby") {
+		return "no-finalizer-no-usedby-1", "no-finalizer-namespace", true
+	}
+
+	if strings.Contains(volumeID, "no-finalizer") {
+		return "no-finalizer-1", "no-finalizer-namespace", true
 	}
 
 	// Simulate a case where the volumeID corresponds to a PVC.

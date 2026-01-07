@@ -152,8 +152,22 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 			// This check is required only for RWO volumes because before 9.1 we never supported RWX block volumes.
 			// If an RWO PVC does not have usedby-vm annotation,
 			// it means that it wasn't attached via the CnsNodeVMBatchAttachment CR.
-			// So this PVC should not be detached by CnsNodeVMNBatchAttach CR either.
-			if !isSharedPvc(*pvcObj) && !pvcHasUsedByAnnotaion(ctx, pvcObj) {
+			// So this PVC should not be detached by CnsNodeVMBatchAttach CR either.
+			//
+			// Note that this condition is applicable only when the PVC has the CNS PVC finalizer.
+			// This is required to avoid the case where a PVC was attached via batch attach but reconciler failed to add
+			// used-by annotation (and hence the CNS finalizer also). If a PVC was attached via the old CNSNodeVMAttachment,
+			// it will definitely have the CNS finalizer as after 9.1, we do not continue attach via the old CR.
+			//
+			// Example of a situation we are trying to avoid with this check:
+			// Let's say a PVC was attached to a VM with batchattach. However, at the time of adding usedby annotation and
+			// CNS finalizer, some error occurred.
+			// Before the next reconciliation kicks in, devops user goes and quickly detaches and re-attaches this PVC to the VM
+			// but with a different unit number.
+			// In this case, the PVC must get detached first and then re-attached. Batch attach should not skip detaching the PVC
+			// just because it does not have the used-by annotaion.
+			if !isSharedPvc(*pvcObj) && !pvcHasUsedByAnnotaion(ctx, pvcObj) &&
+				controllerutil.ContainsFinalizer(pvcObj, cnsoperatortypes.CNSPvcFinalizer) {
 				log.Debugf("PVC %s does not have usedby-vm annotation. PVC not attached via CnsNodeVMBatchAttachment.", pvcName)
 				continue
 			}
