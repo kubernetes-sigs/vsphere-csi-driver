@@ -1,8 +1,6 @@
 module sigs.k8s.io/vsphere-csi-driver/v3
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.5
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
