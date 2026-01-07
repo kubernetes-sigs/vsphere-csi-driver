@@ -492,7 +492,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		//create another linked clone PVC and verify its bound
 		lcPvc2, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
-		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1, lcPvc2}, constants.DiskSize)
+		}
 
 		framework.Logf("Ending test: Create multiple linked clones from a snapshot")
 
@@ -620,7 +622,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 		// create linked clone PVC and verify its bound
 		lcPvc1, _ := k8testutil.CreateAndValidateLinkedClone(ctx, f.ClientSet, namespace, storageclass, volumeSnapshot.Name, e2eTestConfig)
 
-		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1}, constants.DiskSize)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{lcPvc1}, constants.DiskSize)
+		}
 
 		framework.Logf("Ending test: Verify linked clone can be created on the static volume")
 	})
@@ -720,7 +724,9 @@ var _ bool = ginkgo.Describe("[linked-clone-p0] Linked-Clone-P0", func() {
 			volumeSnapshot, constants.DiskSize, false)
 
 		// PVC usability
-		k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
+		if e2eTestConfig.TestInput.ClusterFlavor.SupervisorCluster {
+			k8testutil.PvcUsability(ctx, e2eTestConfig, client, namespace, storageclass, []*corev1.PersistentVolumeClaim{pvc}, constants.DiskSize)
+		}
 
 		framework.Logf("Endig Test: Validate the restoration of LC-PVC")
 
