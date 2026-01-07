@@ -310,7 +310,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 		// For every PVC mentioned in instance.Spec and in instance.Status, remove finalizer from it.
 		// It is important to remove the finalizer from PVCs in instance.Status also as it is possible
-		// that someone removes the PVC from spec after trriggering deletion of VM.
+		// that someone removes the PVC from spec after triggering deletion of VM.
 		for pvcName, volumeName := range pvcsInSpecAndStatus {
 			err := removePvcFinalizer(ctx, r.client, k8sClient, r.cnsOperatorClient,
 				pvcName, instance.Namespace,
@@ -610,6 +610,8 @@ func recordEvent(ctx context.Context, r *Reconciler,
 		Name:      instance.Name,
 		Namespace: instance.Namespace,
 	}
+
+	log.Debugf("Event type %s", eventtype)
 	switch eventtype {
 	case v1.EventTypeWarning:
 		// Double backOff duration.
@@ -618,14 +620,12 @@ func recordEvent(ctx context.Context, r *Reconciler,
 			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVmBatchAttachFailed", msg)
-		log.Error(msg)
 	case v1.EventTypeNormal:
 		// Reset backOff duration to one second.
 		backOffDurationMapMutex.Lock()
 		backOffDuration[namespacedName] = time.Second
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeNormal, "NodeVmBatchAttachSucceeded", msg)
-		log.Info(msg)
 	}
 }
 

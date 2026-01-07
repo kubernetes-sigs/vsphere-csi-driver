@@ -319,8 +319,8 @@ func GetVMFromVcenter(ctx context.Context, nodeUUID string,
 	for _, dc := range dcList {
 		vm, err := dc.GetVirtualMachineByUUID(ctx, nodeUUID, true)
 		if err != nil {
-			log.Errorf("failed to find the VM with UUID: %s Err: %+v",
-				nodeUUID, err)
+			log.Errorf("failed to find the VM with UUID: %s on datacenter: %s Err: %+v",
+				nodeUUID, dc.Name(), err)
 			continue
 		}
 		return vm, nil

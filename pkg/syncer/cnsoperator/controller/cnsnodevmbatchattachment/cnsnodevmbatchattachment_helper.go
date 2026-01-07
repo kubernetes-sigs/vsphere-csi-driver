@@ -200,16 +200,12 @@ func getVolumesToAttach(ctx context.Context,
 
 		attachedFcdIDBacking, found := attachedFCDs[volumeIDForPVC]
 		if !found {
-			log.Infof("PVC %s not attached to VM. Adding it to volumesToAttach list",
-				pvc.PersistentVolumeClaim.ClaimName)
 			// If PVC is present in instance spec but is not attached to the VM, then add it to PVCs to attach list.
 			pvcsToAttach[pvc.PersistentVolumeClaim.ClaimName] = volumeIDForPVC
 		} else if *pvc.PersistentVolumeClaim.ControllerKey != attachedFcdIDBacking.ControllerKey ||
 			*pvc.PersistentVolumeClaim.UnitNumber != attachedFcdIDBacking.UnitNumber ||
 			string(pvc.PersistentVolumeClaim.SharingMode) != attachedFcdIDBacking.SharingMode ||
 			string(pvc.PersistentVolumeClaim.DiskMode) != attachedFcdIDBacking.DiskMode {
-			log.Infof("PVC %s is attached to VM but its backing has changed. Adding it to volumesToAttach list",
-				pvc.PersistentVolumeClaim.ClaimName)
 			// If PVC is already attached to VM, but its device backing has changed, then add it to PVCs to attach list,
 			// as it needs to be re-attached with new details.
 			// This volume will first be added to detach list so that it can be detached and then it will be
@@ -399,7 +395,7 @@ func deleteVolumeFromStatus(pvc string, instance *v1alpha1.CnsNodeVMBatchAttachm
 
 // getVolumeMetadataMaps returns the volumes in instance spec.
 // It returns three maps:
-// 1. volumeID to PVC name
+// 1. volumeID to FCD backing details
 // 2. VolumeName to PVC name
 // 3. PVC name to volumeID
 func getVolumeMetadataMaps(ctx context.Context,
@@ -514,9 +510,8 @@ func listAttachedFcdsForVM(ctx context.Context,
 	return attachedFCDs, nil
 }
 
-// constructBatchAttachRequest goes through all volumes in instance spec and
+// constructBatchAttachRequest goes through all volumes in volumes to attach list and
 // constructs the batchAttach request for each of them.
-// It also validates each of the requests to make sure user input is correct.
 func constructBatchAttachRequest(ctx context.Context,
 	volumesToAttach map[string]string,
 	instance *v1alpha1.CnsNodeVMBatchAttachment) (pvcsInSpec map[string]string,
@@ -919,7 +914,7 @@ func removePvcFinalizer(ctx context.Context, patchClient client.Client,
 		client.MatchingLabels{common.PvcUIDLabelKey: string(pvc.UID)},
 	)
 	if err != nil {
-		log.Errorf("failed to verify if the PVC is attached via CnsNodeVMAttachment")
+		log.Errorf("failed to verify if the PVC %s is attached via CnsNodeVMAttachment", pvc.Name)
 		return err
 	}
 
@@ -928,7 +923,7 @@ func removePvcFinalizer(ctx context.Context, patchClient client.Client,
 		return nil
 	}
 
-	log.Infof("VM %s was the last attached VM for the PVC %s. Finalizer %s can be safely removed fromt the PVC",
+	log.Infof("VM %s was the last attached VM for the PVC %s. Finalizer %s can be safely removed from the PVC",
 		vmInstanceUUID, pvcName, cnsoperatortypes.CNSPvcFinalizer)
 
 	if !controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
@@ -1115,7 +1110,7 @@ func isVmInSameNamespace(ctx context.Context, vmOperatorClient client.Client,
 		if vmInstance.Status.InstanceUUID == instanceUUID {
 			msg := fmt.Sprintf("VM CR with instance UUID: %s found in namespace: %s",
 				instanceUUID, namespace)
-			log.Infof(msg)
+			log.Info(msg)
 			return true, nil
 		}
 	}
