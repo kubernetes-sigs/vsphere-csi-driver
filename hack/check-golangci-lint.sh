@@ -53,8 +53,8 @@ shift $((OPTIND-1))
 
 export GOOS=linux
 if [ ! "${DO_DOCKER-}" ]; then
-  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)"/bin v1.64.8
+  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)"/bin v2.7.2
   "$(go env GOPATH)"/bin/golangci-lint run -v --timeout=1200s
 else
-  docker run --rm -v "$(pwd)":/app -w /app golangci/golangci-lint:v1.64.8 golangci-lint run -v --timeout=1200s
+  docker run --rm -v "$(pwd)":/app -w /app golangci/golangci-lint:v2.7.2 golangci-lint run -v --timeout=1200s
 fi
