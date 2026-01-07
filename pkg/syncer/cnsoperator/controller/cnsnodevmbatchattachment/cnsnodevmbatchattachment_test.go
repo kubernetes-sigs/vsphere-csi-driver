@@ -1056,6 +1056,70 @@ func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
+
+func TestGetVolumesToDetachFromInstanceWhenUsedByAndPvcFinalizerIsMissing(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"no-finalizer-no-usedby-1": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"no-finalizer-no-usedby-1": {ControllerKey: 1000,
+			UnitNumber: 3, SharingMode: "None",
+			DiskMode: "independent_persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"no-finalizer-no-usedby-1": "no-finalizer-no-usedby-1"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenOnlyPvcFinalizerIsMissing(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"no-finalizer": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"no-finalizer": {ControllerKey: 1000,
+			UnitNumber: 3, SharingMode: "None",
+			DiskMode: "independent_persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"no-finalizer-1": "no-finalizer"}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstanceWhenOnlyUsedByIsMissingFinalizerIsPresent(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"12345": {ControllerKey: 1000,
+			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{
+		"12345": {ControllerKey: 1000,
+			UnitNumber: 3, SharingMode: "None",
+			DiskMode: "independent_persistent"},
+	}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{}, pvcsToDetach)
+}
+
 func TestGetVolumesToAttach(t *testing.T) {
 	ctx := context.Background()
 
