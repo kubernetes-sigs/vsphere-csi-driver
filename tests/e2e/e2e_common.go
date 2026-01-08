@@ -283,6 +283,8 @@ const (
 	selectedNodeAnnotationOnPVC              = "volume.kubernetes.io/selected-node"
 	vmZoneLabel                              = "topology.kubernetes.io/zone"
 	batchAttachSupportedVCVersion            = "9.1.0"
+	volumeAttached                           = "VolumeAttached"
+	volumeDetached                           = "VolumeDetached"
 )
 
 /*

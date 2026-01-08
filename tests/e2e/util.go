@@ -2773,9 +2773,13 @@ func verifyIsAttachedInSupervisor(ctx context.Context, f *framework.Framework,
 		gomega.Expect(instance).NotTo(gomega.BeNil())
 		for _, vol := range instance.Status.VolumeStatus {
 			if vol.Name == volumeHandle {
-				// Access the Attached field within the PVC status
-				volumeAttachmentStatus = vol.PersistentVolumeClaim.Attached
-				break
+				for _, cond := range vol.PersistentVolumeClaim.Conditions {
+					// Access the Status & Type field within the PVC's Conditions
+					if string(cond.Type) == volumeAttached && cond.Status == metav1.ConditionTrue {
+						volumeAttachmentStatus = true
+						break
+					}
+				}
 			}
 		}
 		framework.Logf("instance attached found to be : %t\n", volumeAttachmentStatus)
@@ -2795,20 +2799,36 @@ func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework,
 	nodeName string, volumeHandle string, crdVersion string, crdGroup string) {
 	expectedInstanceName := nodeName + "-" + volumeHandle
 	vcVersion = getVCversion(ctx, vcAddress)
-	var volumeAttachmentStatus bool
+	volumeDetachmentStatus := true // Default to true
 	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 	if isBatchAttachSupported {
 		instance := getCnsNodeVMBatchAttachmentByName(ctx, f, nodeName, crdVersion, crdGroup)
 		gomega.Expect(instance).NotTo(gomega.BeNil())
-		for _, vol := range instance.Status.VolumeStatus {
-			if vol.Name == volumeHandle {
-				// Access the Attached field within the PVC status
-				volumeAttachmentStatus = vol.PersistentVolumeClaim.Attached
+		if instance.Status.VolumeStatus != nil {
+			for _, vol := range instance.Status.VolumeStatus {
+				// Skip irrelevant volumes
+				if vol.Name != volumeHandle {
+					continue
+				}
+				// in case the match is found, check conditions
+				for _, cond := range vol.PersistentVolumeClaim.Conditions {
+					// Access the Status & Type field within the PVC's Conditions
+					if string(cond.Type) == volumeDetached && cond.Status != metav1.ConditionTrue {
+						// Log the specific error message found in the PVC status
+						framework.Logf("Volume %s attachment error: Type=%s, Status=%s, Message=%s",
+							vol.Name, cond.Type, cond.Status, cond.Message)
+						volumeDetachmentStatus = false
+						break
+					}
+				}
+				// Since volume names are unique handles, we can stop looking
+				// through the outer list once we've processed the match.
 				break
+
 			}
 		}
-		framework.Logf("instance attached found to be : %t\n", volumeAttachmentStatus)
-		gomega.Expect(volumeAttachmentStatus).To(gomega.BeFalse())
+		framework.Logf("volume detachment is : %t\n", volumeDetachmentStatus)
+		gomega.Expect(volumeDetachmentStatus).To(gomega.BeTrue())
 	} else {
 		instance := getCnsNodeVMAttachmentByName(ctx, f, expectedInstanceName, crdVersion, crdGroup)
 		if instance != nil {
