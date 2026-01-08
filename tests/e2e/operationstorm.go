@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID
 			// create resource quota
-			createResourceQuota(client, namespace, "100Gi", storagePolicyName)
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
 		}
 
 		storageclass, err = client.StorageV1().StorageClasses().Create(ctx,

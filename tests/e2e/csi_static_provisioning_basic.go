@@ -150,6 +150,11 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			isQuotaValidationSupported = isVersionGreaterOrEqual(vcVersion, quotaSupportedVCVersion)
 		}
 
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 	})
 
 	ginkgo.AfterEach(func() {

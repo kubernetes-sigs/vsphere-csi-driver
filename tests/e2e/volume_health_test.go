@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			}
 
 			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, nonShareadstoragePolicyName, namespace, defaultrqLimit)
+			setStoragePolicyQuota(ctx, restClientConfig, nonShareadstoragePolicyName, namespace, rqLimit)
 
 			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
 			pvclaim, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)

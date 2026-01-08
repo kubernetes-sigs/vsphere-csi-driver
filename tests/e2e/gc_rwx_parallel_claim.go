@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("[rwm-csi-tkg] PVCs claiming the available resource in p
 		var pvclaims = make([]*v1.PersistentVolumeClaim, 2)
 
 		ginkgo.By("CNS_TEST: Running for GC setup")
-		createResourceQuota(svcClient, svcNamespace, defaultrqLimit, storagePolicyName)
+		createResourceQuota(svcClient, svcNamespace, rqLimit, storagePolicyName)
 		defer func() {
 			setResourceQuota(svcClient, svcNamespace, rqLimit)
 		}()

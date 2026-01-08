@@ -1470,7 +1470,6 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		defer cancel()
 
 		ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
-		setResourceQuota(client, namespace, rqLimit)
 		scParameters := make(map[string]string)
 		if windowsEnv {
 			scParameters[scParamFsType] = ntfsFSType

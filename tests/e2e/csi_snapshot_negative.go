@@ -127,6 +127,12 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -135,10 +141,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 		if supervisorCluster {
 			deleteResourceQuota(client, namespace)
 		}
-		if guestCluster {
-			svcClient, svNamespace := getSvcClientAndNamespace()
-			setResourceQuota(svcClient, svNamespace, rqLimit)
-		}
+
 		if isServiceStopped {
 			if serviceName == "CSI" {
 				framework.Logf("Starting CSI driver")
@@ -167,6 +170,13 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 				err = waitVCenterServiceToBeInState(ctx, serviceName, vcAddress, svcRunningMessage)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
+
+			if guestCluster {
+				svcClient, svNamespace := getSvcClientAndNamespace()
+				setResourceQuota(svcClient, svNamespace, rqLimit)
+				dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+			}
+
 		}
 
 		ginkgo.By(fmt.Sprintf("Resetting provisioner time interval to %s sec", defaultProvisionerTimeInSec))
