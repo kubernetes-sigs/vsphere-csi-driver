@@ -46,6 +46,9 @@ import (
 	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	nodeattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
+	batchattachv1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -111,6 +114,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 			cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx)
 		}
+		// Cleanup PVCs created by guest clusters that have CNSPvcFinalizer
+		cleanupUnusedPVCsCreatedByGuestClusters(ctx)
 	}
 
 	defer func() {
@@ -1879,4 +1884,140 @@ func cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx context.Context) {
 				cnsoperatortypes.CNSVolumeFinalizer, false)
 		}
 	}
+}
+
+// cleanupUnusedPVCsCreatedByGuestClusters removes the CNSPvcFinalizer from PVCs that are marked for deletion
+// but have the finalizer set while creation from guest cluster.
+// This finalizer will only be removed in 2 cases:
+//  1. Namespace is deleted
+//  2. Guest cluster, from which this PVC is created, is deleted.
+func cleanupUnusedPVCsCreatedByGuestClusters(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Info("cleanupUnusedPVCsCreatedByGuestClusters: start")
+
+	// Get Kubernetes client
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: Failed to get kubeconfig. Err: %v", err)
+		return
+	}
+
+	k8sClient, err := clientset.NewForConfig(restClientConfig)
+	if err != nil {
+		log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: Failed to create Kubernetes client. Err: %v", err)
+		return
+	}
+
+	// Get all PVCs and check if any marked for deletion but have finalizer "cns.vmware.com/pvc-protection",
+	// set while creation from guest cluster.
+	// If found, remove the finalizer "cns.vmware.com/pvc-protection" from that PVC.
+	pvcList, err := k8sClient.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: failed to list PersistentVolumeClaims. Err: %v", err)
+		return
+	}
+
+	// Create CNS operator client for CR checks
+	cnsClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
+	if err != nil {
+		log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: Failed to create CNS operator client. Err: %v", err)
+		return
+	}
+
+	// Fetch all CnsNodeVmAttachment CRs across all namespaces
+	allNodeAttachList := nodeattachv1a1.CnsNodeVmAttachmentList{}
+	err = cnsClient.List(ctx, &allNodeAttachList)
+	if err != nil {
+		log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: Failed to list CnsNodeVmAttachment CRs. Err: %v", err)
+		return
+	}
+
+	// Fetch all CnsNodeVMBatchAttachment CRs across all namespaces (if SharedDisk FSS is enabled)
+	var allBatchAttachList *batchattachv1a1.CnsNodeVMBatchAttachmentList
+	isSharedDiskEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+	if isSharedDiskEnabled {
+		allBatchAttachList = &batchattachv1a1.CnsNodeVMBatchAttachmentList{}
+		err = cnsClient.List(ctx, allBatchAttachList)
+		if err != nil {
+			log.Errorf("cleanupUnusedPVCsCreatedByGuestClusters: Failed to list CnsNodeVMBatchAttachment CRs. Err: %v", err)
+			return
+		}
+	}
+
+	for _, pvc := range pvcList.Items {
+		// Check if PVC is being deleted and has "cns.vmware.com/pvc-protection" finalizer
+		// Note: Above finalizer will only be removed in 2 cases
+		//       1. Namespace is deleted
+		//       2. Guest cluster, from which this PVC is created, is deleted.
+		if pvc.ObjectMeta.DeletionTimestamp != nil {
+			// 1. Check if the PVC has CNSPvcFinalizer
+			if !controllerutil.ContainsFinalizer(&pvc, cnsoperatortypes.CNSPvcFinalizer) {
+				log.Debugf("cleanupUnusedPVCsCreatedByGuestClusters: PVC %s/%s does not have CNSPvcFinalizer, skipping",
+					pvc.Namespace, pvc.Name)
+				continue
+			}
+
+			// 2. Check if the PVC is not found in any CnsNodeVmAttachment CR in the namespace
+			pvcReferencedInNodeAttach := false
+			for _, cr := range allNodeAttachList.Items {
+				if cr.Namespace == pvc.Namespace && cr.Spec.VolumeName == pvc.Name {
+					pvcReferencedInNodeAttach = true
+					log.Debugf("cleanupUnusedPVCsCreatedByGuestClusters: PVC %s/%s is referenced in "+
+						"CnsNodeVmAttachment CR %s, skipping", pvc.Namespace, pvc.Name, cr.Name)
+					break
+				}
+			}
+			if pvcReferencedInNodeAttach {
+				continue
+			}
+
+			// 3. Check if the PVC is not found in any CnsNodeVMBatchAttachment CR spec or status (under FSS check)
+			if isSharedDiskEnabled && allBatchAttachList != nil {
+				pvcReferencedInBatchAttach := false
+				for _, cr := range allBatchAttachList.Items {
+					// Only check CRs in the same namespace as the PVC
+					if cr.Namespace != pvc.Namespace {
+						continue
+					}
+
+					// Check in spec
+					for _, vol := range cr.Spec.Volumes {
+						if vol.PersistentVolumeClaim.ClaimName == pvc.Name {
+							pvcReferencedInBatchAttach = true
+							log.Debugf("cleanupUnusedPVCsCreatedByGuestClusters: PVC %s/%s is referenced in "+
+								"CnsNodeVMBatchAttachment CR %s spec, skipping", pvc.Namespace, pvc.Name, cr.Name)
+							break
+						}
+					}
+					if pvcReferencedInBatchAttach {
+						break
+					}
+
+					// Check in status
+					for _, vol := range cr.Status.VolumeStatus {
+						if vol.PersistentVolumeClaim.ClaimName == pvc.Name {
+							pvcReferencedInBatchAttach = true
+							log.Debugf("cleanupUnusedPVCsCreatedByGuestClusters: PVC %s/%s is referenced in "+
+								"CnsNodeVMBatchAttachment CR %s status, skipping", pvc.Namespace, pvc.Name, cr.Name)
+							break
+						}
+					}
+					if pvcReferencedInBatchAttach {
+						break
+					}
+				}
+				if pvcReferencedInBatchAttach {
+					continue
+				}
+			}
+
+			// All checks passed, proceed with finalizer removal
+			log.Infof("cleanupUnusedPVCsCreatedByGuestClusters: Processing PVC %s/%s for guest cluster finalizer removal",
+				pvc.Namespace, pvc.Name)
+			RemoveCNSFinalizerFromPVCIfTKGClusterDeleted(ctx, k8sClient, &pvc,
+				cnsoperatortypes.CNSPvcFinalizer, false)
+		}
+	}
+
+	log.Info("cleanupUnusedPVCsCreatedByGuestClusters: completed")
 }
