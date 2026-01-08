@@ -117,6 +117,12 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 		labelKey = "app"
 		labelValue = "e2e-fullsync"
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 	})
 
 	ginkgo.AfterEach(func() {

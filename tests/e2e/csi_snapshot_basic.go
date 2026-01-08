@@ -194,6 +194,12 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		} else {
 			pandoraSyncWaitTime = defaultPandoraSyncWaitTime
 		}
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -223,6 +229,13 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		if isVsanHealthServiceStopped {
 			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 		}
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+			dumpSvcNsEventsOnTestFailure(svcClient, svNamespace)
+		}
+
 	})
 
 	/*

@@ -77,6 +77,12 @@ var _ = ginkgo.Describe("[ef-wcp][ef-vks] [csi-block-vanilla] [csi-file-vanilla]
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
+
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 	})
 	ginkgo.AfterEach(func() {
 		if supervisorCluster {
