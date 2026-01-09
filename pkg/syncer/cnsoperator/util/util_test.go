@@ -19,9 +19,11 @@ package util
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,6 +34,9 @@ import (
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -372,5 +377,63 @@ func TestPatchObject(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGetTKGVMIP_NetworkStatusNil(t *testing.T) {
+	ctx := context.Background()
+
+	vmNamespace := "test-ns"
+	vmName := "test-vm"
+
+	// Create a VM with Status.Network = nil
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vmName,
+			Namespace: vmNamespace,
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "test-image",
+			ClassName: "test-class",
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			Network: nil, // <-- key condition for this test
+		},
+	}
+
+	vm.Spec.Network = &vmoperatortypes.VirtualMachineNetworkSpec{}
+	vm.Spec.Network.Interfaces = []vmoperatortypes.VirtualMachineNetworkInterfaceSpec{}
+
+	scheme := runtime.NewScheme()
+
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
+	}
+	vmOpClient := ctrlruntimefake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+	commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("Failed to get container orchestrator: %s", err)
+	}
+
+	ip, err := GetTKGVMIP(
+		ctx,
+		vmOpClient,
+		nil,
+		vmNamespace,
+		vmName,
+		VDSNetworkProvider,
+	)
+
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+
+	if ip != "" {
+		t.Fatalf("expected empty IP, got %q", ip)
+	}
+
+	if !strings.Contains(err.Error(), "virtualMachineInstance.Status.Network is nil for VM") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
