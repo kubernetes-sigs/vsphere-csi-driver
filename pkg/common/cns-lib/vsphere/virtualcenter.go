@@ -60,6 +60,16 @@ const (
 	statusSuccess = "success"
 	// failed request
 	statusFailUnknown = "fail-unknown"
+
+	// Retry configuration for InvalidLogin errors during connection establishment.
+	// These constants define the retry behavior when authentication fails,
+	// which can happen during password rotation by WCP service.
+	// Uses a flat 3-minute (180s) delay matching vCenter's SSO lockout window
+	// (5 attempts in 180s). After one retry, the function returns an error,
+	// allowing Kubernetes to restart the container for fresh attempts.
+	// This approach is lockout-proof and leverages Kubernetes' restart mechanism.
+	maxLoginRetries = 2 // Initial attempt + 1 retry after 180s
+	retryDelay      = 3 * time.Minute
 )
 
 // VirtualCenter holds details of a virtual center instance.
@@ -262,30 +272,83 @@ func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) erro
 	return client.SessionManager.LoginByToken(client.Client.WithHeader(ctx, header))
 }
 
+// cleanupVCClient logs out and clears the VC client to ensure a clean state.
+// This helper is used during error handling and retry logic.
+func (vc *VirtualCenter) cleanupVCClient(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	if vc.Client == nil {
+		return
+	}
+
+	if err := vc.Client.Logout(ctx); err != nil {
+		log.With("err", err).Warn("Could not logout of VC session")
+	}
+	vc.Client = nil
+}
+
 // Connect establishes a new connection with vSphere with updated credentials.
-// If credentials are invalid then it fails the connection.
+// If credentials are invalid due to password rotation, it retries with a flat 3-minute delay
+// to avoid account lockout. The delay matches vCenter's SSO lockout window (5 attempts in 180s),
+// ensuring each retry happens after the previous lockout window expires.
+// For any other failure, it fails immediately without retry.
+// After each login attempt, the client is cleaned up to avoid resource leaks.
 func (vc *VirtualCenter) Connect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
 	vc.ClientMutex.Lock()
 	defer vc.ClientMutex.Unlock()
 
-	// Set up the vc connection.
-	err := vc.connect(ctx)
-	if err != nil {
-		log.Errorf("Cannot connect to vCenter with err: %v", err)
-		// Logging out of the current session to make sure the retry create
-		// a new client in the next attempt.
-		defer func() {
-			if vc.Client != nil {
-				logoutErr := vc.Client.Logout(ctx)
-				if logoutErr != nil {
-					log.Errorf("Could not logout of VC session. Error: %v", logoutErr)
-				}
-			}
-		}()
+	var err error
+	for attempt := 1; attempt <= maxLoginRetries; attempt++ {
+		err = vc.connect(ctx)
+		if err == nil {
+			// Connection successful
+			log.With("attempt", attempt).Debug("Successfully connected to vCenter")
+			return nil
+		}
+
+		// Check if this is an InvalidLogin error that we should retry
+		if !IsInvalidLoginError(ctx, err) {
+			// Not an authentication error - fail immediately without retry
+			log.With("err", err).Error("Cannot connect to vCenter")
+			break
+		}
+
+		// If this is the last attempt, don't wait - just exit
+		if attempt >= maxLoginRetries {
+			log.With("attempts", maxLoginRetries, "err", err).
+				Warn("Cannot connect to vCenter after all retry attempts with InvalidLogin error")
+			break
+		}
+
+		// Log the retry attempt
+		log.With("attempt", attempt, "retryDelay", retryDelay, "maxAttempts", maxLoginRetries).
+			Warn("Unable to login to VC with invalid login error, retrying (possibly due to credential rotation)")
+
+		// Cleanup before retrying to ensure clean state
+		vc.cleanupVCClient(ctx)
+
+		// Wait before retrying.
+		// Since defer in not a good practice in loops, we stop the timer explicitly.
+		retryTimer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			retryTimer.Stop()
+			log.With("err", ctx.Err()).Error("Context cancelled during retry backoff")
+			return ctx.Err()
+		case <-retryTimer.C:
+			retryTimer.Stop()
+			// Continue to next attempt
+		}
 	}
-	return err
+
+	// We reach here in one of the following cases:
+	// 1. All retry attempts failed with InvalidLogin errors.
+	// 2. The context was cancelled.
+	// 3. Some other error occurred while creating a new client.
+	// In all these cases, we need to clean up the client before returning the error.
+	vc.cleanupVCClient(ctx)
+	return fmt.Errorf("failed to connect to vCenter: %w", err)
 }
 
 // connect creates a connection to the virtual center host.

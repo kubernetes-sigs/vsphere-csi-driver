@@ -602,3 +602,32 @@ func FilterSuspendedDatastores(ctx context.Context, datastoreInfoList []*Datasto
 	log.Infof("Filtered list of datastores after removing suspended ones are: %+v", filteredList)
 	return filteredList, nil
 }
+
+// IsInvalidLoginError checks if the error is due to invalid credentials (*types.InvalidLogin).
+//
+// The govmomi client returns a soap.soapFaultError containing *types.InvalidLogin as the
+// underlying VimFault. We also check the error message as a fallback.
+func IsInvalidLoginError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check if it's a soap.soapFaultError containing InvalidLogin
+	// This is the primary check that catches the actual error from vCenter
+	if soap.IsSoapFault(err) {
+		soapFault := soap.ToSoapFault(err)
+		if soapFault != nil && soapFault.VimFault() != nil {
+			if _, ok := soapFault.VimFault().(*types.InvalidLogin); ok {
+				return true
+			}
+		}
+	}
+
+	// Fallback: check if the error message contains the InvalidLogin text
+	// This handles edge cases where type checking doesn't work
+	if strings.Contains(err.Error(), "Cannot complete login due to an incorrect user name or password") {
+		return true
+	}
+
+	return false
+}
