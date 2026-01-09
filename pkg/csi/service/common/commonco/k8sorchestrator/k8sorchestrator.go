@@ -361,6 +361,15 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				}
 			}
 
+			// check capabilities CR reading for workload cluster
+			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+				err := checkCapabilitiesCR(ctx, controllerClusterFlavor)
+				if err != nil {
+					log.Errorf("Failed to fetch the capabilities CR. Error: %v", err)
+					os.Exit(1)
+				}
+			}
+
 			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
 				(operationMode != operationModeWebHookServer) {
 				// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
@@ -1260,6 +1269,41 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			os.Exit(1)
 		}
 	}
+}
+
+// checkCapabilitiesCR  reads the capabilities CR for workload cluster to ensure
+// capabilities are available.
+func checkCapabilitiesCR(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor) error {
+	log := logger.GetLogger(ctx)
+	var restClientConfig *restclient.Config
+	var err error
+	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		// For workload clusters, read capabilities CR from the current cluster
+		restClientConfig, err = clientconfig.GetConfig()
+		if err != nil {
+			log.Errorf("failed to get Kubernetes config for capabilities CR. Err: %+v", err)
+			return err
+		}
+		// Create client for capabilities API group
+		wcpCapabilityApiClient, err := k8s.NewClientForGroup(ctx, restClientConfig, wcpcapapis.GroupName)
+		if err != nil {
+			log.Errorf("failed to create wcpCapabilityApi client for capabilities CR. Err: %+v", err)
+			return err
+		}
+		// Read capabilities
+		wcpCapabilities := &wcpcapv1alph1.Capabilities{}
+		err = wcpCapabilityApiClient.Get(ctx, k8stypes.NamespacedName{
+			Name: common.WCPCapabilitiesCRName},
+			wcpCapabilities)
+		if err != nil {
+			log.Errorf("failed to fetch Capabilities CR instance  with name %q Error: %+v",
+				common.WCPCapabilitiesCRName, err)
+			return err
+		}
+		log.Debugf("Successfully read capabilities CR '%s' during container initialization",
+			common.WCPCapabilitiesCRName)
+	}
+	return nil
 }
 
 // SetWcpCapabilitiesMap reads the capabilities values from 'supervisor-capabilities' CR in
