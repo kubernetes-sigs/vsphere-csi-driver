@@ -227,3 +227,7 @@ func (m *MockVolumeManager) SyncVolume(ctx context.Context,
 	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	return "", nil
 }
+
+func (m *MockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	return nil
+}

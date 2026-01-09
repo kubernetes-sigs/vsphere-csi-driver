@@ -232,7 +232,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
 			operationStore, true, true,
-			multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla)
+			multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla, config.Global.ClusterID,
+			config.Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -1617,16 +1618,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		}
 
 		if cnsVolumeType == common.UnknownVolumeType {
-			cnsVolumeType, err = common.GetCnsVolumeType(ctx, volumeManager, req.VolumeId)
-			if err != nil {
-				if err.Error() == common.ErrNotFound.Error() {
-					// The volume couldn't be found during query, assuming the delete operation as success
-					return &csi.DeleteVolumeResponse{}, "", nil
-				} else {
-					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-						"failed to determine CNS volume type for volume: %q. Error: %+v", req.VolumeId, err)
-				}
-			}
+			cnsVolumeType = common.GetCnsVolumeType(ctx, req.VolumeId)
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
 		// Check if the volume contains CNS snapshots only for block volumes.

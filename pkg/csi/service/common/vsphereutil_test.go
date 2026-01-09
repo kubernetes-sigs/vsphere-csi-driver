@@ -131,6 +131,11 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	return "", nil
 }
+
+func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	return nil
+}
+
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	// Skip test on ARM64 due to gomonkey limitations
 	if runtime.GOARCH == "arm64" {
