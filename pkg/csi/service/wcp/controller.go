@@ -42,6 +42,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -115,6 +117,7 @@ type controller struct {
 	authMgr         common.AuthorizationService
 	topologyMgr     commoncotypes.ControllerTopologyService
 	snapshotLockMgr *snapshotLockManager
+	k8sClient       kubernetes.Interface
 	csi.UnimplementedControllerServer
 }
 
@@ -234,6 +237,19 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		locks: make(map[string]*volumeLock),
 	}
 	log.Info("Initialized snapshot lock manager for per-volume serialization")
+
+	// Initialize Kubernetes client
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. err=%v", err)
+		return err
+	}
+	c.k8sClient, err = kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("failed to create Kubernetes client. err=%v", err)
+		return err
+	}
+	log.Info("Initialized Kubernetes client")
 
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
@@ -2525,7 +2541,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 
 		// Get snapshot limit from namespace ConfigMap
-		snapshotLimit, err := getSnapshotLimitForNamespace(ctx, volumeSnapshotNamespace)
+		snapshotLimit, err := getSnapshotLimitForNamespace(ctx, c.k8sClient, volumeSnapshotNamespace)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get snapshot limit for namespace %q: %v", volumeSnapshotNamespace, err)

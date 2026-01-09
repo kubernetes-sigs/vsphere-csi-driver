@@ -39,7 +39,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	restclient "k8s.io/client-go/rest"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
@@ -852,15 +851,6 @@ func validateControllerPublishVolumeRequesInWcp(ctx context.Context, req *csi.Co
 
 var newK8sClient = k8s.NewClient
 
-// getK8sConfig is a variable that can be overridden for testing
-var getK8sConfig = config.GetConfig
-
-// newK8sClientFromConfig is a variable that can be overridden for testing
-// It wraps kubernetes.NewForConfig and returns Interface for easier testing
-var newK8sClientFromConfig = func(c *restclient.Config) (kubernetes.Interface, error) {
-	return kubernetes.NewForConfig(c)
-}
-
 // getPodVMUUID returns the UUID of the VM(running on the node) on which the pod that is trying to
 // use the volume is scheduled.
 func getPodVMUUID(ctx context.Context, volumeID, nodeName string) (string, error) {
@@ -965,26 +955,8 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 
 // getSnapshotLimitForNamespace reads the snapshot limit from ConfigMap in the namespace.
 // Returns the effective limit after applying defaults and absolute max clamping.
-func getSnapshotLimitForNamespace(ctx context.Context, namespace string) (int, error) {
+func getSnapshotLimitForNamespace(ctx context.Context, k8sClient kubernetes.Interface, namespace string) (int, error) {
 	log := logger.GetLogger(ctx)
-
-	// Get Kubernetes config
-	cfg, err := getK8sConfig()
-	if err != nil {
-		// If k8s config is not available (e.g., in test environments), use default
-		log.Infof("getSnapshotLimitForNamespace: failed to get Kubernetes config, using default: %d. Error: %v",
-			common.DefaultMaxSnapshotsPerVolume, err)
-		return common.DefaultMaxSnapshotsPerVolume, nil
-	}
-
-	// Create Kubernetes clientset
-	k8sClient, err := newK8sClientFromConfig(cfg)
-	if err != nil {
-		// If k8s client creation fails, use default
-		log.Infof("getSnapshotLimitForNamespace: failed to create Kubernetes client, using default: %d. Error: %v",
-			common.DefaultMaxSnapshotsPerVolume, err)
-		return common.DefaultMaxSnapshotsPerVolume, nil
-	}
 
 	// Get ConfigMap from the namespace
 	cm, err := k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, common.ConfigMapCSILimits, metav1.GetOptions{})
