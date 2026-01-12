@@ -1217,6 +1217,11 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		var pvclaim *v1.PersistentVolumeClaim
 		var err error
 
+		if guestCluster {
+			svcClient, svNamespace := getSvcClientAndNamespace()
+			setResourceQuota(svcClient, svNamespace, rqLimit)
+		}
+
 		// decide which test setup is available to run
 		ginkgo.By("Creating a PVC")
 		storageclass, err := client.StorageV1().StorageClasses().Get(ctx, storagePolicyName, metav1.GetOptions{})
