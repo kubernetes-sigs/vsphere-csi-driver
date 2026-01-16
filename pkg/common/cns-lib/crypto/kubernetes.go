@@ -20,9 +20,11 @@ import (
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 )
 
-// NewK8sScheme creates a Kubernetes runtime schema for interacting with EncryptionClass entities.
+// NewK8sScheme creates a Kubernetes runtime schema for interacting with EncryptionClass entities
+// and CNS operator resources.
 func NewK8sScheme() (*runtime.Scheme, error) {
 	scheme := runtime.NewScheme()
 
@@ -31,6 +33,11 @@ func NewK8sScheme() (*runtime.Scheme, error) {
 	}
 
 	if err := byokv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+
+	// Register CNS operator types (CnsNodeVmAttachment, CnsNodeVMBatchAttachment, etc.)
+	if err := cnsoperatorapis.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 
