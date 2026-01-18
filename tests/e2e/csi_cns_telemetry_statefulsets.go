@@ -44,7 +44,8 @@ import (
 // 8. Delete the storage class.
 
 var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-supervisor] [csi-guest] "+
-	"[csi-block-vanilla-parallelized] CNS-CSI Cluster Distribution for StatefulSets", func() {
+	"[csi-block-vanilla-parallelized][vks-exp-nonprod] CNS-CSI Cluster Distribution for "+
+	"StatefulSets", func() {
 	f := framework.NewDefaultFramework("csi-cns-telemetry")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (

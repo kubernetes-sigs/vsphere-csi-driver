@@ -43,8 +43,8 @@ import (
 	admissionapi "k8s.io/pod-security-admission/api"
 )
 
-var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expansion Tests "+
-	"with reclaimation policy retain", func() {
+var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation "+
+	"policy retain", func() {
 	f := framework.NewDefaultFramework("gc-resize-reclaim-policy-retain")
 	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 	var (
@@ -208,7 +208,8 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	// 18. Delete PVC created in step 6.
 	// 19. Delete PV leftover in GC.
 	// 20. Delete SC created in step 1.
-	ginkgo.It("PV with reclaim policy can be reused and resized with pod", ginkgo.Label(p0, block, tkg,
+	ginkgo.It("[vks-exp-nonprod] PV with reclaim policy can be reused and "+
+		"resized with pod", ginkgo.Label(p0, block, tkg,
 		windows, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -417,7 +418,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	// 16. delete SC created in step 1 and step 7.
 	// 17. delete GC2.
 	// Steps 6 and 17 need to run manually before and after this suite.
-	ginkgo.It("[ef-vks-f] [ef-vks-n1-f][ef-vks-n2-f] PV with reclaim policy retain can be resized "+
+	ginkgo.It("PV with reclaim policy retain can be resized "+
 		"when used in a fresh GC", ginkgo.Label(p0, block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -678,7 +679,8 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 		15. Delete SC
 
 	*/
-	ginkgo.It("Verify online volume expansion when PV with reclaim policy is reused to create PVC", ginkgo.Label(p0,
+	ginkgo.It("[vks-exp-nonprod] Verify online volume expansion when PV with reclaim "+
+		"policy is reused to create PVC", ginkgo.Label(p0,
 		block, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -844,7 +846,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	//    16. delete SC created in step 1 and step 7.
 	//    17. delete GC1.
 
-	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] online volume expansion-PV with reclaim "+
+	ginkgo.It("online volume expansion-PV with reclaim "+
 		"policy retain can be resized when used in a fresh GC", ginkgo.Label(p0,
 		block, tkg, vc70), func() {
 		var err error
@@ -1006,7 +1008,7 @@ var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2] Volume Expan
 	// 11. verify File system size
 	// 12. Delete POD, PVC, PV and SC
 
-	ginkgo.It("[ef-vks-f][ef-vks-n1-f][ef-vks-n2-f] Offline resize of PVC in GC1, Delete PVC "+
+	ginkgo.It("[vks-exp-nonprod] Offline resize of PVC in GC1, Delete PVC "+
 		"and PV in GC1. Statically prov same PVC and PV in GC1 and deploy a Pod and "+
 		"trigger online volume expansion", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error

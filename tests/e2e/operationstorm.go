@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Vo
 	*/
 
 	ginkgo.It("[stable-pq-vks][csi-file-vanilla][csi-guest][pq-vanilla-file][pq-n1-vanilla-file][pq-n2-vanilla-file]"+
-		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][pq-vks][pq-vks-n1][pq-vks-n2]Delete namespace"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] Delete namespace"+
 		" to confirm all volumes and pods are deleted", ginkgo.Label(p0, vanilla, block, file, tkg, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
