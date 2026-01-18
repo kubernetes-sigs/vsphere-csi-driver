@@ -264,7 +264,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	       as run a scenario with improved_idempotency disabled
 	*/
 	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
-		"create volume snapshot when hostd goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot,
+		"[vks-exp-nonprod] create volume snapshot when hostd goes down", ginkgo.Label(p1, block, vanilla, tkg, snapshot,
 		disruptive, negative, vc90), func() {
 
 		serviceName = hostdServiceName
@@ -282,7 +282,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	})
 
 	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
-		"create volume snapshot when VPXD goes down", ginkgo.Label(p1, block, vanilla,
+		"[vks-exp-nonprod] create volume snapshot when VPXD goes down", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, disruptive, vc90), func() {
 
 		serviceName = vpxdServiceName
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("[block-snapshot-negative] Volume Snapshot Fault-Injecti
 	})
 
 	ginkgo.It("[pq-f-wcp-neg-snpt][block-vanilla-snapshot] [tkg-snapshot][supervisor-snapshot]"+
-		"[pq-f-vks-snapshot] create volume snapshot when CNS goes down", ginkgo.Label(p1, block, vanilla,
+		"[vks-exp-nonprod] create volume snapshot when CNS goes down", ginkgo.Label(p1, block, vanilla,
 		tkg, snapshot, disruptive, negative, vc90), func() {
 
 		serviceName = vsanhealthServiceName

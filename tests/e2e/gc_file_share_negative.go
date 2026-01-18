@@ -31,7 +31,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
 
-var _ = ginkgo.Describe("[csi-guest][ef-vks] [ef-vks-n1][ef-vks-n2]File Share on Non "+
+var _ = ginkgo.Describe("[csi-guest][ef-vks][ef-vks-n1][ef-vks-n2] File Share on Non "+
 	"File Service enabled setups", func() {
 	f := framework.NewDefaultFramework("e2e-file-volumes")
 

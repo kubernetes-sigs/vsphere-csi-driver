@@ -734,7 +734,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 10. Verify CnsVolumeMetadata CRD in SV are updated.
 	// 11. Wait for labels to be deleted in CNS.
 	// 12. Delete PVC.
-	ginkgo.It("Validate PV and PVC labels are updated/deleted "+
+	ginkgo.It("[vks-exp-nonprod] Validate PV and PVC labels are updated/deleted "+
 		"on CNS", ginkgo.Label(p0, block, tkg, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -934,7 +934,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 6. Start vsan-health.
 	// 7. Verify labels are updated on CNS.
 	// 8. Delete PVC in GC.
-	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify CnsVolumeMetadata updated after "+
+	ginkgo.It("[stable-pq-vks] Verify CnsVolumeMetadata updated after "+
 		"vsan health restart", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1008,7 +1008,7 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 	// 9. Make datastore accessible.
 	// 10. Verify labels are updated on CNS.
 	// 11. Delete PVC.
-	ginkgo.It("[stable-pq-vks][pq-vks][pq-vks-n1][pq-vks-n2] Verify labels are not updated on "+
+	ginkgo.It("[stable-pq-vks] Verify labels are not updated on "+
 		"inaccessible datastore", ginkgo.Label(p1, block, tkg, negative, vc70), func() {
 		var err error
 		var sc *storagev1.StorageClass
