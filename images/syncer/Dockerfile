@@ -29,6 +29,9 @@ ARG VERSION=unknown
 
 ARG GOPROXY
 
+# Architecture detection for conditional FIPS support
+ARG TARGETARCH
+
 WORKDIR /build
 
 COPY go.mod go.sum ./
@@ -41,11 +44,13 @@ ENV CGO_ENABLED=0
 
 ENV GOPROXY=${GOPROXY:-https://proxy.golang.org}
 
-ENV GOFIPS=1
-
-ENV GOEXPERIMENT="boringcrypto"
-
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+# Conditionally set FIPS environment variables based on architecture
+# FIPS/boringcrypto is only supported on amd64 architecture
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        export GOFIPS=1 && \
+        export GOEXPERIMENT="boringcrypto"; \
+    fi && \
+    go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
