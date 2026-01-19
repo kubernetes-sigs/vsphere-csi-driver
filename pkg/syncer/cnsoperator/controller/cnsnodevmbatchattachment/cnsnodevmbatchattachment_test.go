@@ -1243,7 +1243,15 @@ func TestGetVolumesToAttach(t *testing.T) {
 						{
 							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
 								ClaimName: "pvc1",
-								Error:     "some-error",
+								Conditions: []metav1.Condition{
+									{
+										Type:               v1alpha1.ConditionAttached,
+										Status:             metav1.ConditionFalse,
+										Reason:             v1alpha1.ReasonAttachFailed,
+										Message:            "some-error",
+										LastTransitionTime: metav1.Now(),
+									},
+								},
 							},
 						},
 					},
@@ -1267,7 +1275,90 @@ func TestGetVolumesToAttach(t *testing.T) {
 						{
 							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
 								ClaimName: "pvc1",
-								Error:     "",
+								Conditions: []metav1.Condition{
+									{
+										Type:   v1alpha1.ConditionAttached,
+										Status: metav1.ConditionTrue,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
+			want:                    map[string]string{},
+			wantErr:                 false,
+		},
+		{
+			name: "attached but status has error with multiple conditions → attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc1",
+								Conditions: []metav1.Condition{
+									{
+										Type:               v1alpha1.ConditionAttached,
+										Status:             metav1.ConditionFalse,
+										Reason:             v1alpha1.ReasonAttachFailed,
+										Message:            "some-error-attach",
+										LastTransitionTime: metav1.Now(),
+									},
+									{
+										Type:               v1alpha1.ConditionDetached,
+										Status:             metav1.ConditionFalse,
+										Reason:             v1alpha1.ReasonAttachFailed,
+										Message:            "some-error-detach",
+										LastTransitionTime: metav1.Now(),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			pvcNameToVolumeIDInSpec: map[string]string{"pvc1": "vol-1"},
+			attachedFCDs:            map[string]FCDBackingDetails{"vol-1": validBacking},
+			want:                    map[string]string{"pvc1": "vol-1"},
+			wantErr:                 false,
+		},
+		{
+			name: "attached but status has error for detach and not attach → no attach",
+			instance: &v1alpha1.CnsNodeVMBatchAttachment{
+				Spec: v1alpha1.CnsNodeVMBatchAttachmentSpec{
+					Volumes: []v1alpha1.VolumeSpec{
+						makeVolSpec("pvc1", v1alpha1.SharingNone, v1alpha1.Persistent),
+					},
+				},
+				Status: v1alpha1.CnsNodeVMBatchAttachmentStatus{
+					VolumeStatus: []v1alpha1.VolumeStatus{
+						{
+							PersistentVolumeClaim: v1alpha1.PersistentVolumeClaimStatus{
+								ClaimName: "pvc1",
+								Conditions: []metav1.Condition{
+									{
+										Type:               v1alpha1.ConditionDetached,
+										Status:             metav1.ConditionFalse,
+										Reason:             v1alpha1.ReasonAttachFailed,
+										Message:            "some-error-detach",
+										LastTransitionTime: metav1.Now(),
+									},
+									{
+										Type:               v1alpha1.ConditionAttached,
+										Status:             metav1.ConditionTrue,
+										Reason:             v1alpha1.ConditionReady,
+										Message:            "",
+										LastTransitionTime: metav1.Now(),
+									},
+								},
 							},
 						},
 					},
@@ -1734,8 +1825,6 @@ func TestUpdateInstanceVolumeStatusByPvc_SetsSuccessCondition_WhenNoError(t *tes
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, v1alpha1.ConditionAttached, cond.Type)
 	assert.Equal(t, "True", cond.Reason)
-	assert.Empty(t, vs.PersistentVolumeClaim.Error)
-	assert.True(t, vs.PersistentVolumeClaim.Attached)
 }
 
 func TestUpdateInstanceVolumeStatusByPvc_MarksErrorCondition_WhenErrorProvided(t *testing.T) {
@@ -1769,8 +1858,6 @@ func TestUpdateInstanceVolumeStatusByPvc_MarksErrorCondition_WhenErrorProvided(t
 	vs := instance.Status.VolumeStatus[0]
 
 	assert.Equal(t, "pvc2", vs.PersistentVolumeClaim.ClaimName)
-	assert.Equal(t, "failed to attach", vs.PersistentVolumeClaim.Error)
-	assert.False(t, vs.PersistentVolumeClaim.Attached)
 
 	assert.Len(t, vs.PersistentVolumeClaim.Conditions, 1)
 	cond := vs.PersistentVolumeClaim.Conditions[0]
