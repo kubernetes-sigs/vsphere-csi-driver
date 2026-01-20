@@ -127,10 +127,6 @@ type CnsNodeVMBatchAttachmentStatus struct {
 
 	// Conditions describes any conditions associated with this CnsNodeVMBatchAttachment instance.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// TODO: remove this field once VM op changes are ready.
-	// Error is the overall error status for the instance.
-	Error string `json:"error,omitempty"`
 }
 
 type VolumeStatus struct {
@@ -155,17 +151,6 @@ type PersistentVolumeClaimStatus struct {
 
 	// Conditions describes any conditions associated with this volume.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// TODO: remove this field once VM op changes are ready.
-	// Error indicates the error which may have occurred during attach/detach.
-	Error string `json:"error,omitempty"`
-
-	// TODO: remove this field once VM op changes are ready.
-	// Attached indicates the attach status of a PVC.
-	// If volume is not attached, Attached will be set to false.
-	// If volume is attached, Attached will be set to true.
-	// If volume is detached successfully, its entry will be removed from VolumeStatus.
-	Attached bool `json:"attached"`
 }
 
 // +genclient
