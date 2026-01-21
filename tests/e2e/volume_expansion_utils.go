@@ -208,6 +208,27 @@ func waitForPVCToReachFileSystemResizePendingCondition(client clientset.Interfac
 	return pvclaim, waitErr
 }
 
+// waitForPvcToReachStatusCondition waits for status of a PersistentVolumeClaim to reach a given condition
+//
+//	by polling the status of PVC
+func waitForPvcToReachStatusCondition(client clientset.Interface, ctx context.Context, namespace string,
+	pvcName string, conditionsPresent bool, condition v1.PersistentVolumeClaimConditionType) error {
+
+	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err := checkPvcHasGivenStatusCondition(client, namespace, pvcName, true, condition)
+			if err == nil {
+				return true, nil
+			}
+			if strings.Contains(err.Error(), "not matching") {
+				return false, nil
+			}
+			return false, err
+		})
+	return waitErr
+
+}
+
 // checkPvcHasGivenStatusCondition checks if the status condition in PVC
 // matches with the one we want.
 func checkPvcHasGivenStatusCondition(client clientset.Interface, namespace string, pvcName string,

@@ -1520,12 +1520,15 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Test", func() {
 		gomega.Expect(b).To(gomega.BeTrue())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking GC pvc is have 'Resizing' status condition")
-		pvc, err = checkPvcHasGivenStatusCondition(client, namespace, pvc.Name, true, v1.PersistentVolumeClaimResizing)
+		ginkgo.By("Checking GC pvc is have 'FileSystemResizePending' status condition")
+		err = waitForPvcToReachStatusCondition(client, ctx, namespace, pvc.Name, true,
+			v1.PersistentVolumeClaimFileSystemResizePending)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Checking for 'Resizing' status condition on SVC PVC")
-		_, err = checkSvcPvcHasGivenStatusCondition(svcPvcName, true, v1.PersistentVolumeClaimResizing)
+		ginkgo.By("Checking for 'FileSystemResizePending' status condition on SVC PVC")
+		svcClient, svcNamespace := getSvcClientAndNamespace()
+		err = waitForPvcToReachStatusCondition(svcClient, ctx, svcNamespace,
+			svcPvcName, true, v1.PersistentVolumeClaimFileSystemResizePending)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// PVC deletion happens in the defer block.
