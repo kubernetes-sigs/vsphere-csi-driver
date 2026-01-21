@@ -575,11 +575,9 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context,
 		devices := info.Config.Hardware.Device
 		vmDevices := object.VirtualDeviceList(devices)
 		for _, device := range vmDevices {
-			if vmDevices.TypeName(device) == "VirtualDisk" {
-				if virtualDisk, ok := device.(*vimtypes.VirtualDisk); ok {
-					if virtualDisk.VDiskId != nil {
-						volumeIDVMMap[virtualDisk.VDiskId.Id] = vmMoID
-					}
+			if virtualDisk, ok := device.(*vimtypes.VirtualDisk); ok {
+				if virtualDisk.VDiskId != nil {
+					volumeIDVMMap[virtualDisk.VDiskId.Id] = vmMoID
 				}
 			}
 		}
