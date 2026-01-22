@@ -58,6 +58,8 @@ var _ = ginkgo.Describe("Volume health check", func() {
 		isSPSServiceStopped        bool
 		csiNamespace               string
 		vsphereTKGSystemNamespace  string
+		isBatchAttachSupported     bool
+		crdName                    string
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -81,6 +83,11 @@ var _ = ginkgo.Describe("Volume health check", func() {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 		isVsanHealthServiceStopped = false
+		isBatchAttachSupported = isVersionGreaterOrEqual(getVCversion(ctx, vcAddress), batchAttachSupportedVCVersion)
+		crdName = crdCNSNodeVMAttachment
+		if isBatchAttachSupported {
+			crdName = crdCNSNodeVMBatchAttachment
+		}
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1178,8 +1185,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 					svcPVCName := volumeID
 					volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 					gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-					verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
-						crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+					expectedInstanceName := sspod.Spec.NodeName + "-" + svcPVCName
+					if isBatchAttachSupported {
+						expectedInstanceName = sspod.Spec.NodeName
+					}
+					verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
+					// verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
+					// 	crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 
 					ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s",
 						pv.Spec.CSI.VolumeHandle, sspod.Spec.NodeName))
@@ -2331,8 +2343,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						svcPVCName := volumeID
 						volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 						gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-						verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
-							crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+						expectedInstanceName := sspod.Spec.NodeName + "-" + svcPVCName
+						if isBatchAttachSupported {
+							expectedInstanceName = sspod.Spec.NodeName
+						}
+						verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
+						// verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
+						// 	crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
@@ -2972,8 +2989,13 @@ var _ = ginkgo.Describe("Volume health check", func() {
 						svcPVCName := volumeID
 						volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
 						gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
-						verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
-							crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+						expectedInstanceName := sspod.Spec.NodeName + "-" + svcPVCName
+						if isBatchAttachSupported {
+							expectedInstanceName = sspod.Spec.NodeName
+						}
+						verifyCRDInSupervisor(ctx, f, expectedInstanceName, crdName, crdVersion, crdGroup, true)
+						// verifyCRDInSupervisor(ctx, f, sspod.Spec.NodeName+"-"+svcPVCName,
+						// 	crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
 
 						ginkgo.By("Expect health status of the pvc to be accessible")
 						pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx,
