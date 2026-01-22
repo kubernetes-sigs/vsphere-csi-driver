@@ -283,13 +283,6 @@ func (vc *VirtualCenter) cleanupVCClient(ctx context.Context) {
 	if err := vc.Client.Logout(ctx); err != nil {
 		log.With("err", err).Warn("Could not logout of VC session")
 	}
-
-	// nullifies all the clients so that they are created anew during next Connection attempt
-	vc.Client = nil
-	vc.PbmClient = nil
-	vc.CnsClient = nil
-	vc.VsanClient = nil
-	vc.VslmClient = nil
 }
 
 // Connect establishes a new connection with vSphere with updated credentials.
@@ -368,6 +361,12 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		log.Errorf("failed to get useragent for vCenter session. error: %+v", err)
 		return err
 	}
+
+	// Once initialised, don't nullify vc.Client or dependent clients.
+	// This function will detect the invalid session (after logout)
+	// and recreate dependent clients.
+	// Nullifying vc.Client would cause connect() to return early
+	// before dependent clients are recreated, leaving them with stale sessions.
 	if vc.Client == nil {
 		if vc.Config.ReloadVCConfigForNewClient {
 			err = ReadVCConfigs(ctx, vc)
