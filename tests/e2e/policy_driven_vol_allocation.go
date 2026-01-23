@@ -165,7 +165,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			10	Deleted the SPBM polices created in step 1
 	*/
 	ginkgo.It("[ef-svc-volallowcation][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][csi-supervisor]"+
-		"[csi-wcp-vsan-direct][ef-vks-thickthin][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[csi-wcp-vsan-direct][cf-vanilla-block][pq-n1-vanilla-block]"+
+		"[pq-n2-vanilla-block][vks-thickthin-exp-nonprod]"+
 		"Verify Thin, EZT, LZT volume creation via SPBM policies", ginkgo.Label(p0, vanilla, block, thickThin, wcp,
 		tkg, windows, stable, vsanDirect, vc70), func() {
 
@@ -423,7 +424,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		10. Deleted the SPBM policies created in step 1
 	*/
 	ginkgo.It("[ef-f-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
-		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][pq-vks-thickthin]Fill LZT/EZT"+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[vks-thickthin-exp-nonprod] Fill LZT/EZT"+
 		" volume", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -678,7 +680,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		8. Deleted the SPBM policy created in step 1
 	*/
 	ginkgo.It("[ef-f-svc-volallowcation-neg][csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
-		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][pq-vks-thickthin] Verify large EZT volume "+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[vks-thickthin-exp-nonprod] Verify large EZT volume "+
 		"creation which takes longer than vpxd timeout", ginkgo.Label(p0, vanilla, block, thickThin, wcp,
 		tkg, windows, stable, vsanDirect, vc70), func() {
 
@@ -887,7 +890,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		11	Deleted the SPBM policy created in step 1
 	*/
 	ginkgo.It("[ef-f-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor][csi-wcp-vsan-direct]"+
-		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]Verify EZT online volume expansion to a "+
+		"[pq-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[vks-thickthin-exp-nonprod]Verify EZT online volume expansion to a "+
 		"large size which takes longer than vpxd timeout", ginkgo.Label(p0, vanilla, block, thickThin, wcp, windows,
 		tkg, stable, vsanDirect, vc70), func() {
 
@@ -1165,7 +1169,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		12	Deleted the SPBM policy created in step 1
 	*/
 	ginkgo.It("[ef-f-vanilla-block][ef-f-svc-volallowcation][csi-block-vanilla][csi-guest][csi-supervisor]"+
-		"[csi-wcp-vsan-direct] Verify online LZT/EZT volume expansion of attached volumes "+
+		"[csi-wcp-vsan-direct][vks-thickthin-exp-nonprod] Verify online LZT/EZT volume expansion "+
+		"of attached volumes "+
 		"with IO", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, stable,
 		vsanDirect, vc70), func() {
 
@@ -1491,7 +1496,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 	*/
 	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-f-svc-volallowcation][cflater-wcp]"+
 		"[csi-supervisor][csi-block-vanilla][csi-block-vanilla-parallelized][csi-guest][csi-wcp-vsan-direct]"+
-		"[pq-vks-thickthin] Relocate volume to another same type datastore", ginkgo.Label(p0, vanilla, block,
+		"[vks-thickthin-exp-nonprod] Relocate volume to another "+
+		"same type datastore", ginkgo.Label(p0, vanilla, block,
 		thickThin, wcp, tkg, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1812,7 +1818,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		13.	Deleted the SPBM policy created in step 1
 	*/
 	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-f-svc-volallowcation][csi-guest]"+
-		"[csi-supervisor][csi-block-vanilla][csi-wcp-vsan-direct][ef-vks-thickthin]Verify EZT offline volume "+
+		"[csi-supervisor][csi-block-vanilla][csi-wcp-vsan-direct]"+
+		"[vks-thickthin-exp-nonprod]Verify EZT offline volume "+
 		"expansion", ginkgo.Label(p0, vanilla, block, thickThin, wcp, tkg, windows, stable, vsanDirect, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2388,7 +2395,8 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		12	Deleted the SPBM policies created in step 1
 	*/
 	ginkgo.It("[pq-f-svc-volallowcation-neg][csi-block-vanilla][csi-guest][csi-supervisor][pq-vanilla-block]"+
-		"[pq-n1-vanilla-block][pq-n2-vanilla-block][pq-vks-thickthin]Verify expansion during Thin -> EZT, "+
+		"[pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[vks-thickthin-exp-nonprod] Verify expansion during Thin -> EZT, "+
 		"LZT -> EZT conversion (should take >vpxd task timeout)", ginkgo.Label(p0, vanilla, block, thickThin, wcp,
 		tkg, windows, stable, vc70), func() {
 
