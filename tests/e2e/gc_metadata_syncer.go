@@ -30,6 +30,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
@@ -801,9 +802,15 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s", labels, pvc.Name))
-		pvc.Labels = labels
-
-		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestPVC, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			latestPVC.Labels = labels
+			_, err = client.CoreV1().PersistentVolumeClaims(latestPVC.Namespace).Update(ctx, latestPVC, metav1.UpdateOptions{})
+			return err
+		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s", labels, pvc.Name))
@@ -836,9 +843,18 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 			crdCNSVolumeMetadatas, crdVersion, crdGroup, true, pv.Spec.CSI.VolumeHandle, true, pv.Labels, true)
 
 		ginkgo.By(fmt.Sprintf("deleting labels for pvc %s", pvc.Name))
-		pvc.Labels = make(map[string]string)
-		time.Sleep(pollTimeoutShort)
-		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestPVC, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).
+				Get(ctx, pvc.Name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+
+			latestPVC.Labels = make(map[string]string)
+			_, err = client.CoreV1().PersistentVolumeClaims(latestPVC.Namespace).
+				Update(ctx, latestPVC, metav1.UpdateOptions{})
+			return err
+		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels to be deleted for pvc %s", pvc.Name))
