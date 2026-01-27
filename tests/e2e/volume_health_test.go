@@ -2891,8 +2891,9 @@ var _ = ginkgo.Describe("Volume health check", func() {
 	// 10. Delete the PVC.
 	// 11. Delete the storage class.
 
-	ginkgo.It("[pq-f-wcp][csi-supervisor] [csi-guest] If pod pvc becomes inaccessible "+
-		"restart pod and check pod status", ginkgo.Label(p2, block, wcp, tkg, disruptive, negative, vc70), func() {
+	ginkgo.It("[pq-f-wcp][csi-supervisor] [csi-guest][vks-exp-nonprod] If pod pvc becomes "+
+		"inaccessible restart pod and check pod status", ginkgo.Label(p2, block,
+		wcp, tkg, disruptive, negative, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		var statusFlag bool = false

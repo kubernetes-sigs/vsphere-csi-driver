@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		10.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		11.Clean up the data
 	*/
-	ginkgo.It("Bring down ESX in AZ1", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Bring down ESX in AZ1", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		10.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		11.Clean up the data
 	*/
-	ginkgo.It("Bring down ESX of AZ1 and AZ2", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Bring down ESX of AZ1 and AZ2", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -439,7 +439,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		9.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		10.Clean up the data
 	*/
-	ginkgo.It("Put one esx host of each cluster in and out of maintenance mode", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Put one esx host of each cluster in and out "+
+		"of maintenance mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -572,7 +573,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		9.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		10.Clean up the data
 	*/
-	ginkgo.It("One host isolation", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] One host isolation", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -694,7 +695,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		10.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		11.Clean up the data
 	*/
-	ginkgo.It("Put 2 ESX of AZ3 in maintenance mode", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Put 2 ESX of AZ3 in maintenance "+
+		"mode", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
@@ -823,7 +825,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SiteDownTests", ginkgo.Label(p1, 
 		10.Wait and verify that the k8s cluster is healthy and statefulset replicas are running fine
 		11.Clean up the data
 	*/
-	ginkgo.It("Put 2 ESX of AZ2 in maintenance mode and power off 1 ESX in AZ2", func() {
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Put 2 ESX of AZ2 in maintenance mode "+
+		"and power off 1 ESX in AZ2", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ginkgo.By("CNS_TEST: Running for GC setup")
