@@ -195,13 +195,12 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 			devices := info.Config.Hardware.Device
 			vmDevices := object.VirtualDeviceList(devices)
 			for _, device := range vmDevices {
-				if vmDevices.TypeName(device) == "VirtualDisk" {
-					if virtualDisk, ok := device.(*types.VirtualDisk); ok {
-						if virtualDisk.VDiskId != nil {
-							volumeIDNodeUUIDMap[virtualDisk.VDiskId.Id] = info.Config.Uuid
-						}
+				if virtualDisk, ok := device.(*types.VirtualDisk); ok {
+					if virtualDisk.VDiskId != nil {
+						volumeIDNodeUUIDMap[virtualDisk.VDiskId.Id] = info.Config.Uuid
 					}
 				}
+
 			}
 		}
 	}

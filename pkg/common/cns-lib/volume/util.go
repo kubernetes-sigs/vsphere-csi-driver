@@ -109,34 +109,33 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 	// return NVME UUID by converting the backing UUID, else return the backing
 	// UUID (SCSI format UUID).
 	for _, device := range vmDevices {
-		if vmDevices.TypeName(device) == "VirtualDisk" {
-			if virtualDisk, ok := device.(*types.VirtualDisk); ok {
-				if virtualDisk.VDiskId != nil && virtualDisk.VDiskId.Id == volumeID {
-					virtualDevice := device.GetVirtualDevice()
-					if checkNVMeController {
-						if value, ok := nvmeControllerKeyToNameMap[virtualDevice.ControllerKey]; ok {
-							log.Debug("Found that the disk %q is attached to NVMe controller on vm %q", volumeID, vm)
-							if strings.Contains(value, "NVME") {
-								if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
-									uuid, err := getNvmeUUID(ctx, backing.Uuid)
-									if err != nil {
-										log.Errorf("failed to convert uuid to  NvmeV13UUID for the vm: %s", vm.InventoryPath)
-										return "", err
-									}
-									log.Debugf("Successfully converted diskUUID %s to NvmeV13UUID %s for volume %s on vm %+v",
-										backing.Uuid, uuid, volumeID, vm)
-									return uuid, nil
+		if virtualDisk, ok := device.(*types.VirtualDisk); ok {
+			if virtualDisk.VDiskId != nil && virtualDisk.VDiskId.Id == volumeID {
+				virtualDevice := device.GetVirtualDevice()
+				if checkNVMeController {
+					if value, ok := nvmeControllerKeyToNameMap[virtualDevice.ControllerKey]; ok {
+						log.Debug("Found that the disk %q is attached to NVMe controller on vm %q", volumeID, vm)
+						if strings.Contains(value, "NVME") {
+							if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
+								uuid, err := getNvmeUUID(ctx, backing.Uuid)
+								if err != nil {
+									log.Errorf("failed to convert uuid to  NvmeV13UUID for the vm: %s", vm.InventoryPath)
+									return "", err
 								}
+								log.Debugf("Successfully converted diskUUID %s to NvmeV13UUID %s for volume %s on vm %+v",
+									backing.Uuid, uuid, volumeID, vm)
+								return uuid, nil
 							}
 						}
 					}
-					if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
-						log.Infof("Found diskUUID %s for volume %s on vm %+v", backing.Uuid, volumeID, vm)
-						return backing.Uuid, nil
-					}
+				}
+				if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
+					log.Infof("Found diskUUID %s for volume %s on vm %+v", backing.Uuid, volumeID, vm)
+					return backing.Uuid, nil
 				}
 			}
 		}
+
 	}
 
 	log.Debugf("Volume %s is not attached to VM: %+v", volumeID, vm)

@@ -491,48 +491,46 @@ func listAttachedFcdsForVM(ctx context.Context,
 		return attachedFCDs, nil
 	}
 	for _, device := range vmDevices {
-		if vmDevices.TypeName(device) == "VirtualDisk" {
-			virtualDisk, virtualDiskExists := device.(*vimtypes.VirtualDisk)
-			if !virtualDiskExists {
-				continue
-			}
-			if virtualDisk.VDiskId == nil {
-				log.Debugf("failed to obtain virtual disk for device %+v", device)
-				continue
-			}
-
-			// If the given volumeID does not exist in K8s cluster,
-			// do not add it to attachedFCDs list because it is not being consumed
-			// by any PVC.
-			_, _, existsOnK8s := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(virtualDisk.VDiskId.Id)
-			if !existsOnK8s {
-				continue
-			}
-
-			device := virtualDisk.GetVirtualDevice()
-
-			controllerKey := device.ControllerKey
-
-			unitNumber := int32(-1)
-			if device.UnitNumber != nil {
-				unitNumber = *device.UnitNumber
-			}
-
-			var diskMode, sharingMode string
-			if backing, ok := virtualDisk.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
-				diskMode = backing.DiskMode
-				sharingMode = backing.Sharing
-			} else {
-				log.Debugf("failed to get diskMode and sharingMode for virtual disk")
-			}
-
-			log.Debugf("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
-			attachedFCDs[virtualDisk.VDiskId.Id] = FCDBackingDetails{
-				ControllerKey: controllerKey,
-				UnitNumber:    unitNumber,
-				SharingMode:   sharingMode,
-				DiskMode:      diskMode}
+		virtualDisk, virtualDiskExists := device.(*vimtypes.VirtualDisk)
+		if !virtualDiskExists {
+			continue
 		}
+		if virtualDisk.VDiskId == nil {
+			log.Debugf("failed to obtain virtual disk for device %+v", device)
+			continue
+		}
+
+		// If the given volumeID does not exist in K8s cluster,
+		// do not add it to attachedFCDs list because it is not being consumed
+		// by any PVC.
+		_, _, existsOnK8s := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(virtualDisk.VDiskId.Id)
+		if !existsOnK8s {
+			continue
+		}
+
+		device := virtualDisk.GetVirtualDevice()
+
+		controllerKey := device.ControllerKey
+
+		unitNumber := int32(-1)
+		if device.UnitNumber != nil {
+			unitNumber = *device.UnitNumber
+		}
+
+		var diskMode, sharingMode string
+		if backing, ok := virtualDisk.Backing.(*vimtypes.VirtualDiskFlatVer2BackingInfo); ok {
+			diskMode = backing.DiskMode
+			sharingMode = backing.Sharing
+		} else {
+			log.Debugf("failed to get diskMode and sharingMode for virtual disk")
+		}
+
+		log.Debugf("Adding volume with ID %s to attachedFCDs list", virtualDisk.VDiskId.Id)
+		attachedFCDs[virtualDisk.VDiskId.Id] = FCDBackingDetails{
+			ControllerKey: controllerKey,
+			UnitNumber:    unitNumber,
+			SharingMode:   sharingMode,
+			DiskMode:      diskMode}
 
 	}
 	return attachedFCDs, nil
