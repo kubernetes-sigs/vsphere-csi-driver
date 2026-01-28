@@ -1629,7 +1629,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10. Scale down the sts to 0
 		11.Delete PVC,POD,SC
 	*/
-	ginkgo.It("Re-start GC-CSI during sts creation", ginkgo.Label(p1, block, tkgsHA, disruptive,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Re-start GC-CSI during sts "+
+		"creation", ginkgo.Label(p1, block, tkgsHA, disruptive,
 		negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1728,7 +1729,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		14.All the PVC's and PV's should get deleted. No orphan volumes should be left on the system.
 		15.Delete Statefulsets.
 	*/
-	ginkgo.It("Verify the behaviour when CSI Provisioner is deleted during statefulset creation", ginkgo.Label(p1,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI Provisioner "+
+		"is deleted during statefulset creation", ginkgo.Label(p1,
 		block, tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1840,7 +1842,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		   csi-Attacher in other replica should take the leadership to detach Volume
 		15.Delete Statefulsets and Delete PVCs.
 	*/
-	ginkgo.It("Verify the behaviour when CSI Attacher is deleted during statefulset creation", ginkgo.Label(p1, block,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI Attacher is deleted "+
+		"during statefulset creation", ginkgo.Label(p1, block,
 		tkgsHA, negative, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2068,7 +2071,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		14.POD should be running in the appropriate nodes
 		15.Delete Pod, PVC and SC
 	*/
-	ginkgo.It("Verify the behaviour when CSI-resizer deleted and VSAN-Health is down during online Volume "+
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI-resizer deleted and "+
+		"VSAN-Health is down during online Volume "+
 		"expansion", ginkgo.Label(p1, block, tkgsHA, negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2270,7 +2274,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		11.POD should be running in the appropriate nodes
 		12.Delete Pod, PVC and SC
 	*/
-	ginkgo.It("Verify the behaviour when CSI-resizer deleted during offline volume expansion",
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI-resizer deleted during "+
+		"offline volume expansion",
 		ginkgo.Label(p1, block, tkgsHA, negative, disruptive, vc80), func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -2390,7 +2395,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		19.Expect all volume metadata, PVC metadata, Pod metadata should be present on the CNS.
 		20.Delete the POD's , PVC's and PV's
 	*/
-	ginkgo.It("Verify the behaviour when CSI syncer is deleted and check fullsync ", ginkgo.Label(p1, block, tkgsHA,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI syncer is deleted "+
+		"and check fullsync ", ginkgo.Label(p1, block, tkgsHA,
 		negative, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -2692,7 +2698,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		12.Expect all Pods for Statefulsets to be in the running state
 		13.Delete Statefulsets and Delete PVCs.
 	*/
-	ginkgo.It("Verify the behaviour when SPS service is down along with CSI Provisioner", ginkgo.Label(p1, block,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when SPS service is down "+
+		"along with CSI Provisioner", ginkgo.Label(p1, block,
 		tkgsHA, negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -2819,7 +2826,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		12.Delete the CSI process identified in the step 8, where CSI syncer is the leader.
 		13.Verify CNS metadata for PVC's and PV's , Make sure label entries should got removed.
 	*/
-	ginkgo.It("verify Label update when syncer container goes down", ginkgo.Label(p1, block, tkgsHA, negative,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] verify Label update when syncer container "+
+		"goes down", ginkgo.Label(p1, block, tkgsHA, negative,
 		disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3009,7 +3017,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		9. Scale down the sts to 0
 		10.Delete Statefulset,PVC,POD,SC
 	*/
-	ginkgo.It("Validate statefulset creation with  POD affinity and POD Anti affinity", ginkgo.Label(p0, block,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Validate statefulset creation with  POD affinity "+
+		"and POD Anti affinity", ginkgo.Label(p0, block,
 		tkgsHA, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3145,7 +3154,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		10. trigger online and offline volume  expansion and validate
 		11. delete all sts's , PVC's, SC and POD's
 	*/
-	ginkgo.It("Verify volume provisioning after VC reboot using zonal storage", ginkgo.Label(p1, block, tkgsHA,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify volume provisioning after VC reboot "+
+		"using zonal storage", ginkgo.Label(p1, block, tkgsHA,
 		negative, disruptive, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -3377,7 +3387,8 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		   appropriate nodes preset in the availability zone
 		10. Delete pod, gc1-pv and gc1-pvc and svc pvc.
 	*/
-	ginkgo.It("tkgs-ha Verify static provisioning across Guest Clusters", ginkgo.Label(p1, block, tkgsHA,
+	ginkgo.It("[vks-tkgsha-exp-nonprod] tkgs-ha Verify static provisioning across "+
+		"Guest Clusters", ginkgo.Label(p1, block, tkgsHA,
 		vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
