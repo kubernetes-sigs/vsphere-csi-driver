@@ -19,13 +19,14 @@
 ARG GOLANG_IMAGE=golang:1.25.5
 ARG OSVERSION
 ARG ARCH=amd64
+ARG TARGETARCH
 
 ################################################################################
 ##                              BUILD STAGE                                   ##
 ################################################################################
 # Build the manager as a statically compiled binary so it has no dependencies
 # libc, muscl, etc.
-FROM --platform=linux/amd64 ${GOLANG_IMAGE} as builder
+FROM --platform=linux/${TARGETARCH:-amd64} ${GOLANG_IMAGE} as builder
 
 # This build arg is the version to embed in the CSI binary
 ARG VERSION=unknown
@@ -38,16 +39,20 @@ COPY go.mod go.sum ./
 COPY pkg/    pkg/
 COPY cmd/    cmd/
 ENV CGO_ENABLED=0
-ENV GOFIPS=1
-ENV GOEXPERIMENT="boringcrypto"
 ENV GOPROXY ${GOPROXY:-https://proxy.golang.org}
-RUN GOOS=windows GOARCH=amd64 go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o ./bin/vsphere-csi.windows_amd64 cmd/vsphere-csi/main.go
+
+# Conditionally set FIPS environment variables and build for target architecture
+RUN if [ "${TARGETARCH:-amd64}" = "amd64" ]; then \
+        export GOFIPS=1 && \
+        export GOEXPERIMENT="boringcrypto"; \
+    fi && \
+    GOOS=windows GOARCH=${TARGETARCH:-amd64} go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION}" -o ./bin/vsphere-csi.windows_${TARGETARCH:-amd64} cmd/vsphere-csi/main.go
 
 
 ################################################################################
 ##                              MAIN STAGE                                   ##
 ################################################################################
-FROM --platform=linux/amd64 gcr.io/k8s-staging-e2e-test-images/windows-servercore-cache:1.0-linux-${ARCH}-${OSVERSION} as core
+FROM --platform=linux/${TARGETARCH:-amd64} gcr.io/k8s-staging-e2e-test-images/windows-servercore-cache:1.0-linux-${TARGETARCH:-amd64}-${OSVERSION} as core
 
 FROM mcr.microsoft.com/windows/nanoserver:${OSVERSION}
 COPY --from=core /Windows/System32/netapi32.dll /Windows/System32/netapi32.dll
@@ -55,5 +60,5 @@ COPY --from=core /Windows/System32/netapi32.dll /Windows/System32/netapi32.dll
 USER ContainerAdministrator
 LABEL description="vSphere CSI Driver Windows Plugin"
 
-COPY --from=builder /build/bin/vsphere-csi.windows_amd64 ./csi.exe
+COPY --from=builder /build/bin/vsphere-csi.windows_${TARGETARCH:-amd64} ./csi.exe
 ENTRYPOINT ["/csi.exe"]
