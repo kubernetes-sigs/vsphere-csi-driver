@@ -837,7 +837,8 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 func updateSVPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim, removeCnsPvcFinalizer bool) (string, error) {
 	log := logger.GetLogger(ctx)
-	err := client.Update(ctx, pvc)
+	original := pvc.DeepCopy()
+	err := k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		if apierrors.IsConflict(err) {
 			log.Infof("Observed conflict while updating the SV PVC %q in namespace %q."+
@@ -866,7 +867,8 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			} else {
 				latestPVCObject.Finalizers = append(latestPVCObject.Finalizers, cnsoptypes.CNSPvcFinalizer)
 			}
-			err := client.Update(ctx, latestPVCObject)
+			originalLatest := latestPVCObject.DeepCopy()
+			err := k8s.PatchObject(ctx, client, originalLatest, latestPVCObject)
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					log.Infof("Observed conflict again, while updating the SV PVC %q in namespace %q."+

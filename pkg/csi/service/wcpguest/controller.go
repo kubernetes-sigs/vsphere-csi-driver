@@ -622,12 +622,21 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				if finalizer == cnsoperatortypes.CNSVolumeFinalizer {
 					log.Infof("Removing %q finalizer from PersistentVolumeClaim with name: %q on namespace: %q",
 						cnsoperatortypes.CNSVolumeFinalizer, svPVC.Name, svPVC.Namespace)
+					original := svPVC.DeepCopy()
 					svPVC.ObjectMeta.Finalizers = slices.Delete(svPVC.ObjectMeta.Finalizers, i, i+1)
-					// Update the instance after removing finalizer
-					_, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(ctx, svPVC,
-						metav1.UpdateOptions{})
+
+					// Create controller-runtime client for patching
+					supervisorRuntimeClient, err := client.New(c.restClientConfig, client.Options{})
 					if err != nil {
-						msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v",
+						msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+
+					// Patch the instance after removing finalizer
+					err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
+					if err != nil {
+						msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
 							req.VolumeId, c.supervisorNamespace, err)
 						log.Error(msg)
 						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
@@ -1392,20 +1401,29 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		switch (gcPvcRequestSize).Cmp(svPvcRequestSize) {
 		case 1:
 			// Update requested storage in SV PVC spec
+			original := svPVC.DeepCopy()
 			svPvcClone := svPVC.DeepCopy()
 			svPvcClone.Spec.Resources.Requests[corev1.ResourceName(corev1.ResourceStorage)] = *gcPvcRequestSize
 
-			// Make an update call to SV API server
+			// Create controller-runtime client for patching
+			supervisorRuntimeClient, err := client.New(c.restClientConfig, client.Options{})
+			if err != nil {
+				msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+				log.Error(msg)
+				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			}
+
+			// Make a patch call to SV API server
 			log.Infof("Increasing the size of supervisor PVC %s in namespace %s to %s",
 				volumeID, c.supervisorNamespace, gcPvcRequestSize.String())
-			svPVC, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Update(
-				ctx, svPvcClone, metav1.UpdateOptions{})
+			err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPvcClone)
 			if err != nil {
-				msg := fmt.Sprintf("failed to update supervisor PVC %q in %q namespace. Error: %+v",
+				msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
 					volumeID, c.supervisorNamespace, err)
 				log.Error(msg)
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
+			svPVC = svPvcClone
 		case 0:
 			// GC PVC request size is equal to SV PVC request size
 			log.Infof("Skipping resize call for supervisor PVC %s in namespace %s as it is already at the requested size",

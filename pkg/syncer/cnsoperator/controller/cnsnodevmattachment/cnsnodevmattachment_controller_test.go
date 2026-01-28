@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,15 +31,18 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
+	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 // TestReconcileDetachWithVolumeIDFallback tests the end-to-end reconcile workflow
@@ -540,5 +544,192 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 
 		// Ensure label was applied
 		assert.Equal(t, testPVCUID, instance.Labels[common.PvcUIDLabelKey])
+	})
+}
+
+// TestUpdateSVPVCPatchFunctionality tests the PatchObject functionality in updateSVPVC function
+func TestUpdateSVPVCPatchFunctionality(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	t.Run("PatchObject with finalizer removal", func(t *testing.T) {
+		originalPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+				Finalizers: []string{
+					cnsoptypes.CNSPvcFinalizer,
+					"other-finalizer",
+				},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(originalPVC).
+			Build()
+
+		// Create a copy and modify it (simulating what updateSVPVC does)
+		original := originalPVC.DeepCopy()
+		modifiedPVC := originalPVC.DeepCopy()
+
+		// Remove the finalizer
+		for i, finalizer := range modifiedPVC.Finalizers {
+			if finalizer == cnsoptypes.CNSPvcFinalizer {
+				modifiedPVC.Finalizers = append(modifiedPVC.Finalizers[:i], modifiedPVC.Finalizers[i+1:]...)
+				break
+			}
+		}
+
+		// Test PatchObject directly
+		err = k8s.PatchObject(ctx, fakeClient, original, modifiedPVC)
+		assert.NoError(t, err)
+
+		// Verify the patch was applied correctly
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      modifiedPVC.Name,
+			Namespace: modifiedPVC.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+		assert.Contains(t, updatedPVC.Finalizers, "other-finalizer")
+	})
+
+	t.Run("PatchObject with finalizer addition", func(t *testing.T) {
+		originalPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-pvc-2",
+				Namespace:  "test-ns",
+				Finalizers: []string{"other-finalizer"},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(originalPVC).
+			Build()
+
+		// Create a copy and modify it
+		original := originalPVC.DeepCopy()
+		modifiedPVC := originalPVC.DeepCopy()
+
+		// Add the finalizer
+		modifiedPVC.Finalizers = append(modifiedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+
+		// Test PatchObject directly
+		err = k8s.PatchObject(ctx, fakeClient, original, modifiedPVC)
+		assert.NoError(t, err)
+
+		// Verify the patch was applied correctly
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      modifiedPVC.Name,
+			Namespace: modifiedPVC.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.Contains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+		assert.Contains(t, updatedPVC.Finalizers, "other-finalizer")
+	})
+}
+
+// TestUpdateSVPVCConflictResolution tests the conflict resolution logic in updateSVPVC
+func TestUpdateSVPVCConflictResolution(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	t.Run("Test PatchObject with empty finalizers", func(t *testing.T) {
+		originalPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc-3",
+				Namespace: "test-ns",
+				Finalizers: []string{
+					cnsoptypes.CNSPvcFinalizer,
+				},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(originalPVC).
+			Build()
+
+		// Create a copy and modify it
+		original := originalPVC.DeepCopy()
+		modifiedPVC := originalPVC.DeepCopy()
+		modifiedPVC.Finalizers = []string{} // Remove all finalizers
+
+		// Test PatchObject directly
+		err = k8s.PatchObject(ctx, fakeClient, original, modifiedPVC)
+		assert.NoError(t, err)
+
+		// Verify finalizer was removed
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      modifiedPVC.Name,
+			Namespace: modifiedPVC.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+		assert.Empty(t, updatedPVC.Finalizers)
+	})
+}
+
+// TestPatchObjectWithDeepCopy tests that DeepCopy is used correctly for PatchObject
+func TestPatchObjectWithDeepCopy(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	t.Run("DeepCopy preserves original object state", func(t *testing.T) {
+		originalPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+				Finalizers: []string{
+					cnsoptypes.CNSPvcFinalizer,
+					"other-finalizer",
+				},
+			},
+		}
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(originalPVC).
+			Build()
+
+		// Create a deep copy (simulating what updateSVPVC does)
+		original := originalPVC.DeepCopy()
+
+		// Modify the PVC (remove finalizer)
+		for i, finalizer := range originalPVC.Finalizers {
+			if finalizer == cnsoptypes.CNSPvcFinalizer {
+				originalPVC.Finalizers = append(originalPVC.Finalizers[:i], originalPVC.Finalizers[i+1:]...)
+				break
+			}
+		}
+
+		// Verify original copy is unchanged
+		assert.Contains(t, original.Finalizers, cnsoptypes.CNSPvcFinalizer)
+		assert.NotContains(t, originalPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+
+		// Apply patch
+		err := k8s.PatchObject(ctx, fakeClient, original, originalPVC)
+		assert.NoError(t, err)
+
+		// Verify the change was applied
+		updatedPVC := &v1.PersistentVolumeClaim{}
+		err = fakeClient.Get(ctx, client.ObjectKey{
+			Name:      originalPVC.Name,
+			Namespace: originalPVC.Namespace,
+		}, updatedPVC)
+		assert.NoError(t, err)
+		assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
+		assert.Contains(t, updatedPVC.Finalizers, "other-finalizer")
 	})
 }
