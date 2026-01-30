@@ -713,6 +713,49 @@ func DeletePersistentVolume(ctx context.Context, k8sClient clientset.Interface, 
 	return nil
 }
 
+// GetPersistentVolume gets the PersistentVolume with the given name.
+// Returns the PV if found, or nil with no error if not found.
+func GetPersistentVolume(
+	ctx context.Context, k8sClient clientset.Interface,
+	pvName string,
+) (*v1.PersistentVolume, error) {
+	log := logger.GetLogger(ctx).With("name", pvName)
+
+	if pvName == "" {
+		return nil, logger.LogNewErrorf(log, "PV name is empty")
+	}
+
+	pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debug("PV not found")
+			return nil, nil
+		}
+		log.Errorf("Failed to get PV. Error: %s", err.Error())
+		return nil, err
+	}
+
+	log.Debug("Successfully retrieved PV")
+	return pv, nil
+}
+
+// ListPersistentVolumes lists PersistentVolumes with the given list options.
+// Returns empty list with no error if no PVs are found.
+func ListPersistentVolumes(
+	ctx context.Context, k8sClient clientset.Interface,
+	listOptions metav1.ListOptions) (*v1.PersistentVolumeList, error) {
+	log := logger.GetLogger(ctx)
+
+	pvList, err := k8sClient.CoreV1().PersistentVolumes().List(ctx, listOptions)
+	if err != nil {
+		log.With("labelSelector", listOptions.LabelSelector).Errorf("Failed to list PVs. Error: %s", err.Error())
+		return nil, err
+	}
+
+	log.With("labelSelector", listOptions.LabelSelector).With("count", len(pvList.Items)).Debug("Successfully listed PVs")
+	return pvList, nil
+}
+
 // UpdateStatus updates the status subresource of the given Kubernetes object.
 // If the object is a Custom Resource, make sure that the `subresources` field in the
 // CustomResourceDefinition includes `status` to enable status subresource updates.

@@ -33,11 +33,13 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
@@ -53,6 +55,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
@@ -60,11 +63,15 @@ import (
 type mockVolumeManager struct {
 	createVolumeFunc func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 		ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
+	unregisterVolume func(ctx context.Context, volumeID string,
+		unregisterDisk bool) (string, error)
 }
 
 func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
 	unregisterDisk bool) (string, error) {
-	//TODO implement me
+	if m.unregisterVolume != nil {
+		return m.unregisterVolume(ctx, volumeID, unregisterDisk)
+	}
 	return "", nil
 }
 
@@ -1386,7 +1393,7 @@ func TestGetPersistentVolumeSpecWhenVolumeModeIsEmpty(t *testing.T) {
 
 	isSharedDiskEnabled = true
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
-	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil)
+	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil, "default", "test-cr")
 	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
 }
 
@@ -1402,7 +1409,7 @@ func TestGetPersistentVolumeSpecWithVolumeMode(t *testing.T) {
 
 	isSharedDiskEnabled = true
 	pv := getPersistentVolumeSpec(volumeName, volumeID,
-		int64(capacity), accessMode, volumeMode, scName, nil)
+		int64(capacity), accessMode, volumeMode, scName, nil, "default", "test-cr")
 	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
 }
 
@@ -1416,7 +1423,7 @@ func TestGetPersistentVolumeSpecWhenVolumeModeIsEmptyWithoutSharedDisk(t *testin
 	)
 
 	isSharedDiskEnabled = false
-	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil)
+	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil, "default", "test-cr")
 	// volumeMode should be set to Filesystem even when isSharedDiskEnabled is false
 	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
 	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
@@ -1434,7 +1441,7 @@ func TestGetPersistentVolumeSpecWithVolumeModeWithoutSharedDisk(t *testing.T) {
 
 	isSharedDiskEnabled = false
 	pv := getPersistentVolumeSpec(volumeName, volumeID,
-		int64(capacity), accessMode, volumeMode, scName, nil)
+		int64(capacity), accessMode, volumeMode, scName, nil, "default", "test-cr")
 	// volumeMode should be set to Block even when isSharedDiskEnabled is false
 	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
 	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
@@ -2380,4 +2387,603 @@ func TestSetBackingDiskAnnotationNoAnnotationsInitially(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "backing-disk-type-1", patch["metadata"]["annotations"][common.AnnKeyBackingDiskType])
+}
+
+func TestProtectInstance(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WhenFinalizerAlreadyPresent", func(t *testing.T) {
+		// Setup
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-instance",
+				Namespace:  "default",
+				Finalizers: []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Execute
+		err := protectInstance(ctx, c, instance)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Contains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be present")
+	})
+
+	t.Run("WhenSuccessful", func(t *testing.T) {
+		// Setup
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-instance",
+				Namespace: "default",
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Execute
+		err := protectInstance(ctx, c, instance)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Contains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be added")
+	})
+}
+
+func TestRemoveFinalizer(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WhenFinalizerDoesNotExist", func(t *testing.T) {
+		// Setup
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-instance",
+				Namespace: "default",
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Execute
+		err := removeFinalizer(ctx, c, instance)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to not be present")
+	})
+
+	t.Run("WhenSuccessful", func(t *testing.T) {
+		// Setup
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-instance",
+				Namespace:  "default",
+				Finalizers: []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Execute
+		err := removeFinalizer(ctx, c, instance)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+	})
+}
+
+func TestReconcileDelete(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WhenAlreadyRegistered", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: true,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// k8sclient not needed for this test since it returns early when already registered
+		k8sclient := k8sfake.NewClientset()
+
+		mockVolMgr := &mockVolumeManager{}
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+	})
+
+	t.Run("WhenNotRegisteredAndNoResourcesCreated", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				VolumeID: "test-volume-id",
+				PvcName:  "test-pvc",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Create fake k8s client
+		k8sclient := k8sfake.NewClientset()
+
+		// Mock k8s.NewClient to return our fake client
+		patches := gomonkey.ApplyFunc(k8s.NewClient,
+			func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sclient, nil
+			})
+		defer patches.Reset()
+
+		// Mock DeleteVolumeUtil to return success (volume not found is handled as success)
+		patches.ApplyFunc(common.DeleteVolumeUtil,
+			func(ctx context.Context, volMgr cnsvolume.Manager, volumeID string, deleteDisk bool) (string, error) {
+				return "", nil
+			})
+
+		mockVolMgr := &mockVolumeManager{}
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+	})
+
+	t.Run("WhenNotRegisteredAndPVExists", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		volumeID := "test-volume-id"
+		pvName := staticPvNamePrefix + volumeID
+
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				VolumeID: volumeID,
+				PvcName:  "test-pvc",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+			},
+		}
+
+		// Create an unbound PV
+		pv := &corev1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pvName,
+			},
+			Spec: corev1.PersistentVolumeSpec{
+				PersistentVolumeSource: corev1.PersistentVolumeSource{
+					CSI: &corev1.CSIPersistentVolumeSource{
+						VolumeHandle: volumeID,
+					},
+				},
+			},
+			Status: corev1.PersistentVolumeStatus{
+				Phase: corev1.VolumeAvailable,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Create fake k8s client with PV
+		k8sclient := k8sfake.NewClientset(pv)
+
+		// Mock k8s.NewClient to return our fake client
+		patches := gomonkey.ApplyFunc(k8s.NewClient,
+			func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sclient, nil
+			})
+		defer patches.Reset()
+
+		// Mock DeleteVolumeUtil
+		patches.ApplyFunc(common.DeleteVolumeUtil,
+			func(ctx context.Context, volMgr cnsvolume.Manager, volID string, deleteDisk bool) (string, error) {
+				assert.Equal(t, volumeID, volID, "Expected correct volume ID")
+				assert.False(t, deleteDisk, "Expected deleteDisk to be false")
+				return "", nil
+			})
+
+		mockVolMgr := &mockVolumeManager{}
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+
+		// Verify PV was deleted
+		_, err = k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		assert.True(t, apierrors.IsNotFound(err), "Expected PV to be deleted (NotFound error)")
+	})
+
+	t.Run("WhenPVCIsBound_ShouldSkipAllCleanup", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				DiskURLPath: "https://test.vmdk",
+				PvcName:     "test-pvc",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+			},
+		}
+
+		// Create a bound PVC
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "default",
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				VolumeName: "test-pv",
+			},
+			Status: corev1.PersistentVolumeClaimStatus{
+				Phase: corev1.ClaimBound,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Create fake k8s client with PVC
+		k8sclient := k8sfake.NewClientset(pvc)
+
+		// Mock k8s.NewClient to return our fake client
+		patches := gomonkey.ApplyFunc(k8s.NewClient,
+			func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sclient, nil
+			})
+		defer patches.Reset()
+
+		mockVolMgr := &mockVolumeManager{}
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+	})
+
+	t.Run("WhenPVIsBoundViaSearch_ShouldSkipAllCleanup", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				DiskURLPath: "https://test.vmdk",
+				PvcName:     "test-pvc",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+			},
+		}
+
+		// Create a bound PV with ClaimRef and the labels
+		pv := &corev1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-pv",
+				Labels: map[string]string{
+					"cns.vmware.com/created-by":                  "cnsregistervolume",
+					"cns.vmware.com/cnsregistervolume-namespace": "default",
+					"cns.vmware.com/cnsregistervolume-name":      "test-instance",
+				},
+			},
+			Spec: corev1.PersistentVolumeSpec{
+				PersistentVolumeSource: corev1.PersistentVolumeSource{
+					CSI: &corev1.CSIPersistentVolumeSource{
+						Driver:       "csi.vsphere.vmware.com",
+						VolumeHandle: "test-volume-id",
+					},
+				},
+				ClaimRef: &corev1.ObjectReference{
+					Name:      "test-pvc",
+					Namespace: "default",
+				},
+			},
+			Status: corev1.PersistentVolumeStatus{
+				Phase: corev1.VolumeBound,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Create fake k8s client with PV
+		k8sclient := k8sfake.NewClientset(pv)
+
+		// Mock k8s.NewClient to return our fake client
+		patches := gomonkey.ApplyFunc(k8s.NewClient,
+			func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sclient, nil
+			})
+		defer patches.Reset()
+
+		mockVolMgr := &mockVolumeManager{}
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+
+		// Verify PV was NOT deleted (still bound)
+		pvCheck, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, "test-pv", metav1.GetOptions{})
+		assert.NoError(t, err, "Expected PV to still exist")
+		assert.NotNil(t, pvCheck)
+	})
+
+	t.Run("WhenDiskURLPathSpecified_ShouldDeleteUnboundPV", func(t *testing.T) {
+		// Setup
+		now := metav1.Now()
+		instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "test-instance",
+				Namespace:         "default",
+				DeletionTimestamp: &now,
+				Finalizers:        []string{cnsoperatortypes.CNSRegisterVolumeFinalizer},
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				DiskURLPath: "https://test.vmdk",
+				PvcName:     "test-pvc",
+			},
+			Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+				Registered: false,
+			},
+		}
+
+		// Create an unbound PV with ClaimRef and the labels
+		pv := &corev1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-pv-unbound",
+				Labels: map[string]string{
+					"cns.vmware.com/created-by":                  "cnsregistervolume",
+					"cns.vmware.com/cnsregistervolume-namespace": "default",
+					"cns.vmware.com/cnsregistervolume-name":      "test-instance",
+				},
+			},
+			Spec: corev1.PersistentVolumeSpec{
+				PersistentVolumeSource: corev1.PersistentVolumeSource{
+					CSI: &corev1.CSIPersistentVolumeSource{
+						Driver:       "csi.vsphere.vmware.com",
+						VolumeHandle: "test-volume-id",
+					},
+				},
+				ClaimRef: &corev1.ObjectReference{
+					Name:      "test-pvc",
+					Namespace: "default",
+				},
+			},
+			Status: corev1.PersistentVolumeStatus{
+				Phase: corev1.VolumeAvailable,
+			},
+		}
+
+		scheme := runtime.NewScheme()
+		_ = clientgoscheme.AddToScheme(scheme)
+		scheme.AddKnownTypes(schema.GroupVersion{
+			Group:   "cnsoperator.vmware.com",
+			Version: "v1alpha1",
+		}, &cnsregistervolumev1alpha1.CnsRegisterVolume{})
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+		// Create fake k8s client with PV
+		k8sclient := k8sfake.NewClientset(pv)
+
+		// Mock k8s.NewClient to return our fake client
+		patches := gomonkey.ApplyFunc(k8s.NewClient,
+			func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sclient, nil
+			})
+		defer patches.Reset()
+
+		// Track that UnregisterVolume was called (for DiskURLPath case)
+		unregisterCalled := false
+		mockVolMgr := &mockVolumeManager{
+			unregisterVolume: func(ctx context.Context, volumeID string, unregDisk bool) (string, error) {
+				assert.Equal(t, "test-volume-id", volumeID, "Expected correct volume ID")
+				assert.True(t, unregDisk, "Expected unregDisk to be true for DiskURLPath")
+				unregisterCalled = true
+				return "", nil
+			},
+		}
+
+		r := &ReconcileCnsRegisterVolume{
+			client:        c,
+			volumeManager: mockVolMgr,
+			k8sclient:     k8sclient,
+		}
+
+		request := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      instance.Name,
+				Namespace: instance.Namespace,
+			},
+		}
+
+		// Execute
+		result, err := r.reconcileDelete(ctx, instance, request, time.Second)
+
+		// Assert
+		assert.Nil(t, err, "Expected no error")
+		assert.Equal(t, reconcile.Result{}, result, "Expected empty result")
+		assert.NotContains(t, instance.Finalizers, cnsoperatortypes.CNSRegisterVolumeFinalizer,
+			"Expected finalizer to be removed")
+		assert.True(t, unregisterCalled, "Expected UnregisterVolume to be called for DiskURLPath")
+
+		// Verify PV was deleted
+		_, err = k8sclient.CoreV1().PersistentVolumes().Get(ctx, "test-pv-unbound", metav1.GetOptions{})
+		assert.True(t, apierrors.IsNotFound(err), "Expected PV to be deleted (NotFound error)")
+	})
 }

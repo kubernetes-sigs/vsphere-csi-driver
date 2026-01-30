@@ -40,6 +40,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -67,6 +68,11 @@ const (
 	workerThreadsEnvVar     = "WORKER_THREADS_REGISTER_VOLUME"
 	defaultMaxWorkerThreads = 40
 	staticPvNamePrefix      = "static-pv-"
+	// Labels added to PVs created by CnsRegisterVolume for identification and direct lookup
+	labelCnsRegisterVolumeCreatedBy      = "cns.vmware.com/created-by"
+	labelCnsRegisterVolumeCreatedByValue = "cnsregistervolume"
+	labelCnsRegisterVolumeCRNamespace    = "cns.vmware.com/cnsregistervolume-namespace"
+	labelCnsRegisterVolumeCRName         = "cns.vmware.com/cnsregistervolume-name"
 )
 
 var (
@@ -155,15 +161,27 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, recorder, volumeInfoService))
+	reconciler, err := newReconciler(mgr, configInfo, volumeManager, recorder, volumeInfoService)
+	if err != nil {
+		log.Errorf("Failed to create reconciler. Err: %v", err)
+		return err
+	}
+	return add(mgr, reconciler)
 }
 
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, recorder record.EventRecorder,
-	volumeInfoService cnsvolumeinfo.VolumeInfoService) reconcile.Reconciler {
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) (reconcile.Reconciler, error) {
+	ctx, log := logger.GetNewContextWithLogger()
+	k8sclient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("Failed to create k8s client. Err: %v", err)
+		return nil, err
+	}
 	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder, volumeInfoService: volumeInfoService}
+		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder,
+		volumeInfoService: volumeInfoService, k8sclient: k8sclient}, nil
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
@@ -201,6 +219,7 @@ type ReconcileCnsRegisterVolume struct {
 	volumeManager     volumes.Manager
 	recorder          record.EventRecorder
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
+	k8sclient         clientset.Interface
 }
 
 // Reconcile reads that state of the cluster for a CnsRegisterVolume object
@@ -212,13 +231,15 @@ type ReconcileCnsRegisterVolume struct {
 // completion it will remove the work from the queue.
 func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
+	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Infof("CnsRegisterVolume resource not found. Ignoring since object must be deleted.")
+			log.With("name", request.Name).With("namespace", request.Namespace).
+				Info("CnsRegisterVolume resource not found. Ignoring since object must be deleted.")
 			return reconcile.Result{}, nil
 		}
 		log.Errorf("Error reading the CnsRegisterVolume with name: %q on namespace: %q. Err: %+v",
@@ -235,6 +256,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
+	// Handle deletion of the instance.
+	// If the CR is being deleted, we need to clean up any resources that were created
+	// and ensure no PV is left behind before removing the finalizer.
+	if instance.DeletionTimestamp != nil {
+		log.With("name", instance.Name).With("namespace", instance.Namespace).
+			Info("CnsRegisterVolume instance is marked for deletion")
+		return r.reconcileDelete(ctx, instance, request, timeout)
+	}
+
 	// If the CnsRegisterVolume instance is already registered, remove the
 	// instance from the queue.
 	if instance.Status.Registered {
@@ -246,6 +276,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 	log.Infof("Reconciling CnsRegisterVolume with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, request.Namespace, timeout)
+
+	// Protect the instance with a finalizer before performing any operation.
+	err = protectInstance(ctx, r.client, instance)
+	if err != nil {
+		log.Errorf("Failed to add finalizer to CnsRegisterVolume instance: %q. Err: %+v", instance.Name, err)
+		setInstanceError(ctx, r, instance, "Failed to add finalizer")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	// Validate CnsRegisterVolume spec to check for valid entries.
 	err = validateCnsRegisterVolumeSpec(ctx, instance)
 	if err != nil {
@@ -417,13 +456,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	k8sclient, err := k8s.NewClient(ctx)
-	if err != nil {
-		log.Errorf("Failed to initialize K8S client when registering the CnsRegisterVolume "+
-			"instance: %s on namespace: %s. Error: %+v", instance.Name, instance.Namespace, err)
-		setInstanceError(ctx, r, instance, "Failed to init K8S client for volume registration")
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
+	// Use cached K8s client for registration operations.
+	k8sclient := r.k8sclient
 
 	// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
 	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
@@ -628,7 +662,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				Name:       instance.Spec.PvcName,
 			}
 			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
-				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef)
+				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
+				instance.Namespace, instance.Name)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
@@ -1159,7 +1194,8 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 			Name:       instance.Spec.PvcName,
 		}
 		pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
-			accessMode, instance.Spec.VolumeMode, storageClassName, claimRef)
+			accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
+			instance.Namespace, instance.Name)
 		pvSpec.Spec.NodeAffinity = pvNodeAffinity
 		log.Debugf("Recreating PV with spec: %+v", pvSpec)
 		pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
@@ -1340,4 +1376,308 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// reconcileDelete handles deletion of a CnsRegisterVolume instance.
+// This function ensures that:
+//  1. If registration hasn't started or failed early, we can safely delete without cleanup
+//  2. If only PV was created, we can remove PV before allowing deletion
+//  3. If CNS volume was created, we untag it (deleteDisk=false) before allowing deletion
+//  4. If PVC and PV are bound, we can safely remove the finalizer and let
+//     CNSUnregisterVolume workflow handle deletion of PVC and PV
+//
+// The finalizer is only removed after all cleanup is complete.
+func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	request reconcile.Request, timeout time.Duration) (reconcile.Result, error) {
+	log := logger.GetLogger(ctx).With("name", instance.Name).With("namespace", instance.Namespace)
+	log.Info("Handling deletion of CnsRegisterVolume instance")
+
+	// If already registered successfully, the PVC owns the lifecycle via ownerReference.
+	// We can safely remove the finalizer and let Kubernetes garbage collection handle it.
+	if instance.Status.Registered {
+		log.Info("Instance already registered. Removing finalizer")
+		err := removeFinalizer(ctx, r.client, instance)
+		if err != nil {
+			log.With("error", err).Error("Failed to remove finalizer")
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, request.NamespacedName)
+		backOffDurationMapMutex.Unlock()
+		return reconcile.Result{}, nil
+	}
+
+	// If not registered, we need to clean up any partially created resources.
+
+	// Step 1: Find the PV (if it exists) based on VolumeID or DiskURLPath
+	var pv *v1.PersistentVolume
+	var err error
+
+	if instance.Spec.VolumeID != "" {
+		pv, err = r.findPVByVolumeID(ctx, instance)
+	} else if instance.Spec.DiskURLPath != "" {
+		pv, err = r.findPVByDiskURLPath(ctx, instance)
+	}
+
+	if err != nil {
+		log.With("error", err).Error("Failed to find PV")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// Step 2: If no PV found (or PV/PVC is bound), remove finalizer and complete
+	if pv == nil {
+		log.Info("No unbound PV found. Removing finalizer")
+		if err := removeFinalizer(ctx, r.client, instance); err != nil {
+			log.With("error", err).Error("Failed to remove finalizer")
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		// Centralized backOffDuration cleanup
+		backOffDurationMapMutex.Lock()
+		delete(backOffDuration, request.NamespacedName)
+		backOffDurationMapMutex.Unlock()
+		log.Info("Successfully handled deletion")
+		return reconcile.Result{}, nil
+	}
+
+	// Step 3: Clean up unbound PV (pv is guaranteed to be unbound at this point)
+	if err := r.cleanupUnboundPV(ctx, pv); err != nil {
+		log.With("error", err).Error("Failed to cleanup unbound PV")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// Step 4: Cleanup CNS volume registration
+	// Extract volumeID from instance spec or PV spec
+	volumeID := instance.Spec.VolumeID
+	if volumeID == "" && pv.Spec.CSI != nil {
+		volumeID = pv.Spec.CSI.VolumeHandle
+	}
+
+	if volumeID != "" {
+		// Different cleanup based on how the volume was registered
+		if instance.Spec.VolumeID != "" {
+			// VolumeID was specified: volume was already a FCD
+			// Just untag it from CNS (deleteDisk=false to preserve the underlying FCD)
+			if err := r.untagCNSVolume(ctx, volumeID); err != nil {
+				log.With("error", err).Error("Failed to untag CNS volume")
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		} else if instance.Spec.DiskURLPath != "" {
+			// DiskURLPath was specified: volume was a legacy disk that we registered as FCD
+			// De-register it as FCD (unregDisk=true to convert back to legacy disk)
+			if err := r.unregisterFCD(ctx, volumeID); err != nil {
+				log.With("error", err).Error("Failed to unregister FCD")
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+	}
+
+	// All cleanup complete, remove the finalizer.
+	log.Info("Cleanup complete. Removing finalizer")
+	if err := removeFinalizer(ctx, r.client, instance); err != nil {
+		log.With("error", err).Error("Failed to remove finalizer")
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	backOffDurationMapMutex.Lock()
+	delete(backOffDuration, request.NamespacedName)
+	backOffDurationMapMutex.Unlock()
+	log.Info("Successfully handled deletion")
+	return reconcile.Result{}, nil
+}
+
+// protectInstance adds finalizer to the CnsRegisterVolume instance to handle deletion.
+func protectInstance(ctx context.Context, c client.Client, obj *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	log := logger.GetLogger(ctx).With("name", obj.Name).With("namespace", obj.Namespace)
+
+	if controllerutil.ContainsFinalizer(obj, cnsoperatortypes.CNSRegisterVolumeFinalizer) {
+		log.With("finalizer", cnsoperatortypes.CNSRegisterVolumeFinalizer).
+			Debug("Finalizer already exists")
+		return nil
+	}
+
+	log.With("finalizer", cnsoperatortypes.CNSRegisterVolumeFinalizer).Info("Adding finalizer")
+	controllerutil.AddFinalizer(obj, cnsoperatortypes.CNSRegisterVolumeFinalizer)
+	return c.Update(ctx, obj)
+}
+
+// removeFinalizer removes finalizer from the CnsRegisterVolume instance to allow deletion.
+func removeFinalizer(ctx context.Context, c client.Client, obj *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
+	log := logger.GetLogger(ctx).With("name", obj.Name).With("namespace", obj.Namespace)
+
+	if !controllerutil.ContainsFinalizer(obj, cnsoperatortypes.CNSRegisterVolumeFinalizer) {
+		log.With("finalizer", cnsoperatortypes.CNSRegisterVolumeFinalizer).
+			Debug("Finalizer does not exist")
+		return nil
+	}
+
+	log.With("finalizer", cnsoperatortypes.CNSRegisterVolumeFinalizer).Info("Removing finalizer")
+	controllerutil.RemoveFinalizer(obj, cnsoperatortypes.CNSRegisterVolumeFinalizer)
+	return c.Update(ctx, obj)
+}
+
+// findPVByVolumeID finds a PV by constructing its name from the VolumeID.
+// Returns: pv (unbound PV if found, nil otherwise), error
+// - pv=nil, err=nil: no unbound PV found (PV not found or bound), caller should remove finalizer
+// - pv!=nil, err=nil: unbound PV found, caller should clean it up
+// - err!=nil: error occurred, caller should requeue
+func (r *ReconcileCnsRegisterVolume) findPVByVolumeID(
+	ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+) (*v1.PersistentVolume, error) {
+	log := logger.GetLogger(ctx)
+	pvName := staticPvNamePrefix + instance.Spec.VolumeID
+
+	pv, err := k8s.GetPersistentVolume(ctx, r.k8sclient, pvName)
+	if err != nil {
+		return nil, err
+	}
+	if pv == nil {
+		// PV doesn't exist, nothing to clean up
+		return nil, nil
+	}
+
+	// PV exists - check if it's bound
+	if pv.Status.Phase == v1.VolumeBound {
+		// PV is bound, return nil to indicate no cleanup needed (caller will remove finalizer)
+		log.With("pvName", pvName).Info("PV is bound, no cleanup needed")
+		return nil, nil
+	}
+
+	return pv, nil
+}
+
+// findPVByDiskURLPath finds a PV by checking PVC binding status or searching by labels.
+// Returns: pv (unbound PV if found, nil otherwise), error
+// - pv=nil, err=nil: no unbound PV found (PVC/PV bound or not found), caller should remove finalizer
+// - pv!=nil, err=nil: unbound PV found, caller should clean it up
+// - err!=nil: error occurred, caller should requeue
+func (r *ReconcileCnsRegisterVolume) findPVByDiskURLPath(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+) (*v1.PersistentVolume, error) {
+
+	log := logger.GetLogger(ctx)
+
+	// Check if PVC exists and is bound
+	pvc, err := r.k8sclient.CoreV1().PersistentVolumeClaims(instance.Namespace).Get(ctx,
+		instance.Spec.PvcName, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		// Error getting PVC (other than NotFound)
+		log.With("pvcName", instance.Spec.PvcName).With("error", err).Error("Failed to get PVC")
+		return nil, err
+	}
+
+	if err == nil && pvc.Status.Phase == v1.ClaimBound && pvc.Spec.VolumeName != "" {
+		// PVC is bound - registration was successful, no cleanup needed
+		log.With("pvcName", instance.Spec.PvcName).With("pvName", pvc.Spec.VolumeName).
+			Info("PVC is bound to PV. Registration completed successfully")
+		return nil, nil
+	}
+
+	// PVC doesn't exist or is not bound - search for PV by labels
+	return r.searchPVByLabels(ctx, instance)
+}
+
+// searchPVByLabels searches for a PV created by this CR using label selectors.
+// Returns: pv (unbound PV if found, nil otherwise), error
+// - pv=nil, err=nil: no unbound PV found (PV bound or not found), caller should remove finalizer
+// - pv!=nil, err=nil: unbound PV found, caller should clean it up
+// - err!=nil: error occurred, caller should requeue
+func (r *ReconcileCnsRegisterVolume) searchPVByLabels(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+) (*v1.PersistentVolume, error) {
+
+	log := logger.GetLogger(ctx)
+
+	listOptions := metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=%s,%s=%s,%s=%s",
+			labelCnsRegisterVolumeCreatedBy, labelCnsRegisterVolumeCreatedByValue,
+			labelCnsRegisterVolumeCRNamespace, instance.Namespace,
+			labelCnsRegisterVolumeCRName, instance.Name),
+	}
+
+	pvList, err := k8s.ListPersistentVolumes(ctx, r.k8sclient, listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pvList.Items) == 0 {
+		return nil, nil
+	}
+
+	candidatePV := &pvList.Items[0]
+
+	// Verify it matches our expected PVC (defense in depth)
+	if candidatePV.Spec.ClaimRef == nil ||
+		candidatePV.Spec.ClaimRef.Name != instance.Spec.PvcName ||
+		candidatePV.Spec.ClaimRef.Namespace != instance.Namespace ||
+		candidatePV.Spec.CSI == nil ||
+		candidatePV.Spec.CSI.Driver != cnsoperatortypes.VSphereCSIDriverName {
+		log.With("pvName", candidatePV.Name).With("expectedPVC", instance.Spec.PvcName).
+			Warn("Found PV with CR labels but ClaimRef mismatch")
+		return nil, nil
+	}
+
+	// Check if PV is bound
+	if candidatePV.Status.Phase == v1.VolumeBound {
+		log.With("pvName", candidatePV.Name).With("pvcName", instance.Spec.PvcName).
+			Info("Found bound PV. Registration completed successfully")
+		return nil, nil
+	}
+
+	// PV is unbound - return for cleanup
+	log.With("pvName", candidatePV.Name).With("phase", candidatePV.Status.Phase).
+		Info("Found unbound PV")
+	return candidatePV, nil
+}
+
+// cleanupUnboundPV sets the PV reclaim policy to Retain and deletes the PV.
+// Returns: error (nil on success)
+func (r *ReconcileCnsRegisterVolume) cleanupUnboundPV(ctx context.Context,
+	pv *v1.PersistentVolume) error {
+
+	log := logger.GetLogger(ctx)
+	pvName := pv.Name
+
+	// Set reclaim policy to Retain to prevent deletion of the underlying CNS volume
+	log.With("pvName", pvName).With("currentReclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy).
+		Info("Setting PV reclaim policy to Retain")
+	if err := k8s.RetainPersistentVolume(ctx, r.k8sclient, pvName); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	// Delete the unbound PV
+	log.With("pvName", pvName).With("phase", pv.Status.Phase).Info("Deleting unbound PV")
+	if err := k8s.DeletePersistentVolume(ctx, r.k8sclient, pvName); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// untagCNSVolume untags the CNS volume (deleteDisk=false to preserve the underlying disk).
+// Returns: error (nil on success)
+func (r *ReconcileCnsRegisterVolume) untagCNSVolume(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+
+	log.With("volumeID", volumeID).Info("Untagging CNS volume (deleteDisk=false)")
+	if _, err := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false); err != nil {
+		log.With("volumeID", volumeID).With("error", err).Error("Failed to untag CNS volume")
+		return err
+	}
+	log.With("volumeID", volumeID).Info("Successfully untagged CNS volume")
+	return nil
+}
+
+// unregisterFCD de-registers a volume as FCD, converting it back to a legacy disk.
+// This is used when the volume was originally registered from a DiskURLPath.
+func (r *ReconcileCnsRegisterVolume) unregisterFCD(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+
+	log.With("volumeID", volumeID).Info("Unregistering FCD (unregDisk=true)")
+	if _, err := r.volumeManager.UnregisterVolume(ctx, volumeID, true); err != nil {
+		log.With("volumeID", volumeID).With("error", err).Error("Failed to unregister FCD")
+		return err
+	}
+	log.With("volumeID", volumeID).Info("Successfully unregistered FCD")
+	return nil
 }

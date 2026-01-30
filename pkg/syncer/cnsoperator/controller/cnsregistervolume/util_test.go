@@ -226,6 +226,8 @@ func TestGetPersistentVolumeSpec_VolumeModeEmpty(t *testing.T) {
 		volumeMode,
 		scName,
 		claimRef,
+		"default",
+		"test-cr",
 	)
 
 	if pv == nil {
@@ -279,6 +281,8 @@ func TestGetPersistentVolumeSpec_VolumeModeBlock(t *testing.T) {
 		volumeMode,
 		scName,
 		claimRef,
+		"default",
+		"test-cr",
 	)
 
 	if pv == nil {
@@ -324,6 +328,8 @@ func TestGetPersistentVolumeSpec_VolumeModeFilesystem(t *testing.T) {
 		volumeMode,
 		scName,
 		claimRef,
+		"default",
+		"test-cr",
 	)
 
 	if pv == nil {
