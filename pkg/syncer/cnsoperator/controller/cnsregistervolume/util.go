@@ -239,12 +239,19 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 // getPersistentVolumeSpec to create PV volume spec for the given input params.
 func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string,
-	claimRef *v1.ObjectReference) *v1.PersistentVolume {
+	claimRef *v1.ObjectReference, crNamespace string, crName string) *v1.PersistentVolume {
 	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
+	// Add labels for PV identification and direct lookup
+	labels := make(map[string]string)
+	labels[labelCnsRegisterVolumeCreatedBy] = labelCnsRegisterVolumeCreatedByValue
+	labels[labelCnsRegisterVolumeCRNamespace] = crNamespace
+	labels[labelCnsRegisterVolumeCRName] = crName
+
 	pv := &v1.PersistentVolume{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: volumeName,
+			Name:   volumeName,
+			Labels: labels,
 		},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeReclaimPolicy: v1.PersistentVolumeReclaimDelete,
