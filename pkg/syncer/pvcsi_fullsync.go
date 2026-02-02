@@ -473,6 +473,17 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 		log.Errorf("FullSync: Failed to get PVs from guest cluster. Err: %v", err)
 		return err
 	}
+
+	// Create controller-runtime client for supervisor cluster once, outside the loop
+	supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+	supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
+	if err != nil {
+		msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
+		log.Error(msg)
+		return err
+	}
+
 	for _, pv := range pvList {
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
 			svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
@@ -494,16 +505,6 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				}
 				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
 
-				// Create controller-runtime client for supervisor cluster
-				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
-				if err != nil {
-					msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
-					log.Error(msg)
-					continue
-				}
-
 				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
 				if err != nil {
 					msg := fmt.Sprintf("failed to patch supervisor PVC: %q with guest cluster labels in %q namespace."+
@@ -520,16 +521,6 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				if !cnsFinalizerPresent {
 					original := svPVC.DeepCopy()
 					svPVC.ObjectMeta.Finalizers = append(svPVC.ObjectMeta.Finalizers, cnsoperatortypes.CNSVolumeFinalizer)
-
-					// Create controller-runtime client for supervisor cluster
-					supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-						metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-					supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
-					if err != nil {
-						msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
-						log.Error(msg)
-						continue
-					}
 
 					err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
 					if err != nil {
