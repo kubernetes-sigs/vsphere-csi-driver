@@ -138,6 +138,9 @@ rules:
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachinesnapshots"]
     verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["iaas.vmware.com"]
+    resources: ["capabilities"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
