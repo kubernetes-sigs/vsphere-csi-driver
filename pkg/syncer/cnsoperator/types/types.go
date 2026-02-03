@@ -44,6 +44,10 @@ const (
 	// to avoid deletion of PVCs which are in the process of being unregistered.
 	CNSUnregisterProtectionFinalizer = "cns.vmware.com/unregister-protection"
 
+	// CNSRegisterVolumeFinalizer is the finalizer added to CNSRegisterVolume CRs
+	// to handle deletion gracefully and prevent race conditions with unregister operations.
+	CNSRegisterVolumeFinalizer = "cns.vmware.com/register-volume"
+
 	// VSphereCSIDriverName is the vsphere CSI driver name
 	VSphereCSIDriverName = "csi.vsphere.vmware.com"
 
