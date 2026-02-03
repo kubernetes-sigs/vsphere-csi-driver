@@ -66,6 +66,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		isQuotaValidationSupported bool
 		defaultDatastore           *object.Datastore
 		volHandle                  string
+		isBatchAttachSupported     bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -160,6 +161,9 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 			defaultDatastore, err = getDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		vcVersion = getVCversion(ctx, vcAddress)
+		isBatchAttachSupported = isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -310,9 +314,13 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 			vmIp, err = waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+			pvcs := []*v1.PersistentVolumeClaim{pvc, staticPvc}
+			if isBatchAttachSupported {
+				pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+			}
 			ginkgo.By("Wait and verify PVCs are attached to the VM")
 			gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-				[]*v1.PersistentVolumeClaim{pvc, staticPvc})).NotTo(gomega.HaveOccurred())
+				pvcs)).NotTo(gomega.HaveOccurred())
 
 			if latebinding {
 				ginkgo.By("Validating that the PVC transitions to Bound state after the " +
@@ -428,8 +436,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is attached to the VM2")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		if latebinding {
 			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
@@ -485,16 +497,24 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is attached to the VM1")
+		pvcs = []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("verify PVC is detached from VM2")
+		newPvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(verifyPvcsAreAttachedToVmsvcVm(
-			ctx, cnsopC, vm2, []*v1.PersistentVolumeClaim{pvc})).To(gomega.BeFalse())
+			ctx, cnsopC, vm2, newPvcs)).To(gomega.BeFalse())
 
 		ginkgo.By("verify data in pvc2 from vm1")
 		framework.Logf("Mounting the volume")
@@ -635,10 +655,18 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
+		pvcs := []*v1.PersistentVolumeClaim{pvc1}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 
 		if latebinding {
 			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
@@ -650,10 +678,18 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc1.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp1)
+			}
+		}
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm2.Status.Volumes {
+			if vol.Name == pvc2.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp2)
+			}
+		}
 
 		ginkgo.By("edit vm1 spec and try to attach pvc2 to vm1, which should fail")
 		vm1.Spec.Volumes = append(vm1.Spec.Volumes, vmopv1.VirtualMachineVolume{Name: pvc2.Name,
@@ -835,14 +871,20 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			if vol.Name == pvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			}
 		}
 
 	})
@@ -1083,8 +1125,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		deletePodsAndWaitForVolsToDetach(ctx, client, pods, true)
 
 		ginkgo.By("retry to attach pvc2 to vm1 and verify it is accessible from vm1")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		if latebinding {
 			ginkgo.By("Validating that the PVC transitions to Bound state after " +
@@ -1099,7 +1145,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUuid, 1, vmIp)
+		for _, vol := range vm.Status.Volumes {
+			if vol.Name == pvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp)
+			}
+		}
 	})
 
 	/*
@@ -1232,12 +1282,20 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		}()
 
 		ginkgo.By("Verify pvc3 is attached to vm3")
+		newPvcs := []*v1.PersistentVolumeClaim{pvcs[2]}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm3, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm3,
-			[]*v1.PersistentVolumeClaim{pvcs[2]})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 		ginkgo.By("Verify pvc3 is accessible to VM3")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm3.Status.Volumes[0].DiskUuid, 1, vmIp3)
+		for _, vol := range vm3.Status.Volumes {
+			if vol.Name == pvcs[2].Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp3)
+			}
+		}
 
 		if latebinding {
 			ginkgo.By("Validating that pvc3 transitions to Bound state after " +
@@ -1300,8 +1358,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Verify pvc3 is still attached to vm3")
+		new1Pvcs := []*v1.PersistentVolumeClaim{pvcs[2]}
+		if isBatchAttachSupported {
+			new1Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm3, namespace, len(new1Pvcs))
+		}
 		gomega.Expect(
-			verifyPvcsAreAttachedToVmsvcVm(ctx, cnsopC, vm3, []*v1.PersistentVolumeClaim{pvcs[2]})).To(gomega.BeTrue())
+			verifyPvcsAreAttachedToVmsvcVm(ctx, cnsopC, vm3, new1Pvcs)).To(gomega.BeTrue())
 
 		ginkgo.By(fmt.Sprintf("Starting %v on the vCenter host", vsanhealthServiceName))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
@@ -1315,12 +1377,20 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		vmlbsvcs = append(vmlbsvcs, vmlbsvc1)
 
 		ginkgo.By("Verify pvc1 is attached to VM1")
+		new2Pvcs := []*v1.PersistentVolumeClaim{pvcs[0]}
+		if isBatchAttachSupported {
+			new2Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(new2Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvcs[0]})).To(gomega.Succeed())
+			new2Pvcs)).To(gomega.Succeed())
 		ginkgo.By("Verify pvc1 is accessible to VM1")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvcs[0].Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp1)
+			}
+		}
 
 		if latebinding {
 			ginkgo.By("Validating that pvc1 transitions to Bound state after being " +
@@ -1332,12 +1402,20 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		ginkgo.By("Verify pvc2 is attached to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		new3Pvcs := []*v1.PersistentVolumeClaim{pvcs[1]}
+		if isBatchAttachSupported {
+			new3Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(new3Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvcs[1]})).To(gomega.Succeed())
+			new3Pvcs)).To(gomega.Succeed())
 		ginkgo.By("Verify pvc2 is accessible to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm2.Status.Volumes {
+			if vol.Name == pvcs[1].Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp2)
+			}
+		}
 
 		if latebinding {
 			ginkgo.By("Validating that pvc2 transitions to Bound state after being " +
@@ -1452,8 +1530,12 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify pvc1 is attached to VM1")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		if latebinding {
 			ginkgo.By("Validating that the PVC transitions to Bound state after the " +
@@ -1468,7 +1550,11 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		ginkgo.By("Verify pvc1 is accessible to VM1")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm.Status.Volumes[0].DiskUuid, 1, vmIp)
+		for _, vol := range vm.Status.Volumes {
+			if vol.Name == pvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp)
+			}
+		}
 	})
 
 	/*
@@ -1589,16 +1675,22 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 	})
 })

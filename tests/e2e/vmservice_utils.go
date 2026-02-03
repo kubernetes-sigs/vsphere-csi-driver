@@ -643,6 +643,62 @@ func waitNgetVmLbSvc(
 	return vmLbSvc
 }
 
+// getPvcsFromBatchAttachCr gets PVC metedata from batchAttach CR
+// attached to a VM and returns it
+func getPvcsFromBatchAttachCr(ctx context.Context, client clientset.Interface, cnsc ctlrclient.Client,
+	vm *vmopv1.VirtualMachine, namespace string, initialPvcs int) []*v1.PersistentVolumeClaim {
+	var pvcs []*v1.PersistentVolumeClaim
+	cr, err := waitForBatchAttachCR(ctx, cnsc, namespace, vm.Name, initialPvcs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	framework.Logf("batchattach volumes: %v", cr.Status.VolumeStatus)
+	for _, vol := range cr.Status.VolumeStatus {
+		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, vol.Name, metav1.GetOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcs = append(pvcs, pvc)
+	}
+	return pvcs
+}
+
+// waitForBatchAttachCR waits for batchAttach CR to get created with
+// expected number of PVCs and returns batch CR
+func waitForBatchAttachCR(ctx context.Context, cnsc ctlrclient.Client, namespace string,
+	vmName string,
+	initialPvcCount int) (*cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment,
+	error) {
+	var batchAttachCR *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment
+	expectedCount := initialPvcCount + 1 // Boot disk pvc gets created additionally post 9.1
+
+	// Poll until the CR condition (count) is met
+	err := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			cr, err := getCnsNodeVmBatchAttachmentCR(ctx, cnsc, namespace, vmName)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					framework.Logf("BatchAttach CR for VM: %s not"+
+						" found, retrying", vmName)
+					return false, nil
+				}
+				return false, err
+			}
+			framework.Logf("cr: %v", cr)
+			framework.Logf("cr.status.volumestatus: %v", cr.Status.VolumeStatus)
+			if len(cr.Status.VolumeStatus) == expectedCount {
+				batchAttachCR = cr
+				return true, nil
+			}
+
+			framework.Logf("Waiting for volumes in Batch CR: %d/%d",
+				len(cr.Status.VolumeStatus), expectedCount)
+			return false, nil
+		})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return batchAttachCR, nil
+}
+
 // verifyPvcsAreAttachedToVmsvcVm verify given pvc(s) is(are) attached to given VM via vm and cnsnodevmattachment CRs
 func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	vm *vmopv1.VirtualMachine, pvcs []*v1.PersistentVolumeClaim) bool {
@@ -650,6 +706,8 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	attachmentmap := map[string]int{}
 	pvcmap := map[string]int{}
 	var err error
+	vcVersion = getVCversion(ctx, vcAddress)
+	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 	if len(vm.Status.Volumes) != len(pvcs) {
 		framework.Logf("Found %d volumes in VM status vs %d pvcs sent to check for attachment",
 			len(vm.Status.Volumes), len(pvcs))
@@ -668,10 +726,9 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 		} else {
 			pvcmap[pvc.Name] = 1
 		}
-		vcVersion = getVCversion(ctx, vcAddress)
-		isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+
 		if isBatchAttachSupported {
-			_, err = getCnsNodeVmBatchAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
+			_, err = getCnsNodeVmBatchAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name)
 		} else {
 			_, err = getCnsNodeVmAttachmentCR(ctx, cnsc, pvc.Namespace, vm.Name, pvc.Name)
 		}
@@ -696,11 +753,13 @@ func verifyPvcsAreAttachedToVmsvcVm(ctx context.Context, cnsc ctlrclient.Client,
 	}
 	for entry := range attachmentmap {
 		if attachmentmap[entry] != 2 {
-			framework.Logf("PVC %s was not attached to VM or did not have CnsNodeVmAttachment CR", entry)
+			framework.Logf("PVC %s was not attached to VM or did not have CnsNodeVmAttachment/CnsBatchAttachment CR", entry)
 			match = false
 		}
 	}
-	framework.Logf("Given PVCs '%v' are attached to VM %s", reflect.ValueOf(pvcmap).MapKeys(), vm.Name)
+	if match {
+		framework.Logf("Given PVCs '%v' are attached to VM %s", reflect.ValueOf(pvcmap).MapKeys(), vm.Name)
+	}
 	return match
 }
 
@@ -717,7 +776,7 @@ func getCnsNodeVmAttachmentCR(
 
 // getCnsNodeVmBatchAttachmentCR fetches the requested cnsnodevmattachment CRs
 func getCnsNodeVmBatchAttachmentCR(
-	ctx context.Context, cnsc ctlrclient.Client, namespace string, vmName string, pvcName string) (
+	ctx context.Context, cnsc ctlrclient.Client, namespace string, vmName string) (
 	*cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment, error) {
 
 	instanceKey := ctlrclient.ObjectKey{Name: vmName, Namespace: namespace}

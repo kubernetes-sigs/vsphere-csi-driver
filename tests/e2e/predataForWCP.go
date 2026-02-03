@@ -53,12 +53,13 @@ var _ = ginkgo.Describe("WCP-predata",
 		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
 
 		var (
-			client            clientset.Interface
-			namespace         string
-			storagePolicyName string
-			scParameters      map[string]string
-			vmClass           string
-			statuscode        int
+			client                 clientset.Interface
+			namespace              string
+			storagePolicyName      string
+			scParameters           map[string]string
+			vmClass                string
+			statuscode             int
+			isBatchAttachSupported bool
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -100,6 +101,9 @@ var _ = ginkgo.Describe("WCP-predata",
 				nil, vmClass, contentLibId)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(statuscode).To(gomega.Equal(status_code_success))
+
+			vcVersion = getVCversion(ctx, vcAddress)
+			isBatchAttachSupported = isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 		})
 
 		/*
@@ -297,8 +301,12 @@ var _ = ginkgo.Describe("WCP-predata",
 					framework.Logf("Created VMService VM: %s", vm.Name)
 
 					// Verify PVC attached to VM
+					pvcs := []*v1.PersistentVolumeClaim{vmPVCs[i]}
+					if isBatchAttachSupported {
+						pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+					}
 					err = waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vms[i],
-						[]*v1.PersistentVolumeClaim{vmPVCs[i]})
+						pvcs)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					framework.Logf("Verified PVC attached to VM: %s", vms[i].Name)
 				}
