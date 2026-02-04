@@ -3302,6 +3302,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			netPerm.Permissions = permissions
 		case "rootsquash":
 			netPerm.RootSquash = rootSquash
+		case "thumbprint":
+			config.Global.Thumbprint = value
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -3312,20 +3314,31 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // writeConfigToSecretString takes in a structured config data and serializes
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
-	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
-		"list-volume-threshold = \"%d\"\n\n"+
+	var b strings.Builder
+
+	// 1. Start Global Section
+	fmt.Fprintf(&b, "[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n",
+		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution)
+	fmt.Fprintf(&b, "csi-fetch-preferred-datastores-intervalinmin = %d\nquery-limit = \"%d\"\n",
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit)
+
+	// 2. Conditional Thumbprint
+	if thumbprintBasedAuth {
+		fmt.Fprintf(&b, "thumbprint = \"%s\"\n", cfg.Global.Thumbprint)
+	}
+
+	// 3. Remaining Sections
+	fmt.Fprintf(&b, "list-volume-threshold = \"%d\"\n\n"+
 		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
 		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
 		"[Labels]\ntopology-categories = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
-		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
 		cfg.Global.ListVolumeThreshold,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
 		cfg.Global.Datacenters, cfg.Global.VCenterPort,
 		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
 		cfg.Labels.TopologyCategories)
-	return result, nil
+
+	return b.String(), nil
 }
 
 // Function to create CnsRegisterVolume spec, with given FCD ID and PVC name.
