@@ -47,7 +47,6 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		namespace    string
 		scParameters map[string]string
 		datastoreURL string
-		csiNamespace string
 		csiReplicas  int32
 	)
 
@@ -65,29 +64,55 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
 
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
-		csiDeployment, err := client.AppsV1().Deployments(csiNamespace).Get(
+		csiDeployment, err := client.AppsV1().Deployments(csiSystemNamespace).Get(
 			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		csiReplicas = *csiDeployment.Spec.Replicas
-		// Reset the cluster distribution value to default value "CSI-Vanilla".
-		setClusterDistribution(ctx, client, vanillaClusterDistribution)
-		csiNamespace = GetAndExpectStringEnvVar(envCSINamespace)
-		collectPodLogs(ctx, client, csiSystemNamespace)
-		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// Reset the cluster distribution value to default value "CSI-Vanilla" if changed to other.
+		// Get the current cluster-distribution value from secret.
+		currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Secret Name is %s", currentSecret.Name)
+
+		// Read and map the content of csi-vsphere.conf to a variable.
+		originalConf := string(currentSecret.Data[vSphereCSIConf])
+		cfg, err := readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Current value of cluster-distribution is.
+		framework.Logf("Cluster-distribution value before starting the test is = %s", cfg.Global.ClusterDistribution)
+		if cfg.Global.ClusterDistribution != vanillaClusterDistribution {
+			setClusterDistribution(ctx, client, vanillaClusterDistribution)
+			collectPodLogs(ctx, client, csiSystemNamespace)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiSystemNamespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	ginkgo.AfterEach(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// Reset the cluster distribution value to default value "CSI-Vanilla".
-		setClusterDistribution(ctx, client, vanillaClusterDistribution)
-		collectPodLogs(ctx, client, csiSystemNamespace)
-		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
-		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+		// Reset the cluster distribution value to default value "CSI-Vanilla" if changed to other.
+		// Get the current cluster-distribution value from secret.
+		currentSecret, err := client.CoreV1().Secrets(csiSystemNamespace).Get(ctx, configSecret, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("Secret Name is %s", currentSecret.Name)
+
+		// Read and map the content of csi-vsphere.conf to a variable.
+		originalConf := string(currentSecret.Data[vSphereCSIConf])
+		cfg, err := readConfigFromSecretString(originalConf)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Current value of cluster-distribution is.
+		framework.Logf("Cluster-distribution value while cleaning up is = %s", cfg.Global.ClusterDistribution)
+		if cfg.Global.ClusterDistribution != vanillaClusterDistribution {
+			setClusterDistribution(ctx, client, vanillaClusterDistribution)
+			collectPodLogs(ctx, client, csiSystemNamespace)
+			restartSuccess, err := restartCSIDriver(ctx, client, csiSystemNamespace, csiReplicas)
+			gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	})
 
 	// Test to verify cluster distribution set in PVC is being honored during
@@ -162,7 +187,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		setClusterDistribution(ctx, client, "")
 		ginkgo.By("Restart CSI driver")
 		collectPodLogs(ctx, client, csiSystemNamespace)
-		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiSystemNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -241,7 +266,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		ginkgo.By("Setting the cluster-distribution value with escape character and special characters")
 		setClusterDistribution(ctx, client, vanillaClusterDistributionWithSpecialChar)
 		collectPodLogs(ctx, client, csiSystemNamespace)
-		restartSuccess, err = restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		restartSuccess, err = restartCSIDriver(ctx, client, csiSystemNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -301,7 +326,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-file-vanilla] [csi-block-vanil
 		setClusterDistribution(ctx, client, clsDistributionName)
 		ginkgo.By("Restart CSI driver")
 		collectPodLogs(ctx, client, csiSystemNamespace)
-		restartSuccess, err := restartCSIDriver(ctx, client, csiNamespace, csiReplicas)
+		restartSuccess, err := restartCSIDriver(ctx, client, csiSystemNamespace, csiReplicas)
 		gomega.Expect(restartSuccess).To(gomega.BeTrue(), "csi driver restart not successful")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

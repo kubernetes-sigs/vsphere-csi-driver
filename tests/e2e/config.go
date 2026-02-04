@@ -73,6 +73,8 @@ type e2eTestConfig struct {
 		TargetVsanFileShareClusters string `gcfg:"targetvSANFileShareClusters"`
 		// fileVolumeActivated
 		FileVolumeActivated bool `gcfg:"fileVolumeActivated"`
+		// thumbprint
+		Thumbprint string `gcfg:"thumbprint"`
 	}
 	// Multiple sets of Net Permissions applied to all file shares
 	// The string can uniquely represent each Net Permissions config
