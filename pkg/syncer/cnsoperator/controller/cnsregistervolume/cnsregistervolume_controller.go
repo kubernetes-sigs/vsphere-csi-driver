@@ -927,6 +927,9 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 		pvc.Annotations[common.AnnVolumeAccessibleTopology] = topologyAnnotation
 
 		// Update the PVC in Kubernetes to persist the topology annotation
+		// Note: Using Update instead of PatchObject here because this function receives
+		// a clientset.Interface and creating a controller-runtime client would require
+		// additional configuration that may not be available in test environments
 		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to update PVC %s/%s with topology annotation: %+v",
