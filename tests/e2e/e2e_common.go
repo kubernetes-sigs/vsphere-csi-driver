@@ -659,11 +659,9 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 		latebinding = true
 	}
 
-	//Check if auth type is thumbprint
-	authType := os.Getenv("AUTHENTICATION_TYPE")
-	if strings.TrimSpace(string(authType)) == "THUMBPRINT" {
-		thumbprintBasedAuth = true
-	}
+	//Check if auth is set true
+	auth := strings.ToLower(strings.TrimSpace(os.Getenv("THUMBPRINT_AUTHENTICATION")))
+	thumbprintBasedAuth = (auth == "true")
 }
 
 var (
