@@ -1455,47 +1455,25 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			e2eVSphere.verifyVolumeCompliance(volumeID, true)
 		}
 
-		ginkgo.By("Verify the data on the PVCs match what was written using MD5 checksum")
+		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
 		for i, pod := range pods {
-			// 1. Determine the exact size that was supposed to be written
-			// This must match the logic used in writeKnownData2PodInParallel
-			writtenSize := fsSizes[i] - spareSpace
+			framework.Logf("Starting verification for pod %s", pod.Name)
 
-			// 2. Calculate MD5 of the local file, but ONLY for the 'writtenSize'
-			// We use 'head' to only hash the first N bytes to match the pod
-			localHashCmd := fmt.Sprintf("head -c %d %s | md5sum", writtenSize*1024*1024, testdataFile)
-			localOutput, err := exec.Command("sh", "-c", localHashCmd).Output()
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to calculate local MD5")
-			localHash := strings.Fields(string(localOutput))[0]
-
-			ginkgo.By(fmt.Sprintf("Verifying integrity in pod %s (Expected Size: %dMB)", pod.Name, writtenSize))
-
-			var podHash string
+			// Wait for the file to actually exist and be readable.
 			gomega.Eventually(func() bool {
 				findCmd := "find /mnt/volume1 -type f | head -n 1"
 				actualFile := strings.TrimSpace(fpod.ExecShellInPod(ctx, f, pod.Name, findCmd))
-
 				if actualFile == "" {
 					return false
 				}
+				// Force a sync to ensure the expansion didn't leave data in cache
+				fpod.ExecShellInPod(ctx, f, pod.Name, "sync")
+				return true
+			}, "3m", "20s").Should(gomega.BeTrue(), "File not found in mount point after expansion")
 
-				// Sync and calculate MD5 inside the pod
-				fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("sync %s", actualFile))
-				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("md5sum %s", actualFile))
-
-				parts := strings.Fields(stdout)
-				if len(parts) > 0 {
-					podHash = parts[0]
-					return true
-				}
-				return false
-			}, "3m", "10s").Should(gomega.BeTrue(), "Failed to find data file in pod")
-
-			// 3. Final Comparison
-			framework.Logf("Local Hash (first %dMB): %s, Pod Hash: %s", writtenSize, localHash, podHash)
-			gomega.Expect(podHash).To(gomega.Equal(localHash),
-				fmt.Sprintf("Data mismatch in pod %s! The data written does not match the source.", pod.Name))
-
+			// data comparison
+			framework.Logf("File found. Running official verifyKnownDataInPod for pod %s", pod.Name)
+			verifyKnownDataInPod(f, client, pod, testdataFile, fsSizes[i]-spareSpace)
 			framework.Logf("Data integrity verified successfully for pod %s", pod.Name)
 		}
 	})
