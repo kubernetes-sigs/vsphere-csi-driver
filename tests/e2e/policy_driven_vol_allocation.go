@@ -1455,31 +1455,38 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			e2eVSphere.verifyVolumeCompliance(volumeID, true)
 		}
 
-		ginkgo.By("Verify the data integrity using MD5 checksum")
 		ginkgo.By("Verify the data on the PVCs match what was written using MD5 checksum")
+		// Use _ because we don't need the index 'i' here
 		for _, pod := range pods {
 			// 1. Calculate local MD5
 			localMd5Cmd := exec.Command("md5sum", testdataFile)
 			localOutput, err := localMd5Cmd.Output()
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to calculate local MD5")
 			localHash := strings.Fields(string(localOutput))[0]
 
-			// 2. Calculate MD5 inside the Pod
-			gomega.Eventually(func() string {
+			// 2. Force a sync inside the pod
+			ginkgo.By(fmt.Sprintf("Syncing data to disk in pod %s", pod.Name))
+			fpod.ExecShellInPod(ctx, f, pod.Name, "sync")
+
+			// 3. Calculate MD5 inside the Pod
+			var podHash string
+			gomega.Eventually(func() bool {
 				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, "md5sum /mnt/volume1/testdata")
 				if stdout == "" {
-					return "failed-to-get-stdout"
+					return false
 				}
-				// Split "hash filename" and take the hash
 				parts := strings.Fields(stdout)
 				if len(parts) > 0 {
-					return parts[0]
+					podHash = parts[0]
+					return true
 				}
-				return ""
-			}, "2m", "10s").Should(gomega.Equal(localHash),
-				fmt.Sprintf("Data corruption in pod %s!", pod.Name))
+				return false
+			}, "2m", "10s").Should(gomega.BeTrue(), "Failed to get MD5 hash from pod")
 
-			framework.Logf("Data integrity verified for pod %s", pod.Name)
+			// 4. Final Comparison
+			framework.Logf("Local MD5: %s, Pod MD5: %s", localHash, podHash)
+			gomega.Expect(podHash).To(gomega.Equal(localHash),
+				fmt.Sprintf("Data corruption detected in pod %s!", pod.Name))
 		}
 	})
 
