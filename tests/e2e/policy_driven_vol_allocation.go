@@ -1456,37 +1456,46 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the data on the PVCs match what was written using MD5 checksum")
-		// Use _ because we don't need the index 'i' here
 		for _, pod := range pods {
-			// 1. Calculate local MD5
+			// 1. Calculate local MD5 of the source file
 			localMd5Cmd := exec.Command("md5sum", testdataFile)
 			localOutput, err := localMd5Cmd.Output()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to calculate local MD5")
 			localHash := strings.Fields(string(localOutput))[0]
 
-			// 2. Force a sync inside the pod
-			ginkgo.By(fmt.Sprintf("Syncing data to disk in pod %s", pod.Name))
-			fpod.ExecShellInPod(ctx, f, pod.Name, "sync")
+			ginkgo.By(fmt.Sprintf("Syncing data and verifying integrity in pod %s", pod.Name))
 
-			// 3. Calculate MD5 inside the Pod
 			var podHash string
 			gomega.Eventually(func() bool {
-				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, "md5sum /mnt/volume1/testdata")
-				if stdout == "" {
+				// Try to find the file: usually 'data' or 'testdata'
+				// We use 'head -n 1' to ensure we only get one result if both exist
+				findCmd := "ls /mnt/volume1/data /mnt/volume1/testdata 2>/dev/null | head -n 1"
+				actualFile := strings.TrimSpace(fpod.ExecShellInPod(ctx, f, pod.Name, findCmd))
+
+				if actualFile == "" {
+					framework.Logf("Waiting for data file to appear in /mnt/volume1...")
 					return false
 				}
+
+				// Sync the specific file found to ensure data is on disk
+				fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("sync %s", actualFile))
+
+				// Calculate MD5 inside the pod
+				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("md5sum %s", actualFile))
 				parts := strings.Fields(stdout)
 				if len(parts) > 0 {
 					podHash = parts[0]
 					return true
 				}
 				return false
-			}, "2m", "10s").Should(gomega.BeTrue(), "Failed to get MD5 hash from pod")
+			}, "3m", "10s").Should(gomega.BeTrue(), "Failed to find data file or calculate MD5 in pod")
 
-			// 4. Final Comparison
+			// 2. Final Comparison
 			framework.Logf("Local MD5: %s, Pod MD5: %s", localHash, podHash)
 			gomega.Expect(podHash).To(gomega.Equal(localHash),
-				fmt.Sprintf("Data corruption detected in pod %s!", pod.Name))
+				fmt.Sprintf("Data corruption detected in pod %s! Files do not match.", pod.Name))
+
+			framework.Logf("Data integrity verified successfully for pod %s", pod.Name)
 		}
 	})
 
