@@ -1456,32 +1456,30 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 		}
 
 		ginkgo.By("Verify the data on the PVCs match what was written using MD5 checksum")
-		for _, pod := range pods {
-			// 1. Calculate local MD5 of the source file
-			localMd5Cmd := exec.Command("md5sum", testdataFile)
-			localOutput, err := localMd5Cmd.Output()
+		for i, pod := range pods {
+			// 1. Determine the exact size that was supposed to be written
+			// This must match the logic used in writeKnownData2PodInParallel
+			writtenSize := fsSizes[i] - spareSpace
+
+			// 2. Calculate MD5 of the local file, but ONLY for the 'writtenSize'
+			// We use 'head' to only hash the first N bytes to match the pod
+			localHashCmd := fmt.Sprintf("head -c %d %s | md5sum", writtenSize*1024*1024, testdataFile)
+			localOutput, err := exec.Command("sh", "-c", localHashCmd).Output()
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to calculate local MD5")
 			localHash := strings.Fields(string(localOutput))[0]
 
-			ginkgo.By(fmt.Sprintf("Syncing data and verifying integrity in pod %s", pod.Name))
+			ginkgo.By(fmt.Sprintf("Verifying integrity in pod %s (Expected Size: %dMB)", pod.Name, writtenSize))
 
 			var podHash string
 			gomega.Eventually(func() bool {
-				// Find ANY file in the mount point.
-				// 'find' is more reliable than 'ls' for this.
 				findCmd := "find /mnt/volume1 -type f | head -n 1"
 				actualFile := strings.TrimSpace(fpod.ExecShellInPod(ctx, f, pod.Name, findCmd))
 
 				if actualFile == "" {
-					// Log the directory content to help debug if it keeps failing
-					content := fpod.ExecShellInPod(ctx, f, pod.Name, "ls -R /mnt/volume1")
-					framework.Logf("No file found in /mnt/volume1 yet. Current directory structure:\n%s", content)
 					return false
 				}
 
-				framework.Logf("Found file for verification: %s", actualFile)
-
-				// Sync and MD5
+				// Sync and calculate MD5 inside the pod
 				fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("sync %s", actualFile))
 				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("md5sum %s", actualFile))
 
@@ -1491,12 +1489,12 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 					return true
 				}
 				return false
-			}, "5m", "20s").Should(gomega.BeTrue(), "Failed to find any data file in /mnt/volume1 within timeout")
+			}, "3m", "10s").Should(gomega.BeTrue(), "Failed to find data file in pod")
 
-			// 2. Final Comparison
-			framework.Logf("Local MD5: %s, Pod MD5: %s", localHash, podHash)
+			// 3. Final Comparison
+			framework.Logf("Local Hash (first %dMB): %s, Pod Hash: %s", writtenSize, localHash, podHash)
 			gomega.Expect(podHash).To(gomega.Equal(localHash),
-				fmt.Sprintf("Data corruption detected in pod %s! Local: %s, Pod: %s", pod.Name, localHash, podHash))
+				fmt.Sprintf("Data mismatch in pod %s! The data written does not match the source.", pod.Name))
 
 			framework.Logf("Data integrity verified successfully for pod %s", pod.Name)
 		}
