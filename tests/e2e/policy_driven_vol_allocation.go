@@ -1455,9 +1455,31 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 			e2eVSphere.verifyVolumeCompliance(volumeID, true)
 		}
 
-		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
-		for i, pod := range pods {
-			verifyKnownDataInPod(f, client, pod, testdataFile, fsSizes[i]-spareSpace)
+		ginkgo.By("Verify the data integrity using MD5 checksum")
+		ginkgo.By("Verify the data on the PVCs match what was written using MD5 checksum")
+		for _, pod := range pods {
+			// 1. Calculate local MD5
+			localMd5Cmd := exec.Command("md5sum", testdataFile)
+			localOutput, err := localMd5Cmd.Output()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			localHash := strings.Fields(string(localOutput))[0]
+
+			// 2. Calculate MD5 inside the Pod
+			gomega.Eventually(func() string {
+				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, "md5sum /mnt/volume1/testdata")
+				if stdout == "" {
+					return "failed-to-get-stdout"
+				}
+				// Split "hash filename" and take the hash
+				parts := strings.Fields(stdout)
+				if len(parts) > 0 {
+					return parts[0]
+				}
+				return ""
+			}, "2m", "10s").Should(gomega.Equal(localHash),
+				fmt.Sprintf("Data corruption in pod %s!", pod.Name))
+
+			framework.Logf("Data integrity verified for pod %s", pod.Name)
 		}
 	})
 
