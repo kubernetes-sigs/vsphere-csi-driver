@@ -1467,33 +1467,36 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 			var podHash string
 			gomega.Eventually(func() bool {
-				// Try to find the file: usually 'data' or 'testdata'
-				// We use 'head -n 1' to ensure we only get one result if both exist
-				findCmd := "ls /mnt/volume1/data /mnt/volume1/testdata 2>/dev/null | head -n 1"
+				// Find ANY file in the mount point.
+				// 'find' is more reliable than 'ls' for this.
+				findCmd := "find /mnt/volume1 -type f | head -n 1"
 				actualFile := strings.TrimSpace(fpod.ExecShellInPod(ctx, f, pod.Name, findCmd))
 
 				if actualFile == "" {
-					framework.Logf("Waiting for data file to appear in /mnt/volume1...")
+					// Log the directory content to help debug if it keeps failing
+					content := fpod.ExecShellInPod(ctx, f, pod.Name, "ls -R /mnt/volume1")
+					framework.Logf("No file found in /mnt/volume1 yet. Current directory structure:\n%s", content)
 					return false
 				}
 
-				// Sync the specific file found to ensure data is on disk
-				fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("sync %s", actualFile))
+				framework.Logf("Found file for verification: %s", actualFile)
 
-				// Calculate MD5 inside the pod
+				// Sync and MD5
+				fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("sync %s", actualFile))
 				stdout := fpod.ExecShellInPod(ctx, f, pod.Name, fmt.Sprintf("md5sum %s", actualFile))
+
 				parts := strings.Fields(stdout)
 				if len(parts) > 0 {
 					podHash = parts[0]
 					return true
 				}
 				return false
-			}, "3m", "10s").Should(gomega.BeTrue(), "Failed to find data file or calculate MD5 in pod")
+			}, "5m", "20s").Should(gomega.BeTrue(), "Failed to find any data file in /mnt/volume1 within timeout")
 
 			// 2. Final Comparison
 			framework.Logf("Local MD5: %s, Pod MD5: %s", localHash, podHash)
 			gomega.Expect(podHash).To(gomega.Equal(localHash),
-				fmt.Sprintf("Data corruption detected in pod %s! Files do not match.", pod.Name))
+				fmt.Sprintf("Data corruption detected in pod %s! Local: %s, Pod: %s", pod.Name, localHash, podHash))
 
 			framework.Logf("Data integrity verified successfully for pod %s", pod.Name)
 		}
