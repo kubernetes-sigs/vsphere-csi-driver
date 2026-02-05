@@ -164,8 +164,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 	// 10. Delete PVC and SC
 
 	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block] [ef-wcp][cf-vks][csi-block-vanilla]"+
-		"[csi-guest][csi-supervisor] Verify impact on "+
-		"existing pv pvc when sc recreated with different binding mode", ginkgo.Label(p0,
+		"[csi-guest] Verify impact on existing pv pvc when sc recreated with different binding mode", ginkgo.Label(p0,
 		block, wcp, tkg, vanilla, vc70), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
