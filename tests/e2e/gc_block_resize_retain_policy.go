@@ -1121,8 +1121,12 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation "+
 
 		pvcNew, pvNew, pod, _ := createStaticPVandPVCandPODinGuestCluster(client, ctx, namespace, svcPVC.Name, "3Gi",
 			storageclass, v1.PersistentVolumeReclaimDelete)
-		defer func() {
 
+		ginkgo.By("Waiting for the pod to be running")
+		err = fpod.WaitForPodRunningInNamespace(ctx, client, pod)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Pod failed to reach Running state")
+
+		defer func() {
 			ginkgo.By("Deleting the gc PVC")
 			err = fpv.DeletePersistentVolumeClaim(ctx, client, pvcNew.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
