@@ -258,21 +258,17 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	var originalSizeInMb int64
 	var err error
 
-	// --- CRITICAL FIX 1: Ensure the Pod object has the expected container name ---
-	// Even if the pod was created with a different name, we force-label the
-	// local object so getFileSystemSizeForOsType knows which container to exec into.
+	// --- FIX 1: Initial Refresh & Force Name ---
+	// We get the latest Pod from the server, then immediately overwrite the
+	// local Spec name so the framework knows which container to 'exec' into.
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	if len(pod.Spec.Containers) > 0 {
 		pod.Spec.Containers[0].Name = "write-pod"
 	}
 
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
-	// We refresh the pod status from the server to ensure the container is actually 'Running'
-	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	// Re-apply the name after the Get call (since the server might have a different name)
-	pod.Spec.Containers[0].Name = "write-pod"
-
 	originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -281,7 +277,10 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	newSize := currentPvcSize.DeepCopy()
 	newSize.Add(resource.MustParse("1Gi"))
+	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
+
 	pvclaim, err = expandPVCSize(pvclaim, newSize, client)
+	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	_, err = waitForFSResizeInSvc(svcPVCName)
@@ -291,24 +290,38 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	pvclaim, err = waitForFSResize(pvclaim, client)
 	framework.ExpectNoError(err, "while waiting for fs resize to finish")
 
-	// --- CRITICAL FIX 2: Re-verify Pod state after expansion ---
-	// Volume expansion can sometimes cause a container restart.
+	// --- FIX 2: Handle potential container restarts during expansion ---
+	// Online expansion can cause the kubelet to restart the container to remount.
+	ginkgo.By("Ensuring pod is still running after expansion")
 	err = fpod.WaitForPodRunningInNamespace(context.TODO(), client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
+	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(len(queryResult.Volumes)).NotTo(gomega.BeZero(), "QueryCNSVolumeWithResult returned no volume")
 
 	var fsSize int64
 	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
 
-	// Refresh and force name one last time
-	pod, _ = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
-	pod.Spec.Containers[0].Name = "write-pod"
+	// --- FIX 3: Final Refresh & Force Name ---
+	// The previous 'waitForFSResize' might have taken time. Refresh and force name again.
+	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	if len(pod.Spec.Containers) > 0 {
+		pod.Spec.Containers[0].Name = "write-pod"
+	}
 
 	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("File system size after expansion : %d", fsSize)
-	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb))
+	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
+		fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
+
 	ginkgo.By("File system resize finished successfully")
+	framework.Logf("Online volume expansion in GC PVC is successful")
 }
 
 // verifyPVSizeinSupervisor compares PV.Spec.Capacity[v1.ResourceStorage] in
