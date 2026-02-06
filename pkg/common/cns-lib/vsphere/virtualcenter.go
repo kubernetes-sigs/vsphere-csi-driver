@@ -717,6 +717,8 @@ func UnregisterAllVirtualCenters(ctx context.Context) error {
 	if err := virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
 		return logger.LogNewErrorf(log, "failed to unregister all VirtualCenter servers. Err: %+v", err)
 	}
+	// Clear the global vCenterInstances map
+	clear(vCenterInstances)
 	return nil
 }
 
