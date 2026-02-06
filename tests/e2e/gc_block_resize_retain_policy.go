@@ -161,6 +161,8 @@ var _ = ginkgo.Describe("[csi-guest] Volume Expansion Tests with reclaimation "+
 
 		if deleteFCDRequired {
 			ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
+			// 2. Add a small buffer for vCenter metadata synchronization
+			time.Sleep(10 * time.Second)
 
 			err := e2eVSphere.deleteFCD(ctx, fcdID, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
