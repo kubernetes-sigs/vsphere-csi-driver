@@ -40,6 +40,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/utils/pointer"
+
 	"github.com/hashicorp/go-version"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -4318,11 +4320,37 @@ func sshExec(sshClientConfig *ssh.ClientConfig, host string, cmd string) (fssh.R
 // createPod with given claims based on node selector.
 func createPod(ctx context.Context, client clientset.Interface, namespace string, nodeSelector map[string]string,
 	pvclaims []*v1.PersistentVolumeClaim, isPrivileged bool, command string) (*v1.Pod, error) {
+
 	securityLevel := api.LevelBaseline
 	if isPrivileged {
 		securityLevel = api.LevelPrivileged
 	}
+
 	pod := fpod.MakePod(namespace, nodeSelector, pvclaims, securityLevel, command)
+
+	// --- CRITICAL FIX 1: Set the container name to "write-pod" ---
+	// This resolves: container not found ("write-pod")
+	if len(pod.Spec.Containers) > 0 {
+		pod.Spec.Containers[0].Name = "write-pod"
+	}
+
+	if guestCluster {
+		pod.Spec.SecurityContext = &v1.PodSecurityContext{
+			SeccompProfile: &v1.SeccompProfile{
+				Type: v1.SeccompProfileTypeRuntimeDefault,
+			},
+		}
+
+		pod.Spec.Containers[0].SecurityContext = &v1.SecurityContext{
+			AllowPrivilegeEscalation: pointer.Bool(false),
+			RunAsNonRoot:             pointer.Bool(true),
+			RunAsUser:                pointer.Int64(1000),
+			Capabilities: &v1.Capabilities{
+				Drop: []v1.Capability{"ALL"},
+			},
+		}
+	}
+
 	if windowsEnv {
 		var commands []string
 		if (len(command) == 0) || (command == execCommand) {
@@ -4336,24 +4364,34 @@ func createPod(ctx context.Context, client clientset.Interface, namespace string
 		}
 		pod.Spec.Containers[0].Image = windowsImageOnMcr
 		pod.Spec.Containers[0].Command = commands
-		pod.Spec.Containers[0].VolumeMounts[0].MountPath = pod.Spec.Containers[0].VolumeMounts[0].MountPath + "/"
+		pod.Spec.Containers[0].VolumeMounts[0].MountPath += "/"
 	} else {
 		pod.Spec.Containers[0].Image = busyBoxImageOnGcr
+
+		// --- CRITICAL FIX 2: Ensure the container doesn't exit ---
+		// If command is empty, give it a sleep loop so df -T can run later
+		if len(command) == 0 {
+			pod.Spec.Containers[0].Command = []string{"/bin/sh", "-c", "while true; do sleep 60; done"}
+		}
 	}
-	pod, err := client.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
+
+	// Use the passed context instead of context.TODO() for better timeout handling
+	pod, err := client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pod Create API error: %v", err)
 	}
-	// Waiting for pod to be running.
+
 	err = fpod.WaitForPodNameRunningInNamespace(ctx, client, pod.Name, namespace)
 	if err != nil {
 		return pod, fmt.Errorf("pod %q is not Running: %v", pod.Name, err)
 	}
-	// Get fresh pod info.
-	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+
+	// Final refresh to ensure all status fields (like IP and ContainerID) are present
+	pod, err = client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if err != nil {
 		return pod, fmt.Errorf("pod Get API error: %v", err)
 	}
+
 	return pod, nil
 }
 
