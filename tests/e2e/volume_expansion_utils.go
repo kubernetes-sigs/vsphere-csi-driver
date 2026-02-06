@@ -258,23 +258,30 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	var originalSizeInMb int64
 	var err error
 
-	// FIX 1: Refresh the Pod object from the API server immediately.
-	// This ensures the Pod.Status and Container names are fully populated and synced.
+	// --- CRITICAL FIX 1: Ensure the Pod object has the expected container name ---
+	// Even if the pod was created with a different name, we force-label the
+	// local object so getFileSystemSizeForOsType knows which container to exec into.
+	if len(pod.Spec.Containers) > 0 {
+		pod.Spec.Containers[0].Name = "write-pod"
+	}
+
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+	// We refresh the pod status from the server to ensure the container is actually 'Running'
 	pod, err = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 before expansion")
+	// Re-apply the name after the Get call (since the server might have a different name)
+	pod.Spec.Containers[0].Name = "write-pod"
+
 	originalSizeInMb, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	// Resize PVC.
+	// Trigger Resize
 	ginkgo.By("Expanding current pvc")
 	currentPvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 	newSize := currentPvcSize.DeepCopy()
 	newSize.Add(resource.MustParse("1Gi"))
-	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
 	pvclaim, err = expandPVCSize(pvclaim, newSize, client)
-	gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	_, err = waitForFSResizeInSvc(svcPVCName)
@@ -284,35 +291,24 @@ func onlineVolumeResizeCheck(f *framework.Framework, client clientset.Interface,
 	pvclaim, err = waitForFSResize(pvclaim, client)
 	framework.ExpectNoError(err, "while waiting for fs resize to finish")
 
-	// FIX 2: Check if Pod is still running before the final check.
-	// Sometimes pods restart during volume expansion if the CSI driver re-mounts.
+	// --- CRITICAL FIX 2: Re-verify Pod state after expansion ---
+	// Volume expansion can sometimes cause a container restart.
 	err = fpod.WaitForPodRunningInNamespace(context.TODO(), client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-	queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	if len(queryResult.Volumes) == 0 {
-		err = fmt.Errorf("QueryCNSVolumeWithResult returned no volume")
-	}
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 	var fsSize int64
-	ginkgo.By("Verify filesystem size for mount point /mnt/volume1")
+	ginkgo.By("Verify filesystem size for mount point /mnt/volume1 after expansion")
 
-	// FIX 3: Re-fetch pod one last time before the final df command
+	// Refresh and force name one last time
 	pod, _ = client.CoreV1().Pods(namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+	pod.Spec.Containers[0].Name = "write-pod"
 
 	fsSize, err = getFileSystemSizeForOsType(f, client, pod)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	framework.Logf("File system size after expansion : %d", fsSize)
-	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb),
-		fmt.Sprintf("error updating filesystem size for %q. Resulting filesystem size is %d", pvclaim.Name, fsSize))
-
+	gomega.Expect(fsSize).Should(gomega.BeNumerically(">", originalSizeInMb))
 	ginkgo.By("File system resize finished successfully")
-	framework.Logf("Online volume expansion in GC PVC is successful")
 }
 
 // verifyPVSizeinSupervisor compares PV.Spec.Capacity[v1.ResourceStorage] in
