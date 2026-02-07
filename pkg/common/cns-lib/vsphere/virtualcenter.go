@@ -25,7 +25,9 @@ import (
 	"net"
 	neturl "net/url"
 	"reflect"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -443,17 +445,38 @@ func (vc *VirtualCenter) ListDatacenters(ctx context.Context) (
 	return dcs, nil
 }
 
-// getDatacenters returns Datacenter instances given their paths.
-func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
+// getDatacenters returns Datacenter instances given their paths or morefs.
+func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPathsOrMorefs []string) (
 	[]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(vc.Client.Client, false)
 	var dcs []*Datacenter
-	for _, dcPath := range dcPaths {
-		dcObj, err := finder.Datacenter(ctx, dcPath)
-		if err != nil {
-			log.Errorf("failed to fetch datacenter given dcPath %s with err: %v", dcPath, err)
-			return nil, err
+	dcMoIDRegex := regexp.MustCompile(`^datacenter-\d+$`)
+	dcMoRefRegex := regexp.MustCompile(`^Datacenter:datacenter-\d+$`)
+	for _, dcPathOrMoref := range dcPathsOrMorefs {
+		var dcObj *object.Datacenter
+		var err error
+		// Handle both "Datacenter:datacenter-N" and raw "datacenter-N" formats
+		if dcMoRefRegex.MatchString(dcPathOrMoref) || dcMoIDRegex.MatchString(dcPathOrMoref) {
+			log.Infof("Fetching datacenter given dcMoref %s", dcPathOrMoref)
+			moID := strings.TrimPrefix(dcPathOrMoref, "Datacenter:")
+			dcObj = object.NewDatacenter(vc.Client.Client, types.ManagedObjectReference{
+				Type:  "Datacenter",
+				Value: moID,
+			})
+			// Verify if the datacenter exists.
+			var dc mo.Datacenter
+			err = dcObj.Properties(ctx, dcObj.Reference(), []string{"name"}, &dc)
+			if err != nil {
+				log.Errorf("failed to fetch datacenter given dcMoref %s with err: %v", dcPathOrMoref, err)
+				return nil, err
+			}
+		} else {
+			dcObj, err = finder.Datacenter(ctx, dcPathOrMoref)
+			if err != nil {
+				log.Errorf("failed to fetch datacenter given dcPath %s with err: %v", dcPathOrMoref, err)
+				return nil, err
+			}
 		}
 		dc := &Datacenter{Datacenter: dcObj, VirtualCenterHost: vc.Config.Host}
 		dcs = append(dcs, dc)
