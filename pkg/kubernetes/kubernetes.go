@@ -795,10 +795,22 @@ func AddFinalizerOnPVC(ctx context.Context, k8sClient clientset.Interface, pvcNa
 		return nil
 	}
 
-	// Update the PVC with the new finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	// Patch the PVC with the new finalizer
+	restClientConfig, err := GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to add finalizer on PVC. Error: %s", err.Error())
+		log.Errorf("Failed to get kubeconfig. Err: %v", err)
+		return err
+	}
+	coreV1Client, err := NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+	if err != nil {
+		log.Errorf("Failed to create client. Err: %v", err)
+		return err
+	}
+	originalPVC := pvc.DeepCopy()
+	controllerutil.RemoveFinalizer(originalPVC, finalizer)
+	err = PatchObject(ctx, coreV1Client, originalPVC, pvc)
+	if err != nil {
+		log.Errorf("Failed to patch finalizer on PVC. Error: %s", err.Error())
 		return err
 	}
 
@@ -829,10 +841,22 @@ func RemoveFinalizerFromPVC(ctx context.Context, k8sClient clientset.Interface, 
 		return nil
 	}
 
-	// Update the PVC to remove the finalizer
-	_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvc, metav1.UpdateOptions{})
+	// Patch the PVC to remove the finalizer
+	restClientConfig, err := GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("Failed to remove finalizer from PVC. Error: %s", err.Error())
+		log.Errorf("Failed to get kubeconfig. Err: %v", err)
+		return err
+	}
+	coreV1Client, err := NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+	if err != nil {
+		log.Errorf("Failed to create client. Err: %v", err)
+		return err
+	}
+	originalPVC := pvc.DeepCopy()
+	controllerutil.AddFinalizer(originalPVC, finalizer)
+	err = PatchObject(ctx, coreV1Client, originalPVC, pvc)
+	if err != nil {
+		log.Errorf("Failed to patch to remove finalizer from PVC. Error: %s", err.Error())
 		return err
 	}
 
@@ -854,7 +878,9 @@ func AddFinalizer(ctx context.Context, c client.Client, obj client.Object, final
 	}
 
 	log.Info("Adding finalizer to object.")
-	return c.Update(ctx, obj)
+	original := obj.DeepCopyObject().(client.Object)
+	controllerutil.RemoveFinalizer(original, finalizer)
+	return c.Patch(ctx, obj, client.MergeFrom(original))
 }
 
 // RemoveFinalizer removes the specified finalizer from the given Kubernetes object if it is present.
@@ -871,7 +897,9 @@ func RemoveFinalizer(ctx context.Context, c client.Client, obj client.Object, fi
 	}
 
 	log.Info("Removing finalizer from object.")
-	return c.Update(ctx, obj)
+	original := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(original, finalizer)
+	return c.Patch(ctx, obj, client.MergeFrom(original))
 }
 
 // PatchObject patches a Kubernetes object using strategic merge patch.

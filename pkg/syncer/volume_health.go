@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface,
@@ -141,7 +142,28 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 		log.Infof("updateVolumeHealthStatus: set volumehealth annotation for pvc %s/%s from old "+
 			"value %s to new value %s and volumehealthTS annotation to %s",
 			pvc.Namespace, pvc.Name, val, volHealthStatus, timeNow)
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		
+		// Patch PVC with annotations
+		restClientConfig, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("updateVolumeHealthStatus: Failed to get kubeconfig. Err: %v", err)
+			return
+		}
+		coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("updateVolumeHealthStatus: Failed to create client. Err: %v", err)
+			return
+		}
+		originalPVC := pvc.DeepCopy()
+		// Reset annotations to original for proper patch
+		originalPVC.Annotations = make(map[string]string)
+		for k, v := range pvc.Annotations {
+			originalPVC.Annotations[k] = v
+		}
+		delete(originalPVC.Annotations, annVolumeHealth)
+		delete(originalPVC.Annotations, annVolumeHealthTS)
+		
+		err = k8s.PatchObject(ctx, coreV1Client, originalPVC, pvc)
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				log.Debugf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v, will retry the update",
@@ -155,12 +177,14 @@ func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 					log.Infof("updateVolumeHealthStatus: updating volume health annotation for pvc %s/%s which "+
 						"get from API server from old value %s to new value %s and volumehealthTS annotation to %s",
 						newPvc.Namespace, newPvc.Name, val, volHealthStatus, timeUpdate)
+					
+					originalNewPVC := newPvc.DeepCopy()
 					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealth, volHealthStatus)
 					metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annVolumeHealthTS, timeUpdate)
-					_, err := k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx,
-						newPvc, metav1.UpdateOptions{})
+					
+					err := k8s.PatchObject(ctx, coreV1Client, originalNewPVC, newPvc)
 					if err != nil {
-						log.Errorf("updateVolumeHealthStatus: Failed to update pvc %s/%s with err:%+v",
+						log.Errorf("updateVolumeHealthStatus: Failed to patch pvc %s/%s with err:%+v",
 							newPvc.Namespace, newPvc.Name, err)
 					}
 				} else {
