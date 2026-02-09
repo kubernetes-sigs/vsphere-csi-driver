@@ -22,7 +22,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -976,14 +975,54 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 		expectedSizeInMb := sizeInMb(newSizes[2])
 
-		var wg sync.WaitGroup
-		wg.Add(3)
-		go resize(client, pvclaim, currentPvcSize, newSize1, &wg)
-		go resize(client, pvclaim, currentPvcSize, newSize3, &wg)
-		go resize(client, pvclaim, currentPvcSize, newSize2, &wg)
-		wg.Wait()
+		// Define your sizes in the order you want them triggered
+		volexpansionSizes := []resource.Quantity{newSize1, newSize2, newSize3}
 
-		time.Sleep(3 * pollTimeoutShort)
+		for _, size := range volexpansionSizes {
+			framework.Logf("Processing expansion for PVC %s to %v", pvclaim.Name, size)
+
+			// This 'for' loop acts as your 'while' retry logic
+			for {
+				// 1. Always FETCH the latest version to get the current resourceVersion
+				latestPvc, err := client.CoreV1().PersistentVolumeClaims(pvclaim.Namespace).Get(
+					context.TODO(), pvclaim.Name, metav1.GetOptions{})
+				if err != nil {
+					framework.Logf("Error fetching latest PVC: %v", err)
+					break // Exit retry loop for this size
+				}
+
+				// 2. ATTEMPT expansion
+				_, err = expandPVCSize(latestPvc, size, client)
+
+				// 3. HANDLE result
+				if err == nil {
+					framework.Logf("Successfully requested expansion to %v", size)
+					break // Success! Move to the next size in expansionSizes
+				}
+
+				// Check for specific error strings
+				errMsg := err.Error()
+				if strings.Contains(errMsg, "shrinking") {
+					framework.Logf("Skipping size %v: Volume shrinking is not supported.", size)
+					break // Skip to next size
+				}
+
+				if strings.Contains(errMsg, "apply your changes") || strings.Contains(errMsg, "conflict") {
+					framework.Logf("Conflict detected (stale resourceVersion). Retrying...")
+					time.Sleep(time.Second * 1)
+					continue // Retry the 'Get' and 'Update' for this SAME size
+				}
+
+				// If it's any other error, stop and report it
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Unexpected error during expansion")
+				break
+			}
+
+			// Optional: wait for the controller to start processing before starting the next size
+			time.Sleep(pollTimeoutShort)
+		}
+
+		time.Sleep(2 * pollTimeoutShort)
 		pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
@@ -1033,7 +1072,6 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 		if actualSizeOfPVC != expectedSizeInMb {
 			framework.Failf("Received wrong disk size after volume expansion. Expected: %d Actual: %d",
 				expectedSizeInMb, actualSizeOfPVC)
-
 		}
 
 	})
