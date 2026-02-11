@@ -70,6 +70,7 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		pandoraSyncWaitTime        int
 		dsRef                      types.ManagedObjectReference
 		labelsMap                  map[string]string
+		isBatchAttachSupported     bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -161,6 +162,9 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		//setting map values
 		labelsMap = make(map[string]string)
 		labelsMap["app"] = "test"
+
+		vcVersion = getVCversion(ctx, vcAddress)
+		isBatchAttachSupported = isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -256,9 +260,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		isPrivateNetwork := GetBoolEnvVarOrDefault("IS_PRIVATE_NETWORK", false)
 		if !isPrivateNetwork {
@@ -394,17 +402,23 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -519,17 +533,23 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -596,9 +616,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp2, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm2.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).NotTo(gomega.HaveOccurred())
+			newPvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
@@ -697,8 +721,12 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
@@ -794,16 +822,25 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2, pvc3}
+		originalPvcs := newPvcs
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2, pvc3})).NotTo(gomega.HaveOccurred())
+			newPvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			for _, p := range originalPvcs {
+				if vol.Name == p.Name {
+					volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+					verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+				}
+			}
 		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -904,16 +941,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -1014,16 +1057,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).NotTo(gomega.HaveOccurred())
+			newPvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+2, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			if vol.Name == pvc2.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+2, vmIp2)
+				verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot-2 for the volume")
@@ -1210,18 +1259,34 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
+		newPvcs := []*v1.PersistentVolumeClaim{pvc1}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
+		new1Pvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			new1Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(new1Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).To(gomega.Succeed())
+			new1Pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc1.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp1)
+			}
+		}
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm2.Status.Volumes {
+			if vol.Name == pvc2.Name {
+				_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+			}
+		}
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -1304,8 +1369,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Wait and verify restorevol2 is attached to the VM1")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		new2Pvcs := []*v1.PersistentVolumeClaim{pvc1, restorepvc2}
+		originalPvcs := new2Pvcs
+		if isBatchAttachSupported {
+			new2Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(new2Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1, restorepvc2})).To(gomega.Succeed())
+			new2Pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
@@ -1313,9 +1383,15 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Format the PVC and verify accessibility
-		volFolder := formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 2, vmIp1)
-		// Verify data integrity on the VM disk
-		verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+		for _, vol := range vm1.Status.Volumes {
+			for _, p := range originalPvcs {
+				if strings.Contains(vol.Name, p.Name) {
+					volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, 2, vmIp1)
+					// Verify data integrity on the VM disk
+					verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+				}
+			}
+		}
 
 		ginkgo.By("Attach restore snapshot-1 to vm3")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
@@ -1326,16 +1402,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Wait and verify restore snapshot-1 is attached to the VM3")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		pvcs := []*v1.PersistentVolumeClaim{restorepvc1}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm3, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm3,
-			[]*v1.PersistentVolumeClaim{restorepvc1})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm3.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp3)
-			verifyDataIntegrityOnVmDisk(vmIp3, volFolder)
+			if strings.Contains(vol.Name, restorepvc1.Name) {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp3)
+				verifyDataIntegrityOnVmDisk(vmIp3, volFolder)
+			}
 		}
 
 		ginkgo.By("Deleting VMs")
@@ -1532,16 +1614,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		deletePodsAndWaitForVolsToDetach(ctx, client, []*v1.Pod{pod}, true)
 
 		ginkgo.By("retry to attach pvc2 to vm1 and verify it is accessible from vm1")
+		pvcs := []*v1.PersistentVolumeClaim{pvclaim}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvclaim})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
-			verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			if strings.Contains(vol.Name, pvclaim.Name) {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				verifyDataIntegrityOnVmDisk(vmIp, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume using the snapshot")
@@ -1664,16 +1752,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is attached to the VM1")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm1.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp1)
-			verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			if strings.Contains(vol.Name, pvc.Name) {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp1)
+				verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -1755,9 +1849,14 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
+
 		ginkgo.By("Wait and verify PVC2 is attached to the VM2")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -1766,8 +1865,10 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			if strings.Contains(vol.Name, pvc2.Name) {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+				verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			}
 		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -2014,23 +2115,43 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify pvc1 and pvc2 is attached to VM1")
+		pvcs := []*v1.PersistentVolumeClaim{pvc1, pvc2}
+		originalPvcs := pvcs
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1, pvc2})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
+		newPvcs := []*v1.PersistentVolumeClaim{pvc3}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 
 		ginkgo.By("Verify pvc3 is attached to VM2")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc3})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify pvc1 and pvc2 is accessible to VM1")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[1].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			for _, p := range originalPvcs {
+				if strings.Contains(vol.Name, p.Name) {
+					_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+					_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[1].DiskUuid, 1, vmIp1)
+				}
+			}
+		}
 
 		ginkgo.By("Verify pvc3 is accessible to VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm2.Status.Volumes {
+			if vol.Name == pvc3.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp2)
+			}
+
+		}
 	})
 
 	/*
@@ -2153,14 +2274,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp1, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm1.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp1)
+			}
+		}
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -2266,13 +2395,20 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{restorepvc})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == restorepvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp2)
+			}
+		}
 
 		ginkgo.By("Delete snapshot-1")
 		snapshotCreated1, snapshotContentCreated1, err = deleteVolumeSnapshot(ctx, snapc, namespace,
@@ -2408,19 +2544,35 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vmIp2, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm2.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		pvcs := []*v1.PersistentVolumeClaim{pvc1}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		ginkgo.By("Wait and verify PVCs are attached to respective VMs")
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to respective VMs")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 1, vmIp1)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc1.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp1)
+			}
+		}
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_ = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 1, vmIp2)
+		for _, vol := range vm2.Status.Volumes {
+			if vol.Name == pvc2.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, 1, vmIp2)
+			}
+		}
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := createVolumeSnapshotClass(ctx, snapc, deletionPolicy)
@@ -2502,8 +2654,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Wait and verify restorevol2 is attached to the VM1")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		new1Pvcs := []*v1.PersistentVolumeClaim{pvc1, restorepvc2}
+		originalPvcs := new1Pvcs
+		if isBatchAttachSupported {
+			new1Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(new1Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1, restorepvc2})).To(gomega.Succeed())
+			new1Pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
@@ -2511,9 +2668,15 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Format the PVC and verify accessibility
-		volFolder := formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 2, vmIp1)
-		// Verify data integrity on the VM disk
-		verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+		for _, vol := range vm1.Status.Volumes {
+			for _, p := range originalPvcs {
+				if strings.Contains(vol.Name, p.Name) {
+					volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, 2, vmIp1)
+					// Verify data integrity on the VM disk
+					verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+				}
+			}
+		}
 
 		ginkgo.By("Attach restore snapshot-1 to vm2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
@@ -2524,8 +2687,13 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Wait and verify restore snapshot-1 is attached to the VM2")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		new2Pvcs := []*v1.PersistentVolumeClaim{pvc2, restorepvc1}
+		originalPvcs = new2Pvcs
+		if isBatchAttachSupported {
+			new2Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(new2Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2, restorepvc1})).To(gomega.Succeed())
+			new2Pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
@@ -2533,9 +2701,15 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// Format the PVC and verify accessibility
-		volFolder = formatNVerifyPvcIsAccessible(vm2.Status.Volumes[0].DiskUuid, 2, vmIp2)
-		// Verify data integrity on the VM disk
-		verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+		for _, vol := range vm2.Status.Volumes {
+			for _, p := range originalPvcs {
+				if strings.Contains(vol.Name, p.Name) {
+					volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, 2, vmIp2)
+					// Verify data integrity on the VM disk
+					verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+				}
+			}
+		}
 
 		ginkgo.By("Deleting VMs")
 		err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
@@ -2650,16 +2824,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		new2Pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			new2Pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(new2Pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			new2Pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm1.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp1)
-			verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp1)
+				verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -2690,8 +2870,12 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volFolder := formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 2, vmIp1)
-		verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, 2, vmIp1)
+				verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			}
+		}
 
 		ginkgo.By("Create snapshot-2")
 		volumeSnapshot2, snapshotContent2, snapshotCreated2,
@@ -2717,8 +2901,12 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volFolder = formatNVerifyPvcIsAccessible(vm1.Status.Volumes[0].DiskUuid, 3, vmIp1)
-		verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+		for _, vol := range vm1.Status.Volumes {
+			if vol.Name == pvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, 3, vmIp1)
+				verifyDataIntegrityOnVmDisk(vmIp1, volFolder)
+			}
+		}
 
 		ginkgo.By("Create snapshot-3")
 		volumeSnapshot3, snapshotContent3, snapshotCreated3,
@@ -2781,16 +2969,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		newPvcs := []*v1.PersistentVolumeClaim{restorepvc}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{restorepvc})).NotTo(gomega.HaveOccurred())
+			newPvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			if vol.Name == restorepvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+				verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			}
 		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -2924,14 +3118,20 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			if vol.Name == pvc.Name {
+				_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -3004,16 +3204,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs = []*v1.PersistentVolumeClaim{restorepvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{restorepvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			if vol.Name == restorepvc.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+				verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			}
 		}
 
 		ginkgo.By("Delete dynamic volume snapshot")
@@ -3146,14 +3352,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs := []*v1.PersistentVolumeClaim{pvc}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm,
-			[]*v1.PersistentVolumeClaim{pvc})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		vm, err = getVmsvcVM(ctx, vmopC, vm.Namespace, vm.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm.Status.Volumes {
-			_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+			if vol.Name == pvc.Name {
+				if vol.Name == pvc.Name {
+					_ = formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp)
+				}
+			}
 		}
 
 		ginkgo.By("Create volume snapshot class")
@@ -3226,16 +3440,21 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{restorepvc1})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm2.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
-			verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			if vol.Name == restorepvc1.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp2)
+				verifyDataIntegrityOnVmDisk(vmIp2, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot-2")
@@ -3304,16 +3523,22 @@ var _ bool = ginkgo.Describe("[snapshot-vmsvc] Snapshot VM Service VM", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
+		pvcs = []*v1.PersistentVolumeClaim{restorepvc2}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm3, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm3,
-			[]*v1.PersistentVolumeClaim{restorepvc2})).NotTo(gomega.HaveOccurred())
+			pvcs)).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Verify PVCs are accessible to the VM")
 		ginkgo.By("Write some IO to the CSI volumes and read it back from them and verify the data integrity")
 		vm3, err = getVmsvcVM(ctx, vmopC, vm3.Namespace, vm3.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for i, vol := range vm3.Status.Volumes {
-			volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp3)
-			verifyDataIntegrityOnVmDisk(vmIp3, volFolder)
+			if vol.Name == restorepvc2.Name {
+				volFolder := formatNVerifyPvcIsAccessible(vol.DiskUuid, i+1, vmIp3)
+				verifyDataIntegrityOnVmDisk(vmIp3, volFolder)
+			}
 		}
 
 		ginkgo.By("Create volume snapshot-3")
