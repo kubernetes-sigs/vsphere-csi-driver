@@ -115,7 +115,45 @@ func resize(client clientset.Interface, pvc *v1.PersistentVolumeClaim,
 	currentPvcSize resource.Quantity, newSize resource.Quantity, wg *sync.WaitGroup) {
 	defer wg.Done()
 	framework.Logf("currentPvcSize %v, newSize %v", currentPvcSize, newSize)
-	_, err := expandPVCSize(pvc, newSize, client)
+	latestPvc, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(context.TODO(),
+		pvc.Name, metav1.GetOptions{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	for {
+		_, err = expandPVCSize(latestPvc, newSize, client)
+
+		// Case 1: Success!
+		if err == nil {
+			break
+		}
+
+		// Case 2: Unrecoverable error (Shrinking)
+		if strings.Contains(err.Error(), "shrinking") {
+			framework.Logf("Skipping expansion to %v: Volume shrinking is not supported.", newSize)
+			break
+		}
+
+		// Case 3: Recoverable error (Conflict/Stale Data)
+		if strings.Contains(err.Error(), "apply your changes to the latest version") {
+			framework.Logf("Conflict detected, fetching latest PVC version and retrying...")
+
+			// Update the outer 'latestPvc' and 'err' variables
+			time.Sleep(pollTimeoutShort)
+			latestPvc, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(
+				context.TODO(), pvc.Name, metav1.GetOptions{})
+			if err != nil {
+				framework.Logf("Failed to refetch PVC: %v", err)
+				break // Exit if we can't even get the PVC
+			}
+
+			continue // Jump back to the top to try expandPVCSize again
+		}
+
+		// Case 4: Any other unexpected error
+		framework.Logf("Unexpected error during expansion: %v", err)
+		break
+	}
+
 	time.Sleep(pollTimeoutShort)
 	framework.Logf("Error from expansion attempt on pvc %v, to %v: %v", pvc.Name, newSize, err)
 }
