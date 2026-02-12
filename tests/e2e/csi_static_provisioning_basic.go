@@ -973,7 +973,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 12. Verify PV is deleted automatically.
 	// 13. Verify Volume id deleted automatically.
 	// 14. Verify CRD deleted automatically.
-	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning workflow on svc - when there is no "+
+	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning workflow on svc - when there is no "+
 		"resourcequota available", ginkgo.Label(p1, block, wcp, vc70, vc80), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -2395,6 +2395,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			fcdID, err = e2eVSphere.createFCDwithValidProfileID(ctx,
 				"staticfcd"+curTimeString, profileID, diskSizeInMb, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			deleteFCDRequired = true
 
 		}
 
