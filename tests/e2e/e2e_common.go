@@ -377,6 +377,7 @@ var (
 	multivc              bool
 	stretchedSVC         bool
 	latebinding          bool
+	thumbprintBasedAuth  bool
 )
 
 // For busybox pod image
@@ -657,6 +658,10 @@ func setClusterFlavor(clusterFlavor cnstypes.CnsClusterFlavor) {
 	if strings.TrimSpace(string(bindingModeType)) == "WFFC" {
 		latebinding = true
 	}
+
+	//Check if thumbprint based auth is set to true
+	auth := strings.ToLower(strings.TrimSpace(os.Getenv("THUMBPRINT_AUTHENTICATION")))
+	thumbprintBasedAuth = (auth == "true")
 }
 
 var (
