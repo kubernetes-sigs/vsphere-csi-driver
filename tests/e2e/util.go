@@ -6170,7 +6170,9 @@ func ListTopologyClusterNames(topologyCluster string) []string {
 	return topologyClusterList
 }
 
-// getHosts returns list of hosts and it takes clusterComputeResource as input.
+// getHostsByClusterName returns list of hosts for the cluster whose name contains clusterName.
+// clusterName is typically from COMPUTE_CLUSTER_NAME env; vCenter cluster names may be longer
+// (e.g. "test-vpx-xxx.wcp-sanity-cluster"), so we match when cluster.Name() contains clusterName.
 func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource,
 	clusterName string) []*object.HostSystem {
 	var err error
@@ -6181,12 +6183,18 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	}
 	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
-		if strings.Contains(computeCluster, cluster.Name()) {
+		if strings.Contains(cluster.Name(), computeCluster) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return hosts
 		}
 	}
-	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	clusterNames := make([]string, 0, len(clusterComputeResource))
+	for _, c := range clusterComputeResource {
+		clusterNames = append(clusterNames, c.Name())
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil(),
+		"Could not find a matching cluster for name: %s. Available clusters: %v", computeCluster, clusterNames)
 	return hosts
 }
 
