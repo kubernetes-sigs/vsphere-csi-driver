@@ -802,9 +802,16 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Updating labels %+v for pvc %s", labels, pvc.Name))
-		pvc.Labels = labels
-
-		_, err = client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestPVC, err := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+			latestPVC.Labels = labels
+			_, err = client.CoreV1().PersistentVolumeClaims(latestPVC.Namespace).Update(ctx, latestPVC, metav1.UpdateOptions{})
+			return err
+		})
+		// --- CHANGED SECTION END ---
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By(fmt.Sprintf("Waiting for labels %+v to be updated for pvc %s", labels, pvc.Name))
