@@ -786,6 +786,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		vmServiceVm, block, wcp, stretchedSvc, vc80), func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+		var volumeID string
 		topologyHaMap := GetAndExpectStringEnvVar(topologyHaMap)
 		allowedTopos := createAllowedTopolgies(topologyHaMap)
 		allowedTopologyHAMap := createAllowedTopologiesMap(allowedTopos)
@@ -814,26 +815,18 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvcSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By("Wait for SV PVC to come to bound state")
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
-			framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		volumeID := pvs[0].Spec.CSI.VolumeHandle
-
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-				fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
-					"kubernetes", volumeID))
-		}()
+			if volumeID != "" {
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Volume: %s should not be present in the CNS after it is deleted from "+
+						"kubernetes", volumeID))
+			}
 
-		ginkgo.By("Verify SV PV has has required PV node affinity details")
-		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		framework.Logf("SVC PV: %s has required PV node affinity details", pvs[0].Name)
+		}()
 
 		ginkgo.By("Creating VM bootstrap data")
 		secretName := createBootstrapSecretForVmsvcVms(ctx, client, namespace)
@@ -845,7 +838,7 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 
 		ginkgo.By("Creating VM")
 		vm := createVmServiceVmWithPvcsWithZone(ctx, vmopC, namespace, vmClass, []*v1.PersistentVolumeClaim{pvc}, vmi,
-			storageClassName, secretName, zones[rand.Intn(len(zones))])
+			storageClassName+"-latebinding", secretName, zones[rand.Intn(len(zones))])
 		defer func() {
 			ginkgo.By("Deleting VM")
 			err = vmopC.Delete(ctx, &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{
@@ -869,6 +862,17 @@ var _ bool = ginkgo.Describe("[vmsvc] vm service with csi volume tests", func() 
 		ginkgo.By("Wait for VM to come up and get an IP")
 		vmIp, err := waitNgetVmsvcVmIp(ctx, vmopC, namespace, vm.Name)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Wait for SV PVC to come to bound state")
+		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		volumeID = pvs[0].Spec.CSI.VolumeHandle
+
+		ginkgo.By("Verify SV PV has has required PV node affinity details")
+		_, err = verifyVolumeTopologyForLevel5(pvs[0], allowedTopologyHAMap)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		framework.Logf("SVC PV: %s has required PV node affinity details", pvs[0].Name)
 
 		ginkgo.By("Wait and verify PVCs are attached to the VM")
 		pvcs := []*v1.PersistentVolumeClaim{pvc}
