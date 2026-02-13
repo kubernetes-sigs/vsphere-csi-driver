@@ -350,29 +350,14 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 		if clusterGroupResult.Stdout != "" {
 			clusterNames = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
-		cluster := govcLoginCmd() + "govc ls " + clusterNames[0] + " | sort"
+		cluster := govcLoginCmd() + "govc find " + clusterNames[0] + " -type h | sort"
 		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
 		if err != nil && clusterResult.Code != 0 {
 			fssh.LogResult(clusterResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				cluster, masterIp, err)
 		}
-		clusDetails = nil
-		if !strings.Contains(clusterResult.Stdout, "10.") {
-			if clusterResult.Stdout != "" {
-				clusListTemp := strings.Split(clusterResult.Stdout, "\n")
-				clusDetails = append(clusDetails, clusListTemp...)
-			}
-			for i := 0; i < len(clusDetails)-1; i++ {
-				clusterList = append(clusterList, clusDetails[i])
-			}
-			clusDetails = nil
-		} else {
-			for i := 0; i < len(clusterNames)-1; i++ {
-				clusterList = append(clusterList, clusterNames[i])
-			}
-			clusDetails = nil
-		}
+		clusterList = strings.Split(strings.TrimSpace(clusterResult.Stdout), "\n")
 	}
 	return clusterList, nil
 }
@@ -382,7 +367,7 @@ func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluste
 	var hostsList, hostList []string
 	framework.Logf("Fetching ESXi host details")
 	for i := 0; i < len(cluster); i++ {
-		hosts := govcLoginCmd() + "govc ls " + cluster[i] + " " + " | grep 10."
+		hosts := govcLoginCmd() + "govc find " + cluster[i] + " -type h"
 		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
 		if err != nil && hostsResult.Code != 0 {
 			fssh.LogResult(hostsResult)
