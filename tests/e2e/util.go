@@ -7184,6 +7184,8 @@ func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	spq.Spec.Limit.Reset()
+	// Add a small buffer for the API server to stabilize
+	time.Sleep(2 * time.Second)
 	spq.Spec.Limit.Add(resource.MustParse(quota))
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7207,6 +7209,7 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	framework.Logf("Present quota Limit  %s", increaseLimit)
 	spq.Spec.Limit.Reset()
 
+	time.Sleep(3 * time.Second)
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

@@ -1029,6 +1029,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
+		time.Sleep(2 * storagePolicyUsagePollInterval)
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName2, newNamespace, rqLimit)
 		framework.Logf("Wait till the PVC creation succeeds after increasing resource quota")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
