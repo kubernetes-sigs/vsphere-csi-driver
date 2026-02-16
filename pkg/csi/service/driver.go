@@ -27,6 +27,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/env"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -74,7 +75,14 @@ type vsphereCSIDriver struct {
 // If k8s node died unexpectedly in an earlier run, the unix socket is left
 // behind. This method will clean up the sock file during initialization.
 func init() {
-	sockPath := os.Getenv(csitypes.EnvVarEndpoint)
+	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
+	var sockPath string
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.CSIEndpoint != "" {
+		sockPath = startupEnv.CSIEndpoint
+	} else {
+		sockPath = os.Getenv(csitypes.EnvVarEndpoint)
+	}
 	sockPath = strings.TrimPrefix(sockPath, UnixSocketPrefix)
 	if len(sockPath) > 1 { // Minimal valid path length.
 		os.Remove(sockPath)
@@ -90,7 +98,15 @@ func NewDriver() Driver {
 
 func (driver *vsphereCSIDriver) GetController() csi.ControllerServer {
 	// Check which controller type to use.
-	clusterFlavor = cnstypes.CnsClusterFlavor(os.Getenv(cnsconfig.EnvClusterFlavor))
+	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
+	var clusterFlavorStr string
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.ClusterFlavor != "" {
+		clusterFlavorStr = startupEnv.ClusterFlavor
+	} else {
+		clusterFlavorStr = os.Getenv(cnsconfig.EnvClusterFlavor)
+	}
+	clusterFlavor = cnstypes.CnsClusterFlavor(clusterFlavorStr)
 	switch clusterFlavor {
 	case cnstypes.CnsClusterFlavorWorkload:
 		driver.cnscs = wcp.New()
@@ -130,7 +146,13 @@ func (driver *vsphereCSIDriver) BeforeServe(ctx context.Context) error {
 	}
 
 	// Get the SP's operating mode.
-	driver.mode = os.Getenv(csitypes.EnvVarMode)
+	// Try to get from centralized env, fallback to direct os.Getenv for backward compatibility
+	startupEnv := env.GetStartupEnv()
+	if startupEnv.CSIMode != "" {
+		driver.mode = startupEnv.CSIMode
+	} else {
+		driver.mode = os.Getenv(csitypes.EnvVarMode)
+	}
 	// Create OsUtils for node driver
 	driver.osUtils, err = osutils.NewOsUtils(ctx)
 	if err != nil {
