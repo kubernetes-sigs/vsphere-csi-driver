@@ -56,3 +56,37 @@ Note: This Issue is present in all Kubernetes Releases
 - Impact: If a user tries to expand a PVC to a size which may not be supported by the underlying storage system, volume expansion will keep failing and there is no way to recover.
 - Issue: https://github.com/kubernetes/enhancements/issues/1790
 - Workaround is being tracked at https://github.com/kubernetes/enhancements/blob/master/keps/sig-storage/1790-recover-resize-failure/README.md
+
+## Multipath and VMware Virtual Disks
+
+When following generic multipath setup guides (e.g. [NetApp Trident worker node prep](https://docs.netapp.com/us-en/trident/trident-use/worker-node-prep.html)), multipath may be enabled for all disks, including VMware virtual disks. This can cause issues with the vsphere-csi-driver:
+
+- VMware virtual disks are presented as device-mapper devices (e.g. `/dev/dm-*`).
+- The vsphere-csi-driver expects a physical device, not a virtual device.
+- This results in errors like: `/sys/devices/virtual/block/dm-<N>/device: no such file or directory`
+
+**Root cause:** Multipath is configured for VMware virtual disks, but multipathing should only be used for iSCSI/NFS (e.g. with Trident). For VMware, multipathing is handled at the ESXi layer.
+
+**Solution:**
+Blacklist VMware virtual disks in your `multipath.conf` to prevent multipath from claiming them:
+
+```conf
+defaults { ... }
+blacklist {
+  device {
+    vendor "VMware"
+    product "Virtual disk"
+  }
+}
+```
+
+You can verify the vendor and product with:
+
+```shell
+dmsetup ls --tree
+# mpathz (250:99)
+# └─ (34:128)
+
+multipath -l mpathz
+# mpathz (56100d29f0cf860b171204fb181814bbd) dm-99 VMware,Virtual disk
+```
