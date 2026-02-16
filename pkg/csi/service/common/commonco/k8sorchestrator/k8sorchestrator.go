@@ -2226,7 +2226,21 @@ func (c *K8sOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNam
 			linkedClonePVC.Labels[common.LinkedClonePVCLabel] = linkedClonePVC.Annotations[common.AttributeIsLinkedClone]
 		}
 
-		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, linkedClonePVC, metav1.UpdateOptions{})
+		// Patch PVC with updated label
+		restClientConfig, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to get kubeconfig with err:%+v", err)
+			return err
+		}
+		coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("failed to create client with err:%+v", err)
+			return err
+		}
+		originalPVC := linkedClonePVC.DeepCopy()
+		// Reset the label that was added for proper patch
+		delete(originalPVC.Labels, common.LinkedClonePVCLabel)
+		err = k8s.PatchObject(ctx, coreV1Client, originalPVC, linkedClonePVC)
 		if err != nil {
 			log.Errorf("failed to add linked clone label for PVC %s/%s. Error: %+v, retrying...",
 				pvcNamespace, pvcName, err)
@@ -2274,13 +2288,28 @@ func (c *K8sOrchestrator) UpdatePersistentVolumeLabel(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error getting PV %s from API server: %w", pvName, err)
 		}
+		
+		// Patch PV with updated label
+		restClientConfig, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("failed to get kubeconfig with err:%+v", err)
+			return err
+		}
+		coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("failed to create client with err:%+v", err)
+			return err
+		}
+		
+		originalPV := pv.DeepCopy()
 		if pv.Labels == nil {
 			pv.Labels = make(map[string]string)
 		}
 		pv.Labels[key] = value
-		_, err = c.k8sClient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		
+		err = k8s.PatchObject(ctx, coreV1Client, originalPV, pv)
 		if err != nil {
-			errMsg := fmt.Sprintf("error updating PV %s with labels %s/%s. Error: %v", pvName, key, value, err)
+			errMsg := fmt.Sprintf("error patching PV %s with labels %s/%s. Error: %v", pvName, key, value, err)
 			log.Error(errMsg)
 			return err
 		}

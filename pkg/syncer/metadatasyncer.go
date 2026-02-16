@@ -973,11 +973,12 @@ func addFinalizerOnCnsFileVolumeClientCRs(ctx context.Context) error {
 			}
 			if !cnsFinalizerExists {
 				// Add finalizer.
+				original := cnsFileVolumeClient.DeepCopy()
 				cnsFileVolumeClient.Finalizers = append(cnsFileVolumeClient.Finalizers,
 					cnsoperatortypes.CNSFinalizer)
-				err = cnsOperatorClient.Update(ctx, &cnsFileVolumeClient)
+				err = k8s.PatchObject(ctx, cnsOperatorClient, original, &cnsFileVolumeClient)
 				if err != nil {
-					log.Errorf("failed to update CnsFileVolumeClient instance: %q on namespace: %q. Error: %+v",
+					log.Errorf("failed to patch CnsFileVolumeClient instance: %q on namespace: %q. Error: %+v",
 						cnsFileVolumeClient.Name, cnsFileVolumeClient.Namespace, err)
 					return err
 				}

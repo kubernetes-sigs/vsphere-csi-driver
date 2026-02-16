@@ -696,11 +696,21 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 	log.Debugf("setFileShareAnnotationsOnPVC: Access point details for PVC: %q, namespace: %q are %+v",
 		pvc.Name, pvc.Namespace, accessPoints)
 
-	// Update PVC to add annotation on it
-	pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc,
-		metav1.UpdateOptions{})
+	// Patch PVC to add annotation on it
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
 	if err != nil {
-		log.Errorf("setFileShareAnnotationsOnPVC: Error updating PVC %q in namespace %q, Err: %v",
+		log.Errorf("setFileShareAnnotationsOnPVC: Failed to get kubeconfig. Err: %v", err)
+		return err
+	}
+	coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+	if err != nil {
+		log.Errorf("setFileShareAnnotationsOnPVC: Failed to create client. Err: %v", err)
+		return err
+	}
+	modifiedPVC := pvc.DeepCopy()
+	err = k8s.PatchObject(ctx, coreV1Client, pvc, modifiedPVC)
+	if err != nil {
+		log.Errorf("setFileShareAnnotationsOnPVC: Error patching PVC %q in namespace %q, Err: %v",
 			pvc.Name, pvc.Namespace, err)
 		return err
 	}
@@ -1727,13 +1737,27 @@ func RemoveCNSFinalizerFromPVCIfTKGClusterDeleted(ctx context.Context, k8sClient
 			log.Infof("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Removing %q finalizer from PVC "+
 				"with name: %q on namespace: %q in Terminating state",
 				cnsoperatortypes.CNSVolumeFinalizer, pvc.Name, pvc.Namespace)
+			originalPVC := pvc.DeepCopy()
 			controllerutil.RemoveFinalizer(pvc, finalizerToRemove)
-			_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx,
-				pvc, metav1.UpdateOptions{})
+			restClientConfig, err := k8s.GetKubeConfig(ctx)
 			if err != nil {
-				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: failed to update "+
-					"supervisor PVC %q in %q namespace. Err: %+v", pvc.Name, pvc.Namespace, err)
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: failed to get kubeconfig. "+
+					"Err: %+v", err)
 				log.Error(msg)
+			} else {
+				coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+				if err != nil {
+					msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: failed to create client. "+
+						"Err: %+v", err)
+					log.Error(msg)
+				} else {
+					err = k8s.PatchObject(ctx, coreV1Client, originalPVC, pvc)
+					if err != nil {
+						msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: failed to patch "+
+							"supervisor PVC %q in %q namespace. Err: %+v", pvc.Name, pvc.Namespace, err)
+						log.Error(msg)
+					}
+				}
 			}
 		}
 	}
@@ -1808,11 +1832,28 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 			log.Infof("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: Removing %q finalizer from VolumeSnapshot "+
 				"with name: %q on namespace: %q in Terminating state",
 				cnsoperatortypes.CNSSnapshotFinalizer, vs.Name, vs.Namespace)
+			originalVS := vs.DeepCopy()
 			controllerutil.RemoveFinalizer(vs, finalizerToRemove)
-			_, err = snapshotterClient.SnapshotV1().VolumeSnapshots(vs.Namespace).Update(ctx,
-				vs, metav1.UpdateOptions{})
+			
+			// Create controller-runtime client for VolumeSnapshot
+			scheme := runtime.NewScheme()
+			if err := snapv1.AddToScheme(scheme); err != nil {
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: failed to add snapv1 to scheme. "+
+					"Err: %+v", err)
+				log.Error(msg)
+				return
+			}
+			snapshotClient, err := client.New(restClientConfig, client.Options{Scheme: scheme})
 			if err != nil {
-				msg := fmt.Sprintf("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: failed to update "+
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: failed to create snapshot client. "+
+					"Err: %+v", err)
+				log.Error(msg)
+				return
+			}
+			
+			err = k8s.PatchObject(ctx, snapshotClient, originalVS, vs)
+			if err != nil {
+				msg := fmt.Sprintf("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: failed to patch "+
 					"supervisor VolumeSnapshot %q in %q namespace. Err: %+v", vs.Name, vs.Namespace, err)
 				log.Error(msg)
 			}
