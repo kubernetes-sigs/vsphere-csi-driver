@@ -74,7 +74,7 @@ rules:
     verbs: ["get", "watch", "list", "delete", "update", "create"]
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachines"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["vmware.com"]
     resources: ["virtualnetworks"]
     verbs: ["get"]
