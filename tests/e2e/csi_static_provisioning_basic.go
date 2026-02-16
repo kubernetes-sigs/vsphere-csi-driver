@@ -154,7 +154,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			svcClient, svNamespace := getSvcClientAndNamespace()
 			setResourceQuota(svcClient, svNamespace, rqLimit)
 		}
-
 	})
 
 	ginkgo.AfterEach(func() {
