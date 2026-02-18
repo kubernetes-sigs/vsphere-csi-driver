@@ -40,8 +40,6 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/utils/pointer"
-
 	"github.com/hashicorp/go-version"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -86,6 +84,7 @@ import (
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	"k8s.io/pod-security-admission/api"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
