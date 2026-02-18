@@ -7189,6 +7189,7 @@ func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	spq = &storagepolicyv1alpha2.StoragePolicyQuota{}
 	time.Sleep(3 * storagePolicyUsagePollInterval)
 	quotaValue := spq.Spec.Limit.String()
 	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
