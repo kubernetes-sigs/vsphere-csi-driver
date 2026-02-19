@@ -2436,6 +2436,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+		existingResourceQuota, _ := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -7191,6 +7192,7 @@ func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	time.Sleep(3 * storagePolicyUsagePollInterval)
+	spq = &storagepolicyv1alpha2.StoragePolicyQuota{}
 	quotaValue := spq.Spec.Limit.String()
 	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
 }
