@@ -13,8 +13,26 @@ export BIN_OUT ?= $(BUILD_OUT)/bin
 # DIST_OUT is the directory containting the distribution packages
 export DIST_OUT ?= $(BUILD_OUT)/dist
 
-# Compile Go with boringcrypto. This is required to import crypto/tls/fipsonly package.
-export GOEXPERIMENT=boringcrypto
+# Detect architecture and conditionally enable FIPS
+ARCH ?= $(shell uname -m)
+ifeq ($(ARCH),x86_64)
+    GOARCH := amd64
+    # Enable FIPS for amd64/x86_64 architecture only
+    export GOEXPERIMENT=boringcrypto
+else ifeq ($(ARCH),aarch64)
+    GOARCH := arm64
+    # FIPS not supported on ARM64, disable boringcrypto
+    export GOEXPERIMENT=
+else ifeq ($(ARCH),arm64)
+    GOARCH := arm64
+    # FIPS not supported on ARM64, disable boringcrypto
+    export GOEXPERIMENT=
+else
+    # Default to amd64 for unknown architectures
+    GOARCH := amd64
+    export GOEXPERIMENT=boringcrypto
+endif
+
 
 
 ################################################################################
@@ -390,9 +408,32 @@ vet:
 ################################################################################
 ##                                 BUILD IMAGES                               ##
 ################################################################################
+# Build all images (Linux + Windows)
 .PHONY: images
 images: | $(DOCKER_SOCK)
 	hack/release.sh
+
+# Build Linux images only (excludes Windows builds) - Recommended for development
+.PHONY: images-linux
+images-linux: | $(DOCKER_SOCK)
+	DO_WINDOWS_BUILD=false hack/release.sh
+
+# Build Windows images only (excludes Linux builds)
+.PHONY: images-windows
+images-windows: | $(DOCKER_SOCK)
+	DO_WINDOWS_BUILD=true LINUX_BUILD=false hack/release.sh
+
+# Show help for image build targets
+.PHONY: help-images
+help-images:
+	@echo "Available image build targets:"
+	@echo "  images        - Build all images (Linux + Windows) [default]"
+	@echo "  images-linux  - Build Linux images only (recommended for development)"
+	@echo "  images-windows - Build Windows images only"
+	@echo ""
+	@echo "Environment variables:"
+	@echo "  DO_WINDOWS_BUILD=false - Skip Windows builds"
+	@echo "  LINUX_BUILD=false      - Skip Linux builds"
 
 ################################################################################
 ##                                  PUSH IMAGES                               ##
