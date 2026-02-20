@@ -19,6 +19,9 @@ package constants
 const (
 	Datacenter              = "DATACENTER"
 	DestinationDatastoreURL = "DESTINATION_VSPHERE_DATASTORE_URL"
+	DATASTORE               = "Datastore"
+	DatastoreInfo           = "info"
+	DatastoreSummary        = "summary"
 	DisklibUnlinkErr        = "DiskLib_Unlink"
 	DiskSize1GB             = "1Gi"
 	DiskSize                = "2Gi"
