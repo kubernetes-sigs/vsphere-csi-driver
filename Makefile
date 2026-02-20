@@ -406,6 +406,21 @@ else
 endif
 
 ################################################################################
+##                              COVERAGE IMAGES                               ##
+################################################################################
+.PHONY: cover-images
+cover-images: | $(DOCKER_SOCK)
+	hack/cover-images.sh
+
+.PHONY: push-cover-images
+push-cover-images: | $(DOCKER_SOCK)
+ifndef CSI_REGISTRY
+	hack/cover-images.sh -p -l
+else 
+	hack/cover-images.sh -p -l -r ${CSI_REGISTRY}
+endif
+
+################################################################################
 ##                                  CI IMAGE                                  ##
 ################################################################################
 build-ci-image:
