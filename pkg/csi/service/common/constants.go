@@ -488,6 +488,9 @@ const (
 	// WCPVMServiceVMSnapshots is a supervisor capability indicating
 	// if supports_VM_service_VM_snapshots FSS is enabled
 	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
+	// HighPVNodeDensity is an FSS for guest cluster nodes that, when enabled,
+	// raises MAX_VOLUMES_PER_NODE from 59 to 255 in NodeGetInfo responses.
+	HighPVNodeDensity = "high-pv-node-density"
 )
 
 var WCPFeatureStates = map[string]struct{}{
