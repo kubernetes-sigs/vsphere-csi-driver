@@ -66,9 +66,8 @@ var getPVsInBoundAvailableOrReleased = func(ctx context.Context,
 		return nil, err
 	}
 	for _, pv := range allPVs {
-		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) ||
-			(metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) && pv.Spec.VsphereVolume != nil &&
-				isValidvSphereVolume(ctx, pv)) {
+		if (pv.Spec.CSI != nil && pv.Spec.CSI.Driver == csitypes.Name) || (pv.Spec.VsphereVolume != nil &&
+			isValidvSphereVolume(ctx, pv)) {
 			log.Debugf("FullSync: pv %v is in state %v", pv.Name, pv.Status.Phase)
 			if pv.Status.Phase == v1.VolumeBound || pv.Status.Phase == v1.VolumeAvailable ||
 				pv.Status.Phase == v1.VolumeReleased {
@@ -156,14 +155,7 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod,
 		// Verify volume is a in-tree VCP volume.
 		if pv.Spec.VsphereVolume != nil {
 			// Check if migration feature switch is enabled.
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) {
-				if !isValidvSphereVolume(ctx, pv) {
-					return false, nil, nil
-				}
-			} else {
-				log.Debugf(
-					"%s feature switch is disabled. Cannot update vSphere volume metadata %s for the pod %s in namespace %s",
-					common.CSIMigration, pv.Name, pod.Name, pod.Namespace)
+			if !isValidvSphereVolume(ctx, pv) {
 				return false, nil, nil
 			}
 		} else {
@@ -611,8 +603,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 	for _, pv := range allPvs {
 		// Check if the PV is an in-tree volume.
 		if pv.Spec.CSI == nil {
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
-				pv.Spec.VsphereVolume != nil {
+			if pv.Spec.VsphereVolume != nil {
 				return nil, logger.LogNewErrorf(log,
 					"In-tree volumes are not supported on a multi VC set up."+
 						"Found in-tree volume %q.", pv.Name)
@@ -797,8 +788,7 @@ func createMissingFileVolumeInfoCrs(ctx context.Context, metadataSyncer *metadat
 	fileVolumes := make([]*v1.PersistentVolume, 0)
 	for _, pv := range allPvs {
 		if pv.Spec.CSI == nil {
-			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSIMigration) &&
-				pv.Spec.VsphereVolume != nil {
+			if pv.Spec.VsphereVolume != nil {
 				log.Errorf("In-tree volumes are not supported on a multi VC set up."+
 					"Found in-tree volume %s.", pv.Name)
 				return

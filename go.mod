@@ -2,6 +2,10 @@ module sigs.k8s.io/vsphere-csi-driver/v3
 
 go 1.25.5
 
+replace k8s.io/endpointslice => k8s.io/endpointslice v0.28.1
+
+replace k8s.io/externaljwt => k8s.io/externaljwt v0.31.0
+
 require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/akutz/gofsutil v0.1.2
