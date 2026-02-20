@@ -187,15 +187,20 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		return err
 	}
 
-	// Iterate through all the k8sPVs to find all PVs with node affinity missing and
-	// patch such PVs and their corresponding PVCs with topology discovered
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		IsWorkloadDomainIsolationSupported {
-		k8sClient, err := k8s.NewClient(ctx)
+	// Create k8sClient once for workload cluster operations to optimize performance
+	var k8sClient clientset.Interface
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		k8sClient, err = k8sNewClient(ctx)
 		if err != nil {
 			log.Errorf("FullSync for VC %s: Failed to create kubernetes client. Err: %+v", vc, err)
 			return err
 		}
+	}
+
+	// Iterate through all the k8sPVs to find all PVs with node affinity missing and
+	// patch such PVs and their corresponding PVCs with topology discovered
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		IsWorkloadDomainIsolationSupported {
 		var pvWithMissingNodeAffinityList [](*v1.PersistentVolume)
 		for _, pv := range k8sPVs {
 			if pv.Spec.NodeAffinity == nil {
@@ -226,11 +231,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	// Iterate over all the file volume PVCs and check if file share export paths are added as annotations
 	// on it. If not added, then add file share export path annotations on such PVCs.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		k8sClient, err := k8sNewClient(ctx)
-		if err != nil {
-			log.Errorf("FullSync for VC %s: Failed to create kubernetes client. Err: %+v", vc, err)
-			return err
-		}
+		// Reuse the existing k8sClient instead of creating a new one
 		for _, pv := range k8sPVs {
 			if IsFileVolume(pv) {
 				if pvc, ok := pvToPVCMap[pv.Name]; ok {
