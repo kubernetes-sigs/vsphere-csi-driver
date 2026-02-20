@@ -1462,7 +1462,24 @@ var _ = ginkgo.Describe("[vol-allocation] Policy driven volume space allocation 
 
 		ginkgo.By("Verify the data on the PVCs match what was written in step 7")
 		for i, pod := range pods {
+			framework.Logf("Starting verification for pod %s", pod.Name)
+
+			// Wait for the file to actually exist and be readable.
+			gomega.Eventually(func() bool {
+				findCmd := "find /mnt/volume1 -type f | head -n 1"
+				actualFile := strings.TrimSpace(fpod.ExecShellInPod(ctx, f, pod.Name, findCmd))
+				if actualFile == "" {
+					return false
+				}
+				// Force a sync to ensure the expansion didn't leave data in cache
+				fpod.ExecShellInPod(ctx, f, pod.Name, "sync")
+				return true
+			}, "3m", "20s").Should(gomega.BeTrue(), "File not found in mount point after expansion")
+
+			// data comparison
+			framework.Logf("File found. Running official verifyKnownDataInPod for pod %s", pod.Name)
 			verifyKnownDataInPod(f, client, pod, testdataFile, fsSizes[i]-spareSpace)
+			framework.Logf("Data integrity verified successfully for pod %s", pod.Name)
 		}
 	})
 
