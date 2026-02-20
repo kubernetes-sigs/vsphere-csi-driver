@@ -339,11 +339,11 @@ func (or *operationRequestStore) StoreRequestDetails(
 		}
 	}
 
-	// Store the local instance on the API server.
-	err := or.k8sclient.Update(ctx, updatedInstance)
+	// Store the local instance on the API server using patch.
+	err := or.k8sclient.Patch(ctx, updatedInstance, client.MergeFrom(instance))
 	if err != nil {
 		log.Errorf(
-			"failed to update CnsVolumeOperationRequest instance %s/%s with error: %v",
+			"failed to patch CnsVolumeOperationRequest instance %s/%s with error: %v",
 			instanceKey.Namespace,
 			instanceKey.Name,
 			err,
