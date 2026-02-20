@@ -78,6 +78,11 @@ func isDatastoreAccessibleToCluster(ctx context.Context, vc *vsphere.VirtualCent
 	return false
 }
 
+// getCandidateDatastoresInClusterFn is the function used to fetch datastores for
+// a cluster. It is a variable so that tests can substitute a fake implementation
+// without needing gomonkey.
+var getCandidateDatastoresInClusterFn = vsphere.GetCandidateDatastoresInCluster
+
 // isDatastoreAccessibleToAZClusters verifies if the datastoreUrl is accessible to
 // any of the az cluster for the given azClustersMap.
 func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualCenter,
@@ -85,7 +90,7 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 	log := logger.GetLogger(ctx)
 	for _, clusterIDs := range azClustersMap {
 		for _, clusterID := range clusterIDs {
-			sharedDatastores, _, err := vsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterID, false)
+			sharedDatastores, _, err := getCandidateDatastoresInClusterFn(ctx, vc, clusterID, false)
 			if err != nil {
 				log.Warnf("Failed to get candidate datastores for cluster: %s with err: %+v", clusterID, err)
 				continue
