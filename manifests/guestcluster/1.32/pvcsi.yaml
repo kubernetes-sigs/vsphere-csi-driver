@@ -684,6 +684,7 @@ data:
   "csi-sv-feature-states-replication": "false" # Do not enable for guest cluster, Refer PR#2386 for details
   "block-volume-snapshot": "true"
   "tkgs-ha": "true"
+  "high-pv-node-density": "false" # When enabled, raises MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
   "cnsmgr-suspend-create-volume": "true"
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
