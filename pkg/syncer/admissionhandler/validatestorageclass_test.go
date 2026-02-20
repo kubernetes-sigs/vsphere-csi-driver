@@ -40,7 +40,6 @@ var admissionReview = v1.AdmissionReview{
 func TestValidateStorageClassForAllowVolumeExpansion(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	featureGateCsiMigrationEnabled = true
 	admissionReview.Request.Object = runtime.RawExtension{
 		Raw: []byte("{\n  \"kind\": \"StorageClass\",\n  \"apiVersion\": \"storage.k8s.io/v1\",\n  \"metadata\": " +
 			"{\n    \"name\": \"sc\",\n    \"uid\": \"e5d6b37e-db23-4c1d-9aed-e38cdd0f9ec6\",\n    " +
@@ -65,7 +64,6 @@ func TestValidateStorageClassForAllowVolumeExpansion(t *testing.T) {
 func TestValidateStorageClassForMigrationParameter(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	featureGateCsiMigrationEnabled = true
 	admissionReview.Request.Object = runtime.RawExtension{
 		Raw: []byte("{\n  \"kind\": \"StorageClass\",\n  \"apiVersion\": \"storage.k8s.io/v1\",\n  \"metadata\": " +
 			"{\n    \"name\": \"sc\",\n    \"uid\": \"a9ed134e-aab1-4624-8de4-b9d961cad861\",\n    " +
@@ -103,7 +101,6 @@ func TestValidateStorageClassForMigrationParameter(t *testing.T) {
 func TestValidateStorageClassForValidStorageClass(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	featureGateCsiMigrationEnabled = true
 	admissionReview.Request.Object = runtime.RawExtension{
 		Raw: []byte("{\n  \"kind\": \"StorageClass\",\n  \"apiVersion\": \"storage.k8s.io/v1\",\n  \"metadata\": " +
 			"{\n    \"name\": \"sc\",\n    \"uid\": \"a896f427-929a-4fc5-be95-078d99d57774\",\n    " +
