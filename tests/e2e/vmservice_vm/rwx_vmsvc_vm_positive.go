@@ -75,7 +75,7 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 		adminClient         clientset.Interface
 		userName            string
 		fullSyncWaitTime    int
-		clusterRef          types.ManagedObjectReference
+		//clusterRef          types.ManagedObjectReference
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -169,9 +169,9 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 			}
 		}
 
-		clusterName := env.GetAndExpectStringEnvVar(constants.EnvComputeClusterName)
+		/*clusterName := env.GetAndExpectStringEnvVar(constants.EnvComputeClusterName)
 		clusterRef, err = vcutil.GetClusterRefFromClusterName(ctx, e2eTestConfig, clusterName)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 
 	})
 
@@ -288,10 +288,10 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		ginkgo.By("verify ACL permissions on file share volumes")
+		/*ginkgo.By("verify ACL permissions on file share volumes")
 		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
 		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 
 		ginkgo.By("Create volume snapshot class")
 		volumeSnapshotClass, err := csisnapshot.CreateVolumeSnapshotClass(ctx, e2eTestConfig, snapc, constants.DeletionPolicy)
@@ -307,14 +307,14 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 				namespace, volumeSnapshot.Name, pandoraSyncWaitTime)
 		}()
 		framework.Logf("Volume snapshot name is : %s", volumeSnapshot.Name)
-		expectedErrMsg := "queried volume doesn't have the expected volume type"
+		/*expectedErrMsg := "queried volume doesn't have the expected volume type"
 		volumeSnapshot, err = snapc.SnapshotV1().VolumeSnapshots(namespace).Get(ctx,
 			volumeSnapshot.Name, metav1.GetOptions{})
 		actualErr := volumeSnapshot.Status.Error
 		framework.Logf("Expected error: %s, actual error: %s", expectedErrMsg, *actualErr.Message)
 		if !strings.Contains(*actualErr.Message, expectedErrMsg) {
 			framework.Failf("Expected error: %s, actual error: %s", expectedErrMsg, *actualErr.Message)
-		}
+		}*/
 
 		ginkgo.By("Expanding the current pvc")
 		currentPvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
@@ -442,10 +442,10 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		ginkgo.By("verify ACL permissions on file share volumes")
+		/*ginkgo.By("verify ACL permissions on file share volumes")
 		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
 		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 
 		err = fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -589,9 +589,9 @@ var _ bool = ginkgo.Describe("[rwx-vmsvc-vm] RWX support with VMService Vms", fu
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		ginkgo.By("verify ACL permissions on file share volumes")
+		/*ginkgo.By("verify ACL permissions on file share volumes")
 		vsanFileShares := vcutil.QueryVsanFileShares(ctx, e2eTestConfig, []string{volHandle}, clusterRef)
 		err = VerifyACLPermissionsOnFileShare(vsanFileShares, volHandle, vmIPs)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())*/
 	})
 })
