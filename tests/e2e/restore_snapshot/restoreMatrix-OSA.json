@@ -1,0 +1,30 @@
+[
+  {
+    "sourceSC": "vsan-thin-policy",
+    "targetSCs": ["vmfs-thin-policy", "vmfs-ezt-policy", "vmfs-lzt-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "vsan-thick-policy",
+    "targetSCs": ["vmfs-thin-policy", "vmfs-ezt-policy", "vmfs-lzt-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "vsan-50-res-policy",
+    "targetSCs": ["vmfs-thin-policy", "vmfs-ezt-policy", "vmfs-lzt-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "vmfs-thin-policy",
+    "targetSCs": ["vsan-thin-policy", "vsan-thick-policy", "vsan-50-res-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "vmfs-ezt-policy",
+    "targetSCs": ["vsan-thin-policy", "vsan-thick-policy", "vsan-50-res-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "vmfs-lzt-policy",
+    "targetSCs": ["vsan-thin-policy", "vsan-thick-policy", "vsan-50-res-policy", "nfs-policy"]
+  },
+  {
+    "sourceSC": "nfs-policy",
+    "targetSCs": ["vsan-thin-policy", "vsan-thick-policy", "vsan-50-res-policy", "vmfs-thin-policy", "vmfs-ezt-policy", "vmfs-lzt-policy"]
+  }
+]
