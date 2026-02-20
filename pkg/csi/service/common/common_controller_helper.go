@@ -27,7 +27,9 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -447,4 +449,128 @@ func WaitForVolumeSnapshotDeleted(ctx context.Context, client snapshotterClientS
 	}
 
 	return nil
+}
+
+// WaitForVolumeSnapshotDeletedWithWatch waits for a VolumeSnapshot to get deleted using Watch API instead of polling.
+func WaitForVolumeSnapshotDeletedWithWatch(ctx context.Context, client snapshotterClientSet.Interface,
+	snapshotName string, namespace string, timeout time.Duration) error {
+	log := logger.GetLogger(ctx)
+	timeoutSeconds := int64(timeout.Seconds())
+
+	log.Infof("Waiting up to %d seconds for VolumeSnapshot %s in namespace %s to be deleted using Watch API",
+		timeoutSeconds, snapshotName, namespace)
+
+	// First check if VolumeSnapshot already exists
+	_, err := client.SnapshotV1().VolumeSnapshots(namespace).Get(ctx, snapshotName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("VolumeSnapshot %s/%s is already deleted", namespace, snapshotName)
+			return nil
+		}
+		return fmt.Errorf("unable to fetch VolumeSnapshot %s/%s with err: %+v", namespace, snapshotName, err)
+	}
+
+	// Create a context with timeout for client-side timeout handling
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Set up watch for the specific VolumeSnapshot
+	watchSnapshot, err := client.SnapshotV1().VolumeSnapshots(namespace).Watch(
+		watchCtx,
+		metav1.ListOptions{
+			FieldSelector:  fields.OneTermEqualSelector("metadata.name", snapshotName).String(),
+			TimeoutSeconds: &timeoutSeconds,
+			Watch:          true,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to watch VolumeSnapshot %s in namespace %s with Error: %+v",
+			snapshotName, namespace, err)
+	}
+	defer watchSnapshot.Stop()
+
+	// Watch for deletion events with proper timeout handling
+	for {
+		select {
+		case event, ok := <-watchSnapshot.ResultChan():
+			if !ok {
+				// Channel closed, likely due to timeout or error
+				return fmt.Errorf("volumeSnapshot %s/%s was not deleted within %d seconds",
+					namespace, snapshotName, timeoutSeconds)
+			}
+			switch event.Type {
+			case watch.Deleted:
+				log.Infof("VolumeSnapshot %s/%s was deleted", namespace, snapshotName)
+				return nil
+			case watch.Error:
+				return fmt.Errorf("error watching VolumeSnapshot %s/%s: %+v", namespace, snapshotName, event.Object)
+			}
+			// Continue watching for other event types (Added, Modified)
+		case <-watchCtx.Done():
+			// Client-side timeout
+			return fmt.Errorf("volumeSnapshot %s/%s was not deleted within %d seconds",
+				namespace, snapshotName, timeoutSeconds)
+		}
+	}
+}
+
+// WaitForPVCDeletedWithWatch waits for a PVC to get deleted using Watch API instead of polling.
+func WaitForPVCDeletedWithWatch(ctx context.Context, client clientset.Interface, pvcName string,
+	namespace string, timeout time.Duration) error {
+	log := logger.GetLogger(ctx)
+	timeoutSeconds := int64(timeout.Seconds())
+
+	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %s in namespace %s to be deleted using Watch API",
+		timeoutSeconds, pvcName, namespace)
+
+	// First check if PVC already exists
+	_, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("PersistentVolumeClaim %s/%s is already deleted", namespace, pvcName)
+			return nil
+		}
+		return fmt.Errorf("unable to fetch PersistentVolumeClaim %s/%s with err: %+v", namespace, pvcName, err)
+	}
+
+	// Create a context with timeout for client-side timeout handling
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Set up watch for the specific PVC
+	watchPVC, err := client.CoreV1().PersistentVolumeClaims(namespace).Watch(
+		watchCtx,
+		metav1.ListOptions{
+			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
+			TimeoutSeconds: &timeoutSeconds,
+			Watch:          true,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to watch PersistentVolumeClaim %s in namespace %s with Error: %+v",
+			pvcName, namespace, err)
+	}
+	defer watchPVC.Stop()
+
+	// Watch for deletion events with proper timeout handling
+	for {
+		select {
+		case event, ok := <-watchPVC.ResultChan():
+			if !ok {
+				// Channel closed, likely due to timeout or error
+				return fmt.Errorf("persistentVolumeClaim %s/%s was not deleted within %d seconds",
+					namespace, pvcName, timeoutSeconds)
+			}
+			switch event.Type {
+			case watch.Deleted:
+				log.Infof("PersistentVolumeClaim %s/%s was deleted", namespace, pvcName)
+				return nil
+			case watch.Error:
+				return fmt.Errorf("error watching PersistentVolumeClaim %s/%s: %+v", namespace, pvcName, event.Object)
+			}
+			// Continue watching for other event types (Added, Modified)
+		case <-watchCtx.Done():
+			// Client-side timeout
+			return fmt.Errorf("persistentVolumeClaim %s/%s was not deleted within %d seconds",
+				namespace, pvcName, timeoutSeconds)
+		}
+	}
 }
