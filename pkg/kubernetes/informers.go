@@ -53,6 +53,26 @@ func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
+// NewInformerFromFactory creates an InformerManager using the given pre-built
+// shared informer factory. Unlike NewInformer, it does not register the result
+// in any singleton and does not manage the factory's lifecycle beyond wiring
+// the stop channel to ctx. Callers are responsible for starting the factory.
+//
+// This constructor is intended for scenarios where the factory must be
+// customised (e.g., namespace-scoped, label-filtered, or backed by a fake
+// client in tests) before being handed to the InformerManager.
+func NewInformerFromFactory(
+	ctx context.Context,
+	client clientset.Interface,
+	factory informers.SharedInformerFactory,
+) *InformerManager {
+	return &InformerManager{
+		client:          client,
+		stopCh:          ctx.Done(),
+		informerFactory: factory,
+	}
+}
+
 // NewInformer creates a new K8S client based on a service account.
 // NOTE: This function expects caller function to pass appropriate client
 // as per config to be created Informer for.
@@ -287,19 +307,6 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	return im.stopCh
 }
 
-// ResetInformerManagerForTest clears the cached informer manager singletons.
-// This must be called in unit tests that create a fresh fake k8s client so
-// that the next NewInformer call builds a new factory bound to that client,
-// rather than reusing a stale factory from a previous test run.
-func ResetInformerManagerForTest() {
-	inClusterInformerInstanceLock.Lock()
-	inClusterInformerManagerInstance = nil
-	inClusterInformerInstanceLock.Unlock()
-
-	supervisorInformerInstanceLock.Lock()
-	supervisorInformerManagerInstance = nil
-	supervisorInformerInstanceLock.Unlock()
-}
 
 // NewConfigMapListener creates a new configmap listener in the given namespace.
 // NOTE: This creates a NewSharedIndexInformer everytime and does not use the informer factory.

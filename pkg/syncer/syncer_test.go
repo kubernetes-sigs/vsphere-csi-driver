@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	k8stesting "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes/testing"
 )
 
 const (
@@ -170,11 +170,10 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster.
 	k8sclient = testclient.NewClientset()
-	// Reset the informer manager singleton so that the new fake client is used.
-	// Without this, a stale factory from a prior test run would be reused and
-	// PVs/PVCs created on the new k8sclient would never appear in the lister.
-	k8s.ResetInformerManagerForTest()
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, true)
+	// Use k8stesting.NewInformerForTest to create a fresh factory bound to the
+	// new fake client without touching the process-level singleton. This ensures
+	// each test run gets its own isolated informer and listers.
+	metadataSyncer.k8sInformerManager = k8stesting.NewInformerForTest(ctx, k8sclient)
 	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
