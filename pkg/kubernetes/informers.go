@@ -288,6 +288,20 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	return im.stopCh
 }
 
+// ResetInformerManagerForTest clears the cached informer manager singletons.
+// This must be called in unit tests that create a fresh fake k8s client so
+// that the next NewInformer call builds a new factory bound to that client,
+// rather than reusing a stale factory from a previous test run.
+func ResetInformerManagerForTest() {
+	inClusterInformerInstanceLock.Lock()
+	inClusterInformerManagerInstance = nil
+	inClusterInformerInstanceLock.Unlock()
+
+	supervisorInformerInstanceLock.Lock()
+	supervisorInformerManagerInstance = nil
+	supervisorInformerInstanceLock.Unlock()
+}
+
 // NewConfigMapListener creates a new configmap listener in the given namespace.
 // NOTE: This creates a NewSharedIndexInformer everytime and does not use the informer factory.
 // Only use this function when you need a configmap listener in a different namespace than the

@@ -170,6 +170,10 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster.
 	k8sclient = testclient.NewClientset()
+	// Reset the informer manager singleton so that the new fake client is used.
+	// Without this, a stale factory from a prior test run would be reused and
+	// PVs/PVCs created on the new k8sclient would never appear in the lister.
+	k8s.ResetInformerManagerForTest()
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, true)
 	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
