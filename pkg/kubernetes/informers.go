@@ -307,7 +307,6 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	return im.stopCh
 }
 
-
 // NewConfigMapListener creates a new configmap listener in the given namespace.
 // NOTE: This creates a NewSharedIndexInformer everytime and does not use the informer factory.
 // Only use this function when you need a configmap listener in a different namespace than the
