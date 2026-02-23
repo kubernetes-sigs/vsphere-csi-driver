@@ -45,7 +45,6 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	commonco "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -1003,74 +1002,63 @@ func strPtr(s string) *string {
 	return &s
 }
 
+// makeTestVolume returns a CnsVolume with CnsVsanFileShareBackingDetails for use in
+// TestSetFileShareAnnotations* tests.
+func makeTestVolume(accessPoints []types.KeyValue) *cnstypes.CnsVolume {
+	return &cnstypes.CnsVolume{
+		VolumeId: cnstypes.CnsVolumeId{Id: "test-volume-handle"},
+		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
+			AccessPoints: accessPoints,
+		},
+	}
+}
+
+// swapQueryVolumeByIDFn replaces queryVolumeByIDFn for the duration of the test
+// and restores it via t.Cleanup. This avoids gomonkey, which patches at the binary
+// level and leaks across tests when used with defer inside top-level test functions.
+func swapQueryVolumeByIDFn(
+	t *testing.T,
+	stub func(context.Context, volumes.Manager, string, *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error),
+) {
+	t.Helper()
+	orig := queryVolumeByIDFn
+	queryVolumeByIDFn = stub
+	t.Cleanup(func() { queryVolumeByIDFn = orig })
+}
+
 func TestSetFileShareAnnotationsOnPVC_Success(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and PVC
 	k8sClient := k8sfake.NewClientset(pv, pvc)
 
-	// Create expected volume response with file share backing details
-	expectedVolume := &cnstypes.CnsVolume{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: "test-volume-handle",
-		},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			AccessPoints: []types.KeyValue{
-				{
-					Key:   common.Nfsv3AccessPointKey,
-					Value: "192.168.1.100:/nfs/v3/path",
-				},
-				{
-					Key:   common.Nfsv4AccessPointKey,
-					Value: "192.168.1.100:/nfs/v4/path",
-				},
-			},
-		},
-	}
+	expectedVolume := makeTestVolume([]types.KeyValue{
+		{Key: common.Nfsv3AccessPointKey, Value: "192.168.1.100:/nfs/v3/path"},
+		{Key: common.Nfsv4AccessPointKey, Value: "192.168.1.100:/nfs/v4/path"},
+	})
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		volumeID string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		assert.Equal(t, "test-volume-handle", volumeID)
+		return expectedVolume, nil
+	})
 
-	// Mock the QueryVolumeUtil function using gomonkey
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			assert.Equal(t, "test-volume-handle", queryFilter.VolumeIds[0].Id)
-			assert.NotNil(t, querySelection)
-			assert.Contains(t, querySelection.Names, string(cnstypes.QuerySelectionNameTypeBackingObjectDetails))
-			return &cnstypes.CnsQueryResult{
-				Volumes: []cnstypes.CnsVolume{*expectedVolume},
-			}, nil
-		})
-	defer patches.Reset()
-
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.NoError(t, err)
 	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
@@ -1079,29 +1067,20 @@ func TestSetFileShareAnnotationsOnPVC_Success(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_PVNotFound(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "non-existent-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "non-existent-pv"},
 	}
-
-	// Create fake k8s client without the PV
 	k8sClient := k8sfake.NewClientset()
 
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
-
-	// Verify no annotations were added
 	assert.Empty(t, pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Empty(t, pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
@@ -1109,48 +1088,32 @@ func TestSetFileShareAnnotationsOnPVC_PVNotFound(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_QueryVolumeError(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and PVC
 	k8sClient := k8sfake.NewClientset(pv, pvc)
 
-	// Mock the QueryVolumeUtil function to return error using gomonkey
 	expectedError := errors.New("query volume failed")
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			return nil, expectedError
-		})
-	defer patches.Reset()
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return nil, expectedError
+	})
 
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions - The function should return the QueryVolume error
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "query volume failed")
 }
@@ -1158,76 +1121,41 @@ func TestSetFileShareAnnotationsOnPVC_QueryVolumeError(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_PVCUpdateError(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and configure it to fail on PVC update
 	k8sClient := k8sfake.NewClientset(pv)
 	k8sClient.PrependReactor("update", "persistentvolumeclaims",
 		func(action k8stesting.Action) (handled bool, ret k8sruntime.Object, err error) {
 			return true, nil, errors.New("update failed")
 		})
 
-	// Create expected volume response with file share backing details
-	expectedVolume := &cnstypes.CnsVolume{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: "test-volume-handle",
-		},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			AccessPoints: []types.KeyValue{
-				{
-					Key:   common.Nfsv3AccessPointKey,
-					Value: "192.168.1.100:/nfs/v3/path",
-				},
-				{
-					Key:   common.Nfsv4AccessPointKey,
-					Value: "192.168.1.100:/nfs/v4/path",
-				},
-			},
-		},
-	}
+	expectedVolume := makeTestVolume([]types.KeyValue{
+		{Key: common.Nfsv3AccessPointKey, Value: "192.168.1.100:/nfs/v3/path"},
+		{Key: common.Nfsv4AccessPointKey, Value: "192.168.1.100:/nfs/v4/path"},
+	})
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return expectedVolume, nil
+	})
 
-	// Mock the QueryVolumeUtil function using gomonkey
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			return &cnstypes.CnsQueryResult{
-				Volumes: []cnstypes.CnsVolume{*expectedVolume},
-			}, nil
-		})
-	defer patches.Reset()
-
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "update failed")
-
-	// Verify annotations were set on the PVC object (even though update failed)
 	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
@@ -1235,64 +1163,34 @@ func TestSetFileShareAnnotationsOnPVC_PVCUpdateError(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_OnlyNFSv4AccessPoint(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and PVC
 	k8sClient := k8sfake.NewClientset(pv, pvc)
 
-	// Create expected volume response with only NFSv4 access point
-	expectedVolume := &cnstypes.CnsVolume{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: "test-volume-handle",
-		},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			AccessPoints: []types.KeyValue{
-				{
-					Key:   common.Nfsv4AccessPointKey,
-					Value: "192.168.1.100:/nfs/v4/path",
-				},
-			},
-		},
-	}
+	expectedVolume := makeTestVolume([]types.KeyValue{
+		{Key: common.Nfsv4AccessPointKey, Value: "192.168.1.100:/nfs/v4/path"},
+	})
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return expectedVolume, nil
+	})
 
-	// Mock the QueryVolumeUtil function using gomonkey
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			return &cnstypes.CnsQueryResult{
-				Volumes: []cnstypes.CnsVolume{*expectedVolume},
-			}, nil
-		})
-	defer patches.Reset()
-
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.NoError(t, err)
 	assert.Empty(t, pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
@@ -1301,59 +1199,32 @@ func TestSetFileShareAnnotationsOnPVC_OnlyNFSv4AccessPoint(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_EmptyAccessPoints(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-pvc",
 			Namespace:   "test-namespace",
 			Annotations: make(map[string]string),
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and PVC
 	k8sClient := k8sfake.NewClientset(pv, pvc)
 
-	// Create expected volume response with empty access points
-	expectedVolume := &cnstypes.CnsVolume{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: "test-volume-handle",
-		},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			AccessPoints: []types.KeyValue{},
-		},
-	}
+	expectedVolume := makeTestVolume([]types.KeyValue{})
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return expectedVolume, nil
+	})
 
-	// Mock the QueryVolumeUtil function using gomonkey
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			return &cnstypes.CnsQueryResult{
-				Volumes: []cnstypes.CnsVolume{*expectedVolume},
-			}, nil
-		})
-	defer patches.Reset()
-
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.NoError(t, err)
 	assert.Empty(t, pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Empty(t, pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
@@ -1362,7 +1233,6 @@ func TestSetFileShareAnnotationsOnPVC_EmptyAccessPoints(t *testing.T) {
 func TestSetFileShareAnnotationsOnPVC_ExistingAnnotations(t *testing.T) {
 	ctx := context.Background()
 
-	// Create test PVC with existing annotations
 	pvc := &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-pvc",
@@ -1371,57 +1241,28 @@ func TestSetFileShareAnnotationsOnPVC_ExistingAnnotations(t *testing.T) {
 				"existing-annotation": "existing-value",
 			},
 		},
-		Spec: v1.PersistentVolumeClaimSpec{
-			VolumeName: "test-pv",
-		},
+		Spec: v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
 	}
-
-	// Create test PV
 	pv := &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-pv",
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeSource: v1.PersistentVolumeSource{
-				CSI: &v1.CSIPersistentVolumeSource{
-					VolumeHandle: "test-volume-handle",
-				},
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
 			},
 		},
 	}
-
-	// Create fake k8s client with PV and PVC
 	k8sClient := k8sfake.NewClientset(pv, pvc)
 
-	// Create expected volume response with file share backing details
-	expectedVolume := &cnstypes.CnsVolume{
-		VolumeId: cnstypes.CnsVolumeId{
-			Id: "test-volume-handle",
-		},
-		BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
-			AccessPoints: []types.KeyValue{
-				{
-					Key:   common.Nfsv3AccessPointKey,
-					Value: "192.168.1.100:/nfs/v3/path",
-				},
-			},
-		},
-	}
+	expectedVolume := makeTestVolume([]types.KeyValue{
+		{Key: common.Nfsv3AccessPointKey, Value: "192.168.1.100:/nfs/v3/path"},
+	})
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return expectedVolume, nil
+	})
 
-	// Mock the QueryVolumeUtil function using gomonkey
-	patches := gomonkey.ApplyFunc(utils.QueryVolumeUtil,
-		func(ctx context.Context, volManager volumes.Manager, queryFilter cnstypes.CnsQueryFilter,
-			querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
-			return &cnstypes.CnsQueryResult{
-				Volumes: []cnstypes.CnsVolume{*expectedVolume},
-			}, nil
-		})
-	defer patches.Reset()
-
-	// Call the function under test
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
-	// Assertions
 	assert.NoError(t, err)
 	assert.Equal(t, "existing-value", pvc.Annotations["existing-annotation"])
 	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
