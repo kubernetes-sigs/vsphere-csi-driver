@@ -761,12 +761,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 						}
 
 						log.Debugf("Starting full sync for Multi VC setup with %d VCs", len(vcconfigs))
-
-						isTopologyAwareFileVolumeEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-							common.TopologyAwareFileVolume)
-						if isTopologyAwareFileVolumeEnabled {
-							createMissingFileVolumeInfoCrs(ctx, metadataSyncer)
-						}
+						createMissingFileVolumeInfoCrs(ctx, metadataSyncer)
 
 						var csiFulSyncWg sync.WaitGroup
 						for _, vc := range vcconfigs {
@@ -3129,12 +3124,11 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil)
 	metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(pvMetadata))
 	var (
-		volumeHandle                     string
-		err                              error
-		containerCluster                 cnstypes.CnsContainerCluster
-		cnsVolumeMgr                     volumes.Manager
-		vcHost                           string
-		isTopologyAwareFileVolumeEnabled bool
+		volumeHandle     string
+		err              error
+		containerCluster cnstypes.CnsContainerCluster
+		cnsVolumeMgr     volumes.Manager
+		vcHost           string
 	)
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && newPv.Spec.VsphereVolume != nil {
 		// In case if feature state switch is enabled after syncer is deployed,
@@ -3168,26 +3162,12 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		_, isdynamicCSIPV = newPv.Spec.CSI.VolumeAttributes[attribCSIProvisionerID]
 	}
 
-	isTopologyAwareFileVolumeEnabled = metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-		common.TopologyAwareFileVolume)
-
 	if oldPv.Status.Phase == v1.VolumePending &&
 		(newPv.Status.Phase == v1.VolumeAvailable || newPv.Status.Phase == v1.VolumeBound) &&
 		!isdynamicCSIPV && newPv.Spec.CSI != nil {
 		// Static PV is Created.
 		var volumeType string
 		if IsFileVolume(oldPv) {
-
-			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-				// If it is a multi VC setup, then skip this volume as we do not support file share volumes
-				// on a multi VC deployment if TopologyAwareFileVolume FSS is not enabled.
-				if !isTopologyAwareFileVolumeEnabled {
-					log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
-						"File share volumes are not supported in a multi VC setup."+
-						"Skipping PV update.", newPv.Name, newPv.Namespace)
-					return
-				}
-			}
 			volumeType = common.FileVolumeType
 		} else {
 			volumeType = common.BlockVolumeType
@@ -3210,14 +3190,6 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 					return
 				}
 			} else {
-				// File Volume in Multi VC
-				if !isTopologyAwareFileVolumeEnabled {
-					log.Infof("PVUpdated: %q is a vSphere volume claim in namespace %q."+
-						"File share volumes are not supported in a multi VC setup as TopologyAwareFileVolume FSS is disabled."+
-						"Skipping PV update.", newPv.Name, newPv.Namespace)
-					return
-				}
-
 				// If VolumeID to VC mappping is found, volume is already created.
 				// PV metadata needs to be updated
 				vcHost, cnsVolumeMgr, err = getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, volumeHandle)
@@ -3412,18 +3384,6 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	}
 
 	if IsFileVolume(pv) {
-		// If PV is file share volume.
-
-		// If TopologyAwareFileVolume FSS is false and it is a multi VC setup, then skip this volume
-		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 &&
-			!metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-				common.TopologyAwareFileVolume) {
-			log.Debugf("PVDeleted: %q is a vSphere volume claim in namespace %q."+
-				"File share volumes are not supported in a multi VC setup."+
-				"Skipping deletion of PV metadata.", pv.Name, pv.Namespace)
-			return
-		}
-
 		vcHost, cnsVolumeMgr, err := getVcHostAndVolumeManagerForVolumeID(ctx, metadataSyncer, pv.Spec.CSI.VolumeHandle)
 		if err != nil {
 			log.Errorf("PVDeleted: Failed to get VC host and volume manager for single VC setup. "+
