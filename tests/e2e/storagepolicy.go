@@ -136,6 +136,11 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 
 			storageclass, err := client.StorageV1().StorageClasses().Get(ctx,
 				storagePolicyNameForNonSharedDatastores, metav1.GetOptions{})
+
+			// create resource quota
+			restClientConfig := getRestConfigClient()
+			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
+
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {
@@ -143,11 +148,6 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 					"", "", true, storagePolicyNameForNonSharedDatastores)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
-
-			// create resource quota
-			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyNameForNonSharedDatastores, namespace, rqLimit)
-
 			pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", storageclass, nil, accessMode)
 			_, _ = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 

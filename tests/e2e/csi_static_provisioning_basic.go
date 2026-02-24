@@ -127,12 +127,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			nonsharedDatastore, err = getDatastoreByURL(ctx, nonSharedDatastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		if guestCluster {
-			// Get a config to talk to the apiserver
-			restConfig := getRestConfigClient()
-			_, svNamespace := getSvcClientAndNamespace()
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, rqLimit)
-		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -229,7 +223,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
 		ginkgo.By("create resource quota")
-		setStoragePolicyQuota(ctx, restConfig, storageclass.GetName(), namespace, rqLimit)
+		if supervisorCluster {
+			setStoragePolicyQuota(ctx, restConfig, storageclass.GetName(), namespace, rqLimit)
+		}
 
 		return restConfig, storageclass, profileID
 	}

@@ -499,8 +499,6 @@ func createVolumeWithServiceDown(serviceName string, namespace string, client cl
 		}
 		profileID := e2eVSphere.GetSpbmPolicyID(thickProvPolicy)
 		scParameters[scParamStoragePolicyID] = profileID
-		// create resource quota
-		//createResourceQuota(client, namespace, rqLimit, thickProvPolicy)
 		restConfig = getRestConfigClient()
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName, namespace, rqLimit)
 		storageclass, err = createStorageClass(client, scParameters, nil, "", "", false, thickProvPolicy)
