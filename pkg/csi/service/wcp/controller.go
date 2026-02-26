@@ -2413,7 +2413,7 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			volumeIDs = append(volumeIDs, cnsVolumeIDs[i])
 		}
 
-		response, err := getVolumeIDToVMMap(ctx, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
+		response, err := getVolumeIDToVMMap(ctx, c.k8sClient, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
