@@ -71,6 +71,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -7176,26 +7177,44 @@ func getHostMoref4K8sNode(
 // set storagePolicyQuota
 func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	scName string, namespace string, quota string) {
+
+	// Initialize the CNS Operator Client
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
-	err = cnsOperatorClient.Get(ctx,
-		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
+	name := scName + storagePolicyQuota
+	namespacedName := pkgtypes.NamespacedName{Name: name, Namespace: namespace}
+
+	// Use RetryOnConflict to handle the "object has been modified" error
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+
+		// 1. Always Get the latest version inside the retry loop
+		if err := cnsOperatorClient.Get(ctx, namespacedName, spq); err != nil {
+			return err
+		}
+
+		// 2. Apply your changes to the Spec
+		spq.Spec.Limit.Reset()
+		spq.Spec.Limit.Add(resource.MustParse(quota))
+
+		// 3. Attempt to update. If a 409 occurs, this function returns the error
+		// and RetryOnConflict will trigger another iteration.
+		return cnsOperatorClient.Update(ctx, spq)
+	})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to update StoragePolicyQuota after retries")
+
+	// Wait for the change to propagate/be processed by the controller
+	time.Sleep(3 * storagePolicyUsagePollInterval)
+
+	// Verify and Log the result
+	updatedSpq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx, namespacedName, updatedSpq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq.Spec.Limit.Reset()
-	// Add a small buffer for the API server to stabilize
-
-	time.Sleep(storagePolicyUsagePollTimeout)
-	spq.Spec.Limit.Add(resource.MustParse(quota))
-	err = cnsOperatorClient.Update(ctx, spq)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	time.Sleep(storagePolicyUsagePollTimeout)
-	spq = &storagepolicyv1alpha2.StoragePolicyQuota{}
-	quotaValue := spq.Spec.Limit.String()
-	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
+	quotaValue := updatedSpq.Spec.Limit.String()
+	framework.Logf("Successfully updated StoragePolicyQuota for %s in namespace %s to: %s",
+		scName, namespace, quotaValue)
 }
 
 // Remove storagePolicy Quota
