@@ -612,17 +612,6 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 				"Invalid PV %s with empty volume handle.", pv.Name)
 		}
 
-		// Check if the PV is a file share volume.
-		if IsFileVolume(pv) {
-			isTopologyAwareFileVolumeEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-				common.TopologyAwareFileVolume)
-			if !isTopologyAwareFileVolumeEnabled {
-				return nil, logger.LogNewErrorf(log,
-					"File share volumes are not supported on a multi VC set up."+
-						"Found file share volume %s.", pv.Name)
-			}
-		}
-
 		if volumeInfoService == nil {
 			return nil, logger.LogNewErrorf(log, "VolumeInfoService is not initialized.")
 		}
