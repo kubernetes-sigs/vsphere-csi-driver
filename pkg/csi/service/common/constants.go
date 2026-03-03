@@ -436,9 +436,6 @@ const (
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
 	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
-	// CSIInternalGeneratedClusterID enables support to generate unique cluster
-	// ID internally if user doesn't provide it in vSphere config secret.
-	CSIInternalGeneratedClusterID = "csi-internal-generated-cluster-id"
 	// PodVMOnStretchedSupervisor is the WCP FSS which determines if PodVM
 	// support is available on stretched supervisor cluster.
 	PodVMOnStretchedSupervisor = "PodVM_On_Stretched_Supervisor_Supported"
