@@ -409,8 +409,6 @@ const (
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
 	// OnlineVolumeExtend guards the feature for online volume expansion.
 	OnlineVolumeExtend = "online-volume-extend"
-	// CSIMigration is feature flag for migrating in-tree vSphere volumes to CSI.
-	CSIMigration = "csi-migration"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
@@ -438,8 +436,6 @@ const (
 	PVtoBackingDiskObjectIdMapping = "pv-to-backingdiskobjectid-mapping"
 	// Block Create Volume for datastores that are in suspended mode
 	CnsMgrSuspendCreateVolume = "cnsmgr-suspend-create-volume"
-	// TopologyAwareFileVolume enables provisioning of file volumes in a topology enabled environment
-	TopologyAwareFileVolume = "topology-aware-file-volume"
 	// PodVMOnStretchedSupervisor is the WCP FSS which determines if PodVM
 	// support is available on stretched supervisor cluster.
 	PodVMOnStretchedSupervisor = "PodVM_On_Stretched_Supervisor_Supported"

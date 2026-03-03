@@ -56,15 +56,13 @@ var (
 	cfg    *config
 	// COInitParams stores the input params required for initiating the
 	// CO agnostic orchestrator in the admission handler package.
-	COInitParams                              *interface{}
-	featureGateCsiMigrationEnabled            bool
-	featureGateBlockVolumeSnapshotEnabled     bool
-	featureGateTKGSHaEnabled                  bool
-	featureGateTopologyAwareFileVolumeEnabled bool
-	featureGateByokEnabled                    bool
-	featureFileVolumesWithVmServiceEnabled    bool
-	featureIsSharedDiskEnabled                bool
-	featureIsLinkedCloneSupportEnabled        bool
+	COInitParams                           *interface{}
+	featureGateBlockVolumeSnapshotEnabled  bool
+	featureGateTKGSHaEnabled               bool
+	featureGateByokEnabled                 bool
+	featureFileVolumesWithVmServiceEnabled bool
+	featureIsSharedDiskEnabled             bool
+	featureIsLinkedCloneSupportEnabled     bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -237,14 +235,11 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			}
 			log.Debugf("webhook config: %v", cfg)
 		}
-		featureGateCsiMigrationEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.CSIMigration)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
-		featureGateTopologyAwareFileVolumeEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
-			common.TopologyAwareFileVolume)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
 
-		if featureGateCsiMigrationEnabled || featureGateBlockVolumeSnapshotEnabled {
+		if featureGateBlockVolumeSnapshotEnabled {
 			certs, err := tls.LoadX509KeyPair(cfg.WebHookConfig.CertFile, cfg.WebHookConfig.KeyFile)
 			if err != nil {
 				log.Errorf("failed to load key pair. certFile: %q, keyFile: %q err: %v",

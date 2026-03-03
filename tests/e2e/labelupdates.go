@@ -133,7 +133,7 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 		if vanillaCluster {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
-		} else {
+		} else if supervisorCluster {
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
 			scParameters[scParamStoragePolicyID] = profileID

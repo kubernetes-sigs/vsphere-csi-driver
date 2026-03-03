@@ -71,6 +71,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubectl/pkg/drain"
 	"k8s.io/kubectl/pkg/util/podutils"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -2436,6 +2437,7 @@ func setResourceQuota(client clientset.Interface, namespace string, size string)
 			ctx, requestStorageQuota, metav1.UpdateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By(fmt.Sprintf("ResourceQuota details: %+v", testResourceQuota))
+		existingResourceQuota, _ := client.CoreV1().ResourceQuotas(namespace).Get(ctx, namespace, metav1.GetOptions{})
 		err = checkResourceQuota(client, namespace, existingResourceQuota.GetName(), size)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
@@ -3302,6 +3304,8 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 			netPerm.Permissions = permissions
 		case "rootsquash":
 			netPerm.RootSquash = rootSquash
+		case "thumbprint":
+			config.Global.Thumbprint = value
 		default:
 			return config, fmt.Errorf("unknown key %s in the input string", key)
 		}
@@ -3312,20 +3316,31 @@ func readConfigFromSecretString(cfg string) (e2eTestConfig, error) {
 // writeConfigToSecretString takes in a structured config data and serializes
 // that into a string.
 func writeConfigToSecretString(cfg e2eTestConfig) (string, error) {
-	result := fmt.Sprintf("[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
-		"csi-fetch-preferred-datastores-intervalinmin = %d\n"+"query-limit = \"%d\"\n"+
-		"list-volume-threshold = \"%d\"\n\n"+
+	var configSecret strings.Builder
+
+	// Start Global Section
+	fmt.Fprintf(&configSecret, "[Global]\ninsecure-flag = \"%t\"\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n",
+		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution)
+	fmt.Fprintf(&configSecret, "csi-fetch-preferred-datastores-intervalinmin = %d\nquery-limit = \"%d\"\n",
+		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit)
+
+	// Conditional Thumbprint
+	if thumbprintBasedAuth {
+		fmt.Fprintf(&configSecret, "thumbprint = \"%s\"\n", cfg.Global.Thumbprint)
+	}
+
+	// Remaining Sections
+	fmt.Fprintf(&configSecret, "list-volume-threshold = \"%d\"\n\n"+
 		"[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\ndatacenters = \"%s\"\nport = \"%s\"\n\n"+
 		"[Snapshot]\nglobal-max-snapshots-per-block-volume = %d\n\n"+
 		"[Labels]\ntopology-categories = \"%s\"",
-		cfg.Global.InsecureFlag, cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
-		cfg.Global.CSIFetchPreferredDatastoresIntervalInMin, cfg.Global.QueryLimit,
 		cfg.Global.ListVolumeThreshold,
 		cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
 		cfg.Global.Datacenters, cfg.Global.VCenterPort,
 		cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume,
 		cfg.Labels.TopologyCategories)
-	return result, nil
+
+	return configSecret.String(), nil
 }
 
 // Function to create CnsRegisterVolume spec, with given FCD ID and PVC name.
@@ -4604,23 +4619,21 @@ func setClusterDistribution(ctx context.Context, client clientset.Interface, clu
 	// Check if the cluster-distribution value is as required or reset.
 	if cfg.Global.ClusterDistribution != clusterDistribution {
 		// Modify csi-vsphere.conf file.
-		configContent := `[Global]
-insecure-flag = "%t"
-cluster-id = "%s"
-cluster-distribution = "%s"
 
-[VirtualCenter "%s"]
-user = "%s"
-password = "%s"
-datacenters = "%s"
-port = "%s"
-
-[Snapshot]
-global-max-snapshots-per-block-volume = %d`
-
-		modifiedConf := fmt.Sprintf(configContent, cfg.Global.InsecureFlag, cfg.Global.ClusterID,
-			clusterDistribution, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
-			cfg.Global.Datacenters, cfg.Global.VCenterPort, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
+		// Global section
+		globalConf := fmt.Sprintf("[Global]\ncluster-id = \"%s\"\ncluster-distribution = \"%s\"\n"+
+			"query-limit = %d\nlist-volume-threshold = %d\ninsecure-flag = \"%t\"\n",
+			cfg.Global.ClusterID, cfg.Global.ClusterDistribution,
+			cfg.Global.QueryLimit, cfg.Global.ListVolumeThreshold, cfg.Global.InsecureFlag)
+		// Add thumbprint only if auth is true
+		if thumbprintBasedAuth {
+			globalConf += fmt.Sprintf("thumbprint = \"%s\"\n", cfg.Global.Thumbprint)
+		}
+		// Combine with the rest of the sections
+		modifiedConf := fmt.Sprintf("%s\n[VirtualCenter \"%s\"]\nuser = \"%s\"\npassword = \"%s\"\n"+
+			"port = \"%s\"\ndatacenters = \"%s\"\n\n[Snapshot]\nglobal-max-snapshots-per-block-volume = %d",
+			globalConf, cfg.Global.VCenterHostname, cfg.Global.User, cfg.Global.Password,
+			cfg.Global.VCenterPort, cfg.Global.Datacenters, cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume)
 
 		// Set modified csi-vsphere.conf file and update.
 		framework.Logf("Updating the secret")
@@ -6159,7 +6172,9 @@ func ListTopologyClusterNames(topologyCluster string) []string {
 	return topologyClusterList
 }
 
-// getHosts returns list of hosts and it takes clusterComputeResource as input.
+// getHostsByClusterName returns list of hosts for the cluster whose name contains clusterName.
+// clusterName is typically from COMPUTE_CLUSTER_NAME env; vCenter cluster names may be longer
+// (e.g. "test-vpx-xxx.wcp-sanity-cluster"), so we match when cluster.Name() contains clusterName.
 func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object.ClusterComputeResource,
 	clusterName string) []*object.HostSystem {
 	var err error
@@ -6170,12 +6185,18 @@ func getHostsByClusterName(ctx context.Context, clusterComputeResource []*object
 	}
 	var hosts []*object.HostSystem
 	for _, cluster := range clusterComputeResource {
-		if strings.Contains(computeCluster, cluster.Name()) {
+		if strings.Contains(cluster.Name(), computeCluster) {
 			hosts, err = cluster.Hosts(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			return hosts
 		}
 	}
-	gomega.Expect(hosts).NotTo(gomega.BeNil())
+	clusterNames := make([]string, 0, len(clusterComputeResource))
+	for _, c := range clusterComputeResource {
+		clusterNames = append(clusterNames, c.Name())
+	}
+	gomega.Expect(hosts).NotTo(gomega.BeNil(),
+		"Could not find a matching cluster for name: %s. Available clusters: %v", computeCluster, clusterNames)
 	return hosts
 }
 
@@ -7156,22 +7177,44 @@ func getHostMoref4K8sNode(
 // set storagePolicyQuota
 func setStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	scName string, namespace string, quota string) {
+
+	// Initialize the CNS Operator Client
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
-	err = cnsOperatorClient.Get(ctx,
-		pkgtypes.NamespacedName{Name: scName + storagePolicyQuota, Namespace: namespace}, spq)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	name := scName + storagePolicyQuota
+	namespacedName := pkgtypes.NamespacedName{Name: name, Namespace: namespace}
 
-	spq.Spec.Limit.Reset()
-	spq.Spec.Limit.Add(resource.MustParse(quota))
-	err = cnsOperatorClient.Update(ctx, spq)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// Use RetryOnConflict to handle the "object has been modified" error
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
 
+		// 1. Always Get the latest version inside the retry loop
+		if err := cnsOperatorClient.Get(ctx, namespacedName, spq); err != nil {
+			return err
+		}
+
+		// 2. Apply your changes to the Spec
+		spq.Spec.Limit.Reset()
+		spq.Spec.Limit.Add(resource.MustParse(quota))
+
+		// 3. Attempt to update. If a 409 occurs, this function returns the error
+		// and RetryOnConflict will trigger another iteration.
+		return cnsOperatorClient.Update(ctx, spq)
+	})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to update StoragePolicyQuota after retries")
+
+	// Wait for the change to propagate/be processed by the controller
 	time.Sleep(3 * storagePolicyUsagePollInterval)
-	quotaValue := spq.Spec.Limit.String()
-	framework.Logf("Updated StoragePolicyQuota value for %s in namespace %s: %s", scName, namespace, quotaValue)
+
+	// Verify and Log the result
+	updatedSpq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	err = cnsOperatorClient.Get(ctx, namespacedName, updatedSpq)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	quotaValue := updatedSpq.Spec.Limit.String()
+	framework.Logf("Successfully updated StoragePolicyQuota for %s in namespace %s to: %s",
+		scName, namespace, quotaValue)
 }
 
 // Remove storagePolicy Quota
@@ -7188,6 +7231,7 @@ func removeStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	framework.Logf("Present quota Limit  %s", increaseLimit)
 	spq.Spec.Limit.Reset()
 
+	time.Sleep(3 * time.Second)
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

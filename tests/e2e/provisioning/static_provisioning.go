@@ -63,7 +63,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		pandoraSyncWaitTime        int
 		err                        error
 		datastoreURL               string
-		storagePolicyName          string
 		isVsanHealthServiceStopped bool
 		isSPSserviceStopped        bool
 		ctx                        context.Context
@@ -78,7 +77,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		defer cancel()
 		nodeList, err := fnodes.GetReadySchedulableNodes(ctx, f.ClientSet)
 		framework.ExpectNoError(err, "Unable to find ready and schedulable Node")
-		storagePolicyName = env.GetAndExpectStringEnvVar(constants.EnvStoragePolicyNameForSharedDatastores)
 		if !(len(nodeList.Items) > 0) {
 			framework.Failf("Unable to find ready and schedulable Node")
 		}
@@ -112,12 +110,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			defaultDatastore, err = k8testutil.GetDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
-		if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
-			// Get a config to talk to the apiserver
-			restConfig := vcutil.GetRestConfigClient(e2eTestConfig)
-			_, svNamespace := k8testutil.GetSvcClientAndNamespace()
-			k8testutil.SetStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, constants.RqLimit)
 		}
 
 		if os.Getenv(constants.EnvFullSyncWaitTime) != "" {

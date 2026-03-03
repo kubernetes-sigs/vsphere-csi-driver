@@ -71,6 +71,7 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		storageProfileIdZone2   string
 		snapc                   *snapclient.Clientset
 		restConfig              *rest.Config
+		isBatchAttachSupported  bool
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -162,6 +163,8 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		for _, item := range eventList.Items {
 			framework.Logf("%q", item.Message)
 		}
+		vcVersion = getVCversion(ctx, vcAddress)
+		isBatchAttachSupported = isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
 	})
 
 	/*
@@ -514,8 +517,12 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Wait and verify pvc1 is attached to vm2")
+		pvcs := []*v1.PersistentVolumeClaim{pvc1}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc1})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		ginkgo.By("Create vm service vm3 and attach it to a pvc2 volume")
 		_, vm3, _, err = createVmServiceVm(ctx, client, vmopC, cnsopC, namespace,
@@ -691,8 +698,12 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		vm1, err = getVmsvcVM(ctx, vmopC, vm1.Namespace, vm1.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Wait and verify restorepvc2 is attached to vm1")
+		pvcs := []*v1.PersistentVolumeClaim{pvc1, restorepvc2}
+		if isBatchAttachSupported {
+			pvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm1, namespace, len(pvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm1,
-			[]*v1.PersistentVolumeClaim{pvc1, restorepvc2})).To(gomega.Succeed())
+			pvcs)).To(gomega.Succeed())
 
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -706,8 +717,12 @@ var _ bool = ginkgo.Describe("[domain-isolation-vmsvc] Domain-Isolation-VmServic
 		vm2, err = getVmsvcVM(ctx, vmopC, vm2.Namespace, vm2.Name) // refresh vm info
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Wait and verify restorepvc1 is attached to vm2")
+		newPvcs := []*v1.PersistentVolumeClaim{pvc2, restorepvc1}
+		if isBatchAttachSupported {
+			newPvcs = getPvcsFromBatchAttachCr(ctx, client, cnsopC, vm2, namespace, len(newPvcs))
+		}
 		gomega.Expect(waitNverifyPvcsAreAttachedToVmsvcVm(ctx, vmopC, cnsopC, vm2,
-			[]*v1.PersistentVolumeClaim{pvc2, restorepvc1})).To(gomega.Succeed())
+			newPvcs)).To(gomega.Succeed())
 	})
 
 	/*

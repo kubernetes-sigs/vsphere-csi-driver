@@ -97,11 +97,6 @@ var _ = ginkgo.Describe("CNS_Register_Volume_Status_Verification", func() {
 			defaultDatastore, err = k8testutil.GetDatastoreByURL(ctx, datastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		if e2eTestConfig.TestInput.ClusterFlavor.GuestCluster {
-			restConfig := vcutil.GetRestConfigClient(e2eTestConfig)
-			_, svNamespace := k8testutil.GetSvcClientAndNamespace()
-			k8testutil.SetStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, constants.RqLimit)
-		}
 	})
 
 	ginkgo.AfterEach(func() {

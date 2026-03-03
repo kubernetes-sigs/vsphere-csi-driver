@@ -401,13 +401,11 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 
 func getReleasedVanillaFSS() map[string]struct{} {
 	return map[string]struct{}{
-		common.CSIMigration:              {},
-		common.OnlineVolumeExtend:        {},
-		common.BlockVolumeSnapshot:       {},
-		common.CSIWindowsSupport:         {},
-		common.ListVolumes:               {},
-		common.CnsMgrSuspendCreateVolume: {},
-		common.TopologyAwareFileVolume:   {},
+		common.OnlineVolumeExtend:            {},
+		common.BlockVolumeSnapshot:           {},
+		common.CSIWindowsSupport:             {},
+		common.ListVolumes:                   {},
+		common.CnsMgrSuspendCreateVolume:     {},
 	}
 }
 
@@ -1057,9 +1055,7 @@ func pvAdded(obj interface{}) {
 	// Add VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if pv.Spec.VsphereVolume != nil &&
-		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-		isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta) {
+	if pv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), pv.ObjectMeta) {
 		if pv.Status.Phase == v1.VolumeBound {
 			k8sOrchestratorInstance.volumeIDToNameMap.add(pv.Spec.VsphereVolume.VolumePath, pv.Name)
 			log.Debugf("Migrated pvAdded: Added '%s -> %s' pair to volumeIDToNameMap", pv.Spec.VsphereVolume.VolumePath, pv.Name)
@@ -1107,9 +1103,7 @@ func pvUpdated(oldObj, newObj interface{}) {
 	// Update VCP-CSI migrated volumes to the volumeIDToNameMap map.
 	// Since cns query will return all the volumes including the migrated ones, the map would need to be a
 	// union of migrated VCP-CSI volumes and CSI volumes, as well.
-	if newPv.Spec.VsphereVolume != nil &&
-		k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) &&
-		isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta) {
+	if newPv.Spec.VsphereVolume != nil && isValidMigratedvSphereVolume(context.Background(), newPv.ObjectMeta) {
 		if oldPv.Status.Phase != v1.VolumeBound && newPv.Status.Phase == v1.VolumeBound {
 			k8sOrchestratorInstance.volumeIDToNameMap.add(newPv.Spec.VsphereVolume.VolumePath, newPv.Name)
 			log.Debugf("Migrated pvUpdated: Added '%s -> %s' pair to volumeIDToNameMap",
@@ -1137,7 +1131,7 @@ func pvDeleted(obj interface{}) {
 		log.Debugf("k8sorchestrator: Deleted key %s from pvcToVolumeID",
 			pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name)
 	}
-	if pv.Spec.VsphereVolume != nil && k8sOrchestratorInstance.IsFSSEnabled(context.Background(), common.CSIMigration) {
+	if pv.Spec.VsphereVolume != nil {
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
 		log.Debugf("k8sorchestrator migrated volume: Deleted key %s from volumeIDToNameMap",
 			pv.Spec.VsphereVolume.VolumePath)
@@ -1459,7 +1453,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				if isSyncMapEmpty(WcpCapabilitiesMap) {
 					// Read capabilities CR from supervisor cluster
 					cfg, err := cnsconfig.GetConfig(ctx)
-					if err != nil {
+					if err != nil 
 						log.Errorf("failed to read config. Error: %+v", err)
 						return false
 					}

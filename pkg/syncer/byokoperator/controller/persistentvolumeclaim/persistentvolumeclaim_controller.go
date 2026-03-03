@@ -18,7 +18,9 @@ package persistentvolumeclaim
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strings"
 
 	byokv1 "github.com/vmware-tanzu/vm-operator/external/byok/api/v1alpha1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -31,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	ctrlcommoon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/common"
@@ -97,17 +100,31 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		return nil
 	}
 
-	volume, err := r.findVolume(ctx, pvc)
+	// Check if PVC is referenced in a VM
+	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
 	if err != nil {
+		r.logger.Errorf("Failed to check PVC attachment status for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
 		return err
-	} else if volume == nil {
-		r.logger.Infof("Volume %s not found for PVC %s ()", pvc.Spec.VolumeName, pvc.Name)
-		return nil
-	} else if volume.VolumeType != csicommon.BlockVolumeType {
+	}
+
+	if isAttached {
+		// PVC is referenced in a VM - skip encryption and defer to VM Operator
+		r.logger.Infof("Skipping encryption for PVC %s/%s as it is referenced in VirtualMachine %s. "+
+			"Deferring to VM Operator which will aggregate all PVCs and VM encryption changes "+
+			"and issue atomic reconfig API call to vCenter. EncryptionClass: %s, KeyProvider: %s, KeyID: %s",
+			pvc.Namespace, pvc.Name, vmName, encClass.Name, encClass.Spec.KeyProvider, encClass.Spec.KeyID)
 		return nil
 	}
 
-	existingKeyID, err := csicommon.QueryVolumeCryptoKeyByID(ctx, r.volumeManager, volume.VolumeId.Id)
+	volumeID, err := r.findVolume(ctx, pvc)
+	if err != nil {
+		return err
+	} else if volumeID == "" {
+		r.logger.Infof("Volume %s not found for PVC %s/%s", pvc.Spec.VolumeName, pvc.Namespace, pvc.Name)
+		return nil
+	}
+
+	existingKeyID, err := csicommon.QueryVolumeCryptoKeyByID(ctx, r.volumeManager, volumeID)
 	if err != nil {
 		return err
 	}
@@ -133,7 +150,9 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 	}
 
 	updateSpec := &cnstypes.CnsVolumeCryptoUpdateSpec{
-		VolumeId: volume.VolumeId,
+		VolumeId: cnstypes.CnsVolumeId{
+			Id: volumeID,
+		},
 		Profile: []vimtypes.BaseVirtualMachineProfileSpec{
 			&vimtypes.VirtualMachineDefinedProfileSpec{
 				ProfileId: profileID,
@@ -164,19 +183,59 @@ func (r *reconciler) findEncryptionClass(
 	return encClass, nil
 }
 
-func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (*cnstypes.CnsVolume, error) {
-	filter := cnstypes.CnsQueryFilter{
-		Names: []string{pvc.Spec.VolumeName},
+func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (string, error) {
+	pv := &corev1.PersistentVolume{}
+	if err := r.Get(ctx, client.ObjectKey{Name: pvc.Spec.VolumeName}, pv); err != nil {
+		r.logger.Errorf("Failed to get PV %s for PVC %s/%s: %v", pvc.Spec.VolumeName,
+			pvc.Namespace, pvc.Name, err)
+		return "", err
 	}
 
-	result, err := r.volumeManager.QueryVolume(ctx, filter)
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csicommon.VSphereCSIDriverName {
+		r.logger.Errorf("PV %s for PVC %s is not a vSphere CSI volume", pv.Name, pvc.Name)
+		return "", fmt.Errorf("PV %s for PVC %s is not a vSphere CSI volume", pv.Name, pvc.Name)
+	}
+
+	volumeID := pv.Spec.CSI.VolumeHandle
+	if strings.HasPrefix(volumeID, "file:") {
+		r.logger.Infof("Volume %s for PVC %s is a file volume. Skipping encryption.", volumeID, pvc.Name)
+		return "", nil
+	}
+
+	return volumeID, nil
+}
+
+// isPVCAttachedToVM checks if the PVC is referenced in any VirtualMachine spec in the same namespace.
+// Returns (isAttached, vmName, error) where vmName is the name of the VM using this PVC.
+//
+// This function uses the v1alpha2 VM Operator API client which can list VirtualMachines created
+// with any API version (v1alpha1, v1alpha2, v1alpha3, v1alpha4, v1alpha5) due to Kubernetes
+// API machinery's automatic version conversion.
+func (r *reconciler) isPVCAttachedToVM(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (bool, string, error) {
+	log := r.logger.With("pvc", pvc.Name, "namespace", pvc.Namespace)
+
+	// List all VirtualMachines in the PVC's namespace
+	vmList, err := utils.ListVirtualMachines(ctx, r.Client, pvc.Namespace)
 	if err != nil {
-		return nil, err
+		// If VM CRD is not installed or we can't list VMs, proceed with encryption
+		// (don't block encryption if VM Operator is not present)
+		log.Infof("Unable to list VirtualMachines in namespace %s: %v. Proceeding with encryption.",
+			pvc.Namespace, err)
+		return false, "", nil
 	}
 
-	if len(result.Volumes) == 0 {
-		return nil, nil
+	// Check if this PVC is referenced in any VM's spec
+	for _, vm := range vmList.Items {
+		for _, vmVol := range vm.Spec.Volumes {
+			if vmVol.PersistentVolumeClaim != nil &&
+				vmVol.PersistentVolumeClaim.ClaimName == pvc.Name {
+				log.Infof("Found VirtualMachine %s in namespace %s referencing PVC %s",
+					vm.Name, pvc.Namespace, pvc.Name)
+				return true, vm.Name, nil
+			}
+		}
 	}
 
-	return &result.Volumes[0], nil
+	log.Infof("PVC %s/%s is not referenced in any VirtualMachine", pvc.Namespace, pvc.Name)
+	return false, "", nil
 }

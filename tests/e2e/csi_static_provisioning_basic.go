@@ -127,12 +127,6 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			nonsharedDatastore, err = getDatastoreByURL(ctx, nonSharedDatastoreURL, defaultDatacenter)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
-		if guestCluster {
-			// Get a config to talk to the apiserver
-			restConfig := getRestConfigClient()
-			_, svNamespace := getSvcClientAndNamespace()
-			setStoragePolicyQuota(ctx, restConfig, storagePolicyName, svNamespace, rqLimit)
-		}
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
 			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
@@ -229,7 +223,9 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 
 		ginkgo.By("create resource quota")
-		setStoragePolicyQuota(ctx, restConfig, storageclass.GetName(), namespace, rqLimit)
+		if supervisorCluster {
+			setStoragePolicyQuota(ctx, restConfig, storageclass.GetName(), namespace, rqLimit)
+		}
 
 		return restConfig, storageclass, profileID
 	}
@@ -973,7 +969,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 	// 12. Verify PV is deleted automatically.
 	// 13. Verify Volume id deleted automatically.
 	// 14. Verify CRD deleted automatically.
-	ginkgo.It("[ef-f-wcp][csi-supervisor] Verify static provisioning workflow on svc - when there is no "+
+	ginkgo.It("[ef-wcp][csi-supervisor] Verify static provisioning workflow on svc - when there is no "+
 		"resourcequota available", ginkgo.Label(p1, block, wcp, vc70, vc80), func() {
 		var err error
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1029,6 +1025,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
 		ginkgo.By("Create resource quota")
+		time.Sleep(2 * storagePolicyUsagePollInterval)
 		setStoragePolicyQuota(ctx, restConfig, storagePolicyName2, newNamespace, rqLimit)
 		framework.Logf("Wait till the PVC creation succeeds after increasing resource quota")
 		framework.ExpectNoError(waitForCNSRegisterVolumeToGetCreated(ctx,
@@ -2395,6 +2392,7 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 			fcdID, err = e2eVSphere.createFCDwithValidProfileID(ctx,
 				"staticfcd"+curTimeString, profileID, diskSizeInMb, defaultDatastore.Reference())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			deleteFCDRequired = true
 
 		}
 
