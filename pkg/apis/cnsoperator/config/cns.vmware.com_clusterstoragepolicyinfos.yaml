@@ -1,0 +1,113 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: clusterstoragepolicyinfos.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: ClusterStoragePolicyInfo
+    listKind: ClusterStoragePolicyInfoList
+    plural: clusterstoragepolicyinfos
+    shortNames:
+    - clusterspi
+    singular: clusterstoragepolicyinfo
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ClusterStoragePolicyInfo is the Schema for the clusterstoragepolicyinfos API.
+          Name of this CR is same as the unique and immutable K8sCompliantName of the storage policy.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          status:
+            description: ClusterStoragePolicyInfoStatus defines the observed state
+              of ClusterStoragePolicyInfo.
+            properties:
+              encryption:
+                description: Encryption describes encryption-related status for the
+                  storage policy.
+                properties:
+                  encryptionTypes:
+                    description: EncryptionTypes indicates the types of encryption.
+                    items:
+                      description: EncryptionType describes the type of encryption
+                        supported by the storage policy.
+                      enum:
+                      - vm-encryption
+                      - vsan-encryption
+                      type: string
+                    type: array
+                  supportsEncryption:
+                    description: SupportsEncryption indicates whether the storage
+                      policy supports encryption.
+                    type: boolean
+                type: object
+              error:
+                description: |-
+                  Error describes a failure observed while reconciling the ClusterStoragePolicyInfo resource.
+                  Empty string indicates no error.
+                type: string
+              performance:
+                description: Performance describes performance characteristics (vSAN
+                  only).
+                properties:
+                  iopsLimit:
+                    description: IopsLimit is the IOPS limit for volumes created from
+                      this storage policy.
+                    format: int64
+                    type: integer
+                type: object
+              storagePolicyDeleted:
+                description: StoragePolicyDeleted indicates whether the underlying
+                  storagepolicy is deleted or not on the VC.
+                type: boolean
+              volumeCapabilities:
+                description: VolumeCapabilities describes the supported volume capabilities.
+                items:
+                  description: |-
+                    VolumeCapability describes capabilities of the volume created with the given policy.
+                    The supported capabilities are:
+                      - SupportsPersistentVolumeBlock: Volume Mode Block is supported.
+                      - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
+                      - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
+                      - SupportsLinkedClone: LinkedClone is supported.
+                  enum:
+                  - SupportsPersistentVolumeBlock
+                  - SupportsPersistentVolumeFilesystem
+                  - SupportsHighPerformanceLinkedClone
+                  - SupportsLinkedClone
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
