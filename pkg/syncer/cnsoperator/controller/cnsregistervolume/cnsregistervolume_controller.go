@@ -645,6 +645,37 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 
 	capacityInMb := volume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+	// pvCapacity is used for PV spec, CNSVolumeInfo and validateAndFixPVVolumeMode;
+	// When registering a disk with VM as the datasource ref, we expect VM Op to create the PVC with DataSourceRef
+	// while CSI registers the disk. So, we check  if a PVC exists and use the capacity from the PVC when
+	// creating the PV.
+	// When a PVC exists with DataSourceRef (e.g. vmoperator.vmware.com/ VirtualMachine)
+	// and spec.resources.requests.storage set, use that value for the PV capacity so PV and PVC sizes
+	// match and they can bind.
+	// When PVC not present, query the volume size from the backend and applies queried size to
+	// both the PV and the PVC.
+	var pvCapacity resource.Quantity
+	if pvc != nil && pvc.Spec.DataSourceRef != nil && pvc.Spec.Resources.Requests != nil {
+		if requestStorage, ok := pvc.Spec.Resources.Requests[v1.ResourceStorage]; ok {
+			pvCapacity = requestStorage.DeepCopy()
+			log.Infof("Using PVC requested size %s for PV capacity as DataSourceRef is set on PVC", requestStorage.String())
+			log.Infof("PVC %s/%s size in MB: %v", pvc.Namespace, pvc.Name, common.RoundUpSize(pvCapacity.Value(), 1024*1024))
+			log.Infof("FCD size in MB: %v", capacityInMb)
+			if err := validatePVCCapacityMatchesBackendFCD(pvc, capacityInMb); err != nil {
+				log.Error(err.Error())
+				setInstanceError(ctx, r, instance, err.Error())
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		} else {
+			log.Errorf("PVC %s has no storage request and DataSourceRef is not supported", pvc.Namespace+"/"+pvc.Name)
+			setInstanceError(ctx, r, instance,
+				fmt.Sprintf("PVC %s has no storage request and DataSourceRef is not supported", pvc.Namespace+"/"+pvc.Name))
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	} else {
+		log.Infof("Using backend capacity for PV: %d Mi", capacityInMb)
+		pvCapacity = *resource.NewQuantity(capacityInMb*common.MbInBytes, resource.BinarySI)
+	}
 	accessMode := instance.Spec.AccessMode
 	// Set accessMode to ReadWriteOnce if DiskURLPath is used for import.
 	if accessMode == "" && instance.Spec.DiskURLPath != "" {
@@ -661,7 +692,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				Namespace:  instance.Namespace,
 				Name:       instance.Spec.PvcName,
 			}
-			pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
+			pvSpec := getPersistentVolumeSpec(pvName, volumeID, pvCapacity,
 				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 				instance.Namespace, instance.Name)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
@@ -682,8 +713,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		}
 	} else {
 		// PV exists - check if volumeMode needs correction
-		pv, err = validateAndFixPVVolumeMode(ctx, k8sclient, r, instance, pv, pvName, volumeID,
-			capacityInMb, accessMode, storageClassName, pvNodeAffinity, timeout)
+		pv, err = validateAndFixPVVolumeMode(ctx, k8sclient, r, instance, pv, pvName, volumeID, pvCapacity,
+			accessMode, storageClassName, pvNodeAffinity, timeout)
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -767,11 +798,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if isBound {
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
 		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-			// Create CNSVolumeInfo CR for static pv
-			capacityInBytes := capacityInMb * common.MbInBytes
-			capacity := resource.NewQuantity(capacityInBytes, resource.BinarySI)
+			// Create CNSVolumeInfo CR for static pv (pvCapacity set earlier from PVC or backend)
 			err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
-				volume.StoragePolicyId, storageClassName, vc.Config.Host, capacity, false)
+				volume.StoragePolicyId, storageClassName, vc.Config.Host, &pvCapacity, false)
 			if err != nil {
 				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
 					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,
@@ -810,13 +839,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
 			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
 				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved != nil {
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(*capacity)
+				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(pvCapacity)
 			} else {
 				var (
 					usedQty     resource.Quantity
 					reservedQty resource.Quantity
 				)
-				reservedQty = *resource.NewQuantity(capacity.Value(), capacity.Format)
+				reservedQty = *resource.NewQuantity(pvCapacity.Value(), pvCapacity.Format)
 				patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha2.StoragePolicyUsageStatus{
 					ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha2.QuotaUsageDetails{
 						Reserved: &reservedQty,
@@ -853,14 +882,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
 					currentStoragePolicyUsageCR.Name, currentStoragePolicyUsageCR.Namespace, err)
 			} else {
-				log.Infof("Successfully decreased the reserved field by %v Mb "+
+				reservedQty := currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved
+				log.Infof("Successfully decreased the reserved field by %s "+
 					"for storagepolicyusage CR: %q in namespace: %q",
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
-					finalStoragePolicyUsageCR.Namespace)
-				log.Infof("Successfully increased the used field by %v Mb "+
+					reservedQty.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
+				log.Infof("Successfully increased the used field by %s "+
 					"for storagepolicyusage CR: %q in namespace: %q",
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(), finalStoragePolicyUsageCR.Name,
-					finalStoragePolicyUsageCR.Namespace)
+					reservedQty.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
 			}
 		}
 	} else {
@@ -1121,7 +1149,7 @@ func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolu
 // and recreates the PV with the correct volumeMode since volumeMode is immutable on PVs.
 func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interface,
 	r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-	pv *v1.PersistentVolume, pvName, volumeID string, capacityInMb int64,
+	pv *v1.PersistentVolume, pvName, volumeID string, pvCapacity resource.Quantity,
 	accessMode v1.PersistentVolumeAccessMode, storageClassName string,
 	pvNodeAffinity *v1.VolumeNodeAffinity, timeout time.Duration) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
@@ -1196,7 +1224,7 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 			Namespace:  instance.Namespace,
 			Name:       instance.Spec.PvcName,
 		}
-		pvSpec := getPersistentVolumeSpec(pvName, volumeID, capacityInMb,
+		pvSpec := getPersistentVolumeSpec(pvName, volumeID, pvCapacity,
 			accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 			instance.Namespace, instance.Name)
 		pvSpec.Spec.NodeAffinity = pvNodeAffinity
@@ -1212,6 +1240,18 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 	}
 
 	return pv, nil
+}
+
+// validatePVCCapacityMatchesBackendFCD checks that the PVC's requested storage
+// size (rounded up to MB) matches the backend FCD capacity in MB, allowing
+// capacityInMb or capacityInMb+1 (for rounding). Returns an error if they do not match.
+func validatePVCCapacityMatchesBackendFCD(pvc *v1.PersistentVolumeClaim, capacityInMb int64) error {
+	requestStorage := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+	pvcCapacityInMB := common.RoundUpSize(requestStorage.Value(), 1024*1024)
+	if pvcCapacityInMB == capacityInMb || pvcCapacityInMB == capacityInMb+1 {
+		return nil
+	}
+	return fmt.Errorf("PVC %s size is not matching with backend FCD size", pvc.Namespace+"/"+pvc.Name)
 }
 
 // setInstanceError sets error and records an event on the CnsRegisterVolume
