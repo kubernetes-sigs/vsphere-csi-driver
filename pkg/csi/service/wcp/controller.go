@@ -1990,7 +1990,6 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 						publishInfo := make(map[string]string)
 						publishInfo[common.AttributeDiskType] = common.DiskTypeBlockVolume
-						publishInfo[common.AttributeFakeAttached] = "true"
 
 						resp := &csi.ControllerPublishVolumeResponse{
 							PublishContext: publishInfo,
