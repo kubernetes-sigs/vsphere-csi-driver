@@ -51,6 +51,7 @@ func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*Data
 		log.Errorf("failed to retrieve datastores for host %v with err: %v", host, err)
 		return nil, err
 	}
+	log.Debugf("hostSystemMo Datastore: %+v", hostSystemMo.Datastore)
 	var dsRefList []types.ManagedObjectReference
 	dsRefList = append(dsRefList, hostSystemMo.Datastore...)
 
@@ -59,8 +60,9 @@ func (host *HostSystem) GetAllAccessibleDatastores(ctx context.Context) ([]*Data
 	properties := []string{"info", "customValue"}
 	err = pc.Retrieve(ctx, dsRefList, properties, &dsMoList)
 	if err != nil {
-		log.Errorf("failed to get datastore managed objects from datastore objects %v with properties %v: %v",
-			dsRefList, properties, err)
+		log.Errorf("failed to get datastore managed objects from for the host %v "+
+			" with datastore references %v, properties %v: , err : %v",
+			host.HostSystem.Name(), dsRefList, properties, err)
 		return nil, err
 	}
 	var dsObjList []*DatastoreInfo
