@@ -236,11 +236,11 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 	}
 }
 
-// getPersistentVolumeSpec to create PV volume spec for the given input params.
-func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
+// getPersistentVolumeSpec creates a PV spec for the given params. Caller supplies capacity
+// (e.g. from PVC request for DataSourceRef, or from backend capacity).
+func getPersistentVolumeSpec(volumeName string, volumeID string, capacity resource.Quantity,
 	accessMode v1.PersistentVolumeAccessMode, volumeMode v1.PersistentVolumeMode, scName string,
 	claimRef *v1.ObjectReference, crNamespace string, crName string) *v1.PersistentVolume {
-	capacityInMb := strconv.FormatInt(capacity, 10) + "Mi"
 	// Add labels for PV identification and direct lookup
 	labels := make(map[string]string)
 	labels[labelCnsRegisterVolumeCreatedBy] = labelCnsRegisterVolumeCreatedByValue
@@ -256,7 +256,7 @@ func getPersistentVolumeSpec(volumeName string, volumeID string, capacity int64,
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeReclaimPolicy: v1.PersistentVolumeReclaimDelete,
 			Capacity: v1.ResourceList{
-				v1.ResourceName(v1.ResourceStorage): resource.MustParse(capacityInMb),
+				v1.ResourceName(v1.ResourceStorage): capacity,
 			},
 			PersistentVolumeSource: v1.PersistentVolumeSource{
 				CSI: &v1.CSIPersistentVolumeSource{

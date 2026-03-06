@@ -19,6 +19,7 @@ package cnsregistervolume
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
@@ -221,7 +223,7 @@ func TestGetPersistentVolumeSpec_VolumeModeEmpty(t *testing.T) {
 	pv := getPersistentVolumeSpec(
 		volumeName,
 		volumeID,
-		capacity,
+		resource.MustParse(strconv.FormatInt(capacity, 10)+"Mi"),
 		accessMode,
 		volumeMode,
 		scName,
@@ -276,7 +278,7 @@ func TestGetPersistentVolumeSpec_VolumeModeBlock(t *testing.T) {
 	pv := getPersistentVolumeSpec(
 		volumeName,
 		volumeID,
-		capacity,
+		resource.MustParse(strconv.FormatInt(capacity, 10)+"Mi"),
 		accessMode,
 		volumeMode,
 		scName,
@@ -323,7 +325,7 @@ func TestGetPersistentVolumeSpec_VolumeModeFilesystem(t *testing.T) {
 	pv := getPersistentVolumeSpec(
 		volumeName,
 		volumeID,
-		capacity,
+		resource.MustParse(strconv.FormatInt(capacity, 10)+"Mi"),
 		accessMode,
 		volumeMode,
 		scName,

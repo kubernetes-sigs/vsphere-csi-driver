@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -850,6 +851,169 @@ var _ = Describe("checkExistingPVCDataSourceRef", func() {
 	})
 })
 
+var _ = Describe("PV capacity from PVC with DataSourceRef", func() {
+	const pvcStorageRequestBytes = int64(8529897472)
+
+	var (
+		ctx       context.Context
+		k8sclient *k8sfake.Clientset
+		namespace string
+		pvcName   string
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		k8sclient = k8sfake.NewClientset()
+		namespace = "test-namespace"
+		pvcName = "test-pvc"
+	})
+
+	Context("when PVC has DataSourceRef (vmoperator.vmware.com/VirtualMachine) and storage request 8529897472", func() {
+		BeforeEach(func() {
+			apiGroup := "vmoperator.vmware.com"
+			storageRequest := resource.NewQuantity(pvcStorageRequestBytes, resource.BinarySI)
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     "VirtualMachine",
+						Name:     "test-vm",
+					},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: *storageRequest,
+						},
+					},
+				},
+			}
+			_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+		})
+
+		It("checkExistingPVCDataSourceRef returns the PVC with storage request 8529897472", func() {
+			pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+			Expect(err).To(BeNil())
+			Expect(pvc).ToNot(BeNil())
+			Expect(pvc.Spec.DataSourceRef).ToNot(BeNil())
+			Expect(*pvc.Spec.DataSourceRef.APIGroup).To(Equal("vmoperator.vmware.com"))
+			Expect(pvc.Spec.DataSourceRef.Kind).To(Equal("VirtualMachine"))
+			Expect(pvc.Spec.Resources.Requests).ToNot(BeNil())
+			storageReq, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+			Expect(ok).To(BeTrue())
+			Expect(storageReq.Value()).To(Equal(pvcStorageRequestBytes))
+		})
+
+		It("getPersistentVolumeSpec with PVC capacity produces PV with same capacity so PVC and PV can bind", func() {
+			pvc, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName, metav1.GetOptions{})
+			Expect(err).To(BeNil())
+			Expect(pvc.Spec.Resources.Requests).ToNot(BeNil())
+			pvcCapacity := pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+
+			pvName := "static-pv-test"
+			volumeID := "volume-id-123"
+			claimRef := &corev1.ObjectReference{
+				Kind:       "PersistentVolumeClaim",
+				APIVersion: "v1",
+				Namespace:  namespace,
+				Name:       pvcName,
+			}
+			pvSpec := getPersistentVolumeSpec(pvName, volumeID, pvcCapacity,
+				corev1.ReadWriteOnce, corev1.PersistentVolumeFilesystem, "test-sc",
+				claimRef, namespace, "test-cr")
+
+			Expect(pvSpec.Spec.Capacity).ToNot(BeNil())
+			pvCapacityQty, ok := pvSpec.Spec.Capacity[corev1.ResourceStorage]
+			Expect(ok).To(BeTrue())
+			Expect(pvCapacityQty.Value()).To(Equal(pvcStorageRequestBytes),
+				"PV capacity should match PVC request (8529897472) so they can bind")
+		})
+	})
+})
+
+var _ = Describe("validatePVCCapacityMatchesBackendFCD", func() {
+	var (
+		namespace string
+		pvcName   string
+	)
+
+	BeforeEach(func() {
+		namespace = "test-namespace"
+		pvcName = "test-pvc"
+	})
+
+	Context("when PVC capacity in MB equals backend FCD size", func() {
+		It("returns nil", func() {
+			// 2048 Mi = 2048 * 1024 * 1024 bytes
+			storageRequest := resource.NewQuantity(2048*1024*1024, resource.BinarySI)
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: *storageRequest,
+						},
+					},
+				},
+			}
+			err := validatePVCCapacityMatchesBackendFCD(pvc, 2048)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when PVC capacity in MB equals backend FCD size + 1", func() {
+		It("returns nil (allows rounding)", func() {
+			// 2049 Mi - RoundUpSize(2049*1024*1024, 1024*1024) = 2049
+			storageRequest := resource.NewQuantity(2049*1024*1024, resource.BinarySI)
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: *storageRequest,
+						},
+					},
+				},
+			}
+			err := validatePVCCapacityMatchesBackendFCD(pvc, 2048)
+			Expect(err).To(BeNil())
+		})
+	})
+
+	Context("when PVC capacity in MB does not match backend FCD size", func() {
+		It("returns error with PVC name", func() {
+			// 1000 Mi - does not match backend 2048 or 2049
+			storageRequest := resource.NewQuantity(1000*1024*1024, resource.BinarySI)
+			pvc := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcName,
+					Namespace: namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: *storageRequest,
+						},
+					},
+				},
+			}
+			err := validatePVCCapacityMatchesBackendFCD(pvc, 2048)
+			Expect(err).NotTo(BeNil())
+			Expect(err.Error()).To(ContainSubstring("size is not matching with backend FCD size"))
+			Expect(err.Error()).To(ContainSubstring(namespace + "/" + pvcName))
+		})
+	})
+})
+
 var _ = Describe("validatePVCTopologyCompatibility", func() {
 	var (
 		ctx                         context.Context
@@ -1393,7 +1557,8 @@ func TestGetPersistentVolumeSpecWhenVolumeModeIsEmpty(t *testing.T) {
 
 	isSharedDiskEnabled = true
 	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
-	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil, "default", "test-cr")
+	capacityQty := resource.MustParse(strconv.FormatInt(int64(capacity), 10) + "Mi")
+	pv := getPersistentVolumeSpec(volumeName, volumeID, capacityQty, accessMode, "", scName, nil, "default", "test-cr")
 	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
 }
 
@@ -1408,8 +1573,9 @@ func TestGetPersistentVolumeSpecWithVolumeMode(t *testing.T) {
 	)
 
 	isSharedDiskEnabled = true
-	pv := getPersistentVolumeSpec(volumeName, volumeID,
-		int64(capacity), accessMode, volumeMode, scName, nil, "default", "test-cr")
+	capacityQty := resource.MustParse(strconv.FormatInt(int64(capacity), 10) + "Mi")
+	pv := getPersistentVolumeSpec(volumeName, volumeID, capacityQty, accessMode, volumeMode, scName,
+		nil, "default", "test-cr")
 	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
 }
 
@@ -1423,7 +1589,8 @@ func TestGetPersistentVolumeSpecWhenVolumeModeIsEmptyWithoutSharedDisk(t *testin
 	)
 
 	isSharedDiskEnabled = false
-	pv := getPersistentVolumeSpec(volumeName, volumeID, int64(capacity), accessMode, "", scName, nil, "default", "test-cr")
+	capacityQty := resource.MustParse(strconv.FormatInt(int64(capacity), 10) + "Mi")
+	pv := getPersistentVolumeSpec(volumeName, volumeID, capacityQty, accessMode, "", scName, nil, "default", "test-cr")
 	// volumeMode should be set to Filesystem even when isSharedDiskEnabled is false
 	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
 	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pv.Spec.VolumeMode)
@@ -1440,11 +1607,78 @@ func TestGetPersistentVolumeSpecWithVolumeModeWithoutSharedDisk(t *testing.T) {
 	)
 
 	isSharedDiskEnabled = false
-	pv := getPersistentVolumeSpec(volumeName, volumeID,
-		int64(capacity), accessMode, volumeMode, scName, nil, "default", "test-cr")
+	capacityQty := resource.MustParse(strconv.FormatInt(int64(capacity), 10) + "Mi")
+	pv := getPersistentVolumeSpec(volumeName, volumeID, capacityQty, accessMode, volumeMode, scName,
+		nil, "default", "test-cr")
 	// volumeMode should be set to Block even when isSharedDiskEnabled is false
 	assert.NotNil(t, pv.Spec.VolumeMode, "VolumeMode should be set even when isSharedDiskEnabled is false")
 	assert.Equal(t, volumeMode, *pv.Spec.VolumeMode)
+}
+
+// TestPVCapacityFromPVCWithDataSourceRef verifies that when a PVC has DataSourceRef
+// (apiGroup: vmoperator.vmware.com, kind: VirtualMachine) and storage request 8529897472,
+// the PV spec uses the same capacity so PVC and PV can bind.
+func TestPVCapacityFromPVCWithDataSourceRef(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewClientset()
+	namespace := "test-namespace"
+	pvcName := "vm-1234-c17c0bb5"
+	const pvcStorageRequestBytes = int64(8529897472)
+
+	apiGroup := "vmoperator.vmware.com"
+	storageRequest := resource.NewQuantity(pvcStorageRequestBytes, resource.BinarySI)
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcName,
+			Namespace: namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     "test-vm",
+			},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: *storageRequest,
+				},
+			},
+		},
+	}
+	_, err := k8sclient.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	// Verify checkExistingPVCDataSourceRef returns PVC with correct request
+	existingPVC, err := checkExistingPVCDataSourceRef(ctx, k8sclient, pvcName, namespace)
+	assert.NoError(t, err)
+	assert.NotNil(t, existingPVC)
+	assert.NotNil(t, existingPVC.Spec.DataSourceRef)
+	assert.Equal(t, "vmoperator.vmware.com", *existingPVC.Spec.DataSourceRef.APIGroup)
+	assert.Equal(t, "VirtualMachine", existingPVC.Spec.DataSourceRef.Kind)
+	assert.NotNil(t, existingPVC.Spec.Resources.Requests)
+	reqStorage, ok := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+	assert.True(t, ok)
+	assert.Equal(t, pvcStorageRequestBytes, reqStorage.Value())
+
+	// PV spec with capacity from PVC request must have same capacity so they can bind
+	pvcCapacity := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+	pvName := "static-pv-46849247-6eaa-4eb1-a143-7e9326e31195"
+	volumeID := "volume-id-123"
+	claimRef := &corev1.ObjectReference{
+		Kind:       "PersistentVolumeClaim",
+		APIVersion: "v1",
+		Namespace:  namespace,
+		Name:       pvcName,
+	}
+	pvSpec := getPersistentVolumeSpec(pvName, volumeID, pvcCapacity,
+		corev1.ReadWriteOnce, corev1.PersistentVolumeFilesystem, "test-sc",
+		claimRef, namespace, "test-cr")
+
+	assert.NotNil(t, pvSpec.Spec.Capacity)
+	pvCapacityQty, ok := pvSpec.Spec.Capacity[corev1.ResourceStorage]
+	assert.True(t, ok)
+	assert.Equal(t, pvcStorageRequestBytes, pvCapacityQty.Value(),
+		"PV capacity must match PVC request (8529897472) so they can bind")
 }
 
 func TestVolumeModeInheritanceFromExistingPVCWithDataSourceRef(t *testing.T) {
@@ -1854,12 +2088,12 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 	}
 
 	// Call validateAndFixPVVolumeMode
-	capacityInMb := int64(1024)
 	accessMode := corev1.ReadWriteOnce
 	timeout := time.Second * 10
+	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		pvBefore, pvName, volumeID, capacityInMb, accessMode, storageClassName, nil, timeout)
+		pvBefore, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)
@@ -1980,12 +2214,12 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	}
 
 	// Call validateAndFixPVVolumeMode
-	capacityInMb := int64(1024)
 	accessMode := corev1.ReadWriteOnce
 	timeout := time.Second * 10
+	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		existingPV, pvName, volumeID, capacityInMb, accessMode, storageClassName, nil, timeout)
+		existingPV, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)
