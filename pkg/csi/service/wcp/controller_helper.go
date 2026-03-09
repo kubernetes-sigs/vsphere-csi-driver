@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
@@ -44,7 +43,6 @@ import (
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -128,70 +126,6 @@ func validateWCPControllerPublishVolumeRequest(ctx context.Context, req *csi.Con
 // returns error if validation fails otherwise returns nil.
 func validateWCPControllerUnpublishVolumeRequest(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) error {
 	return common.ValidateControllerUnpublishVolumeRequest(ctx, req)
-}
-
-// validateWCPControllerExpandVolumeRequest is the helper function to validate
-// ExpandVolumeRequest for WCP CSI driver. Function returns error if validation
-// fails otherwise returns nil.
-func validateWCPControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest,
-	manager *common.Manager, isOnlineExpansionEnabled bool) error {
-	log := logger.GetLogger(ctx)
-	if err := validateControllerExpandVolumeRequestInWcp(ctx, req); err != nil {
-		return err
-	}
-
-	if !isOnlineExpansionEnabled {
-		var nodes []*vsphere.VirtualMachine
-
-		// TODO: Currently we only check if disk is attached to TKG nodes
-		// We need to check if the disk is attached to a PodVM as well.
-
-		// Get datacenter object from config.
-		vc, err := common.GetVCenter(ctx, manager)
-		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get vcenter object with error: %+v", err)
-		}
-		dc := &vsphere.Datacenter{
-			Datacenter: object.NewDatacenter(vc.Client.Client,
-				vimtypes.ManagedObjectReference{
-					Type:  "Datacenter",
-					Value: vc.Config.DatacenterPaths[0],
-				}),
-			VirtualCenterHost: vc.Config.Host,
-		}
-
-		// Create client to list VMs from the supervisor cluster API server.
-		cfg, err := config.GetConfig()
-		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get config with error: %+v", err)
-		}
-		vmOperatorClient, err := k8s.NewClientForGroup(ctx, cfg, vmoperatortypes.GroupName)
-		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to get client for group %s with error: %+v", vmoperatortypes.GroupName, err)
-		}
-		vmList, err := utils.ListVirtualMachinesAllNamespaces(ctx, vmOperatorClient)
-		if err != nil {
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"failed to list virtualmachines with error: %+v", err)
-		}
-
-		// Get BIOS UUID from VMs to create VirtualMachine object.
-		for _, vmInstance := range vmList.Items {
-			biosUUID := vmInstance.Status.BiosUUID
-			vm, err := dc.GetVirtualMachineByUUID(ctx, biosUUID, false)
-			if err != nil {
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to get vm with biosUUID: %q with error: %+v", biosUUID, err)
-			}
-			nodes = append(nodes, vm)
-		}
-
-		return common.IsOnlineExpansion(ctx, req.GetVolumeId(), nodes)
-	}
-	return nil
 }
 
 // validateWCPCreateSnapshotRequest is the helper function to
