@@ -199,6 +199,10 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.VsanFileVolumeService, "", "")
 	}
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.CSI_Backup_API, "", "")
+	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,

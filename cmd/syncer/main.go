@@ -31,10 +31,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	snapshotmetadatav1beta1 "github.com/kubernetes-csi/external-snapshot-metadata/client/apis/snapshotmetadataservice/v1beta1"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -395,6 +399,16 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 
+		// TODO: Remove this codeblock and add CR in cns-csi.yaml, once the FSS CSI_Backup_API is enabled by default
+		// Install SnapshotMetadataService CR for Supervisor clusters with CSI Backup API support
+		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+			if err := installSnapshotMetadataServiceCR(ctx); err != nil {
+				log.Warnf("Error installing SnapshotMetadataService CR. Error: %+v", err)
+				// Do not exit on error, as this is not critical for syncer operation
+			}
+		}
+
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 			// Start K8s Operator for Supervisor clusters.
@@ -443,6 +457,50 @@ func startK8sOperator(ctx context.Context,
 	}
 
 	return mgr.Start(ctx)
+}
+
+// TODO: Remove this codeblock and add CR in cns-csi.yaml, once the FSS CSI_Backup_API is enabled by default
+// installSnapshotMetadataServiceCR installs the SnapshotMetadataService Custom Resource
+// This CR is required by the CSI Backup API (Changed Block Tracking) feature
+func installSnapshotMetadataServiceCR(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Installing SnapshotMetadataService CR for CSI Backup API support")
+
+	// Get kube config
+	k8sConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("Failed to get KubeConfig: %v", err)
+		return err
+	}
+
+	// Create client for SnapshotMetadataService CR using the external API
+	snapshotMetadataClient, err := k8s.NewClientForGroup(ctx, k8sConfig, snapshotmetadatav1beta1.SchemeGroupVersion.Group)
+	if err != nil {
+		log.Errorf("Failed to create client for SnapshotMetadataService CR: %v", err)
+		return err
+	}
+
+	// Define the SnapshotMetadataService CR (cluster-scoped)
+	snapshotMetadataServiceCR := &snapshotmetadatav1beta1.SnapshotMetadataService{}
+	snapshotMetadataServiceCR.Name = "csi.vsphere.vmware.com"
+	snapshotMetadataServiceCR.Spec.Address = "vmware-system-csi-snapshot-metadata-service.vmware-system-csi.svc:443"
+	snapshotMetadataServiceCR.Spec.Audience = "csi.vsphere.vmware.com"
+	snapshotMetadataServiceCR.Spec.CACert = []byte("no-cert-provided")
+
+	// Create the CR
+	err = snapshotMetadataClient.Create(ctx, snapshotMetadataServiceCR, &client.CreateOptions{})
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			log.Infof("SnapshotMetadataService CR already exists")
+			return nil
+		}
+		log.Errorf("Failed to create SnapshotMetadataService CR: %v", err)
+		return err
+	}
+
+	log.Infof("SnapshotMetadataService CR created successfully")
+	return nil
 }
 
 func cleanupSessions(ctx context.Context, r interface{}) {

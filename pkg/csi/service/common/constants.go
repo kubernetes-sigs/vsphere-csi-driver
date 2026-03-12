@@ -422,10 +422,6 @@ const (
 	// BlockVolumeSnapshot is the feature to support CSI Snapshots for block
 	// volume on vSphere CSI driver.
 	BlockVolumeSnapshot = "block-volume-snapshot"
-	// CBT is the feature to support Changed Block Tracking (CBT) for efficient
-	// backup and restore operations using CSI SnapshotMetadata service.
-	// This enables GetMetadataAllocated and GetMetadataDelta RPCs.
-	CBT = "csi-changed-block-tracking"
 	// CSIWindowsSupport is the feature to support csi block volumes for windows
 	// node.
 	CSIWindowsSupport = "csi-windows-support"
@@ -490,6 +486,13 @@ const (
 	// HighPVNodeDensity is an FSS for guest cluster nodes that, when enabled,
 	// raises MAX_VOLUMES_PER_NODE from 59 to 255 in NodeGetInfo responses.
 	HighPVNodeDensity = "high-pv-node-density"
+	// CSI_Backup_API is an WCP capability for Changed Block Tracking(CBT) support in CNS-CSI.
+	// This is a feature to support Changed Block Tracking (CBT) for efficient
+	// backup and restore operations using CSI SnapshotMetadata service.
+	// This enables GetMetadataAllocated and GetMetadataDelta RPCs.
+	CSI_Backup_API = "supports_CSI_Backup_API"
+	// CSI_Backup_API_FSS is an FSS for Changed Block Tracking(CBT) support in pvCSI
+	CSI_Backup_API_FSS = "CSI_Backup_API"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -507,6 +510,7 @@ var WCPFeatureStates = map[string]struct{}{
 	MultipleClustersPerVsphereZone: {},
 	FileVolumesWithVmService:       {},
 	VsanFileVolumeService:          {},
+	CSI_Backup_API:                 {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -522,6 +526,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SharedDiskFss:                  {},
 	FileVolumesWithVmService:       {},
 	VsanFileVolumeService:          {},
+	CSI_Backup_API:                 {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
@@ -532,4 +537,5 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	WorkloadDomainIsolationFSS:      WorkloadDomainIsolation,
 	LinkedCloneSupportFSS:           LinkedCloneSupport,
 	VsanFileVolumeServiceSupportFSS: VsanFileVolumeService,
+	CSI_Backup_API_FSS:              CSI_Backup_API,
 }

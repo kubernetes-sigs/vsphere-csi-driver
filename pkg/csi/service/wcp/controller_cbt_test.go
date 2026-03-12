@@ -198,7 +198,7 @@ func TestValidateGetMetadataDeltaRequest(t *testing.T) {
 func TestGetMetadataAllocated_FSSDisabled(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Since we use the fake orchestrator, we need to ensure CBT feature state returns false.
+	// Since we use the fake orchestrator, we need to ensure CSI_Backup_API feature state returns false.
 	// Actually, by default in unittestcommon it returns false if not set.
 
 	req := &csi.GetMetadataAllocatedRequest{
@@ -207,7 +207,7 @@ func TestGetMetadataAllocated_FSSDisabled(t *testing.T) {
 
 	err := ct.controller.GetMetadataAllocated(req, &mockAllocatedServer{ctx: ctx})
 	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("Expected Unimplemented error when CBT FSS is disabled, got: %v", err)
+		t.Errorf("Expected Unimplemented error when CSI_Backup_API FSS is disabled, got: %v", err)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestGetMetadataDelta_FSSDisabled(t *testing.T) {
 
 	err := ct.controller.GetMetadataDelta(req, &mockDeltaServer{ctx: ctx})
 	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("Expected Unimplemented error when CBT FSS is disabled, got: %v", err)
+		t.Errorf("Expected Unimplemented error when CSI_Backup_API FSS is disabled, got: %v", err)
 	}
 }
 
@@ -230,7 +230,7 @@ func TestGetMetadataDelta_FSSDisabled(t *testing.T) {
 func TestGetMetadataAllocated_VolumeNotFound(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CBT)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	req := &csi.GetMetadataAllocatedRequest{
 		SnapshotId: "nonexistent-volume+snapshot-456",
@@ -246,7 +246,7 @@ func TestGetMetadataAllocated_VolumeNotFound(t *testing.T) {
 func TestGetMetadataDelta_VolumeNotFound(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CBT)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	req := &csi.GetMetadataDeltaRequest{
 		BaseSnapshotId:   "nonexistent-volume+snapshot-123",
@@ -280,7 +280,7 @@ func TestGetMetadataAllocated_InvalidSnapshotID(t *testing.T) {
 func TestGetMetadataDelta_DifferentVolumes(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CBT)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	req := &csi.GetMetadataDeltaRequest{
 		BaseSnapshotId:   "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa+11111111-1111-1111-1111-111111111111",
@@ -462,7 +462,7 @@ func TestErrorCodes(t *testing.T) {
 func TestGetMetadataAllocated_Success(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CBT)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	origVolumeManager := ct.controller.manager.VolumeManager
 	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
@@ -520,7 +520,7 @@ func TestGetMetadataAllocated_Success(t *testing.T) {
 func TestGetMetadataDelta_Success(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CBT)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	origVolumeManager := ct.controller.manager.VolumeManager
 	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}

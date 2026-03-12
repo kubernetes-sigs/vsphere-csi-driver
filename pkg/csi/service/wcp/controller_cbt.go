@@ -75,8 +75,8 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	log := logger.GetLogger(ctx)
 	log.Infof("GetMetadataAllocated: called with args %+v", req)
 
-	// Check if CBT feature is enabled
-	isCBTEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT)
+	// Check if CSI_Backup_API feature is enabled
+	isCBTEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCBTEnabled {
 		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataAllocated")
 	}
@@ -197,8 +197,8 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	log := logger.GetLogger(ctx)
 	log.Infof("GetMetadataDelta: called with args %+v", req)
 
-	// Check if CBT feature is enabled
-	isCBTEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT)
+	// Check if CSI_Backup_API feature is enabled
+	isCBTEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCBTEnabled {
 		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataDelta")
 	}

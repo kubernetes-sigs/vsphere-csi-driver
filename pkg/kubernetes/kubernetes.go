@@ -56,6 +56,7 @@ import (
 
 	"github.com/go-logr/zapr"
 
+	snapshotmetadatav1beta1 "github.com/kubernetes-csi/external-snapshot-metadata/client/apis/snapshotmetadataservice/v1beta1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	storagev1 "k8s.io/api/storage/v1"
 
@@ -227,6 +228,12 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 
 	scheme := runtime.NewScheme()
 	switch groupName {
+	case snapshotmetadatav1beta1.SchemeGroupVersion.Group:
+		err = snapshotmetadatav1beta1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme for %s with err: %+v", snapshotmetadatav1beta1.SchemeGroupVersion.Group, err)
+			return nil, err
+		}
 	case ccV1beta1.GroupVersion.Group:
 		err = ccV1beta1.AddToScheme(scheme)
 		if err != nil {

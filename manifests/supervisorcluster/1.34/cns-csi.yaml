@@ -141,6 +141,15 @@ rules:
   - apiGroups: ["iaas.vmware.com"]
     resources: ["capabilities"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cbt.storage.k8s.io"]
+    resources: ["snapshotmetadataservices"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create", "get"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create", "get"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -267,6 +276,49 @@ roleRef:
   kind: Role
   name: vsphere-csi-configmap-writer
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app: vsphere-csi-webhook
+  name: vmware-system-csi-selfsigned-issuer
+  namespace: vmware-system-csi
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app: vsphere-csi-snapshot-metadata-service
+  name: vmware-system-csi-snapshot-metadata-service-cert
+  namespace: vmware-system-csi
+spec:
+  isCA: true
+  dnsNames:
+    - vmware-system-csi-snapshot-metadata-service.vmware-system-csi.svc
+    - vmware-system-csi-snapshot-metadata-service.vmware-system-csi.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: vmware-system-csi-selfsigned-issuer
+  secretName: vmware-system-csi-snapshot-metadata-service-cert
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmware-system-csi-snapshot-metadata-service
+  namespace: vmware-system-csi
+  labels:
+    app: vsphere-csi-controller
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 50051
+      targetPort: 50051
+      protocol: TCP
+  selector:
+    app: vsphere-csi-controller
 ---
 kind: Deployment
 apiVersion: apps/v1
@@ -557,6 +609,41 @@ spec:
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
+        - name: csi-snapshot-metadata
+          image: localhost:5000/vmware/csi-snapshot-metadata:v1.0.0_vmware.1
+          args:
+          - "--csi-address=$(ADDRESS)"
+          - "--tls-cert=/etc/vmware/wcp/certs/tls.crt"
+          - "--tls-key=/etc/vmware/wcp/certs/tls.key"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          ports:
+            - containerPort: 50051
+              name: grpc
+              protocol: TCP
+            - containerPort: 8080
+              name: healthz
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 180
+            failureThreshold: 3
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65533
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - name: csi-snapshot-metadata-server-certs
+              mountPath: /etc/vmware/wcp/certs
+              readOnly: true
       volumes:
         - name: vsphere-config-volume
           secret:
@@ -574,6 +661,9 @@ spec:
             items:
             - key: "ca.crt"
               path: "ca.crt"
+        - name: csi-snapshot-metadata-server-certs
+          secret:
+            secretName: vmware-system-csi-snapshot-metadata-service-cert
 ---
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
@@ -656,16 +746,6 @@ spec:
     kind: Issuer
     name: vmware-system-csi-selfsigned-issuer
   secretName: vmware-system-csi-webhook-service-cert
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app: vsphere-csi-webhook
-  name: vmware-system-csi-selfsigned-issuer
-  namespace: vmware-system-csi
-spec:
-  selfSigned: {}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
