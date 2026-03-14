@@ -65,6 +65,11 @@ const (
 	annCSIvSphereVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 )
 
+// queryVolumeByIDFn is the function used to query a CNS volume by its ID.
+// It is a variable so that unit tests can substitute a fake implementation
+// without relying on gomonkey (which is unreliable on arm64).
+var queryVolumeByIDFn = common.QueryVolumeByID
+
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
 // metadata on CNS.
 func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) error {
@@ -676,7 +681,7 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
 		},
 	}
-	volume, err := common.QueryVolumeByID(ctx, volumeManager, pv.Spec.CSI.VolumeHandle, &querySelection)
+	volume, err := queryVolumeByIDFn(ctx, volumeManager, pv.Spec.CSI.VolumeHandle, &querySelection)
 	if err != nil {
 		log.Errorf("setFileShareAnnotationsOnPVC: Error while performing QueryVolume on volume %s, Err: %+v",
 			pv.Spec.CSI.VolumeHandle, err)

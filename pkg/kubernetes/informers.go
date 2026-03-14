@@ -26,7 +26,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/sample-controller/pkg/signals"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -54,6 +53,26 @@ func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
+// NewInformerFromFactory creates an InformerManager using the given pre-built
+// shared informer factory. Unlike NewInformer, it does not register the result
+// in any singleton and does not manage the factory's lifecycle beyond wiring
+// the stop channel to ctx. Callers are responsible for starting the factory.
+//
+// This constructor is intended for scenarios where the factory must be
+// customised (e.g., namespace-scoped, label-filtered, or backed by a fake
+// client in tests) before being handed to the InformerManager.
+func NewInformerFromFactory(
+	ctx context.Context,
+	client clientset.Interface,
+	factory informers.SharedInformerFactory,
+) *InformerManager {
+	return &InformerManager{
+		client:          client,
+		stopCh:          ctx.Done(),
+		informerFactory: factory,
+	}
+}
+
 // NewInformer creates a new K8S client based on a service account.
 // NOTE: This function expects caller function to pass appropriate client
 // as per config to be created Informer for.
@@ -77,7 +96,7 @@ func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt 
 	if informerInstance == nil {
 		informerInstance = &InformerManager{
 			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
+			stopCh:          ctx.Done(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
 

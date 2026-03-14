@@ -33,6 +33,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -43,7 +44,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	k8stesting "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes/testing"
 )
 
 const (
@@ -169,7 +170,10 @@ func TestSyncerWorkflows(t *testing.T) {
 	// Here we should use a faked client to avoid test inteference with running
 	// metadata syncer pod in real Kubernetes cluster.
 	k8sclient = testclient.NewClientset()
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sclient, true)
+	// Use k8stesting.NewInformerForTest to create a fresh factory bound to the
+	// new fake client without touching the process-level singleton. This ensures
+	// each test run gets its own isolated informer and listers.
+	metadataSyncer.k8sInformerManager = k8stesting.NewInformerForTest(ctx, k8sclient)
 	metadataSyncer.k8sInformerManager.GetPodLister()
 	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
 	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
@@ -363,7 +367,10 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	// Test pvcUpdate workflow on VC.
 	oldPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, oldPVCLabel, pv.Name, "")
 	newPvc := getPersistentVolumeClaimSpec(pvcName, testNamespace, newPVCLabel, pv.Name, "")
-	waitForListerSync()
+	// Wait for the specific PV this PVC references to appear in the lister so
+	// that pvcUpdated does not fall back to k8s.NewClient (which fails outside
+	// a running cluster because there is no service-account token).
+	waitForPVInLister(pv.Name)
 	pvcUpdated(oldPvc, newPvc, metadataSyncer)
 
 	// Verify pvc label of volume matches that of updated metadata.
@@ -406,7 +413,7 @@ func runTestMetadataSyncInformer(t *testing.T) {
 	}
 
 	// Test pvcDelete workflow.
-	waitForListerSync()
+	waitForPVInLister(pv.Name)
 	pvcDeleted(newPvc, metadataSyncer)
 	if queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, &queryFilter); err != nil {
 		t.Fatal(err)
@@ -700,7 +707,9 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitForListerSync()
+	// Wait for the PV (and its Bound phase) to be visible in the lister so
+	// that fullsync sees it as a K8S-side volume.
+	waitForPVInLister(pv.Name)
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
@@ -733,7 +742,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pv, err = k8sclient.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitForListerSync()
+	waitForPVLabelInLister(pv.Name, testPVLabelName, newTestPVLabelValue)
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
@@ -755,7 +764,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		ctx, pvc, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitForListerSync()
+	waitForPVCLabelInLister(testNamespace, pvc.Name, testPVCLabelName, newTestPVCLabelValue)
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +787,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if pod, err = k8sclient.CoreV1().Pods(testNamespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	waitForListerSync()
+	waitForPodInLister(testNamespace, pod.Name)
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
 		t.Fatal(err)
@@ -866,11 +875,79 @@ func getPodSpec(namespace string, labels map[string]string, pvcName string, phas
 	return pod
 }
 
-// waitForListerSync allow Listers to sync with recently created k8s objects.
-// To ensure unit tests are executed successfully for very recently created k8s
-// objects, we need to ensure listers used in the metadata syncer are synced.
+// waitForListerSync waits up to 30 seconds for the informer cache to reflect
+// PVs currently held by the fake k8s client. It replaces the previous fixed
+// 1-second sleep which caused intermittent failures on slow CI machines where
+// the informer factory goroutine had not yet populated the cache.
 func waitForListerSync() {
-	time.Sleep(1 * time.Second)
+	waitForPVInLister("")
+}
+
+// waitForPVInLister polls pvLister until the named PV appears in the informer
+// cache, or until a 30-second deadline is exceeded.
+// Pass an empty string to wait for any PV to appear (used by callers that only
+// need the informer factory to be running, e.g. full-sync tests).
+func waitForPVInLister(pvName string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if pvName == "" {
+			pvs, err := metadataSyncer.pvLister.List(labels.Everything())
+			if err == nil && len(pvs) > 0 {
+				return
+			}
+		} else {
+			pv, err := metadataSyncer.pvLister.Get(pvName)
+			if err == nil && pv != nil {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForPVLabelInLister polls pvLister until the named PV carries the given
+// label key/value in the informer cache, or until a 30-second deadline is
+// exceeded. Use this after a PV label update to ensure the cache has caught
+// up before calling CsiFullSync.
+func waitForPVLabelInLister(pvName, labelKey, labelValue string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		pv, err := metadataSyncer.pvLister.Get(pvName)
+		if err == nil && pv != nil && pv.Labels[labelKey] == labelValue {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForPVCLabelInLister polls pvcLister until the named PVC in the given
+// namespace carries the given label key/value, or until a 30-second deadline
+// is exceeded. Use this after a PVC label update to ensure the cache has
+// caught up before calling CsiFullSync.
+func waitForPVCLabelInLister(namespace, pvcName, labelKey, labelValue string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(namespace).Get(pvcName)
+		if err == nil && pvc != nil && pvc.Labels[labelKey] == labelValue {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// waitForPodInLister polls podLister until the named pod in the given
+// namespace appears in the informer cache, or until a 30-second deadline is
+// exceeded. Use this after pod creation to ensure the cache has caught up
+// before calling CsiFullSync.
+func waitForPodInLister(namespace, podName string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		pod, err := metadataSyncer.podLister.Pods(namespace).Get(podName)
+		if err == nil && pod != nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func TestGetVCForTopologySegments(t *testing.T) {
