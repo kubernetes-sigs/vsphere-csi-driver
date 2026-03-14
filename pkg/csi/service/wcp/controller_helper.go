@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -48,6 +49,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
@@ -585,10 +587,129 @@ func (c *controller) GetVolumeToHostMapping(ctx context.Context,
 	return vmMoIDToHostMoID, volumeIDVMMap, nil
 }
 
-// getVolumeIDToVMMap returns the csi list volume response by computing the volumeID to nodeNames map for
-// fake attached volumes and non-fake attached volumes.
-func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoid,
-	volumeIDToVMMap map[string]string) (*csi.ListVolumesResponse, error) {
+// getPublishedNodesFromVolumeAttachments queries the Kubernetes API for all
+// VolumeAttachment objects belonging to the vSphere CSI driver and returns a
+// map of CSI volumeHandle → list of node names on which the volume is
+// currently published (i.e. VA.Status.Attached == true).
+//
+// For Pod VM workloads the Kubernetes node that is recorded on the
+// VolumeAttachment is the supervisor node (ESXi host), not the individual
+// Pod VM. The VA.Status.AttachmentMetadata["vmUUID"] field carries the
+// instance UUID of the Pod VM that actually consumed the volume. Both cases
+// are captured here so that the ListVolumes response correctly reflects the
+// published node for every attach path:
+//
+//   - Regular TKG / supervisor VMs  → Spec.NodeName (ESXi host name)
+//   - Pod VMs                        → AttachmentMetadata["vmUUID"] if present,
+//     otherwise falls back to Spec.NodeName
+func getPublishedNodesFromVolumeAttachments(
+	ctx context.Context,
+	k8sClient kubernetes.Interface,
+	volumeIDs []string,
+) (map[string][]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Build a set of volumeIDs we care about for O(1) lookup.
+	volumeIDSet := make(map[string]struct{}, len(volumeIDs))
+	for _, id := range volumeIDs {
+		volumeIDSet[id] = struct{}{}
+	}
+
+	vaList, err := k8sClient.StorageV1().VolumeAttachments().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list VolumeAttachments: %v", err)
+	}
+
+	volumeIDToNodes := make(map[string][]string)
+	nodesSeen := make(map[string]map[string]struct{}) // volumeID → set of nodes (dedup)
+
+	for i := range vaList.Items {
+		va := &vaList.Items[i]
+		if !isPodVMVolumeAttachment(va) {
+			continue
+		}
+		if !va.Status.Attached {
+			continue
+		}
+		if va.Spec.Source.PersistentVolumeName == nil {
+			continue
+		}
+
+		// Resolve PV name → CSI volumeHandle via the PV object.
+		pvName := *va.Spec.Source.PersistentVolumeName
+		pv, err := k8sClient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+		if err != nil {
+			log.Warnf("getPublishedNodesFromVolumeAttachments: failed to get PV %q: %v", pvName, err)
+			continue
+		}
+		if pv.Spec.CSI == nil {
+			continue
+		}
+		volumeHandle := pv.Spec.CSI.VolumeHandle
+		if _, ok := volumeIDSet[volumeHandle]; !ok {
+			// Not in the page of volumes we are building a response for.
+			continue
+		}
+
+		// Determine the node identifier to report.
+		// For Pod VMs the AttachmentMetadata carries the VM instance UUID;
+		// use that when present so the caller can correlate to the Pod VM.
+		// For all other cases report the Kubernetes node name (ESXi host).
+		nodeName := va.Spec.NodeName
+		if vmUUID, ok := va.Status.AttachmentMetadata[common.AttributeVmUUID]; ok && vmUUID != "" {
+			log.Debugf("getPublishedNodesFromVolumeAttachments: volume %q is attached to Pod VM UUID %q "+
+				"on node %q", volumeHandle, vmUUID, nodeName)
+			nodeName = vmUUID
+		}
+
+		if _, exists := nodesSeen[volumeHandle]; !exists {
+			nodesSeen[volumeHandle] = make(map[string]struct{})
+		}
+		if _, dup := nodesSeen[volumeHandle][nodeName]; !dup {
+			nodesSeen[volumeHandle][nodeName] = struct{}{}
+			volumeIDToNodes[volumeHandle] = append(volumeIDToNodes[volumeHandle], nodeName)
+		}
+	}
+
+	log.Debugf("getPublishedNodesFromVolumeAttachments: volumeID→nodes map: %v", volumeIDToNodes)
+	return volumeIDToNodes, nil
+}
+
+// isPodVMVolumeAttachment returns true when the VolumeAttachment was created
+// by the vSphere CSI driver for a Pod VM workload. A VA is considered to be a
+// Pod VM VA when:
+//   - its attacher field matches the vSphere CSI driver name, AND
+//   - its Status.AttachmentMetadata contains a "vmUUID" key (populated by the
+//     driver during ControllerPublishVolume for Pod VMs).
+//
+// Note: regular supervisor-VM VAs also have the same attacher but will NOT
+// have the "vmUUID" metadata key, so this predicate is safe to use without
+// additional filtering. The caller must decide how to handle regular VAs.
+func isPodVMVolumeAttachment(va *storagev1.VolumeAttachment) bool {
+	if va.Spec.Attacher != csitypes.Name {
+		return false
+	}
+	_, hasPodVMUUID := va.Status.AttachmentMetadata[common.AttributeVmUUID]
+	return hasPodVMUUID
+}
+
+// getVolumeIDToVMMap returns the csi list volume response by computing the
+// volumeID to nodeNames map for fake-attached, regular, and Pod VM volumes.
+//
+// Pod VM PVCs are attached to ephemeral VMs that run inside the supervisor
+// cluster namespace. Their attachment path does not go through the standard
+// VM → ESXi host mapping used for regular TKG node VMs. Instead, each Pod VM
+// creates a VolumeAttachment whose Status.AttachmentMetadata["vmUUID"] holds
+// the instance UUID of the Pod VM. This function queries all VolumeAttachment
+// objects to discover Pod VM published nodes and merges them into the response
+// alongside the host-based published nodes for regular volumes.
+func getVolumeIDToVMMap(
+	ctx context.Context,
+	k8sClient kubernetes.Interface,
+	volumeIDs []string,
+	vmMoidToHostMoid map[string]string,
+	volumeIDToVMMap map[string]string,
+) (*csi.ListVolumesResponse, error) {
 	log := logger.GetLogger(ctx)
 	response := &csi.ListVolumesResponse{}
 
@@ -600,7 +721,7 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 		}
 	}
 
-	// Process fake attached volumes
+	// ── 1. Fake-attached volumes ──────────────────────────────────────────────
 	log.Debugf("Fake attached volumes %v", fakeAttachedVolumes)
 	volumeIDToNodesMap := commonco.ContainerOrchestratorUtility.GetNodesForVolumes(ctx, fakeAttachedVolumes)
 	for volumeID, publishedNodeIDs := range volumeIDToNodesMap {
@@ -617,6 +738,42 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 		response.Entries = append(response.Entries, entry)
 	}
 
+	// ── 2. Pod VM volumes (VolumeAttachment-based lookup) ────────────────────
+	// Pod VMs are ephemeral VMs running inside supervisor namespaces. Their
+	// disks do not appear in the host-VM hardware scan performed by
+	// GetVolumeToHostMapping, so we must derive their published nodes directly
+	// from the VolumeAttachment status.
+	podVMPublishedNodes, err := getPublishedNodesFromVolumeAttachments(ctx, k8sClient, volumeIDs)
+	if err != nil {
+		// Non-fatal: log and continue. The regular VM path below will still
+		// populate published nodes for non-Pod VM volumes.
+		log.Warnf("getVolumeIDToVMMap: failed to get Pod VM published nodes from VolumeAttachments: %v", err)
+	}
+
+	// Track which volumes have already been added via the Pod VM path so we
+	// don't double-count them in the regular VM section below.
+	podVMHandled := make(map[string]struct{}, len(podVMPublishedNodes))
+	for volumeID, nodeIDs := range podVMPublishedNodes {
+		podVMHandled[volumeID] = struct{}{}
+		// Skip volumes that are already represented as fake-attached above.
+		if _, isFake := allFakeAttachMarkedVolumes[volumeID]; isFake {
+			continue
+		}
+		volume := &csi.Volume{
+			VolumeId: volumeID,
+		}
+		volumeStatus := &csi.ListVolumesResponse_VolumeStatus{
+			PublishedNodeIds: nodeIDs,
+		}
+		entry := &csi.ListVolumesResponse_Entry{
+			Volume: volume,
+			Status: volumeStatus,
+		}
+		log.Debugf("getVolumeIDToVMMap: Pod VM volume %q published on nodes %v", volumeID, nodeIDs)
+		response.Entries = append(response.Entries, entry)
+	}
+
+	// ── 3. Regular VM volumes (ESXi host-based lookup) ───────────────────────
 	hostNames := commonco.ContainerOrchestratorUtility.GetNodeIDtoNameMap(ctx)
 	if len(hostNames) == 0 {
 		log.Errorf("no hostnames found in the NodeIDtoName map")
@@ -625,11 +782,12 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 
 	for volumeID, VMMoID := range volumeIDToVMMap {
 		isFakeAttached, exists := allFakeAttachMarkedVolumes[volumeID]
-		// If we do not find this entry in the input list obtained from CNS
-		//, then we do not bother adding it to the result since, CNS is not aware
-		// of this volume. Also, if it is fake attached volume we have handled it
-		// above so we will not add it to the response here.
+		// Skip volumes CNS is not aware of, or already handled via fake-attach
+		// or Pod VM paths.
 		if !exists || isFakeAttached {
+			continue
+		}
+		if _, handledByPodVM := podVMHandled[volumeID]; handledByPodVM {
 			continue
 		}
 
@@ -642,8 +800,7 @@ func getVolumeIDToVMMap(ctx context.Context, volumeIDs []string, vmMoidToHostMoi
 		if !ok {
 			continue
 		}
-		publishedNodeIDs := make([]string, 0)
-		publishedNodeIDs = append(publishedNodeIDs, hostName)
+		publishedNodeIDs := []string{hostName}
 		volume := &csi.Volume{
 			VolumeId: volumeID,
 		}
