@@ -131,10 +131,6 @@ const (
 	// AttributeVmUUID is the vmUUID to which volume is attached to.
 	AttributeVmUUID = "vmUUID"
 
-	// AttributeFakeAttached is the flag that indicates if a volume is fake
-	// attached.
-	AttributeFakeAttached = "fake-attach"
-
 	// BlockVolumeType is the VolumeType for CNS Volume.
 	BlockVolumeType = "BLOCK"
 
