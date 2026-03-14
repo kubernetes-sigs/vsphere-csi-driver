@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // TODO: refactor pv to backingdiskobjectid and volume health code to reduce duplicated code
@@ -159,7 +160,20 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 		log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: set pv to backingdiskobjectid annotation for "+
 			"pvc %s/%s from old value %s to new value %s",
 			pvc.Namespace, pvc.Name, val, pvToBackingDiskObjectIdPair)
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		
+		// Patch PVC with annotation
+		restClientConfig, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to get kubeconfig. Err: %v", err)
+			return false, err
+		}
+		coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to create client. Err: %v", err)
+			return false, err
+		}
+		originalPVC := pvc.DeepCopy()
+		err = k8s.PatchObject(ctx, coreV1Client, originalPVC, pvc)
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				log.Debugf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v, "+
@@ -178,11 +192,12 @@ func updatePVtoBackingDiskObjectIdMappingStatus(ctx context.Context, k8sclient c
 				log.Infof("updatePVtoBackingDiskObjectIdMappingStatus: updating pv to backingdiskobjectid annotation "+
 					"for pvc %s/%s which get from API server from old value %s to new value %s",
 					newPvc.Namespace, newPvc.Name, val, pvToBackingDiskObjectIdPair)
+				
+				originalNewPVC := newPvc.DeepCopy()
 				metav1.SetMetaDataAnnotation(&newPvc.ObjectMeta, annPVtoBackingDiskObjectId, pvToBackingDiskObjectIdPair)
-				_, err = k8sclient.CoreV1().PersistentVolumeClaims(newPvc.Namespace).Update(ctx,
-					newPvc, metav1.UpdateOptions{})
+				err = k8s.PatchObject(ctx, coreV1Client, originalNewPVC, newPvc)
 				if err != nil {
-					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to update pvc %s/%s with err:%+v",
+					log.Errorf("updatePVtoBackingDiskObjectIdMappingStatus: Failed to patch pvc %s/%s with err:%+v",
 						newPvc.Namespace, newPvc.Name, err)
 					return false, err
 				} else {

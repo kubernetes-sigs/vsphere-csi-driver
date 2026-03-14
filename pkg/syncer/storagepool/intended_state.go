@@ -38,6 +38,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -581,6 +582,9 @@ func (state *intendedState) createStoragePool(ctx context.Context, c client.Clie
 
 func (state *intendedState) updateStoragePool(ctx context.Context, c client.Client,
 	sp v1alpha1.StoragePool) (*v1alpha1.StoragePool, error) {
+	// Make a copy of original for patching
+	original := sp.DeepCopy()
+	
 	if sp.Spec.Parameters == nil {
 		sp.Spec.Parameters = make(map[string]string)
 	}
@@ -599,7 +603,7 @@ func (state *intendedState) updateStoragePool(ctx context.Context, c client.Clie
 	sp.Status.CompatibleStorageClasses = state.compatSC
 	sp.Status.Error = state.getStoragePoolError()
 
-	err := c.Update(ctx, &sp)
+	err := k8s.PatchObject(ctx, c, original, &sp)
 	return &sp, err
 }
 
