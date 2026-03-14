@@ -178,8 +178,9 @@ var _ = ginkgo.Describe("[multivc-configsecret] MultiVc-ConfigSecret", func() {
 			originalVC3PasswordChanged = false
 		}
 
-		if revertToOriginalCsiYaml {
-			vsphereCfg, err := readVsphereConfSecret(client, ctx, csiNamespace)
+		if revertToOriginalCsiYaml && newNamespace != nil {
+			// Read the secret from newNamespace since that's where it currently exists
+			vsphereCfg, err := readVsphereConfSecret(client, ctx, newNamespace.Name)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			vsphereCfg.Global.VCenterHostname = vCenterIP
