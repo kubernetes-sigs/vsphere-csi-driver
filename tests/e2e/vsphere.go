@@ -578,21 +578,41 @@ func (vs *vSphere) createFCDwithValidProfileID(ctx context.Context, fcdname stri
 
 // deleteFCD deletes an FCD disk
 func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types.ManagedObjectReference) error {
-	req := vim25types.DeleteVStorageObject_Task{
-		This:      *vs.Client.Client.ServiceContent.VStorageObjectManager,
-		Datastore: dsRef,
-		Id:        vim25types.ID{Id: fcdID},
+	// Increase robustness by adding a retry loop for "InvalidState" errors
+	var lastErr error
+
+	// Retry up to 3 times with a backoff
+	for i := 0; i < 3; i++ {
+		req := vim25types.DeleteVStorageObject_Task{
+			This:      *vs.Client.Client.ServiceContent.VStorageObjectManager,
+			Datastore: dsRef,
+			Id:        vim25types.ID{Id: fcdID},
+		}
+
+		res, err := methods.DeleteVStorageObject_Task(ctx, vs.Client.Client, &req)
+		if err != nil {
+			return err
+		}
+
+		task := object.NewTask(vs.Client.Client, res.Returnval)
+		_, err = task.WaitForResultEx(ctx, nil)
+
+		if err == nil {
+			return nil // Success!
+		}
+
+		lastErr = err
+		// If the error is 'InvalidState', wait and retry
+		if strings.Contains(err.Error(), "The operation is not allowed in the current state") {
+			framework.Logf("FCD %s still in use or busy, retrying deletion in 15s... (Attempt %d/3)", fcdID, i+1)
+			time.Sleep(15 * time.Second)
+			continue
+		}
+
+		return err // If it's a different error, fail immediately
 	}
-	res, err := methods.DeleteVStorageObject_Task(ctx, vs.Client.Client, &req)
-	if err != nil {
-		return err
-	}
-	task := object.NewTask(vs.Client.Client, res.Returnval)
-	_, err = task.WaitForResultEx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	return fmt.Errorf("failed to delete FCD after retries: %v", lastErr)
 }
 
 // relocateFCD relocates an FCD disk
