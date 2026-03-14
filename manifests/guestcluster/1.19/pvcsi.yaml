@@ -434,7 +434,6 @@ data:
   "volume-extend": "true"
   "volume-health": "true"
   "online-volume-extend": "true"
-  "file-volume": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "false"
 kind: ConfigMap
