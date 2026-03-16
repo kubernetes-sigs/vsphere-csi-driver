@@ -55,7 +55,7 @@ usage: ${0} [FLAGS]
   minimal Docker images. This approach is much faster than multi-stage Docker builds.
 
   Prerequisites:
-    - Go 1.25 or later
+    - Go 1.26 or later
     - Docker (running)
     - Git
     - Network access to download Go dependencies
@@ -257,7 +257,7 @@ echo "Checking prerequisites..."
 
 # Check if Go is installed
 if ! command -v go &> /dev/null; then
-  fatal "Go is not installed. Please install Go 1.25 or later."
+  fatal "Go is not installed. Please install Go 1.26 or later."
 fi
 
 # Check Go version
