@@ -461,8 +461,6 @@ spec:
               fieldPath: spec.nodeName
         - name: CSI_ENDPOINT
           value: unix:///csi/csi.sock
-        - name: MAX_VOLUMES_PER_NODE
-          value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
         - name: X_CSI_MODE
           value: "node"
         - name: X_CSI_SPEC_REQ_VALIDATION
@@ -597,8 +595,6 @@ spec:
               fieldPath: spec.nodeName
         - name: CSI_ENDPOINT
           value: unix://C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock
-        - name: MAX_VOLUMES_PER_NODE
-          value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
         - name: X_CSI_MODE
           value: "node"
         - name: X_CSI_SPEC_REQ_VALIDATION
@@ -660,11 +656,11 @@ metadata:
 ---
 apiVersion: v1
 data:
-  "online-volume-extend": "true"
   "file-volume": "true"
   "csi-sv-feature-states-replication": "false" # Do not enable for guest cluster, Refer PR#2386 for details
   "block-volume-snapshot": "true"
   "tkgs-ha": "true"
+  "high-pv-node-density": "false" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
   "cnsmgr-suspend-create-volume": "true"
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"

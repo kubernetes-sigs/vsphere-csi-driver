@@ -131,6 +131,10 @@ const (
 	// AttributeVmUUID is the vmUUID to which volume is attached to.
 	AttributeVmUUID = "vmUUID"
 
+	// AttributeFakeAttached is the flag that indicates if a volume is fake
+	// attached.
+	AttributeFakeAttached = "fake-attach"
+
 	// BlockVolumeType is the VolumeType for CNS Volume.
 	BlockVolumeType = "BLOCK"
 
@@ -403,15 +407,11 @@ const (
 const (
 	// Default interval to check if the feature is enabled or not.
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
-	// OnlineVolumeExtend guards the feature for online volume expansion.
-	OnlineVolumeExtend = "online-volume-extend"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
 	// FileVolume is feature flag name for file volume support in WCP.
 	FileVolume = "file-volume"
-	// FakeAttach is the feature flag for fake attach support in WCP.
-	FakeAttach = "fake-attach"
 	// TriggerCSIFullSyync is feature flag to trigger full sync.
 	TriggerCsiFullSync = "trigger-csi-fullsync"
 	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
@@ -477,6 +477,9 @@ const (
 	// WCPVMServiceVMSnapshots is a supervisor capability indicating
 	// if supports_VM_service_VM_snapshots FSS is enabled
 	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
+	// HighPVNodeDensity is an FSS for guest cluster nodes that, when enabled,
+	// raises MAX_VOLUMES_PER_NODE from 59 to 255 in NodeGetInfo responses.
+	HighPVNodeDensity = "high-pv-node-density"
 )
 
 var WCPFeatureStates = map[string]struct{}{

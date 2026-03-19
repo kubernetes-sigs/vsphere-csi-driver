@@ -318,7 +318,6 @@ data:
   "volume-health": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
-  "fake-attach": "true"
   "async-query-volume": "true"
 kind: ConfigMap
 metadata:

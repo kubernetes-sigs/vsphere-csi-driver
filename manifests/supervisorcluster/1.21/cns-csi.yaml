@@ -406,12 +406,10 @@ apiVersion: v1
 data:
   "volume-extend": "true"
   "volume-health": "true"
-  "online-volume-extend": "true"
   "file-volume": "true"
   "csi-auth-check": "true"
   "trigger-csi-fullsync": "false"
   "csi-sv-feature-states-replication": "true"
-  "fake-attach": "true"
   "async-query-volume": "true"
   "improved-csi-idempotency": "true"
   "block-volume-snapshot": "false"

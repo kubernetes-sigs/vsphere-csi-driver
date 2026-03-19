@@ -151,6 +151,7 @@ data:
   "trigger-csi-fullsync": "false"
   "pv-to-backingdiskobjectid-mapping": "false"
   "csi-transaction-support": "false"
+  "high-pv-node-density": "false" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
@@ -242,7 +243,7 @@ spec:
       dnsPolicy: "Default"
       containers:
         - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.9.0
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.10.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -261,7 +262,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.12.0
+          image: registry.k8s.io/sig-storage/csi-resizer:v2.0.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -273,6 +274,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--feature-gates=RecoverVolumeExpansionFailure=false"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -333,7 +335,7 @@ spec:
             periodSeconds: 180
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.17.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -401,7 +403,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0
           args:
             - "--v=4"
             - "--kube-api-qps=100"
@@ -453,7 +455,7 @@ spec:
       dnsPolicy: "ClusterFirstWithHostNet"
       containers:
         - name: node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -488,8 +490,6 @@ spec:
                   fieldPath: spec.nodeName
             - name: CSI_ENDPOINT
               value: unix:///csi/csi.sock
-            - name: MAX_VOLUMES_PER_NODE
-              value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
             - name: X_CSI_MODE
               value: "node"
             - name: X_CSI_SPEC_REQ_VALIDATION
@@ -536,7 +536,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.17.0
           args:
             - "--v=4"
             - "--csi-address=/csi/csi.sock"
@@ -604,7 +604,7 @@ spec:
       hostNetwork: true
       containers:
         - name: node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0
           command:
             - "csi-node-driver-registrar.exe"
           args:
@@ -640,8 +640,6 @@ spec:
                   fieldPath: spec.nodeName
             - name: CSI_ENDPOINT
               value: unix://C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock
-            - name: MAX_VOLUMES_PER_NODE
-              value: "59" # Maximum number of volumes that controller can publish to the node. If value is not set or zero Kubernetes decide how many volumes can be published by the controller to the node.
             - name: X_CSI_MODE
               value: node
             - name: X_CSI_SPEC_REQ_VALIDATION
@@ -676,7 +674,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.17.0
           command:
             - "livenessprobe.exe"
           args:
