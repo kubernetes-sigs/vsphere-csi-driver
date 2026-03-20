@@ -224,4 +224,6 @@ replace (
 	k8s.io/sample-controller => k8s.io/sample-controller v0.35.0
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.1
 	sigs.k8s.io/vsphere-csi-driver/v3 => ../../
+	k8s.io/endpointslice => k8s.io/endpointslice v0.28.1
+	k8s.io/externaljwt => k8s.io/externaljwt v0.31.0
 )
