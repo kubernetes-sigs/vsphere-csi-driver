@@ -74,7 +74,7 @@ rules:
     verbs: ["get", "watch", "list", "delete", "update", "create"]
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachines"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["vmware.com"]
     resources: ["virtualnetworks"]
     verbs: ["get"]
@@ -138,6 +138,9 @@ rules:
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachinesnapshots"]
     verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["iaas.vmware.com"]
+    resources: ["capabilities"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -347,7 +350,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: localhost:5000/vmware.io/csi-attacher:v4.7.0_vmware.1
+          image: localhost:5000/vmware.io/csi-attacher:v4.10.0_vmware.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -462,7 +465,7 @@ spec:
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
         - name: liveness-probe
-          image: localhost:5000/vmware.io/csi-livenessprobe:v2.14.0_vmware.1
+          image: localhost:5000/vmware.io/csi-livenessprobe:v2.17.0_vmware.1
           args:
             - "--csi-address=/csi/csi.sock"
           securityContext:
@@ -621,7 +624,7 @@ spec:
       protocol: TCP
   selector:
     app: vsphere-csi-controller
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
@@ -684,7 +687,7 @@ webhooks:
         operations:  ["CREATE", "UPDATE", "DELETE"]
         resources:   ["persistentvolumeclaims"]
         scope: "Namespaced"
-      - apiGroups: ["snapshot.storage.k8s.io"]
+      - apiGroups:   ["snapshot.storage.k8s.io"]
         apiVersions: ["v1"]
         operations:  ["CREATE", "DELETE"]
         resources:   ["volumesnapshots"]

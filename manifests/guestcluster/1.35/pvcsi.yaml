@@ -1,3 +1,4 @@
+
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -15,7 +16,7 @@ spec:
     matchExpressions:
       - operator : In
         scopeName: PriorityClass
-        values: ["system-node-critical", "system-cluster-critical"] 
+        values: ["system-node-critical", "system-cluster-critical"]
 ---
 apiVersion: v1
 kind: LimitRange
@@ -25,8 +26,8 @@ metadata:
 spec:
   limits:
   - defaultRequest:
-      cpu: 50m
-      memory: 300Mi
+      cpu: 10m
+      memory: 25Mi
     type: Container
 ---
 kind: ServiceAccount
@@ -199,7 +200,7 @@ spec:
       priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
         - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.5.0
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.9.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -213,8 +214,8 @@ spec:
           imagePullPolicy: "IfNotPresent"
           resources:
             requests:
-              cpu: 20m
-              memory: 50Mi
+              cpu: 10m
+              memory: 25Mi
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -222,7 +223,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.6.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.7.0
           args:
             - "--supervisor-fss-name=csi-feature-states"
             - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
@@ -281,8 +282,8 @@ spec:
             runAsGroup: 65532
           resources:
             requests:
-              cpu: 60m
-              memory: 300Mi
+              cpu: 10m
+              memory: 30Mi
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -293,7 +294,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.6.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.7.0
           args:
             - "--leader-election"
             - "--leader-election-lease-duration=120s"
@@ -326,8 +327,8 @@ spec:
             runAsGroup: 65532
           resources:
             requests:
-              cpu: 60m
-              memory: 300Mi
+              cpu: 10m
+              memory: 30Mi
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume
@@ -336,7 +337,7 @@ spec:
             name: pvcsi-config-volume
             readOnly: true
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.12.1
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
           args:
             - "--csi-address=$(ADDRESS)"
           imagePullPolicy: "IfNotPresent"
@@ -345,8 +346,8 @@ spec:
               value: /csi/csi.sock
           resources:
             requests:
-              cpu: 20m
-              memory: 50Mi
+              cpu: 5m
+              memory: 10Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -377,13 +378,13 @@ spec:
                   fieldPath: metadata.namespace
           resources:
             requests:
-              cpu: 20m
-              memory: 50Mi
+              cpu: 10m
+              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.10.0
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -400,8 +401,8 @@ spec:
               value: /csi/csi.sock
           resources:
             requests:
-              cpu: 20m
-              memory: 50Mi
+              cpu: 10m
+              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -423,8 +424,8 @@ spec:
               value: /csi/csi.sock
           resources:
             requests:
-              cpu: 20m
-              memory: 50Mi
+              cpu: 10m
+              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -474,7 +475,7 @@ spec:
         kubernetes.io/os: linux
       containers:
       - name: node-driver-registrar
-        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.1
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
         imagePullPolicy: "IfNotPresent"
         args:
           - "--v=5"
@@ -487,8 +488,8 @@ spec:
             value: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
         resources:
           requests:
-            cpu: 20m
-            memory: 50Mi
+            cpu: 10m
+            memory: 25Mi
         volumeMounts:
           - name: plugin-dir
             mountPath: /csi
@@ -503,7 +504,7 @@ spec:
           initialDelaySeconds: 30
           timeoutSeconds: 15
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.6.0
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.7.0
         args:
           - "--supervisor-fss-name=csi-feature-states"
           - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
@@ -534,8 +535,8 @@ spec:
           allowPrivilegeEscalation: true
         resources:
           requests:
-            cpu: 60m
-            memory: 300Mi
+            cpu: 10m
+            memory: 30Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -549,14 +550,14 @@ spec:
         - name: sys-devices-dir
           mountPath: /sys/devices
       - name: liveness-probe
-        image: registry.k8s.io/sig-storage/livenessprobe:v2.12.1
+        image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
         args:
         - --csi-address=/csi/csi.sock
         imagePullPolicy: "IfNotPresent"
         resources:
           requests:
-            cpu: 20m
-            memory: 50Mi
+            cpu: 5m
+            memory: 10Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -621,7 +622,7 @@ spec:
         kubernetes.io/os: windows
       containers:
       - name: node-driver-registrar
-        image: registry.k8s.io/sig-storage/csi-node-driver-win-registrar:v2.8.1
+        image: registry.k8s.io/sig-storage/csi-node-driver-win-registrar:v2.13.0
         imagePullPolicy: "IfNotPresent"
         command:
           - "csi-node-driver-registrar.exe"
@@ -639,15 +640,15 @@ spec:
             value: C:\\var\\lib\\kubelet\\plugins_registry\\
         resources:
           requests:
-            cpu: 20m
-            memory: 100Mi
+            cpu: 10m
+            memory: 25Mi
         volumeMounts:
           - name: plugin-dir
             mountPath: /csi
           - name: registration-dir
             mountPath: /registration
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver-win:v3.6.0
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver-win:v3.7.0
         command:
           - "csi.exe"
         args:
@@ -677,15 +678,15 @@ spec:
           value: {{ .PVCSINamespace }}
         resources:
           requests:
-            cpu: 60m
-            memory: 300Mi
+            cpu: 10m
+            memory: 30Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: 'C:\csi'
         - name: pods-mount-dir
           mountPath: 'C:\var\lib\kubelet'
       - name: liveness-probe
-        image: registry.k8s.io/sig-storage/livenessprobe-win:v2.12.1
+        image: registry.k8s.io/sig-storage/livenessprobe-win:v2.15.0
         command:
           - "livenessprobe.exe"
         args:
@@ -693,8 +694,8 @@ spec:
         imagePullPolicy: "IfNotPresent"
         resources:
           requests:
-            cpu: 20m
-            memory: 50Mi
+            cpu: 5m
+            memory: 10Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
