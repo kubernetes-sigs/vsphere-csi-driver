@@ -49,8 +49,15 @@ spec:
                 storagePolicyID:
                   description: StoragePolicyID is the ID of the storage policy associated with the volume
                   type: string
+                k8sCompliantName:
+                  description: K8sCompliantName is the K8s-compliant name derived from storage policy name
+                    to ensure unique identification across multiple vCenters.
+                  type: string
                 storageClassName:
                   description: StorageClassName is the name of the storage class associated with the volume
+                  type: string
+                volumeAttributeClassName:
+                  description: VolumeAttributeClassName is the name of the K8s volume attributes class.
                   type: string
                 capacity:
                   anyOf:
@@ -85,6 +92,56 @@ spec:
               required:
                 - vCenterServer
                 - volumeID
+              type: object
+            status:
+              description: CNSVolumeInfoStatus defines the observed state of CNSVolumeInfo
+              properties:
+                migrationConditions:
+                  description: MigrationConditions describe the current conditions of
+                    the migration. Known condition types are "InProgress", "Infeasible",
+                    "Error", "Complete".
+                  items:
+                    description: metav1.Condition represents an observation of an
+                      object's state. Some examples are available at
+                      https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+                    properties:
+                      lastTransitionTime:
+                        format: date-time
+                        type: string
+                      message:
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Z0-9][-A-Z0-9_.]*)?[A-Z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  maxItems: 8
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
               type: object
           required:
             - spec
