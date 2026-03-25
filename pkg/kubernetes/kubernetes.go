@@ -324,7 +324,7 @@ func NewCnsFileAccessConfigWatcher(ctx context.Context, config *restclient.Confi
 		return nil, err
 	}
 
-	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, false, config,
 		serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
@@ -363,7 +363,7 @@ func NewVirtualMachineWatcher(ctx context.Context, config *restclient.Config,
 		return nil, err
 	}
 
-	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, false, config,
 		serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient with err: %+v", err)
@@ -396,7 +396,7 @@ func NewCSINodeTopologyWatcher(ctx context.Context, config *restclient.Config) (
 		return nil, err
 	}
 
-	restClient, err := apiutils.RESTClientForGVK(gvk, false, config,
+	restClient, err := apiutils.RESTClientForGVK(gvk, false, false, config,
 		serializer.NewCodecFactory(scheme), httpClient)
 	if err != nil {
 		log.Errorf("failed to create RESTClient for %s CR with err: %+v", csiNodeTopologyKind, err)
