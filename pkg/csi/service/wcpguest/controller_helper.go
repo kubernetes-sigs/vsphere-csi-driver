@@ -101,8 +101,7 @@ func validateGuestClusterCreateVolumeRequest(ctx context.Context, req *csi.Creat
 	}
 
 	// Fail file volume creation if file volume feature gate is disabled
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) &&
-		common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
+	if common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities()) {
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "File volume provisioning is not supported.")
 	}
 	return common.ValidateCreateVolumeRequest(ctx, req)
