@@ -223,29 +223,51 @@ type CnsVolumeDetails struct {
 }
 
 // QueryVolumeDetailsUtil queries Capacity in MB and datastore URL for the source volume with expected volume type.
+// Follows CNS guidelines: uses batching for large volume sets (>1000 volumes)
 func QueryVolumeDetailsUtil(ctx context.Context, m cnsvolume.Manager, volumeIds []cnstypes.CnsVolumeId) (
 	map[string]*CnsVolumeDetails, error) {
 	log := logger.GetLogger(ctx)
 	volumeDetailsMap := make(map[string]*CnsVolumeDetails)
+
 	// Select only the backing object details, volume type and datastore.
-	querySelection := &cnstypes.CnsQuerySelection{
+	querySelection := cnstypes.CnsQuerySelection{
 		Names: []string{
 			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
 			string(cnstypes.QuerySelectionNameTypeVolumeType),
 			string(cnstypes.QuerySelectionNameTypeDataStoreUrl),
 		},
 	}
-	queryFilter := cnstypes.CnsQueryFilter{
-		VolumeIds: volumeIds,
+
+	var allQueryResults *cnstypes.CnsQueryResult
+	var err error
+
+	// Follow CNS guidelines: batch if more than 1000 volumes
+	if len(volumeIds) <= 1000 {
+		// Small set: single query
+		queryFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: volumeIds,
+		}
+		log.Infof("Invoking QueryAllVolume for %d volumes with selection", len(volumeIds))
+		allQueryResults, err = m.QueryAllVolume(ctx, queryFilter, querySelection)
+	} else {
+		// Large set: use batching pattern
+		log.Infof("Large volume set (%d volumes), using CNS batching pattern", len(volumeIds))
+
+		// Convert volume IDs to volume objects for batching function
+		var volumes []cnstypes.CnsVolume
+		for _, volID := range volumeIds {
+			volumes = append(volumes, cnstypes.CnsVolume{VolumeId: volID})
+		}
+
+		allQueryResults, err = QueryVolumeDetailsBatched(ctx, m, volumes, querySelection)
 	}
-	log.Infof("Invoking QueryAllVolumeUtil with Filter: %+v, Selection: %+v", queryFilter, *querySelection)
-	allQueryResults, err := m.QueryAllVolume(ctx, queryFilter, *querySelection)
+
 	if err != nil {
 		log.Errorf("failed to retrieve the volume size and datastore, err: %+v", err)
 		return volumeDetailsMap, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to retrieve the volume sizes: %+v", err)
 	}
-	log.Infof("Number of results from QueryAllVolumeUtil: %d", len(allQueryResults.Volumes))
+	log.Infof("Number of results from QueryVolumeDetailsUtil: %d", len(allQueryResults.Volumes))
 	for _, res := range allQueryResults.Volumes {
 		volumeId := res.VolumeId
 		datastoreUrl := res.DatastoreUrl
@@ -286,18 +308,75 @@ func LogoutAllvCenterSessions(ctx context.Context) {
 }
 
 // QueryAllVolumesForCluster API returns QueryResult with all volumes for requested Cluster
+// Following CNS guidelines: two-step pattern for large volume sets
 func QueryAllVolumesForCluster(ctx context.Context, m cnsvolume.Manager, clusterID string,
 	querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
+
+	// Step 1: Get qualified volume IDs only (no detailed fields to avoid payload size limits)
 	queryFilter := cnstypes.CnsQueryFilter{
 		ContainerClusterIds: []string{clusterID},
 	}
-	queryAllResult, err := m.QueryAllVolume(ctx, queryFilter, querySelection)
+	// Use empty selection to get volume IDs only
+	volumeIDsResult, err := m.QueryAllVolume(ctx, queryFilter, cnstypes.CnsQuerySelection{})
 	if err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
-			"QueryAllVolume failed with err=%+v", err.Error())
+			"QueryAllVolume failed to get volume IDs with err=%+v", err.Error())
 	}
-	return queryAllResult, nil
+
+	if len(volumeIDsResult.Volumes) == 0 {
+		log.Infof("No volumes found for cluster %s", clusterID)
+		return volumeIDsResult, nil
+	}
+
+	log.Infof("Found %d volumes for cluster %s, retrieving details in batches",
+		len(volumeIDsResult.Volumes), clusterID)
+
+	// Step 2: Retrieve volume details in batches of up to 1,000 volume IDs
+	return QueryVolumeDetailsBatched(ctx, m, volumeIDsResult.Volumes, querySelection)
+}
+
+// QueryVolumeDetailsBatched retrieves volume details in batches following CNS guidelines
+func QueryVolumeDetailsBatched(ctx context.Context, m cnsvolume.Manager,
+	volumes []cnstypes.CnsVolume, querySelection cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	log := logger.GetLogger(ctx)
+
+	const batchSize = 1000 // CNS enforced limit
+	var allVolumes []cnstypes.CnsVolume
+
+	// Extract volume IDs from the volumes
+	var volumeIDs []cnstypes.CnsVolumeId
+	for _, vol := range volumes {
+		volumeIDs = append(volumeIDs, vol.VolumeId)
+	}
+
+	// Process in batches
+	for i := 0; i < len(volumeIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(volumeIDs) {
+			end = len(volumeIDs)
+		}
+
+		batch := volumeIDs[i:end]
+		log.Debugf("Querying batch %d-%d of %d volumes", i+1, end, len(volumeIDs))
+
+		// Query this batch with only volume IDs filter (no other criteria)
+		batchFilter := cnstypes.CnsQueryFilter{
+			VolumeIds: batch,
+		}
+
+		batchResult, err := m.QueryAllVolume(ctx, batchFilter, querySelection)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"QueryAllVolume batch failed for volumes %d-%d with err=%+v", i+1, end, err.Error())
+		}
+
+		allVolumes = append(allVolumes, batchResult.Volumes...)
+	}
+
+	return &cnstypes.CnsQueryResult{
+		Volumes: allVolumes,
+	}, nil
 }
 
 func GetVirtualMachine(ctx context.Context, vmKey types.NamespacedName,
