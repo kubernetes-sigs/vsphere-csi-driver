@@ -2826,7 +2826,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 
 		}
-		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, true)
+		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
+		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 		if err != nil {
 			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", req, err)
 			return nil, csifault.CSIInvalidArgumentFault, err

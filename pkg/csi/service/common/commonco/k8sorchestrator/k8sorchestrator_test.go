@@ -194,6 +194,11 @@ func TestIsFSSEnabledInSV(t *testing.T) {
 	if isEnabled {
 		t.Errorf("%s feature state is enabled!", feature_flag_2)
 	}
+	// Feature state missing
+	isEnabled = k8sOrchestrator.IsFSSEnabled(ctx, "online-volume-extend")
+	if isEnabled {
+		t.Errorf("Non existing feature state online-volume-extend is enabled!")
+	}
 }
 
 // TestIsFSSEnabledInVanilla tests IsFSSEnabled in vanilla flavor - all scenarios

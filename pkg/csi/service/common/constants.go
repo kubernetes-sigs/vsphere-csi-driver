@@ -407,6 +407,8 @@ const (
 const (
 	// Default interval to check if the feature is enabled or not.
 	DefaultFeatureEnablementCheckInterval = 1 * time.Minute
+	// OnlineVolumeExtend guards the feature for online volume expansion.
+	OnlineVolumeExtend = "online-volume-extend"
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
