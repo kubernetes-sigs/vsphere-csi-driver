@@ -54,6 +54,20 @@ func noResyncPeriodFunc() time.Duration {
 	return 0
 }
 
+// NewInformerFromFactory creates a new InformerManager with the provided factory.
+// This is primarily used for testing to avoid singleton behavior.
+func NewInformerFromFactory(
+	ctx context.Context,
+	client clientset.Interface,
+	factory informers.SharedInformerFactory,
+) *InformerManager {
+	return &InformerManager{
+		client:          client,
+		stopCh:          ctx.Done(),
+		informerFactory: factory,
+	}
+}
+
 // NewInformer creates a new K8S client based on a service account.
 // NOTE: This function expects caller function to pass appropriate client
 // as per config to be created Informer for.

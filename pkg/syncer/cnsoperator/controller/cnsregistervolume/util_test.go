@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
@@ -33,167 +32,129 @@ import (
 )
 
 // TestIsDatastoreAccessibleToAZClusters tests the isDatastoreAccessibleToAZClusters function
-// using standard Go testing framework to avoid conflicts with existing Ginkgo suites
+// using standard Go testing framework to avoid conflicts with existing Ginkgo suites.
+//
+// The test swaps getCandidateDatastoresInClusterFn (a package-level variable) instead of
+// using gomonkey, which is unreliable on arm64 when multiple tests share the same binary.
 func TestIsDatastoreAccessibleToAZClusters(t *testing.T) {
-	// Initialize backOffDuration map to prevent nil map assignment panic
+	// Initialize backOffDuration map to prevent nil map assignment panic.
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 
 	ctx := context.Background()
 	mockVC := &cnsvsphere.VirtualCenter{}
 	datastoreURL := "ds:///vmfs/volumes/test-datastore"
 
+	// restore restores getCandidateDatastoresInClusterFn to the original after each subtest.
+	original := getCandidateDatastoresInClusterFn
+	restore := func() { getCandidateDatastoresInClusterFn = original }
+
 	t.Run("1 cluster per zone - datastore accessible to 1 cluster", func(t *testing.T) {
+		t.Cleanup(restore)
+		getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+			clusterID string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			if clusterID == "cluster-a1" {
+				return []*cnsvsphere.DatastoreInfo{
+					{Info: &types.DatastoreInfo{Url: datastoreURL}},
+				}, nil, nil
+			}
+			return nil, nil, nil
+		}
 		azClustersMap := map[string][]string{
 			"zone-a": {"cluster-a1"},
 			"zone-b": {"cluster-b1"},
 		}
-
-		patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-			func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-				includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-				if clusterID == "cluster-a1" {
-					return []*cnsvsphere.DatastoreInfo{
-						{
-							Info: &types.DatastoreInfo{
-								Url: datastoreURL,
-							},
-						},
-					}, []*cnsvsphere.DatastoreInfo{}, nil
-				}
-				return []*cnsvsphere.DatastoreInfo{}, []*cnsvsphere.DatastoreInfo{}, nil
-			})
-		defer patches.Reset()
-
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.True(t, result)
+		assert.True(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("2 clusters per zone - datastore accessible to all clusters", func(t *testing.T) {
+		t.Cleanup(restore)
+		getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+			_ string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			return []*cnsvsphere.DatastoreInfo{
+				{Info: &types.DatastoreInfo{Url: datastoreURL}},
+			}, nil, nil
+		}
 		azClustersMap := map[string][]string{
 			"zone-a": {"cluster-a1", "cluster-a2"},
 			"zone-b": {"cluster-b1", "cluster-b2"},
 		}
-
-		patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-			func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-				includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-				return []*cnsvsphere.DatastoreInfo{
-					{
-						Info: &types.DatastoreInfo{
-							Url: datastoreURL,
-						},
-					},
-				}, []*cnsvsphere.DatastoreInfo{}, nil
-			})
-		defer patches.Reset()
-
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.True(t, result)
+		assert.True(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("2 clusters per zone - datastore accessible to only 1 cluster", func(t *testing.T) {
+		t.Cleanup(restore)
+		getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+			clusterID string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			if clusterID == "cluster-a1" {
+				return []*cnsvsphere.DatastoreInfo{
+					{Info: &types.DatastoreInfo{Url: datastoreURL}},
+				}, nil, nil
+			}
+			return nil, nil, nil
+		}
 		azClustersMap := map[string][]string{
 			"zone-a": {"cluster-a1", "cluster-a2"},
 			"zone-b": {"cluster-b1", "cluster-b2"},
 		}
-
-		patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-			func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-				includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-				if clusterID == "cluster-a1" {
-					return []*cnsvsphere.DatastoreInfo{
-						{
-							Info: &types.DatastoreInfo{
-								Url: datastoreURL,
-							},
-						},
-					}, []*cnsvsphere.DatastoreInfo{}, nil
-				}
-				return []*cnsvsphere.DatastoreInfo{}, []*cnsvsphere.DatastoreInfo{}, nil
-			})
-		defer patches.Reset()
-
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.True(t, result)
+		assert.True(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("2 clusters per zone - datastore accessible to only 1 cluster in different zone",
 		func(t *testing.T) {
+			t.Cleanup(restore)
+			getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+				clusterID string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+				if clusterID == "cluster-b2" {
+					return []*cnsvsphere.DatastoreInfo{
+						{Info: &types.DatastoreInfo{Url: datastoreURL}},
+					}, nil, nil
+				}
+				return nil, nil, nil
+			}
 			azClustersMap := map[string][]string{
 				"zone-a": {"cluster-a1", "cluster-a2"},
 				"zone-b": {"cluster-b1", "cluster-b2"},
 			}
-
-			patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-				func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-					includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-					if clusterID == "cluster-b2" {
-						return []*cnsvsphere.DatastoreInfo{
-							{
-								Info: &types.DatastoreInfo{
-									Url: datastoreURL,
-								},
-							},
-						}, []*cnsvsphere.DatastoreInfo{}, nil
-					}
-					return []*cnsvsphere.DatastoreInfo{}, []*cnsvsphere.DatastoreInfo{}, nil
-				})
-			defer patches.Reset()
-
-			result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-			assert.True(t, result)
+			assert.True(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 		})
 
 	t.Run("datastore not accessible to any cluster", func(t *testing.T) {
+		t.Cleanup(restore)
+		getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+			_ string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			return nil, nil, nil
+		}
 		azClustersMap := map[string][]string{
 			"zone-a": {"cluster-a1"},
 			"zone-b": {"cluster-b1"},
 		}
-
-		patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-			func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-				includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-				return []*cnsvsphere.DatastoreInfo{}, []*cnsvsphere.DatastoreInfo{}, nil
-			})
-		defer patches.Reset()
-
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.False(t, result)
+		assert.False(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("error handling - should continue processing other clusters", func(t *testing.T) {
+		t.Cleanup(restore)
+		getCandidateDatastoresInClusterFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+			clusterID string, _ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			if clusterID == "cluster-a1" {
+				return nil, nil, fmt.Errorf("failed to get datastores for cluster-a1")
+			}
+			if clusterID == "cluster-b1" {
+				return []*cnsvsphere.DatastoreInfo{
+					{Info: &types.DatastoreInfo{Url: datastoreURL}},
+				}, nil, nil
+			}
+			return nil, nil, nil
+		}
 		azClustersMap := map[string][]string{
 			"zone-a": {"cluster-a1"},
 			"zone-b": {"cluster-b1"},
 		}
-
-		patches := gomonkey.ApplyFunc(cnsvsphere.GetCandidateDatastoresInCluster,
-			func(ctx context.Context, vc *cnsvsphere.VirtualCenter, clusterID string,
-				includevSANDirectDatastores bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
-				if clusterID == "cluster-a1" {
-					return nil, nil, fmt.Errorf("failed to get datastores for cluster-a1")
-				}
-				if clusterID == "cluster-b1" {
-					return []*cnsvsphere.DatastoreInfo{
-						{
-							Info: &types.DatastoreInfo{
-								Url: datastoreURL,
-							},
-						},
-					}, []*cnsvsphere.DatastoreInfo{}, nil
-				}
-				return []*cnsvsphere.DatastoreInfo{}, []*cnsvsphere.DatastoreInfo{}, nil
-			})
-		defer patches.Reset()
-
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.True(t, result)
+		assert.True(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("empty azClustersMap", func(t *testing.T) {
 		azClustersMap := map[string][]string{}
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.False(t, result)
+		assert.False(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 
 	t.Run("empty cluster lists in zones", func(t *testing.T) {
@@ -201,8 +162,7 @@ func TestIsDatastoreAccessibleToAZClusters(t *testing.T) {
 			"zone-a": {},
 			"zone-b": {},
 		}
-		result := isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL)
-		assert.False(t, result)
+		assert.False(t, isDatastoreAccessibleToAZClusters(ctx, mockVC, azClustersMap, datastoreURL))
 	})
 }
 
