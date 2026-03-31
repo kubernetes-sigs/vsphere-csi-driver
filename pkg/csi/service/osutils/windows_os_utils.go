@@ -105,8 +105,7 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get Disk Number, err: %v", err)
 	}
-	log.Infof("nodeStageBlockVolume diskNumber %s, diskId %s,stagingTargetPath %s ", diskNumber, diskID, stagingTargetPath)
-
+	log.Infof("nodeStageBlockVolume diskNumber %s, diskId %s,stagingTargetPath %s", diskNumber, diskID, stagingTargetPath)
 	mounted, err := osUtils.haveMountPoint(ctx, stagingTargetPath)
 	if err != nil {
 		return nil, err
@@ -138,6 +137,7 @@ func (osUtils *OsUtils) haveMountPoint(ctx context.Context, target string) (bool
 		return false, logger.LogNewErrorCodef(log, codes.Internal,
 			"Could not determine if staging path is already mounted, err: %v", err)
 	}
+	log.Infof("haveMountPoint returned mount status %v", notMounted)
 	if notMounted {
 		return false, nil
 	}
