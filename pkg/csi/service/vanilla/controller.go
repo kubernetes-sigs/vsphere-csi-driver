@@ -1835,30 +1835,10 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				"failed to get volume manager for volume Id: %q. Error: %v", req.VolumeId, err)
 		}
 		if !strings.Contains(req.VolumeId, ".vmdk") {
-			// Check if volume is block or file, skip detach for file volume.
-			queryFilter := cnstypes.CnsQueryFilter{
-				VolumeIds: []cnstypes.CnsVolumeId{{Id: req.VolumeId}},
-			}
-			querySelection := cnstypes.CnsQuerySelection{
-				Names: []string{
-					string(cnstypes.QuerySelectionNameTypeVolumeType),
-				},
-			}
-			// Select only the volume type.
-			queryResult, err := volumeManager.QueryAllVolume(ctx, queryFilter, querySelection)
-			// TODO: QueryAllVolumeUtil need return faultType
-			//	and we should return the faultType.
-			// Currently, just return "csi.fault.Internal"
-			if err != nil {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"queryVolume failed for volumeID: %q with err=%+v", req.VolumeId, err)
-			}
-
-			if len(queryResult.Volumes) == 0 {
-				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-					"volumeID %q not found in QueryVolume", req.VolumeId)
-			}
-			if queryResult.Volumes[0].VolumeType == common.FileVolumeType {
+			// Check if volume is file volume using volume ID prefix pattern.
+			// File volumes have "file:" prefix, so we can avoid expensive CNS QueryVolume call.
+			const FileVolumePrefix = "file:"
+			if strings.HasPrefix(req.VolumeId, FileVolumePrefix) {
 				volumeType = prometheus.PrometheusFileVolumeType
 				log.Infof("Skipping ControllerUnpublish for file volume %q", req.VolumeId)
 				return &csi.ControllerUnpublishVolumeResponse{}, "", nil

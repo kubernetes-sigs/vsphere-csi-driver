@@ -853,25 +853,10 @@ func ListSnapshotsUtil(ctx context.Context, volManager cnsvolume.Manager, volume
 		return snapshots, "", nil
 	} else if volumeID != "" {
 		// Retrieve all snapshots for a volume-id
-		// Check if the volume-id specified is of Block type.
-		queryFilter := cnstypes.CnsQueryFilter{
-			VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
-		}
-		querySelection := cnstypes.CnsQuerySelection{
-			Names: []string{string(cnstypes.QuerySelectionNameTypeVolumeType)},
-		}
-		// Validate that the volume-id is of block volume type.
-		queryResult, err := utils.QueryVolumeUtil(ctx, volManager, queryFilter, &querySelection)
-		if err != nil {
-			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
-				"queryVolumeUtil failed with err=%+v", err)
-		}
-
-		if len(queryResult.Volumes) == 0 {
-			return nil, "", logger.LogNewErrorCodef(log, codes.Internal,
-				"volumeID %q not found in QueryVolumeUtil", volumeID)
-		}
-		if queryResult.Volumes[0].VolumeType == FileVolumeType {
+		// Check if the volume-id is a file volume using prefix pattern.
+		// File volumes have "file:" prefix, avoiding expensive CNS QueryVolume call.
+		const FileVolumePrefix = "file:"
+		if strings.HasPrefix(volumeID, FileVolumePrefix) {
 			return nil, "", logger.LogNewErrorCodef(log, codes.Unimplemented,
 				"ListSnapshot for file volume: %q not supported", volumeID)
 		}

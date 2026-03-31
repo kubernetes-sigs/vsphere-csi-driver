@@ -438,12 +438,21 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
-		// Query volume.
+		// Early validation: Check if volume is file volume using volume ID prefix pattern.
+		// File volumes have "file:" prefix, allowing early rejection of non-file volumes.
+		const FileVolumePrefix = "file:"
+		if !strings.HasPrefix(volumeID, FileVolumePrefix) {
+			msg := fmt.Sprintf("CNS Volume: %s is not a file volume (missing file: prefix)", volumeID)
+			err = logger.LogNewError(log, msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, reconcile.TerminalError(err)
+		}
+
+		// Query volume for backing object details (still needed for access point configuration).
 		log.Debugf("Querying volume: %s for CnsFileAccessConfig request with name: %q on namespace: %q",
 			volumeID, instance.Name, instance.Namespace)
 		querySelection := cnstypes.CnsQuerySelection{
 			Names: []string{
-				string(cnstypes.QuerySelectionNameTypeVolumeType),
 				string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
 			},
 		}
@@ -461,8 +470,9 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
+		// Double-check volume type from CNS (defensive programming)
 		if volume.VolumeType != string(cnstypes.CnsVolumeTypeFile) {
-			msg := fmt.Sprintf("CNS Volume: %s is not RWX volume", volumeID)
+			msg := fmt.Sprintf("CNS Volume: %s is not RWX volume (CNS reports type: %s)", volumeID, volume.VolumeType)
 			err = logger.LogNewError(log, msg)
 			setInstanceError(ctx, r, instance, msg)
 			return reconcile.Result{RequeueAfter: timeout}, reconcile.TerminalError(err)
