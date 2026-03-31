@@ -7,7 +7,9 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -315,8 +317,48 @@ func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.Vi
 	default:
 		return nil, logger.LogNewErrorf(log, "unrecognised entity type found %+v.", entity.Reference())
 	}
+	activeHosts, err := filterMaintenanceModeHosts(ctx, hosts, vCenter, entity.Reference())
+	if err != nil {
+		return nil, err
+	}
+	return activeHosts, nil
+}
 
-	return hosts, nil
+// filterMaintenanceModeHosts filters out hosts in Maintenance Mode from hostList
+// using a single batch Property Collector API call and returns only active hosts.
+func filterMaintenanceModeHosts(ctx context.Context, hostList []*cnsvsphere.HostSystem,
+	vCenter *cnsvsphere.VirtualCenter, entityRef vim25types.ManagedObjectReference) (
+	[]*cnsvsphere.HostSystem, error) {
+	if len(hostList) == 0 {
+		return nil, nil
+	}
+	log := logger.GetLogger(ctx)
+	hostMoRefs := make([]vim25types.ManagedObjectReference, 0, len(hostList))
+	for _, h := range hostList {
+		hostMoRefs = append(hostMoRefs, h.Reference())
+	}
+	var hostMoList []mo.HostSystem
+	pc := property.DefaultCollector(vCenter.Client.Client)
+	if err := pc.Retrieve(ctx, hostMoRefs, []string{"runtime"}, &hostMoList); err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to retrieve runtime properties for hosts in %+v. Error: %+v", entityRef, err)
+	}
+	activeSet := make(map[string]bool, len(hostMoList))
+	for _, hMo := range hostMoList {
+		if !hMo.Runtime.InMaintenanceMode {
+			activeSet[hMo.Reference().Value] = true
+		} else {
+			log.Infof("Skipping host %q in %+v as it is in Maintenance Mode",
+				hMo.Reference().Value, entityRef)
+		}
+	}
+	var activeHosts []*cnsvsphere.HostSystem
+	for _, h := range hostList {
+		if activeSet[h.Reference().Value] {
+			activeHosts = append(activeHosts, h)
+		}
+	}
+	return activeHosts, nil
 }
 
 // areEntityMorefsPresentForTag retrieves the entities in given VC which have the
