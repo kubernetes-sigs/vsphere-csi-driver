@@ -97,6 +97,13 @@ func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capa
 	}
 }
 
+// IsRetryAttempt returns true when a prior CnsVolumeOperationRequest CR
+// already exists for this volume, indicating the current operation is a
+// retry rather than a first attempt.
+func IsRetryAttempt(details *VolumeOperationRequestDetails, err error) bool {
+	return err == nil && details != nil
+}
+
 // convertToCnsVolumeOperationRequestDetails converts an object of type
 // OperationDetails to the OperationDetails type defined by the
 // CnsVolumeOperationRequest Custom Resource.
