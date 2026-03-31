@@ -33,7 +33,7 @@ type ClusterComputeResource struct {
 	VirtualCenterHost string
 }
 
-// GetHosts fetches the hosts under the ClusterComputeResource.
+// GetHosts returns all hosts under the ClusterComputeResource.
 func (ccr *ClusterComputeResource) GetHosts(ctx context.Context) ([]*HostSystem, error) {
 	log := logger.GetLogger(ctx)
 	cluster := mo.ClusterComputeResource{}

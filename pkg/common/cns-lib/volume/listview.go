@@ -324,6 +324,15 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 		l.mu.Lock()
 		log.Infof("acquired lock before re-creating listview")
 		if recreateView {
+			if l.listView != nil {
+				destroyListviewErr := l.listView.Destroy(l.ctx)
+				if destroyListviewErr != nil {
+					// ignoring the error and re-creating the list view
+					log.Errorf("failed to destroy listview object. err: %v", destroyListviewErr)
+				} else {
+					log.Info("successfully destroyed existing listview")
+				}
+			}
 			log.Info("re-creating the listView object")
 			err := l.createListView(l.ctx, nil)
 			if err != nil {
@@ -331,6 +340,7 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 				l.mu.Unlock()
 				continue
 			}
+			log.Info("successfully created listview")
 
 			filter = getListViewWaitFilter(l.listView)
 			l.waitForUpdatesContext, l.waitForUpdatesCancelFunc = context.WithCancel(context.Background())
@@ -395,12 +405,19 @@ func (l *ListViewImpl) listenToTaskUpdates() {
 
 // reportErrorOnAllPendingTasks returns failure to all pending tasks in the map in case of vc failure
 func (l *ListViewImpl) reportErrorOnAllPendingTasks(err error) {
+	log := logger.GetLogger(context.Background())
 	for _, taskDetails := range l.taskMap.GetAll() {
 		result := TaskResult{
 			TaskInfo: nil,
 			Err:      err,
 		}
-		taskDetails.ResultCh <- result
+		// Non-blocking send
+		select {
+		case taskDetails.ResultCh <- result:
+			log.Infof("reported error for task %+v", taskDetails.Reference)
+		default:
+			log.Warnf("failed to report error for task %+v: channel blocked", taskDetails.Reference)
+		}
 	}
 }
 
@@ -431,8 +448,16 @@ func (l *ListViewImpl) processTaskUpdate(prop types.PropertyChange) {
 		result.TaskInfo = &taskInfo
 		result.Err = nil
 	}
-
-	taskDetails.ResultCh <- result
+	// Use a non-blocking send to prevent deadlocks when multiple goroutines
+	// try to send to the same channel (e.g., due to duplicate task updates from vSphere)
+	select {
+	case taskDetails.ResultCh <- result:
+		log.Infof("Successfully sent task result for task %+v", taskInfo.Task)
+	default:
+		// Channel is full/blocked, which means another goroutine already sent the result
+		// This can happen when vSphere sends duplicate task update events
+		log.Warnf("result channel full for task %+v, ignoring duplicate update", taskInfo.Task)
+	}
 }
 
 // RemoveTasksMarkedForDeletion goes over the list of tasks in the map
