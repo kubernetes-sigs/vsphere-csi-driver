@@ -448,7 +448,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, reconcile.TerminalError(err)
 		}
 
-		// Query volume for backing object details (still needed for access point configuration).
+		// Query volume for backing object details (needed for access point configuration).
 		log.Debugf("Querying volume: %s for CnsFileAccessConfig request with name: %q on namespace: %q",
 			volumeID, instance.Name, instance.Namespace)
 		querySelection := cnstypes.CnsQuerySelection{
@@ -470,13 +470,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
-		// Double-check volume type from CNS (defensive programming)
-		if volume.VolumeType != string(cnstypes.CnsVolumeTypeFile) {
-			msg := fmt.Sprintf("CNS Volume: %s is not RWX volume (CNS reports type: %s)", volumeID, volume.VolumeType)
-			err = logger.LogNewError(log, msg)
-			setInstanceError(ctx, r, instance, msg)
-			return reconcile.Result{RequeueAfter: timeout}, reconcile.TerminalError(err)
-		}
+		// Volume type is guaranteed to be file volume due to prefix validation above
 		vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 		accessPoints := make(map[string]string)
 		for _, kv := range vSANFileBackingDetails.AccessPoints {
