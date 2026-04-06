@@ -18,9 +18,12 @@ package wcpguest
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -30,11 +33,14 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/fsnotify/fsnotify"
+	snapshotmetadataapi "github.com/kubernetes-csi/external-snapshot-metadata/pkg/api"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -42,7 +48,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
@@ -76,6 +84,55 @@ var (
 	}
 )
 
+// defaultSupervisorTokenPath is the on-disk path of the ServiceAccount token
+// that authenticates the guest pvCSI driver to the Supervisor. It lives in
+// the pvcsi-provider-creds Secret that every pvcsi.yaml manifest mounts at
+// commonconfig.DefaultpvCSIProviderPath (see pkg/kubernetes/kubernetes.go's
+// GetRestClientConfigForSupervisor, which uses the same directory for its
+// token+ca.crt pair).
+const defaultSupervisorTokenPath = commonconfig.DefaultpvCSIProviderPath + "/token"
+
+// snapshotMetadataServiceCRName is the cluster-scoped name of the
+// SnapshotMetadataService CR that advertises the Supervisor's Snapshot
+// Metadata Service endpoint. By convention the CR is named after the CSI
+// driver, so we reuse csitypes.Name as the source of truth.
+const snapshotMetadataServiceCRName = csitypes.Name
+
+// dialSnapshotMetadata builds the gRPC client connection to the Supervisor
+// Snapshot Metadata Service. It is intentionally a package-level function
+// variable so unit tests can override it to dial an in-process mock with
+// non-TLS credentials.
+//
+// The production binary always reaches the real grpc.NewClient with the
+// transport credentials built from the SnapshotMetadataService CR's
+// spec.caCert and the per-RPC bearer token; tests replace this variable in
+// their setup and restore it via t.Cleanup.
+var dialSnapshotMetadata = func(
+	address string,
+	transportCreds credentials.TransportCredentials,
+	perRPC credentials.PerRPCCredentials,
+) (*grpc.ClientConn, error) {
+	return grpc.NewClient(address,
+		grpc.WithTransportCredentials(transportCreds),
+		grpc.WithPerRPCCredentials(perRPC),
+	)
+}
+
+// tokenAuth implements credentials.PerRPCCredentials
+type tokenAuth struct {
+	token string
+}
+
+func (t tokenAuth) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
+	return map[string]string{
+		"authorization": "Bearer " + t.token,
+	}, nil
+}
+
+func (tokenAuth) RequireTransportSecurity() bool {
+	return false
+}
+
 type controller struct {
 	supervisorClient            clientset.Interface
 	guestClient                 clientset.Interface
@@ -88,13 +145,20 @@ type controller struct {
 	tanzukubernetesClusterUID   string
 	tanzukubernetesClusterName  string
 	guestClusterDist            string
+	// supervisorTokenPath is the on-disk path of the ServiceAccount token used
+	// to authenticate calls from the guest pvCSI driver to the Supervisor
+	// Snapshot Metadata Service. Defaults to defaultSupervisorTokenPath; unit
+	// tests may override it to point at a temp directory.
+	supervisorTokenPath string
 	csi.UnimplementedControllerServer
 	csi.UnimplementedSnapshotMetadataServer
 }
 
 // New creates a CNS controller
 func New() csitypes.CnsController {
-	return &controller{}
+	return &controller{
+		supervisorTokenPath: defaultSupervisorTokenPath,
+	}
 }
 
 // Init is initializing controller struct
@@ -1685,14 +1749,28 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		volumeSnapshotName := req.Parameters[common.VolumeSnapshotNameKey]
 		volumeSnapshotNamespace := req.Parameters[common.VolumeSnapshotNamespaceKey]
 
-		log.Infof("Attempting to annotate Guest volumesnapshot %s/%s with %s",
-			volumeSnapshotNamespace, volumeSnapshotName, snapshotID)
+		// Mirror the change-id annotation from the Supervisor VolumeSnapshot to the guest cluster
+		// VolumeSnapshot so the guest cluster exposes the same vSphere change-id and
+		// backup tooling can consume it without needing Supervisor access.
+		// TODO: Add logic to set the change-id annotation later once available if it is not present yet.
+		guestAnnotations := map[string]string{common.VolumeSnapshotInfoKey: snapshotID}
+		if changeID, ok := vs.Annotations[common.VolumeSnapshotChangeIDKey]; ok && changeID != "" {
+			guestAnnotations[common.VolumeSnapshotChangeIDKey] = changeID
+		} else {
+			log.Infof("Supervisor VolumeSnapshot %s/%s does not yet have annotation %s; "+
+				"guest VolumeSnapshot %s/%s will be annotated with change-id later once available",
+				c.supervisorNamespace, supervisorVolumeSnapshotName, common.VolumeSnapshotChangeIDKey,
+				volumeSnapshotNamespace, volumeSnapshotName)
+		}
+
+		log.Infof("Attempting to annotate Guest volumesnapshot %s/%s with %v",
+			volumeSnapshotNamespace, volumeSnapshotName, guestAnnotations)
 		annotated, err := commonco.ContainerOrchestratorUtility.AnnotateVolumeSnapshot(ctx, volumeSnapshotName,
-			volumeSnapshotNamespace, map[string]string{common.VolumeSnapshotInfoKey: snapshotID})
+			volumeSnapshotNamespace, guestAnnotations)
 		if err != nil || !annotated {
 			log.Warnf("The snapshot: %s was created successfully, but failed to annotate volumesnapshot %s/%s"+
-				"with annotation %s:%s. Error: %v", snapshotID, volumeSnapshotNamespace,
-				volumeSnapshotName, common.VolumeSnapshotInfoKey, snapshotID, err)
+				" with annotations %v. Error: %v", snapshotID, volumeSnapshotNamespace,
+				volumeSnapshotName, guestAnnotations, err)
 		}
 		snapshotCreateTimeInProto := timestamppb.New(vs.Status.CreationTime.Time)
 		snapshotSize := vs.Status.RestoreSize.Value()
@@ -1902,4 +1980,105 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
 	*csi.ControllerModifyVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
+}
+
+// getSnapshotMetadataClient returns a gRPC client connected to the Snapshot Metadata Service
+// running in the Supervisor cluster. The security token read from c.supervisorTokenPath
+// is returned so callers can populate the request's `security_token` field in addition to any
+// authorization metadata.
+func (c *controller) getSnapshotMetadataClient(
+	ctx context.Context) (snapshotmetadataapi.SnapshotMetadataClient, *grpc.ClientConn, string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Fetch the SnapshotMetadataService CR using the dynamic client. The CR
+	// name is the same as the CSI driver name (see snapshotMetadataServiceCRName).
+	smsGVK := schema.GroupVersionKind{
+		Group:   "cbt.storage.k8s.io",
+		Version: "v1beta1",
+		Kind:    "SnapshotMetadataService",
+	}
+
+	smsCR := &unstructured.Unstructured{}
+	smsCR.SetGroupVersionKind(smsGVK)
+
+	err := c.cnsOperatorClient.Get(ctx, client.ObjectKey{Name: snapshotMetadataServiceCRName}, smsCR)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to get SnapshotMetadataService CR: %v", err)
+	}
+
+	address, found, err := unstructured.NestedString(smsCR.Object, "spec", "address")
+	if !found || err != nil || address == "" {
+		return nil, nil, "", fmt.Errorf("failed to get address from SnapshotMetadataService CR: %v", err)
+	}
+
+	caCert, found, err := unstructured.NestedString(smsCR.Object, "spec", "caCert")
+	if !found || err != nil {
+		return nil, nil, "", fmt.Errorf("failed to get caCert from SnapshotMetadataService CR: %v", err)
+	}
+
+	if caCert == "" {
+		return nil, nil, "", fmt.Errorf("caCert is empty in SnapshotMetadataService CR")
+	}
+	certPool := x509.NewCertPool()
+	caBytes := []byte(caCert)
+	if !certPool.AppendCertsFromPEM(caBytes) {
+		// SnapshotMetadataService CRD uses OpenAPI "byte" (base64 on the wire); accept PEM or base64-of-PEM.
+		decoded, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(caCert))
+		if decErr != nil || !certPool.AppendCertsFromPEM(decoded) {
+			if decErr != nil {
+				return nil, nil, "", fmt.Errorf("failed to append caCert to pool: %w", decErr)
+			}
+			return nil, nil, "", fmt.Errorf("failed to append caCert to pool after base64 decode")
+		}
+	}
+	transportCreds := credentials.NewClientTLSFromCert(certPool, "")
+
+	tokenPath := c.supervisorTokenPath
+	if tokenPath == "" {
+		tokenPath = defaultSupervisorTokenPath
+	}
+	tokenBytes, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to read token from %s: %v", tokenPath, err)
+	}
+
+	log.Infof("Dialing SnapshotMetadataService at %s", address)
+	conn, err := dialSnapshotMetadata(address, transportCreds, tokenAuth{token: string(tokenBytes)})
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to connect to Snapshot Metadata Service at %s: %v", address, err)
+	}
+
+	return snapshotmetadataapi.NewSnapshotMetadataClient(conn), conn, string(tokenBytes), nil
+}
+
+// findSupervisorSnapshotByHandle resolves a CSI snapshot handle to the corresponding Supervisor
+// VolumeSnapshot namespace and name.
+//
+// In the paravirtual model, the CSI snapshot_id that pvCSI reports for a guest snapshot is
+// identical to the name of the Supervisor VolumeSnapshot that backs it, and that Supervisor
+// VolumeSnapshot always lives in the pvCSI supervisor namespace (c.supervisorNamespace). The
+// external-snapshot-metadata proto requires (namespace, snapshot_name) identifiers, so we
+// translate the CSI handle into those here before forwarding the request.
+func (c *controller) findSupervisorSnapshotByHandle(
+	ctx context.Context, snapshotHandle string) (string, string, error) {
+	log := logger.GetLogger(ctx)
+	if snapshotHandle == "" {
+		return "", "", fmt.Errorf("snapshot handle is empty")
+	}
+	if c.supervisorSnapshotterClient == nil {
+		return "", "", fmt.Errorf("supervisor snapshotter client is not initialized")
+	}
+	if c.supervisorNamespace == "" {
+		return "", "", fmt.Errorf("supervisor namespace is not configured")
+	}
+
+	vs, err := c.supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(c.supervisorNamespace).Get(
+		ctx, snapshotHandle, metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get supervisor VolumeSnapshot %s/%s: %v",
+			c.supervisorNamespace, snapshotHandle, err)
+	}
+	log.Infof("Resolved CSI snapshot handle %s to supervisor VolumeSnapshot %s/%s",
+		snapshotHandle, vs.Namespace, vs.Name)
+	return vs.Namespace, vs.Name, nil
 }
