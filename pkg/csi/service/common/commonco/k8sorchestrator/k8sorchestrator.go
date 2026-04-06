@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/util/retry"
 
-	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
@@ -2045,56 +2044,6 @@ func (c *K8sOrchestrator) GetAllVolumes() []string {
 func (c *K8sOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volumeSnapshotName string,
 	volumeSnapshotNamespace string, annotations map[string]string) (bool, error) {
 	return c.updateVolumeSnapshotAnnotations(ctx, volumeSnapshotName, volumeSnapshotNamespace, annotations)
-}
-
-// GetVolumeSnapshotChangeIDBySnapshotID retrieves the csi.vsphere.volume/change-id annotation
-// from the VolumeSnapshot corresponding to the given snapshotID (SnapshotHandle)
-func (c *K8sOrchestrator) GetVolumeSnapshotChangeIDBySnapshotID(ctx context.Context,
-	snapshotID string) (string, error) {
-	log := logger.GetLogger(ctx)
-	if c.snapshotterClient == nil {
-		return "", fmt.Errorf("snapshotterClient is not initialized")
-	}
-
-	// 1. List VolumeSnapshotContent to find the one matching the snapshotID
-	vscList, err := c.snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to list VolumeSnapshotContents: %v", err)
-	}
-
-	var targetVSC *snapshotv1.VolumeSnapshotContent
-	for _, vsc := range vscList.Items {
-		if vsc.Status != nil && vsc.Status.SnapshotHandle != nil && *vsc.Status.SnapshotHandle == snapshotID {
-			targetVSC = &vsc
-			break
-		}
-	}
-
-	if targetVSC == nil {
-		return "", fmt.Errorf("VolumeSnapshotContent not found for SnapshotHandle: %s", snapshotID)
-	}
-
-	if targetVSC.Spec.VolumeSnapshotRef.Name == "" || targetVSC.Spec.VolumeSnapshotRef.Namespace == "" {
-		return "", fmt.Errorf("VolumeSnapshotRef is missing in VolumeSnapshotContent %s", targetVSC.Name)
-	}
-
-	// 2. Get the corresponding VolumeSnapshot
-	vs, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(targetVSC.Spec.VolumeSnapshotRef.Namespace).Get(
-		ctx, targetVSC.Spec.VolumeSnapshotRef.Name, metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get VolumeSnapshot %s/%s: %v",
-			targetVSC.Spec.VolumeSnapshotRef.Namespace, targetVSC.Spec.VolumeSnapshotRef.Name, err)
-	}
-
-	// 3. Extract the annotation
-	changeID, ok := vs.Annotations["csi.vsphere.volume/change-id"]
-	if !ok {
-		return "", fmt.Errorf("annotation csi.vsphere.volume/change-id not found on VolumeSnapshot %s/%s",
-			targetVSC.Spec.VolumeSnapshotRef.Namespace, targetVSC.Spec.VolumeSnapshotRef.Name)
-	}
-
-	log.Debugf("Successfully retrieved change-id %s for SnapshotHandle %s", changeID, snapshotID)
-	return changeID, nil
 }
 
 // GetConfigMap checks if ConfigMap with given name exists in the given namespace.

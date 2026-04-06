@@ -2723,7 +2723,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		if err != nil {
 			log.Warnf("Failed to retrieve changeId for snapshot %s: %v", snapshotID, err)
 		} else {
-			annotations["csi.vsphere.volume/change-id"] = changeId
+			annotations[common.VolumeSnapshotChangeIDKey] = changeId
 		}
 
 		log.Infof("Attempting to annotate volumesnapshot %s/%s with annotations %v",

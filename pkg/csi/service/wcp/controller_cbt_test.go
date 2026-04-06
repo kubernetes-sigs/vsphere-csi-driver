@@ -159,23 +159,15 @@ func TestValidateGetMetadataDeltaRequest(t *testing.T) {
 		{
 			name: "empty target snapshot ID",
 			req: &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "volume-123+snapshot-123",
+				BaseSnapshotId:   "some-change-id",
 				TargetSnapshotId: "",
 			},
 			wantErr: true,
 		},
 		{
-			name: "same base and target snapshot",
+			name: "valid request (BaseSnapshotId is the vSphere change-id)",
 			req: &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "volume-123+snapshot-456",
-				TargetSnapshotId: "volume-123+snapshot-456",
-			},
-			wantErr: true,
-		},
-		{
-			name: "valid request",
-			req: &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "volume-123+snapshot-123",
+				BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
 				TargetSnapshotId: "volume-123+snapshot-456",
 				StartingOffset:   0,
 				MaxResults:       1000,
@@ -194,12 +186,13 @@ func TestValidateGetMetadataDeltaRequest(t *testing.T) {
 	}
 }
 
-// TestGetMetadataAllocated_FSSDisabled tests that the API returns Unimplemented when FSS is disabled
+// TestGetMetadataAllocated_FSSDisabled tests that the API returns Unimplemented when the
+// Supervisor-side gate (CSI_Backup_API) is disabled.
 func TestGetMetadataAllocated_FSSDisabled(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Since we use the fake orchestrator, we need to ensure CBT feature state returns false.
-	// Actually, by default in unittestcommon it returns false if not set.
+	// FakeK8SOrchestrator returns false for any FSS that has not been explicitly
+	// enabled, which matches "CSI_Backup_API not enabled" on a real Supervisor.
 
 	req := &csi.GetMetadataAllocatedRequest{
 		SnapshotId: "volume-123+snapshot-456",
@@ -207,11 +200,12 @@ func TestGetMetadataAllocated_FSSDisabled(t *testing.T) {
 
 	err := ct.controller.GetMetadataAllocated(req, &mockAllocatedServer{ctx: ctx})
 	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("Expected Unimplemented error when CBT FSS is disabled, got: %v", err)
+		t.Errorf("Expected Unimplemented error when CSI_Backup_API FSS is disabled, got: %v", err)
 	}
 }
 
-// TestGetMetadataDelta_FSSDisabled tests that the API returns Unimplemented when FSS is disabled
+// TestGetMetadataDelta_FSSDisabled tests that the API returns Unimplemented when the
+// Supervisor-side gate (CSI_Backup_API) is disabled.
 func TestGetMetadataDelta_FSSDisabled(t *testing.T) {
 	ct := getControllerTest(t)
 
@@ -222,7 +216,7 @@ func TestGetMetadataDelta_FSSDisabled(t *testing.T) {
 
 	err := ct.controller.GetMetadataDelta(req, &mockDeltaServer{ctx: ctx})
 	if status.Code(err) != codes.Unimplemented {
-		t.Errorf("Expected Unimplemented error when CBT FSS is disabled, got: %v", err)
+		t.Errorf("Expected Unimplemented error when CSI_Backup_API FSS is disabled, got: %v", err)
 	}
 }
 
@@ -242,14 +236,16 @@ func TestGetMetadataAllocated_VolumeNotFound(t *testing.T) {
 	}
 }
 
-// TestGetMetadataDelta_VolumeNotFound tests that the API returns NotFound when volume is not found
+// TestGetMetadataDelta_VolumeNotFound tests that the API returns NotFound when the target
+// volume (derived from TargetSnapshotId) does not exist. BaseSnapshotId is the change-id
+// and is not used for volume lookup.
 func TestGetMetadataDelta_VolumeNotFound(t *testing.T) {
 	ct := getControllerTest(t)
 	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
 	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   "nonexistent-volume+snapshot-123",
+		BaseSnapshotId:   "some-change-id",
 		TargetSnapshotId: "nonexistent-volume+snapshot-456",
 	}
 
@@ -272,24 +268,6 @@ func TestGetMetadataAllocated_InvalidSnapshotID(t *testing.T) {
 	if err != nil {
 		// Expected to pass validation, but will fail when parsing
 		t.Logf("Validation passed, parsing would fail: %v", err)
-	}
-}
-
-// TestGetMetadataDelta_DifferentVolumes tests that the API returns InvalidArgument when the base and
-// target snapshot IDs refer to different CNS volumes (volume ID mismatch after parsing).
-func TestGetMetadataDelta_DifferentVolumes(t *testing.T) {
-	ct := getControllerTest(t)
-	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
-	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
-
-	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa+11111111-1111-1111-1111-111111111111",
-		TargetSnapshotId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb+22222222-2222-2222-2222-222222222222",
-	}
-
-	err := ct.controller.GetMetadataDelta(req, &mockDeltaServer{ctx: ctx})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("Expected InvalidArgument when base and target snapshots are on different volumes, got: %v", err)
 	}
 }
 
@@ -562,8 +540,11 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 		}, nil
 	}
 
+	// BaseSnapshotId is the vSphere CBT change-id supplied by backup software (read from the
+	// `csi.vsphere.volume/change-id` annotation when the base snapshot was first created).
+	// for this mock.
 	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   volID + "+snapshot-123",
+		BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
 		TargetSnapshotId: volID + "+snapshot-456",
 		MaxResults:       1,
 	}

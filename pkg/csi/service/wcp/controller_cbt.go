@@ -75,7 +75,12 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	log := logger.GetLogger(ctx)
 	log.Infof("GetMetadataAllocated: called with args %+v", req)
 
-	// Check if CBT feature is enabled
+	// Check if CBT feature is enabled.
+	//
+	// On Supervisor we gate on the CSI_Backup_API WCP capability. The guest
+	// pvCSI gates on common.CSI_Backup_API_FSS, which is mapped via
+	// common.WCPFeatureStateAssociatedWithPVCSI to this same Supervisor
+	// capability, so both ends consult the same source of truth in VKS.
 	isCSIBackupAPIEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCSIBackupAPIEnabled {
 		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataAllocated")
@@ -187,8 +192,19 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	return server.Send(resp)
 }
 
-// GetMetadataDelta returns the changed blocks between two snapshots using FCD VSLM APIs.
-// This implementation uses pure Go through govmomi's VSLM package (no CGO/VDDK required).
+// GetMetadataDelta returns the metadata for the changed blocks between two snapshots using
+// FCD VSLM APIs. This implementation uses Go through govmomi's VSLM package.
+//
+// vSphere semantics for the request fields:
+//   - base_snapshot_id is the vSphere CBT change-id of the base snapshot (the
+//     `csi.vsphere.volume/change-id` annotation on the VolumeSnapshot in both guest and
+//     supervisor clusters). Backup software is expected to persist that
+//     change-id in its own catalog and pass it back here. We do not look it up from the base
+//     VolumeSnapshot because the base snapshot may have been deleted (vSphere best practice).
+//   - target_snapshot_id is the CSI snapshot handle of the target snapshot ("volID+snapID");
+//     the target snapshot must still exist for VSLM to query its blocks.
+//
+// The volume ID is therefore taken from target_snapshot_id only.
 func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	server csi.SnapshotMetadata_GetMetadataDeltaServer) error {
 
@@ -197,7 +213,11 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	log := logger.GetLogger(ctx)
 	log.Infof("GetMetadataDelta: called with args %+v", req)
 
-	// Check if CBT feature is enabled
+	// Check if CBT feature is enabled.
+	//
+	// See GetMetadataAllocated above for the wcp / wcpguest split: on
+	// Supervisor we gate on the CSI_Backup_API WCP capability, while pvCSI
+	// gates on common.CSI_Backup_API_FSS which maps to the same capability.
 	isCSIBackupAPIEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 	if !isCSIBackupAPIEnabled {
 		return logger.LogNewErrorCode(log, codes.Unimplemented, "GetMetadataDelta")
@@ -213,7 +233,9 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 				"validation for GetMetadataDelta Request: %+v has failed. Error: %v", req, err)
 		}
 
-		baseSnapshotID := req.GetBaseSnapshotId()
+		// base_snapshot_id is the vSphere change-id, an opaque string. Pass it straight to
+		// VSLM.QueryChangedDiskAreas without parsing.
+		baseChangeID := req.GetBaseSnapshotId()
 		targetSnapshotID := req.GetTargetSnapshotId()
 		startingOffset := req.GetStartingOffset()
 		maxResults := req.GetMaxResults()
@@ -222,31 +244,17 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 			maxResults = defaultMaxResults
 		}
 
-		// Parse snapshot IDs
-		baseVolumeID, baseCnsSnapshotID, err := common.ParseCSISnapshotID(baseSnapshotID)
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"failed to parse base snapshot ID %s: %v", baseSnapshotID, err)
-		}
-
-		targetVolumeID, targetCnsSnapshotID, err := common.ParseCSISnapshotID(targetSnapshotID)
+		// Only the target snapshot ID is parsed for volume ID lookup; the target snapshot
+		// must exist on the Supervisor for VSLM to query its blocks.
+		volumeID, targetCnsSnapshotID, err := common.ParseCSISnapshotID(targetSnapshotID)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"failed to parse target snapshot ID %s: %v", targetSnapshotID, err)
 		}
 
-		// Verify both snapshots are from the same volume
-		if baseVolumeID != targetVolumeID {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"base snapshot and target snapshot must be from the same volume, got %s and %s",
-				baseVolumeID, targetVolumeID)
-		}
-
-		volumeID := baseVolumeID
-
 		log.Infof("GetMetadataDelta: querying changed blocks for volume %s, "+
-			"base snapshot %s, target snapshot %s, offset %d, max %d",
-			volumeID, baseCnsSnapshotID, targetCnsSnapshotID, startingOffset, maxResults)
+			"target snapshot %s, base change-id %s, offset %d, max %d",
+			volumeID, targetCnsSnapshotID, baseChangeID, startingOffset, maxResults)
 
 		// Query volume details
 		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
@@ -280,9 +288,9 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
-		// Query changed blocks using FCD APIs
+		// Query changed blocks using FCD APIs. baseChangeID is the change-id from the caller.
 		changedAreas, nextOffset, err := c.queryChangedAreasFromFCD(
-			ctx, volumeID, baseSnapshotID, targetCnsSnapshotID, uint64(startingOffset), uint32(maxResults))
+			ctx, volumeID, baseChangeID, targetCnsSnapshotID, uint64(startingOffset), uint32(maxResults))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to query changed blocks: %v", err)
@@ -307,9 +315,9 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		// Clients should track nextOffset from the number of results returned.
 		// If fewer results than maxResults are returned, pagination is complete.
 
-		log.Infof("GetMetadataDelta succeeded for base snapshot %s, target snapshot %s, "+
+		log.Infof("GetMetadataDelta succeeded for target snapshot %s, "+
 			"returned %d changed blocks, next offset %d",
-			baseSnapshotID, targetSnapshotID, len(blockMetadata), nextOffset)
+			targetSnapshotID, len(blockMetadata), nextOffset)
 
 		return response, nil
 	}
@@ -408,13 +416,15 @@ func (c *controller) queryAllocatedBlocksFromFCD(ctx context.Context, volumeID, 
 }
 
 // queryChangedAreasFromFCD queries changed blocks using FCD VSLM APIs.
-// It uses QueryChangedDiskAreas with a specific changeId to get blocks changed since the base snapshot.
-func (c *controller) queryChangedAreasFromFCD(ctx context.Context, volumeID, fullBaseSnapshotID,
+// baseChangeID is the vSphere CBT change-id supplied by the caller (via the CSI
+// GetMetadataDelta request's base_snapshot_id field). It is forwarded verbatim to
+// VSLM.QueryChangedDiskAreas; the base snapshot itself does not have to exist anymore.
+func (c *controller) queryChangedAreasFromFCD(ctx context.Context, volumeID, baseChangeID,
 	targetSnapshotID string, startingOffset uint64, maxResults uint32) ([]ChangedArea, uint64, error) {
 
 	log := logger.GetLogger(ctx)
-	log.Debugf("queryChangedAreasFromFCD: volume=%s base=%s target=%s offset=%d maxResults=%d",
-		volumeID, fullBaseSnapshotID, targetSnapshotID, startingOffset, maxResults)
+	log.Debugf("queryChangedAreasFromFCD: volume=%s target=%s offset=%d maxResults=%d (base change-id supplied)",
+		volumeID, targetSnapshotID, startingOffset, maxResults)
 
 	// Get vCenter connection
 	vcenter, err := common.GetVCenter(ctx, c.manager)
@@ -422,28 +432,19 @@ func (c *controller) queryChangedAreasFromFCD(ctx context.Context, volumeID, ful
 		return nil, 0, fmt.Errorf("failed to get vCenter instance: %v", err)
 	}
 
-	// Step 1: Get the changeId from the base snapshot
-	baseChangeId, err := commonco.ContainerOrchestratorUtility.GetVolumeSnapshotChangeIDBySnapshotID(
-		ctx, fullBaseSnapshotID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get base snapshot changeId from annotation: %v", err)
-	}
-
-	log.Debugf("Retrieved base snapshot changeId from annotation: %s", baseChangeId)
-
 	// Convert IDs to VSLM format
 	vslmVolumeID := types.ID{Id: volumeID}
 	vslmTargetSnapshotID := types.ID{Id: targetSnapshotID}
 
 	// Query changed disk areas
-	log.Debugf("Calling VSLM QueryChangedDiskAreas with base changeId for delta")
+	log.Debugf("Calling VSLM QueryChangedDiskAreas with caller-supplied baseChangeID for delta")
 	diskChangeInfo, err := queryChangedDiskAreasFunc(
 		ctx,
 		vcenter,
 		vslmVolumeID,
 		vslmTargetSnapshotID,
 		int64(startingOffset),
-		baseChangeId,
+		baseChangeID,
 	)
 	if err != nil {
 		return nil, 0, translateVslmError(log, err)
@@ -533,7 +534,11 @@ func validateGetMetadataAllocatedRequest(ctx context.Context, req *csi.GetMetada
 	return nil
 }
 
-// validateGetMetadataDeltaRequest validates the GetMetadataDelta request
+// validateGetMetadataDeltaRequest validates the GetMetadataDelta request.
+//
+// base_snapshot_id is the vSphere CBT change-id (opaque string) — we only check that it is
+// non-empty. target_snapshot_id is a CSI snapshot handle that the caller is responsible for
+// keeping valid (the target snapshot must still exist in vSphere).
 func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDeltaRequest) error {
 	log := logger.GetLogger(ctx)
 
@@ -542,15 +547,11 @@ func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDe
 	}
 
 	if req.BaseSnapshotId == "" {
-		return fmt.Errorf("base snapshot ID is required")
+		return fmt.Errorf("base snapshot ID (vSphere change-id) is required")
 	}
 
 	if req.TargetSnapshotId == "" {
 		return fmt.Errorf("target snapshot ID is required")
-	}
-
-	if req.BaseSnapshotId == req.TargetSnapshotId {
-		return fmt.Errorf("base snapshot and target snapshot must be different")
 	}
 
 	log.Debugf("GetMetadataDelta request validation passed")
