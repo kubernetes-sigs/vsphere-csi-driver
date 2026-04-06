@@ -96,7 +96,7 @@ var (
 	IsMultipleClustersPerVsphereZoneFSSEnabled bool
 	// isVsanFileVolumeServiceFSSEnabled is true when supports_vsan_fileservice capability is enabled on the supervisor.
 	isVsanFileVolumeServiceFSSEnabled bool
-	// isCSIBackupAPIEnabled is true when supports_CSI_Backup_API FSS is enabled.
+	// isCSIBackupAPIEnabled is true when supports_CSI_Backup_API FSS is enabled for CSI CBT support.
 	isCSIBackupAPIEnabled bool
 )
 

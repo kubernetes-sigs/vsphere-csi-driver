@@ -217,7 +217,7 @@ func (driver *vsphereCSIDriver) Run(ctx context.Context, endpoint string) {
 	// The service is only registered in controller mode when CBT feature is enabled
 	var snapshotMetadataServer csi.SnapshotMetadataServer
 	if driver.mode == "controller" && commonco.ContainerOrchestratorUtility != nil &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT) {
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
 		// Pass the controller server which implements the SnapshotMetadata RPCs
 		snapshotMetadataServer = controllerServer.(csi.SnapshotMetadataServer)
 		log.Info("SnapshotMetadata service will be registered (CBT support enabled)")

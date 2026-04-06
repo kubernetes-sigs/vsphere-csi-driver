@@ -16,7 +16,7 @@ metadata:
   name: vsphere-csi-controller-role
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "resourcequotas", "namespaces", "services"]
+    resources: ["nodes", "pods", "resourcequotas", "namespaces", "services", "secrets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -152,6 +152,12 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["cnsdp.vmware.com"]
     resources: ["cbtconfigs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cbt.storage.k8s.io"]
+    resources: ["snapshotmetadataservices"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificates/status"]
     verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
@@ -611,7 +617,6 @@ data:
   "storage-quota-m2": "true"
   "workload-domain-isolation": "false"
   "sv-pvc-snapshot-protection-finalizer": "true"
-  "csi-changed-block-tracking": "false"
   "high-pv-node-density": "false" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
 kind: ConfigMap
 metadata:

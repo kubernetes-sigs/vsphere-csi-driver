@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	snapshotmetadatav1beta1 "github.com/kubernetes-csi/external-snapshot-metadata/client/apis/snapshotmetadataservice/v1beta1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -56,6 +58,18 @@ func NewManager(
 	// Setup Scheme for all resources
 	if err := snapv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return nil, fmt.Errorf("failed to set scheme for K8s operator for type %s. Err: %+v", snapv1.GroupName, err)
+	}
+
+	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return nil, fmt.Errorf(
+			"failed to set scheme for K8s operator for type %s. Err: %+v",
+			certmanagerv1.SchemeGroupVersion.Group, err)
+	}
+
+	if err := snapshotmetadatav1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+		return nil, fmt.Errorf(
+			"failed to set scheme for K8s operator for type %s. Err: %+v",
+			snapshotmetadatav1beta1.SchemeGroupVersion.Group, err)
 	}
 
 	if err := k8scontroller.AddToManager(mgr, clusterFlavor); err != nil {
