@@ -306,27 +306,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
 
-		pvcsInSpecAndStatus := getPvcsFromSpecAndStatus(ctx, instance)
-
-		// For every PVC mentioned in instance.Spec and in instance.Status, remove finalizer from it.
-		// It is important to remove the finalizer from PVCs in instance.Status also as it is possible
-		// that someone removes the PVC from spec after triggering deletion of VM.
-		for pvcName, volumeName := range pvcsInSpecAndStatus {
-			err := removePvcFinalizer(ctx, r.client, k8sClient, r.cnsOperatorClient,
-				pvcName, instance.Namespace,
-				instance.Spec.InstanceUUID)
-			if err != nil {
-				updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", err,
-					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
-				log.Errorf("failed to remove finalizer from PVC %s. Err: %s", pvcName, err)
-				return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, err)
-			} else {
-				updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", err,
-					v1alpha1.ConditionDetached, "")
-			}
-		}
-
-		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client)
+		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client, k8sClient, r.cnsOperatorClient)
 		if patchErr != nil {
 			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", instance.Name, patchErr)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, patchErr)
@@ -399,7 +379,7 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	}
 
 	// CR is being deleted and all volumes were detached successfully.
-	return removeFinalizerFromCRDInstance(ctx, instance, r.client)
+	return removeFinalizerFromCRDInstance(ctx, instance, r.client, k8sClient, r.cnsOperatorClient)
 }
 
 // reconcileInstanceWithoutDeletionTimestamp calls CNS batch attach for all volumes in instance spec

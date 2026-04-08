@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 
@@ -818,6 +819,111 @@ func TestUpdatePvcStatusEntryName_SkipsNonTargetPVC(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected volume name %q (unchanged), got %q", want, got)
 	}
+}
+
+func findVolumeDetachedCondition(vol v1alpha1.VolumeStatus) *metav1.Condition {
+	for i := range vol.PersistentVolumeClaim.Conditions {
+		if vol.PersistentVolumeClaim.Conditions[i].Type == v1alpha1.ConditionDetached {
+			return &vol.PersistentVolumeClaim.Conditions[i]
+		}
+	}
+	return nil
+}
+
+func schemeForCnsBatchAttachTests() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = v1.AddToScheme(s)
+	_ = cnsopapis.AddToScheme(s)
+	return s
+}
+
+func TestRemovePvcProtectionFinalizersForTrackedPVCs_AllSucceed(t *testing.T) {
+	ctx := context.Background()
+	base := setupTestCnsNodeVMBatchAttachment()
+	instance := base.DeepCopy()
+
+	s := schemeForCnsBatchAttachTests()
+	crClient := fake.NewClientBuilder().WithScheme(s).WithObjects(instance).WithStatusSubresource(instance).Build()
+	clientset := k8sFake.NewClientset()
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(removePvcFinalizer, func(ctx context.Context, patchClient crclient.Client,
+		k8sClient kubernetes.Interface, cnsOpClient crclient.Client,
+		pvcName, namespace, vmInstanceUUID string) error {
+		assert.Equal(t, testNamespace, namespace)
+		assert.Equal(t, base.Spec.InstanceUUID, vmInstanceUUID)
+		assert.Contains(t, []string{"pvc-1", "pvc-2"}, pvcName)
+		return nil
+	})
+
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	assert.NoError(t, err)
+
+	for _, vol := range instance.Status.VolumeStatus {
+		cond := findVolumeDetachedCondition(vol)
+		assert.NotNil(t, cond, "volume %q should have %s condition", vol.Name, v1alpha1.ConditionDetached)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	}
+}
+
+func TestRemovePvcProtectionFinalizersForTrackedPVCs_RemoveFinalizerErrorUpdatesStatus(t *testing.T) {
+	ctx := context.Background()
+	base := setupTestCnsNodeVMBatchAttachment()
+	base.Spec.Volumes = base.Spec.Volumes[:1]
+	base.Status.VolumeStatus = base.Status.VolumeStatus[:1]
+	instance := base.DeepCopy()
+
+	s := schemeForCnsBatchAttachTests()
+	crClient := fake.NewClientBuilder().WithScheme(s).WithObjects(instance).WithStatusSubresource(instance).Build()
+	clientset := k8sFake.NewClientset()
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
+
+	wantErr := errors.New("mock removePvcFinalizer failure")
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(removePvcFinalizer, func(ctx context.Context, patchClient crclient.Client,
+		k8sClient kubernetes.Interface, cnsOpClient crclient.Client,
+		pvcName, namespace, vmInstanceUUID string) error {
+		return wantErr
+	})
+
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	assert.ErrorIs(t, err, wantErr)
+
+	require.Len(t, instance.Status.VolumeStatus, 1)
+	cond := findVolumeDetachedCondition(instance.Status.VolumeStatus[0])
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, v1alpha1.ReasonDetachFailed, cond.Reason)
+}
+
+func TestRemovePvcProtectionFinalizersForTrackedPVCs_NoTrackedPVCs(t *testing.T) {
+	ctx := context.Background()
+	base := setupTestCnsNodeVMBatchAttachment()
+	base.Spec.Volumes = nil
+	base.Status.VolumeStatus = nil
+	instance := base.DeepCopy()
+
+	s := schemeForCnsBatchAttachTests()
+	crClient := fake.NewClientBuilder().WithScheme(s).WithObjects(instance).Build()
+	clientset := k8sFake.NewClientset()
+	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
+
+	called := false
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(removePvcFinalizer, func(ctx context.Context, patchClient crclient.Client,
+		k8sClient kubernetes.Interface, cnsOpClient crclient.Client,
+		pvcName, namespace, vmInstanceUUID string) error {
+		called = true
+		return nil
+	})
+
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	assert.NoError(t, err)
+	assert.False(t, called, "removePvcFinalizer should not run when there are no tracked PVCs")
 }
 
 func TestRemovePvcFinalizer_WhenPVCIsAlreadyDeleted(t *testing.T) {
