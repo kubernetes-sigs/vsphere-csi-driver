@@ -359,6 +359,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")
 		}
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.VsanFileVolumeService, "", "")
+		}
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
@@ -382,6 +386,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if linkedClonePVCSIFSS && !linkedCloneCapability {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.LinkedCloneSupport,
+				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
+		}
+		vsanFilePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
+			ctx, common.VsanFileVolumeServiceSupportFSS)
+		vsanFileServiceEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
+			ctx, common.VsanFileVolumeServiceSupportFSS)
+		if vsanFilePVCSIFSS && !vsanFileServiceEnabled {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.VsanFileVolumeService,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
 	}
