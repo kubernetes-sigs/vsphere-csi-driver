@@ -88,12 +88,48 @@ func trimMessage(err error) error {
 	return err
 }
 
+// removePvcProtectionFinalizersForTrackedPVCs walks every PVC named in the batch attachment
+// spec and status (see getPvcsFromSpecAndStatus). For each, it calls removePvcFinalizer, which
+// handles missing PVCs (NotFound) and whether cns.vmware.com/pvc-protection is present.
+// Volume status is updated to detached on success or detach-failed on error.
+func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
+	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	c client.Client,
+	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client) error {
+	log := logger.GetLogger(ctx)
+
+	for pvcName, volumeName := range getPvcsFromSpecAndStatus(ctx, instance) {
+		err := removePvcFinalizer(ctx, c, k8sClient, cnsOperatorClient,
+			pvcName, instance.Namespace, instance.Spec.InstanceUUID)
+		if err != nil {
+			updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", err,
+				v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+			log.Errorf("failed to remove protection finalizer from PVC %s before removing batch attachment finalizer: %v",
+				pvcName, err)
+			return err
+		}
+		updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", nil,
+			v1alpha1.ConditionDetached, "")
+	}
+	return nil
+}
+
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
-// from a given nodevmbatchattachment instance.
+// from a given nodevmbatchattachment instance only after attempting to clear
+// cns.vmware.com/pvc-protection from every PVC listed in spec and status.
 func removeFinalizerFromCRDInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
-	c client.Client) error {
+	c client.Client,
+	k8sClient kubernetes.Interface,
+	cnsOperatorClient client.Client) error {
 	log := logger.GetLogger(ctx)
+
+	// First ensure that none of the PVCs have CNS PVC protection finalizer.
+	if err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, c, k8sClient, cnsOperatorClient); err != nil {
+		return err
+	}
+
 	finalizersOnInstance := instance.Finalizers
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoperatortypes.CNSFinalizer {
