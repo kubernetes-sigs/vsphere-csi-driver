@@ -744,6 +744,7 @@ data:
   "workload-domain-isolation": "true"
   "sv-pvc-snapshot-protection-finalizer": "true"
   "linked-clone-support": "true"
+  "vsan-file-volume-service-support": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com

@@ -476,6 +476,10 @@ const (
 	LinkedCloneSupport = "supports_FCD_linked_clone"
 	// LinkedCloneSupportFSS is an FSS for LinkedClone support in pvcsi
 	LinkedCloneSupportFSS = "linked-clone-support"
+	// VsanFileVolumeService is the WCP capability for provisioning file volumes using the vSAN file service architecture.
+	VsanFileVolumeService = "supports_vsan_fileservice"
+	// VsanFileVolumeServiceSupportFSS is the PVCSI FSS paired with VsanFileVolumeService on the supervisor.
+	VsanFileVolumeServiceSupportFSS = "vsan-file-volume-service-support"
 	// WCPVMServiceVMSnapshots is a supervisor capability indicating
 	// if supports_VM_service_VM_snapshots FSS is enabled
 	WCPVMServiceVMSnapshots = "supports_VM_service_VM_snapshots"
@@ -498,6 +502,7 @@ var WCPFeatureStates = map[string]struct{}{
 	FCDTransactionSupport:          {},
 	MultipleClustersPerVsphereZone: {},
 	FileVolumesWithVmService:       {},
+	VsanFileVolumeService:          {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -512,6 +517,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	BYOKEncryption:                 {},
 	SharedDiskFss:                  {},
 	FileVolumesWithVmService:       {},
+	VsanFileVolumeService:          {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
@@ -519,6 +525,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 // on supervisor cluster. If PVCSI feature is enabled, then we need to check if associated Capability is enabled
 // or not on the supervisor cluster to decide if effective value of this FSS is enabled or disabled.
 var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
-	WorkloadDomainIsolationFSS: WorkloadDomainIsolation,
-	LinkedCloneSupportFSS:      LinkedCloneSupport,
+	WorkloadDomainIsolationFSS:      WorkloadDomainIsolation,
+	LinkedCloneSupportFSS:           LinkedCloneSupport,
+	VsanFileVolumeServiceSupportFSS: VsanFileVolumeService,
 }

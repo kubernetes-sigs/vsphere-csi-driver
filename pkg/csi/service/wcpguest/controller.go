@@ -164,6 +164,14 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
 	}
+	vsanFileVolumeServicePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
+		ctx, common.VsanFileVolumeServiceSupportFSS)
+	vsanFileServiceEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
+		ctx, common.VsanFileVolumeServiceSupportFSS)
+	if vsanFileVolumeServicePVCSIFSS && !vsanFileServiceEnabled {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
+			common.VsanFileVolumeService, config.GC.Port, config.GC.Endpoint)
+	}
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
