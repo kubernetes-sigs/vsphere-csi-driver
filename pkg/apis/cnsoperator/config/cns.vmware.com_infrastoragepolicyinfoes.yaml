@@ -1,0 +1,76 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: infrastoragepolicyinfoes.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: InfraStoragePolicyInfo
+    listKind: InfraStoragePolicyInfoList
+    plural: infrastoragepolicyinfoes
+    shortNames:
+    - infraspi
+    singular: infrastoragepolicyinfo
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: InfraStoragePolicyInfo is the Schema for the infrastoragepolicyinfoes
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          status:
+            description: InfraStoragePolicyInfoStatus defines the observed state of
+              InfraStoragePolicyInfo.
+            properties:
+              error:
+                description: Error describes a failure condition when observing or
+                  reconciling this resource.
+                type: string
+              topology:
+                description: Topology contains observed topology for this storage
+                  policy in the cluster.
+                properties:
+                  accessibleZones:
+                    description: AccessibleZones lists zones where the policy is accessible
+                      for this cluster.
+                    items:
+                      type: string
+                    type: array
+                  error:
+                    description: Error describes a failure condition when resolving
+                      topology for this storage policy.
+                    type: string
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
