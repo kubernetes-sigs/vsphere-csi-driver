@@ -413,17 +413,23 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		// Get supervisorStorageClass and accessMode
-		var supervisorStorageClass string
-		for param := range req.Parameters {
+		var (
+			supervisorStorageClass string
+			storageTopologyType    string
+		)
+		for param, val := range req.Parameters {
 			paramName := strings.ToLower(param)
 			if paramName == common.AttributeSupervisorStorageClass {
-				supervisorStorageClass = req.Parameters[param]
+				supervisorStorageClass = val
 			}
 			if paramName == common.AttributePvcName {
-				pvcName = req.Parameters[param]
+				pvcName = val
 			}
 			if paramName == common.AttributePvcNamespace {
-				pvcNamespace = req.Parameters[param]
+				pvcNamespace = val
+			}
+			if paramName == common.AttributeStorageTopologyType {
+				storageTopologyType = strings.ToLower(val)
 			}
 		}
 
@@ -463,6 +469,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				labels[key] = c.tanzukubernetesClusterUID
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
+					storageTopologyType != "" &&
 					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
@@ -587,7 +594,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// Calculate node affinity terms for topology aware provisioning.
 		var accessibleTopologies []map[string]string
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
-			req.AccessibilityRequirements != nil &&
+			req.AccessibilityRequirements != nil && storageTopologyType != "" &&
 			(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 				!isFileVolumeRequest) {
 			// Retrieve the latest version of the PVC
