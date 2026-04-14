@@ -699,8 +699,11 @@ var _ bool = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelize
 			Spec.StorageClassName = &storageClassName
 		CreateStatefulSet(namespace, statefulset, client)
 		defer func() {
-			ginkgo.By(fmt.Sprintf("Deleting all statefulsets in namespace: %v", namespace))
-			fss.DeleteAllStatefulSets(ctx, client, namespace)
+			ginkgo.By(fmt.Sprintf("Deleting StatefulSet %s and its associated PVCs in namespace: %v", statefulset.Name, namespace))
+			err := deleteStatefulSetAndClaimPVCs(ctx, client, statefulset)
+			if err != nil {
+				framework.Logf("Warning: failed to delete StatefulSet and PVCs: %v", err)
+			}
 		}()
 		replicas := *(statefulset.Spec.Replicas)
 		// Waiting for pods status to be Ready
