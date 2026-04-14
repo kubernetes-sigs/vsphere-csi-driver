@@ -82,23 +82,6 @@ spec:
                 description: StoragePolicyDeleted indicates whether the underlying
                   storagepolicy is deleted or not on the VC.
                 type: boolean
-              volumeCapabilities:
-                description: VolumeCapabilities describes the supported volume capabilities.
-                items:
-                  description: |-
-                    VolumeCapability describes capabilities of the volume created with the given policy.
-                    The supported capabilities are:
-                      - SupportsPersistentVolumeBlock: Volume Mode Block is supported.
-                      - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
-                      - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
-                      - SupportsLinkedClone: LinkedClone is supported.
-                  enum:
-                  - SupportsPersistentVolumeBlock
-                  - SupportsPersistentVolumeFilesystem
-                  - SupportsHighPerformanceLinkedClone
-                  - SupportsLinkedClone
-                  type: string
-                type: array
             type: object
         type: object
     served: true

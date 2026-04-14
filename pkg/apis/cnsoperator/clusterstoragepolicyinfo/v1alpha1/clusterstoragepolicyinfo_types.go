@@ -20,16 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// VolumeCapability describes capabilities of the volume created with the given policy.
-// The supported capabilities are:
-//   - SupportsPersistentVolumeBlock: Volume Mode Block is supported.
-//   - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
-//   - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
-//   - SupportsLinkedClone: LinkedClone is supported.
-//
-// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone
-type VolumeCapability string
-
 // EncryptionType describes the type of encryption supported by the storage policy.
 // +kubebuilder:validation:Enum=vm-encryption;vsan-encryption
 type EncryptionType string
@@ -40,10 +30,6 @@ type ClusterStoragePolicyInfoStatus struct {
 	// StoragePolicyDeleted indicates whether the underlying storagepolicy is deleted or not on the VC.
 	// +optional
 	StoragePolicyDeleted bool `json:"storagePolicyDeleted"`
-
-	// VolumeCapabilities describes the supported volume capabilities.
-	// +optional
-	VolumeCapabilities []VolumeCapability `json:"volumeCapabilities,omitempty"`
 
 	// Performance describes performance characteristics (vSAN only).
 	// +optional
