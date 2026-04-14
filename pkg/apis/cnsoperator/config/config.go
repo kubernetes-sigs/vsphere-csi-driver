@@ -46,3 +46,8 @@ const EmbedStoragePolicyUsageCRFileName = "cns.vmware.com_storagepolicyusages.ya
 var EmbedClusterStoragePolicyInfoCRFile embed.FS
 
 const EmbedClusterStoragePolicyInfoCRFileName = "cns.vmware.com_clusterstoragepolicyinfos.yaml"
+
+//go:embed cns.vmware.com_infrastoragepolicyinfos.yaml
+var EmbedInfraStoragePolicyInfoCRFile embed.FS
+
+const EmbedInfraStoragePolicyInfoCRFileName = "cns.vmware.com_infrastoragepolicyinfos.yaml"

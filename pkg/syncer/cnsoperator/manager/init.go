@@ -128,6 +128,16 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				log.Errorf("failed to create %q CRD. Err: %+v", crdName, err)
 				return err
 			}
+
+			// Create InfraStoragePolicyInfo CRD
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedInfraStoragePolicyInfoCRFile,
+				cnsoperatorconfig.EmbedInfraStoragePolicyInfoCRFileName)
+			if err != nil {
+				crdNameInfraStoragePolicyInfo := cnsoperatorv1alpha1.InfraStoragePolicyInfoPlural +
+					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
+				log.Errorf("failed to create %q CRD. Err: %+v", crdNameInfraStoragePolicyInfo, err)
+				return err
+			}
 		}
 		syncer.IsPodVMOnStretchSupervisorFSSEnabled = cnsOperator.coCommonInterface.IsFSSEnabled(ctx,
 			common.PodVMOnStretchedSupervisor)
