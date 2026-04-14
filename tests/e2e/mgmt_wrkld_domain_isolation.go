@@ -58,6 +58,7 @@ If WCP or CSI drivers are up API return 204. If any of WCP or CSI, is down  API 
 */
 const status_code_failure = 500
 const status_code_success = 204
+const errMsgRequestedTopologyMismatch = "zones requested in csi.vsphere.volume-requested-topology annotation cannot be used to provision volume in %s namespace"
 
 var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isolation", func() {
 
@@ -832,7 +833,7 @@ var _ bool = ginkgo.Describe("[domain-isolation] Management-Workload-Domain-Isol
 			v1.ClaimBound, client, pvclaim.Namespace, pvclaim.Name, framework.Poll, time.Minute/2)
 		gomega.Expect(err).To(gomega.HaveOccurred())
 
-		expectedErrMsg := "failed to provision volume with StorageClass"
+		expectedErrMsg := fmt.Sprintf(errMsgRequestedTopologyMismatch, namespace)
 		framework.Logf("Expected failure message: %+q", expectedErrMsg)
 		errorOccurred := checkEventsforError(client, pvclaim.Namespace,
 			metav1.ListOptions{FieldSelector: fmt.Sprintf("involvedObject.name=%s", pvclaim.Name)}, expectedErrMsg)
