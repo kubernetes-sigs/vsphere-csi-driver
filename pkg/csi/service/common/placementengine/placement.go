@@ -70,7 +70,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 			hostMoRefs, err := common.GetHostsForSegment(ctx, segment, params.Vcenter)
 			if err != nil {
 				return nil, logger.LogNewErrorf(log,
-					"failed to fetch hosts belonging to topology segment %+v. Error: %+v", segment, err)
+					"failed to fetch TEST hosts belonging to topology segment %+v. Error: %+v", segment, err)
 			}
 			// 1. Fetch shared datastores accessible to all the hosts in this segment.
 			sharedDatastoresInTopologySegment, err := cnsvsphere.GetSharedDatastoresForHosts(ctx, hostMoRefs)
