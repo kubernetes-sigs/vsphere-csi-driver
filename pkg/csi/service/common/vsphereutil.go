@@ -1217,7 +1217,7 @@ func GetCnsVolumeType(ctx context.Context, volumeId string) string {
 	log := logger.GetLogger(ctx)
 	var volumeType string
 	// Determine volume type based on volume ID prefix
-	if strings.HasPrefix(volumeId, "file:") {
+	if strings.HasPrefix(volumeId, "file:") || strings.HasPrefix(volumeId, FVSVolumeIDPrefix) {
 		volumeType = FileVolumeType
 	} else {
 		volumeType = BlockVolumeType

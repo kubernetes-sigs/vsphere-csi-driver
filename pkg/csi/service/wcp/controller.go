@@ -41,9 +41,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -59,6 +65,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 const (
@@ -87,6 +94,8 @@ var (
 	isPodVMOnStretchSupervisorFSSEnabled bool
 	// IsMultipleClustersPerVsphereZoneFSSEnabled is true when supports_multiple_clusters_per_zone FSS is enabled.
 	IsMultipleClustersPerVsphereZoneFSSEnabled bool
+	// isVsanFileVolumeServiceFSSEnabled is true when supports_vsan_fileservice capability is enabled on the supervisor.
+	isVsanFileVolumeServiceFSSEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -113,11 +122,14 @@ type snapshotLockManager struct {
 }
 
 type controller struct {
-	manager         *common.Manager
-	authMgr         common.AuthorizationService
-	topologyMgr     commoncotypes.ControllerTopologyService
-	snapshotLockMgr *snapshotLockManager
-	k8sClient       kubernetes.Interface
+	manager          *common.Manager
+	authMgr          common.AuthorizationService
+	topologyMgr      commoncotypes.ControllerTopologyService
+	snapshotLockMgr  *snapshotLockManager
+	k8sClient        kubernetes.Interface
+	dynamicClient    dynamic.Interface
+	namespaceLister  corelisters.NamespaceLister
+	fileVolumeClient ctrlclient.Client
 	csi.UnimplementedControllerServer
 	csi.UnimplementedSnapshotMetadataServer
 }
@@ -181,6 +193,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.FCDTransactionSupport)
 	IsMultipleClustersPerVsphereZoneFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultipleClustersPerVsphereZone)
+	isVsanFileVolumeServiceFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.VsanFileVolumeService)
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.VsanFileVolumeService, "", "")
+	}
 	if !IsMultipleClustersPerVsphereZoneFSSEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.MultipleClustersPerVsphereZone, "", "")
@@ -194,10 +212,6 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		common.SharedDiskFss) {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.SharedDiskFss, "", "")
-	}
-	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService) {
-		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
-			common.VsanFileVolumeService, "", "")
 	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
@@ -255,6 +269,36 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		return err
 	}
 	log.Info("Initialized Kubernetes client")
+
+	if isVsanFileVolumeServiceFSSEnabled {
+		c.dynamicClient, err = dynamic.NewForConfig(cfg)
+		if err != nil {
+			log.Errorf("failed to create dynamic Kubernetes client. err=%v", err)
+			return err
+		}
+		log.Info("Initialized dynamic Kubernetes client")
+
+		fvsScheme := runtime.NewScheme()
+		if err = fvsapis.AddToScheme(fvsScheme); err != nil {
+			log.Errorf("failed to add FileVolume API types to scheme. err=%v", err)
+			return err
+		}
+		c.fileVolumeClient, err = ctrlclient.New(cfg, ctrlclient.Options{Scheme: fvsScheme})
+		if err != nil {
+			log.Errorf("failed to create FileVolume Kubernetes client. err=%v", err)
+			return err
+		}
+		log.Info("Initialized FileVolume Kubernetes client")
+
+		im := k8s.NewInformer(ctx, c.k8sClient, true)
+		im.InitNamespaceInformer()
+		im.Listen()
+		if nsSynced := im.NamespaceInformerSynced(); nsSynced != nil && !cache.WaitForCacheSync(ctx.Done(), nsSynced) {
+			return logger.LogNewErrorf(log, "FVS namespace informer cache sync failed")
+		}
+		c.namespaceLister = im.GetNamespaceLister()
+		log.Info("Namespace informer for FVS initialized")
+	}
 
 	vc, err := common.GetVCenter(ctx, c.manager)
 	if err != nil {
@@ -1744,6 +1788,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCode(log, codes.Unimplemented,
 					"file volume feature is disabled on the cluster")
+			}
+			scName := req.Parameters[common.AttributeStorageClassName]
+			useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, scName)
+			if err != nil {
+				return nil, csifault.CSIInvalidArgumentFault, err
+			}
+			if useFVS {
+				return c.createFileVolumeViaFVS(ctx, req)
 			}
 			// Block file volume provisioning if FSS Workload_Domain_Isolation_Supported is enabled but
 			// 'fileVolumeActivated' field is set to false in vSphere config secret.
