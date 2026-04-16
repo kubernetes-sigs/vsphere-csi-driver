@@ -119,6 +119,7 @@ type controller struct {
 	snapshotLockMgr *snapshotLockManager
 	k8sClient       kubernetes.Interface
 	csi.UnimplementedControllerServer
+	csi.UnimplementedSnapshotMetadataServer
 }
 
 // New creates a CNS controller.
@@ -2636,10 +2637,21 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotResponse)
 
 		volumeSnapshotName := req.Parameters[common.VolumeSnapshotNameKey]
-		log.Infof("Attempting to annotate volumesnapshot %s/%s with annotation %s:%s",
-			volumeSnapshotNamespace, volumeSnapshotName, common.VolumeSnapshotInfoKey, snapshotID)
+		annotations := map[string]string{common.VolumeSnapshotInfoKey: snapshotID}
+
+		// TODO: This code will be updated when we can retrieve change-id from CNS
+		// Retrieve change-id from FCD and add it to the annotations
+		changeId, err := c.getSnapshotChangeIdFromFCD(ctx, volumeID, cnsSnapshotInfo.SnapshotID)
+		if err != nil {
+			log.Warnf("Failed to retrieve changeId for snapshot %s: %v", snapshotID, err)
+		} else {
+			annotations["csi.vsphere.volume/change-id"] = changeId
+		}
+
+		log.Infof("Attempting to annotate volumesnapshot %s/%s with annotations %v",
+			volumeSnapshotNamespace, volumeSnapshotName, annotations)
 		annotated, err := commonco.ContainerOrchestratorUtility.AnnotateVolumeSnapshot(ctx, volumeSnapshotName,
-			volumeSnapshotNamespace, map[string]string{common.VolumeSnapshotInfoKey: snapshotID})
+			volumeSnapshotNamespace, annotations)
 		if err != nil || !annotated {
 			log.Warnf("The snapshot: %s was created successfully, but failed to annotate volumesnapshot %s/%s"+
 				"with annotation %s:%s. Error: %v", snapshotID, volumeSnapshotNamespace,

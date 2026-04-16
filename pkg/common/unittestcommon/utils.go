@@ -483,6 +483,12 @@ func (c *FakeK8SOrchestrator) AnnotateVolumeSnapshot(ctx context.Context, volume
 	return true, nil
 }
 
+// GetVolumeSnapshotChangeIDBySnapshotID retrieves the change-id annotation from the VolumeSnapshot
+func (c *FakeK8SOrchestrator) GetVolumeSnapshotChangeIDBySnapshotID(ctx context.Context,
+	snapshotID string) (string, error) {
+	return "mock-change-id", nil
+}
+
 // GetConfigMap checks if ConfigMap with given name exists in the given namespace.
 // If it exists, this function returns ConfigMap data, otherwise returns error.
 func (c *FakeK8SOrchestrator) GetConfigMap(ctx context.Context, name string,

@@ -20,6 +20,8 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
@@ -50,23 +52,39 @@ func (driver *vsphereCSIDriver) GetPluginCapabilities(
 	req *csi.GetPluginCapabilitiesRequest) (
 	*csi.GetPluginCapabilitiesResponse, error) {
 
-	rep := &csi.GetPluginCapabilitiesResponse{
-		Capabilities: []*csi.PluginCapability{
-			{
-				Type: &csi.PluginCapability_Service_{
-					Service: &csi.PluginCapability_Service{
-						Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
-					},
-				},
-			},
-			{
-				Type: &csi.PluginCapability_Service_{
-					Service: &csi.PluginCapability_Service{
-						Type: csi.PluginCapability_Service_VOLUME_ACCESSIBILITY_CONSTRAINTS,
-					},
+	caps := []*csi.PluginCapability{
+		{
+			Type: &csi.PluginCapability_Service_{
+				Service: &csi.PluginCapability_Service{
+					Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
 				},
 			},
 		},
+		{
+			Type: &csi.PluginCapability_Service_{
+				Service: &csi.PluginCapability_Service{
+					Type: csi.PluginCapability_Service_VOLUME_ACCESSIBILITY_CONSTRAINTS,
+				},
+			},
+		},
+	}
+
+	// Advertise SnapshotMetadata service for CBT support if CBT feature is enabled
+	// The SnapshotMetadata service provides GetMetadataAllocated and GetMetadataDelta RPCs
+	// for efficient backup and restore operations (CSI spec v1.10.0+)
+	if commonco.ContainerOrchestratorUtility != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT) {
+		caps = append(caps, &csi.PluginCapability{
+			Type: &csi.PluginCapability_Service_{
+				Service: &csi.PluginCapability_Service{
+					Type: csi.PluginCapability_Service_SNAPSHOT_METADATA_SERVICE,
+				},
+			},
+		})
+	}
+
+	rep := &csi.GetPluginCapabilitiesResponse{
+		Capabilities: caps,
 	}
 	return rep, nil
 }

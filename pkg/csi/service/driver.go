@@ -69,6 +69,7 @@ type vsphereCSIDriver struct {
 	volumeLocks *node.VolumeLocks
 	csi.UnimplementedNodeServer
 	csi.UnimplementedIdentityServer
+	csi.UnimplementedSnapshotMetadataServer
 }
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left
@@ -212,7 +213,17 @@ func (driver *vsphereCSIDriver) Run(ctx context.Context, endpoint string) {
 		os.Exit(1)
 	}
 
+	// Determine if SnapshotMetadata service should be registered
+	// The service is only registered in controller mode when CBT feature is enabled
+	var snapshotMetadataServer csi.SnapshotMetadataServer
+	if driver.mode == "controller" && commonco.ContainerOrchestratorUtility != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT) {
+		// Pass the controller server which implements the SnapshotMetadata RPCs
+		snapshotMetadataServer = controllerServer.(csi.SnapshotMetadataServer)
+		log.Info("SnapshotMetadata service will be registered (CBT support enabled)")
+	}
+
 	//Start the nonblocking GRPC
 	grpc := NewNonBlockingGRPCServer()
-	grpc.Start(endpoint, driver, controllerServer, driver)
+	grpc.Start(endpoint, driver, controllerServer, driver, snapshotMetadataServer)
 }

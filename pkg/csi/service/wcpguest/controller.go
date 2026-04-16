@@ -89,6 +89,7 @@ type controller struct {
 	tanzukubernetesClusterName  string
 	guestClusterDist            string
 	csi.UnimplementedControllerServer
+	csi.UnimplementedSnapshotMetadataServer
 }
 
 // New creates a CNS controller
