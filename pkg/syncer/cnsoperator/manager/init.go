@@ -120,6 +120,15 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	// TODO: Verify leader election for CNS Operator in multi-master mode
 	// Create CRD's for WCP flavor.
 	if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if !cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.SupportsExposingStoragePolicyAttributes) {
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedClusterStoragePolicyInfoCRFile,
+				cnsoperatorconfig.EmbedClusterStoragePolicyInfoCRFileName)
+			if err != nil {
+				crdName := cnsoperatorv1alpha1.ClusterStoragePolicyInfoPlural + "." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
+				log.Errorf("failed to create %q CRD. Err: %+v", crdName, err)
+				return err
+			}
+		}
 		syncer.IsPodVMOnStretchSupervisorFSSEnabled = cnsOperator.coCommonInterface.IsFSSEnabled(ctx,
 			common.PodVMOnStretchedSupervisor)
 		// Create CnsNodeVmAttachment CRD

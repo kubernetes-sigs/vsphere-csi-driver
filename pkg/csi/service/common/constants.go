@@ -506,24 +506,28 @@ const (
 	CSI_Backup_API = "supports_CSI_Backup_API"
 	// CSI_Backup_API_FSS is an FSS for Changed Block Tracking(CBT) support in pvCSI
 	CSI_Backup_API_FSS = "CSI_Backup_API"
+	// SupportsExposingStoragePolicyAttributes is the supervisor capability that gates exposing
+	// storage policy attributes to devops users.
+	SupportsExposingStoragePolicyAttributes = "supports_exposing_storage_policy_attributes"
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor:     {},
-	CSIDetachOnSupervisor:          {},
-	WorkloadDomainIsolation:        {},
-	VPCCapabilitySupervisor:        {},
-	VolFromSnapshotOnTargetDs:      {},
-	SharedDiskFss:                  {},
-	LinkedCloneSupport:             {},
-	WCPMobilityNonDisruptiveImport: {},
-	WCPVMServiceVMSnapshots:        {},
-	BYOKEncryption:                 {},
-	FCDTransactionSupport:          {},
-	MultipleClustersPerVsphereZone: {},
-	FileVolumesWithVmService:       {},
-	VsanFileVolumeService:          {},
-	CSI_Backup_API:                 {},
+	PodVMOnStretchedSupervisor:              {},
+	CSIDetachOnSupervisor:                   {},
+	WorkloadDomainIsolation:                 {},
+	VPCCapabilitySupervisor:                 {},
+	VolFromSnapshotOnTargetDs:               {},
+	SharedDiskFss:                           {},
+	LinkedCloneSupport:                      {},
+	WCPMobilityNonDisruptiveImport:          {},
+	WCPVMServiceVMSnapshots:                 {},
+	BYOKEncryption:                          {},
+	FCDTransactionSupport:                   {},
+	MultipleClustersPerVsphereZone:          {},
+	FileVolumesWithVmService:                {},
+	VsanFileVolumeService:                   {},
+	CSI_Backup_API:                          {},
+	SupportsExposingStoragePolicyAttributes: {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -531,15 +535,16 @@ var WCPFeatureStates = map[string]struct{}{
 // During FSS check if driver detects that the capabilities is disabled in the cached configmap,
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
-	WorkloadDomainIsolation:        {},
-	LinkedCloneSupport:             {},
-	MultipleClustersPerVsphereZone: {},
-	WCPVMServiceVMSnapshots:        {},
-	BYOKEncryption:                 {},
-	SharedDiskFss:                  {},
-	FileVolumesWithVmService:       {},
-	VsanFileVolumeService:          {},
-	CSI_Backup_API:                 {},
+	WorkloadDomainIsolation:                 {},
+	LinkedCloneSupport:                      {},
+	MultipleClustersPerVsphereZone:          {},
+	WCPVMServiceVMSnapshots:                 {},
+	BYOKEncryption:                          {},
+	SharedDiskFss:                           {},
+	FileVolumesWithVmService:                {},
+	VsanFileVolumeService:                   {},
+	SupportsExposingStoragePolicyAttributes: {},
+	CSI_Backup_API:                          {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a

@@ -24,6 +24,15 @@ import (
 // +kubebuilder:validation:Enum=PersistentVolumeBlock;PersistentVolumeFilesystem;HighPerformanceLinkedClone
 type VolumeCapability string
 
+const (
+	// VolumeCapabilityPersistentVolumeBlock indicates block volumes are supported.
+	VolumeCapabilityPersistentVolumeBlock VolumeCapability = "PersistentVolumeBlock"
+	// VolumeCapabilityPersistentVolumeFilesystem indicates file volumes are supported.
+	VolumeCapabilityPersistentVolumeFilesystem VolumeCapability = "PersistentVolumeFilesystem"
+	// VolumeCapabilityHighPerformanceLinkedClone indicates linked-clone / fast provisioning style volumes.
+	VolumeCapabilityHighPerformanceLinkedClone VolumeCapability = "HighPerformanceLinkedClone"
+)
+
 // ClusterStoragePolicyInfoSpec defines the desired state of ClusterStoragePolicyInfo.
 // It is used to store the information about the storage policy that is exposed to Devops users.
 // +k8s:openapi-gen=true
