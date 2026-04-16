@@ -41,8 +41,15 @@ type CNSVolumeInfoSpec struct {
 	// ID of the storage policy
 	StoragePolicyID string `json:"storagePolicyID,omitempty"`
 
+	// K8sCompliantName is the K8s-compliant name derived from storage policy name to ensure
+	// unique identification across multiple vCenters.
+	K8sCompliantName string `json:"k8sCompliantName,omitempty"`
+
 	// Name of the storage class
 	StorageClassName string `json:"storageClassName,omitempty"`
+
+	// VolumeAttributeClassName is the name of the K8s volume attributes class.
+	VolumeAttributeClassName string `json:"volumeAttributeClassName,omitempty"`
 
 	// Capacity stores the current capacity of the PersistentVolume this volume represents.
 	Capacity *resource.Quantity `json:"capacity,omitempty"`
@@ -64,6 +71,24 @@ type CNSVolumeInfoSpec struct {
 	IsLinkedClone bool `json:"isLinkedClone"`
 }
 
+// CNSVolumeInfoStatus defines the observed state of CNSVolumeInfo
+type CNSVolumeInfoStatus struct {
+	// MigrationConditions describe the current conditions of the migration.
+	//
+	// Known condition types are:
+	//
+	// "InProgress"
+	// "Infeasible"
+	// "Error"
+	// "Complete"
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=8
+	MigrationConditions []metav1.Condition `json:"migrationConditions,omitempty"`
+}
+
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
@@ -72,7 +97,8 @@ type CNSVolumeInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec CNSVolumeInfoSpec `json:"spec"`
+	Spec   CNSVolumeInfoSpec   `json:"spec"`
+	Status CNSVolumeInfoStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -82,4 +108,16 @@ type CNSVolumeInfoList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CNSVolumeInfo `json:"items"`
+}
+
+// GetConditions returns the list of conditions for the CNSVolumeInfo object.
+// Implements the conditions.Getter interface.
+func (in *CNSVolumeInfo) GetConditions() []metav1.Condition {
+	return in.Status.MigrationConditions
+}
+
+// SetConditions sets the list of conditions for the CNSVolumeInfo object.
+// Implements the conditions.Setter interface.
+func (in *CNSVolumeInfo) SetConditions(conditions []metav1.Condition) {
+	in.Status.MigrationConditions = conditions
 }
