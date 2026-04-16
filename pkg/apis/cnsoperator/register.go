@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	clusterstoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
@@ -79,6 +80,8 @@ var (
 	CnsVirtualMachineSnapshotSingular = "vitualmachinesnapshot"
 	// CnsVirtualMachineSnapshotPlural is plural of VirtualMachineSnapshot
 	CnsVirtualMachineSnapshotPlural = "vitualmachinesnapshots"
+	// ClusterStoragePolicyInfoPlural is plural of ClusterStoragePolicyInfo
+	ClusterStoragePolicyInfoPlural = "clusterstoragepolicyinfoes"
 )
 
 var (
@@ -135,6 +138,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{},
 		&cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachmentList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&clusterstoragepolicyinfov1alpha1.ClusterStoragePolicyInfo{},
+		&clusterstoragepolicyinfov1alpha1.ClusterStoragePolicyInfoList{},
 	)
 
 	scheme.AddKnownTypes(
