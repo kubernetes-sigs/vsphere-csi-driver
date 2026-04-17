@@ -55,7 +55,7 @@ usage: ${0} [FLAGS]
   minimal Docker images. This approach is much faster than multi-stage Docker builds.
 
   Prerequisites:
-    - Go 1.26 or later
+    - Go 1.26.2 or later
     - Docker (running)
     - Git
     - Network access to download Go dependencies
