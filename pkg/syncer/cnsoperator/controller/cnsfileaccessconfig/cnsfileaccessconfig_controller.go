@@ -768,6 +768,9 @@ func (r *ReconcileCnsFileAccessConfig) configureVolumeACLs(ctx context.Context,
 // getVMExternalIP helps to fetch the external facing IP for a given TKG VM.
 func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	vm *vmoperatortypes.VirtualMachine) (string, error) {
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsPerNamespaceNetworkProviders) {
+		return r.getVMExternalIPFromNetworkSettings(ctx, vm)
+	}
 	log := logger.GetLogger(ctx)
 	networkProvider, err := util.GetNetworkProvider(ctx)
 	if err != nil {
@@ -798,7 +801,21 @@ func (r *ReconcileCnsFileAccessConfig) getVMExternalIP(ctx context.Context,
 	}
 
 	tkgVMIP, err := util.GetTKGVMIP(ctx, r.vmOperatorClient,
-		r.dynamicClient, vm.Namespace, vm.Name, networkProvider)
+		r.dynamicClient, vm.Namespace, vm.Name, networkProvider, false)
+	if err != nil {
+		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
+			vm.Namespace, vm.Name, err)
+	}
+	log.Infof("Found tkg VMIP %q for VM %q in namespace %q", tkgVMIP, vm.Name, vm.Namespace)
+	return tkgVMIP, nil
+}
+
+// getVMExternalIPFromNetworkSettings resolves the VM IP when per-namespace NetworkSettings is used.
+func (r *ReconcileCnsFileAccessConfig) getVMExternalIPFromNetworkSettings(ctx context.Context,
+	vm *vmoperatortypes.VirtualMachine) (string, error) {
+	log := logger.GetLogger(ctx)
+	tkgVMIP, err := util.GetTKGVMIPFromNetworkSettings(ctx, r.vmOperatorClient, r.dynamicClient,
+		vm.Namespace, vm.Name)
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to get external facing IP address for VM %q/%q. Err: %+v",
 			vm.Namespace, vm.Name, err)

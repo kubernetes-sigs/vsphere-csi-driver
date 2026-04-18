@@ -512,6 +512,9 @@ const (
 	// SupportsExposingStoragePolicyAttributes is the supervisor capability that gates exposing
 	// storage policy attributes to devops users.
 	SupportsExposingStoragePolicyAttributes = "supports_exposing_storage_policy_attributes"
+	// SupportsPerNamespaceNetworkProviders is a WCP capability indicating that network provider
+	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
+	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_providers"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -531,6 +534,7 @@ var WCPFeatureStates = map[string]struct{}{
 	VsanFileVolumeService:                   {},
 	CSI_Backup_API:                          {},
 	SupportsExposingStoragePolicyAttributes: {},
+	SupportsPerNamespaceNetworkProviders:    {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -548,6 +552,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	VsanFileVolumeService:                   {},
 	CSI_Backup_API:                          {},
 	SupportsExposingStoragePolicyAttributes: {},
+	SupportsPerNamespaceNetworkProviders:    {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
