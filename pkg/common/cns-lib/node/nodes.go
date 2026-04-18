@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"os"
 
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/client-go/tools/cache"
@@ -27,6 +28,10 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
+
+// osExit is invoked when node registration fails on CSINode add or update.
+// Tests replace this to assert exit behavior without terminating the process.
+var osExit = os.Exit
 
 // Nodes comprises cns node manager and kubernetes informer.
 type Nodes struct {
@@ -80,7 +85,8 @@ func (nodes *Nodes) csiNodeAdd(obj interface{}) {
 		nodeUUID = cnsvsphere.GetUUIDFromProviderID(node.Spec.ProviderID)
 		err = nodes.cnsNodeManager.RegisterNode(ctx, nodeUUID, nodeName)
 		if err != nil {
-			log.Errorf("csiNodeAdd: failed to register node using provider ID on Node object: %v", node)
+			log.Errorf("csiNodeAdd: failed for node %q, err=%v", nodeName, err)
+			osExit(1)
 		}
 	}
 }
@@ -106,8 +112,8 @@ func (nodes *Nodes) csiNodeUpdate(oldObj interface{}, newObj interface{}) {
 		newNodeUuid := newNodeId
 		err := nodes.cnsNodeManager.RegisterNode(ctx, newNodeUuid, nodeName)
 		if err != nil {
-			log.Warnf("csiNodeUpdate: Failed to register node:%q. err=%v",
-				nodeName, err)
+			log.Errorf("csiNodeUpdate: failed for node %q, err=%v", nodeName, err)
+			osExit(1)
 		}
 	}
 }
