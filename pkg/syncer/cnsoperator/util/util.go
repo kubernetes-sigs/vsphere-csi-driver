@@ -24,8 +24,10 @@ import (
 	"strconv"
 	"strings"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"github.com/vmware/govmomi/object"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -62,6 +64,12 @@ var namespaceNetworkInfoGVR = schema.GroupVersionResource{
 	Resource: "namespacenetworkinfos",
 }
 
+var networkSettingsGVR = schema.GroupVersionResource{
+	Group:    "netoperator.vmware.com",
+	Version:  "v1alpha1",
+	Resource: "networksettings",
+}
+
 const (
 	snatIPAnnotation = "ncp/snat_ip"
 	// Namespace for system resources.
@@ -75,9 +83,16 @@ const (
 	// VDSNetworkProvider holds the network provider name for VDS based setups.
 	VDSNetworkProvider = "VSPHERE_NETWORK"
 	// VPCNetworkProvider holds the network provider name for VPC based setups.
-	VPCNetworkProvider = "NSX_VPC"
-	vpcDefaultSnatIp   = "defaultSNATIP"
+	VPCNetworkProvider                        = "NSX_VPC"
+	vpcDefaultSnatIp                          = "defaultSNATIP"
+	networkSettingsProviderVsphereDistributed = "vsphere-distributed"
+	networkSettingsProviderNsxTier1           = "nsx-tier1"
+	networkSettingsProviderVPC                = "vpc"
 )
+
+// ErrNetworkSettingsUnavailable indicates no NetworkSettings object exists in the namespace or
+// provider is not set on the sole NetworkSettings object.
+var ErrNetworkSettingsUnavailable = errors.New("NetworkSettings CR is unavailable or provider is not set")
 
 // GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
 func GetVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
@@ -105,11 +120,11 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	return pv.Spec.CSI.VolumeHandle, nil
 }
 
-// GetTKGVMIP finds the external facing IP address of a TKG VM object from a
-// given Supervisor Namespace based on the networking configuration (NSX-T or
-// VDS).
+// GetTKGVMIP finds the external facing IP address of a TKG VM in a Supervisor namespace for the given
+// networkProviderType (e.g. from GetNetworkProvider / wcp-network-config). snatOptional controls whether NSX-T/VPC
+// may fall back to the VM primary IP when SNAT is absent (true for per-namespace NetworkSettings workflow).
 func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.Interface,
-	vmNamespace, vmName string, network_provider_type string) (string, error) {
+	vmNamespace, vmName, networkProviderType string, snatOptional bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Determining external IP Address of VM: %s/%s", vmNamespace, vmName)
 	vmKey := apitypes.NamespacedName{
@@ -127,107 +142,225 @@ func GetTKGVMIP(ctx context.Context, vmOperatorClient client.Client, dc dynamic.
 		common.FileVolumesWithVmService)
 
 	var networkNames []string
-	for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
-		if !isFileVolumesWithVmServiceVmSupported {
-			networkNames = append(networkNames, networkInterface.Network.Name)
-		} else if networkInterface.Network.Name != "" {
-			networkNames = append(networkNames, networkInterface.Network.Name)
+	if virtualMachineInstance.Spec.Network != nil {
+		for _, networkInterface := range virtualMachineInstance.Spec.Network.Interfaces {
+			if !isFileVolumesWithVmServiceVmSupported {
+				networkNames = append(networkNames, networkInterface.Network.Name)
+			} else if networkInterface.Network.Name != "" {
+				networkNames = append(networkNames, networkInterface.Network.Name)
+			}
 		}
 	}
 	log.Debugf("VirtualMachine %s/%s is configured with networks %v", vmNamespace, vmName, networkNames)
 
 	var ip string
-	var exists bool
-	if network_provider_type == NSXTNetworkProvider {
-		for _, networkName := range networkNames {
-			virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx,
-				networkName, metav1.GetOptions{})
-			if err != nil {
-				return "", err
-			}
-			log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v",
-				vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
-			ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
-			// Pick the network interface which has the snatIPAnnotation
-			if exists && ip != "" {
-				break
-			}
-		}
-		if ip == "" {
-			if !isFileVolumesWithVmServiceVmSupported {
-				return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s",
-					vmNamespace, vmName)
-			}
-			if len(networkNames) != 0 {
-				// If networkNames for VirtualNetwork were found on the VM,
-				// then some error happened in getting the SNAT IP from VirtualNetwork CR.
-				return "", fmt.Errorf("failed to get SNAT IP annotation for VirtualMachine %s/%s "+
-					"from VirtualNetwrok",
-					vmNamespace, vmName)
-			}
-			// It is likely an NSX setup with VM service VMs.
-			// For TKG service VMs, virtual network CR will always be present.
-			ip, err = getSnatIpFromNamespaceNetworkInfo(ctx, dc, vmNamespace, vmName)
-			if err != nil {
-				log.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo. Err %s", err)
-				return "", fmt.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo %s/%s",
-					vmNamespace, vmName)
-			}
-			log.Infof("Obtained SNAT IP %s from NamespaceNetworkInfo for VirtualMachine %s/%s",
-				ip, vmNamespace, vmName)
-		}
-	} else if network_provider_type == VDSNetworkProvider {
-
-		if virtualMachineInstance.Status.Network == nil {
-			log.Errorf("virtualMachineInstance.Status.Network is nil for VM %s", vmName)
-			return "", fmt.Errorf("virtualMachineInstance.Status.Network is nil for VM %s", vmName)
-		}
-
-		ip = virtualMachineInstance.Status.Network.PrimaryIP4
-		if ip == "" {
-			ip = virtualMachineInstance.Status.Network.PrimaryIP6
-			if ip == "" {
-				return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
-					vmNamespace, vmName)
-			}
-		}
-	} else {
-		vpcName := vmNamespace
-		networkInfoInstance, err := dc.Resource(networkInfoGVR).Namespace(vmNamespace).Get(ctx,
-			vpcName, metav1.GetOptions{})
+	switch networkProviderType {
+	case NSXTNetworkProvider:
+		ip, err = resolveNSXTExternalIP(ctx, dc, vmNamespace, vmName, networkNames, virtualMachineInstance,
+			isFileVolumesWithVmServiceVmSupported, snatOptional)
 		if err != nil {
 			return "", err
 		}
-		log.Debugf("Got NetworkInfo instance %s/%s", vmNamespace, networkInfoInstance.GetName())
-		vpcs, found, err := unstructured.NestedSlice(networkInfoInstance.Object, "vpcs")
-		if err != nil || !found || len(vpcs) == 0 {
-			return "", fmt.Errorf("failed to get vpcs from networkinfo %s/%s with error: %v",
-				vmNamespace, vmName, err)
+	case VDSNetworkProvider:
+		ip, err = vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		if err != nil {
+			return "", err
 		}
-
-		vpc, ok := vpcs[0].(map[string]interface{})
-		if !ok {
-			return "", fmt.Errorf("failed to assert vpc to map[string]interface{} %s/%s",
-				vmNamespace, vmName)
+	case VPCNetworkProvider:
+		ip, err = resolveVPCExternalIP(ctx, dc, vmNamespace, vmName, virtualMachineInstance, snatOptional)
+		if err != nil {
+			return "", err
 		}
-
-		for key, value := range vpc {
-			if key == vpcDefaultSnatIp {
-				ip, ok = value.(string)
-				if !ok {
-					return "", fmt.Errorf("failed to cast key %s value to string", key)
-				}
-				break
-			}
-
-		}
-		if ip == "" {
-			return "", fmt.Errorf("spec.vpc.defaultSNATIP is not populated for "+
-				"networkinfo %s/%s", vmNamespace, vmName)
-		}
+	default:
+		return "", fmt.Errorf("unknown network provider %q", networkProviderType)
 	}
 	log.Infof("Found external IP Address %s for VirtualMachine %s/%s", ip, vmNamespace, vmName)
 	return ip, nil
+}
+
+// GetTKGVMIPFromNetworkSettings finds the external facing IP for a TKG VM when per-namespace network
+// providers are enabled: provider is read from the sole NetworkSettings object in the namespace (provider).
+func GetTKGVMIPFromNetworkSettings(ctx context.Context, vmOperatorClient client.Client, dc dynamic.Interface,
+	vmNamespace, vmName string) (string, error) {
+	if dc == nil {
+		return "", fmt.Errorf("dynamic client is required when %s is enabled",
+			common.SupportsPerNamespaceNetworkProviders)
+	}
+	networkProviderType, err := getNetworkProviderFromNetworkSettings(ctx, dc, vmNamespace)
+	if err != nil {
+		return "", err
+	}
+	return GetTKGVMIP(ctx, vmOperatorClient, dc, vmNamespace, vmName, networkProviderType, true)
+}
+
+func mapNetworkSettingsProviderToNetworkProvider(provider string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case networkSettingsProviderVsphereDistributed:
+		return VDSNetworkProvider, nil
+	case networkSettingsProviderNsxTier1:
+		return NSXTNetworkProvider, nil
+	case networkSettingsProviderVPC:
+		return VPCNetworkProvider, nil
+	default:
+		return "", fmt.Errorf("unknown NetworkSettings provider value %q", provider)
+	}
+}
+
+func getNetworkProviderFromNetworkSettings(ctx context.Context, dc dynamic.Interface,
+	namespace string) (string, error) {
+	list, err := dc.Resource(networkSettingsGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", err
+	}
+	switch len(list.Items) {
+	case 0:
+		return "", ErrNetworkSettingsUnavailable
+	case 1:
+		obj := &list.Items[0]
+		crName := obj.GetName()
+		provider, found, err := unstructured.NestedString(obj.Object, "provider")
+		if err != nil || !found || strings.TrimSpace(provider) == "" {
+			return "", fmt.Errorf("%w: provider is empty or missing on NetworkSettings %s/%s",
+				ErrNetworkSettingsUnavailable, namespace, crName)
+		}
+		mapped, err := mapNetworkSettingsProviderToNetworkProvider(provider)
+		if err != nil {
+			return "", err
+		}
+		return mapped, nil
+	default:
+		return "", fmt.Errorf("expected exactly one NetworkSettings object in namespace %q, found %d",
+			namespace, len(list.Items))
+	}
+}
+
+func vmPrimaryIPFromVirtualMachine(ctx context.Context, vm *vmoperatortypes.VirtualMachine,
+	vmNamespace, vmName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	if vm.Status.Network == nil {
+		log.Errorf("virtualMachineInstance.Status.Network is nil for VM %s", vmName)
+		return "", fmt.Errorf("virtualMachineInstance.Status.Network is nil for VM %s", vmName)
+	}
+	ip := vm.Status.Network.PrimaryIP4
+	if ip == "" {
+		ip = vm.Status.Network.PrimaryIP6
+		if ip == "" {
+			return "", fmt.Errorf("vm.Status.Network.PrimaryIP6 & PrimaryIP4 is not populated for %s/%s",
+				vmNamespace, vmName)
+		}
+	}
+	return ip, nil
+}
+
+func resolveNSXTExternalIP(ctx context.Context, dc dynamic.Interface, vmNamespace, vmName string,
+	networkNames []string, virtualMachineInstance *vmoperatortypes.VirtualMachine,
+	isFileVolumesWithVmServiceVmSupported, snatOptional bool) (string, error) {
+	log := logger.GetLogger(ctx)
+	if dc == nil {
+		return "", fmt.Errorf("dynamic client is nil")
+	}
+	var ip string
+	var exists bool
+	for _, networkName := range networkNames {
+		virtualNetworkInstance, err := dc.Resource(virtualNetworkGVR).Namespace(vmNamespace).Get(ctx,
+			networkName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		log.Debugf("Got VirtualNetwork instance %s/%s with annotations %v",
+			vmNamespace, virtualNetworkInstance.GetName(), virtualNetworkInstance.GetAnnotations())
+		ip, exists = virtualNetworkInstance.GetAnnotations()[snatIPAnnotation]
+		if exists && ip != "" {
+			break
+		}
+	}
+	if ip != "" {
+		return ip, nil
+	}
+	if !isFileVolumesWithVmServiceVmSupported {
+		if snatOptional {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		return "", fmt.Errorf("failed to get SNAT IP annotation from VirtualMachine %s/%s",
+			vmNamespace, vmName)
+	}
+	if len(networkNames) != 0 {
+		if snatOptional {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		return "", fmt.Errorf("failed to get SNAT IP annotation for VirtualMachine %s/%s "+
+			"from VirtualNetwrok",
+			vmNamespace, vmName)
+	}
+	ip, err := getSnatIpFromNamespaceNetworkInfo(ctx, dc, vmNamespace, vmName)
+	if err != nil {
+		if snatOptional {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		log.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo. Err %s", err)
+		return "", fmt.Errorf("failed to get SNAT IP from NameSpaceNetworkInfo %s/%s",
+			vmNamespace, vmName)
+	}
+	log.Infof("Obtained SNAT IP %s from NamespaceNetworkInfo for VirtualMachine %s/%s",
+		ip, vmNamespace, vmName)
+	return ip, nil
+}
+
+func resolveVPCExternalIP(ctx context.Context, dc dynamic.Interface, vmNamespace, vmName string,
+	virtualMachineInstance *vmoperatortypes.VirtualMachine, snatOptional bool) (string, error) {
+	log := logger.GetLogger(ctx)
+	if dc == nil {
+		return "", fmt.Errorf("dynamic client is nil")
+	}
+	vpcName := vmNamespace
+	networkInfoInstance, err := dc.Resource(networkInfoGVR).Namespace(vmNamespace).Get(ctx,
+		vpcName, metav1.GetOptions{})
+	if err != nil {
+		if snatOptional && apierrors.IsNotFound(err) {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		return "", err
+	}
+	log.Debugf("Got NetworkInfo instance %s/%s", vmNamespace, networkInfoInstance.GetName())
+	vpcs, found, err := unstructured.NestedSlice(networkInfoInstance.Object, "vpcs")
+	if err != nil || !found || len(vpcs) == 0 {
+		if snatOptional {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		return "", fmt.Errorf("failed to get vpcs from networkinfo %s/%s with error: %v",
+			vmNamespace, vmName, err)
+	}
+
+	vpc, ok := vpcs[0].(map[string]interface{})
+	if !ok {
+		if snatOptional {
+			return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+		}
+		return "", fmt.Errorf("failed to assert vpc to map[string]interface{} %s/%s",
+			vmNamespace, vmName)
+	}
+
+	var ip string
+	for key, value := range vpc {
+		if key == vpcDefaultSnatIp {
+			ip, ok = value.(string)
+			if !ok {
+				if snatOptional {
+					return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+				}
+				return "", fmt.Errorf("failed to cast key %s value to string", key)
+			}
+			break
+		}
+	}
+	if ip != "" {
+		return ip, nil
+	}
+	if snatOptional {
+		return vmPrimaryIPFromVirtualMachine(ctx, virtualMachineInstance, vmNamespace, vmName)
+	}
+	return "", fmt.Errorf("spec.vpc.defaultSNATIP is not populated for "+
+		"networkinfo %s/%s", vmNamespace, vmName)
 }
 
 // getSnatIpFromNamespaceNetworkInfo finds VM's SNAT IP from the namespace's default NamespaceNetworkInfo CR.
