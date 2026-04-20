@@ -63,7 +63,6 @@ var (
 	featureFileVolumesWithVmServiceEnabled bool
 	featureIsSharedDiskEnabled             bool
 	featureIsLinkedCloneSupportEnabled     bool
-
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes

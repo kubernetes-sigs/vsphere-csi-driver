@@ -27,7 +27,7 @@ var (
 	// newK8sClient and newSnapshotterClient are package-level function variables
 	// that default to the real constructors. Tests can override them to inject
 	// fake clients without relying on architecture-specific monkey patching.
-	newK8sClient         func(ctx context.Context) (clientset.Interface, error)         = k8s.NewClient
+	newK8sClient         func(ctx context.Context) (clientset.Interface, error)            = k8s.NewClient
 	newSnapshotterClient func(ctx context.Context) (snapshotterClientSet.Interface, error) = k8s.NewSnapshotterClient
 )
 
