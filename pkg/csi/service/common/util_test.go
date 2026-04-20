@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 )
 
 var (
@@ -614,4 +615,74 @@ func TestGetClusterComputeResourceMoIds_SingleClusterPerAZ(t *testing.T) {
 	gomega.Expect(err).To(gomega.BeNil())
 	gomega.Expect(multiple).To(gomega.BeFalse())
 	gomega.Expect(moIDs).To(gomega.ContainElements("domain-c1", "domain-c2"))
+}
+
+func cbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   cbtconfigv1alpha1.GroupName,
+		Version: cbtconfigv1alpha1.Version,
+		Kind:    "CBTConfig",
+	})
+	u.SetName(name)
+	u.SetNamespace(namespace)
+	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
+	if statusEnabled != nil {
+		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
+	}
+	return u
+}
+
+func cbtTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+	t.Helper()
+	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		cbtGVR: "CBTConfigList",
+	}
+	return fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+}
+
+func TestIsCBTEnabledForNamespace(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	enabled := true
+	disabled := false
+
+	t.Run("no CBTConfig objects", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t)
+		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("status.enabled true", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
+		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("status.enabled false", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
+		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("status.enabled omitted", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, nil))
+		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("multiple CBTConfig one has enabled", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t,
+			cbtConfigUnstructured("a", ns, &disabled),
+			cbtConfigUnstructured("b", ns, &enabled),
+		)
+		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+	})
 }

@@ -1385,3 +1385,23 @@ func createCryptoSpec(oldKeyID, newKeyID *vim25types.CryptoKeyId) vim25types.Bas
 
 	return &vim25types.CryptoSpecShallowRecrypt{NewKeyId: *newKeyID}
 }
+
+// SetVolumeCbtFlagsUtil is the helper function to set CBT flags for the given volume.
+func SetVolumeCbtFlagsUtil(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string) error {
+	err := volumeManager.SetVolumeControlFlags(ctx, volumeID,
+		[]string{string(cnstypes.CnsVolumeControlFlagsEnableChangedBlockTracking)})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ClearVolumeCbtFlagsUtil is the helper function to clear CBT flags for the given volume.
+func ClearVolumeCbtFlagsUtil(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string) error {
+	err := volumeManager.ClearVolumeControlFlags(ctx, volumeID,
+		[]string{string(cnstypes.CnsVolumeControlFlagsEnableChangedBlockTracking)})
+	if err != nil {
+		return err
+	}
+	return nil
+}

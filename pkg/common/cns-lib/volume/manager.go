@@ -131,6 +131,10 @@ type Manager interface {
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
 	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
 	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
+	// SetVolumeControlFlags sets control flags for a given volume.
+	SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error
+	// ClearVolumeControlFlags clears control flags for a given volume.
+	ClearVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error
 	// CreateSnapshot helps create a snapshot for a block volume
 	CreateSnapshot(ctx context.Context, volumeID string, desc string, extraParams interface{}) (*CnsSnapshotInfo, error)
 	// DeleteSnapshot helps delete a snapshot for a block volume
@@ -3647,6 +3651,90 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 			"protect volume from vm deletion")
 	}
 	return nil
+}
+
+// SetVolumeControlFlags sets control flags for the given volume.
+func (m *defaultManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalSetVolumeControlFlags := func() error {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			log.Errorf("failed to validate volume manager with err: %+v", err)
+			return err
+		}
+
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return err
+		}
+
+		log.Infof("Setting control flags %v for volumeID: %q", controlFlags, volumeID)
+		err = m.virtualCenter.CnsClient.SetVolumeControlFlags(ctx, []cnstypes.CnsVolumeControlFlagsSpec{{
+			VolumeId:     cnstypes.CnsVolumeId{Id: volumeID},
+			ControlFlags: controlFlags,
+		}})
+		if err != nil {
+			log.Errorf("failed to set control flags %v for volumeID %q with err: %v", controlFlags, volumeID, err)
+			return err
+		}
+		log.Infof("Successfully set control flags %v for volumeID: %q", controlFlags, volumeID)
+		return nil
+	}
+	start := time.Now()
+	err := internalSetVolumeControlFlags()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsSetVolumeControlFlagsOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsSetVolumeControlFlagsOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return err
+}
+
+// ClearVolumeControlFlags clears control flags for the given volume.
+func (m *defaultManager) ClearVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	internalClearVolumeControlFlags := func() error {
+		log := logger.GetLogger(ctx)
+		err := validateManager(ctx, m)
+		if err != nil {
+			log.Errorf("failed to validate volume manager with err: %+v", err)
+			return err
+		}
+
+		err = m.virtualCenter.ConnectCns(ctx)
+		if err != nil {
+			log.Errorf("ConnectCns failed with err: %+v", err)
+			return err
+		}
+
+		log.Infof("Clearing control flags %v for volumeID: %q", controlFlags, volumeID)
+		err = m.virtualCenter.CnsClient.ClearVolumeControlFlags(ctx, []cnstypes.CnsVolumeControlFlagsSpec{{
+			VolumeId:     cnstypes.CnsVolumeId{Id: volumeID},
+			ControlFlags: controlFlags,
+		}})
+		if err != nil {
+			log.Errorf("failed to clear control flags %v for volumeID %q with err: %v", controlFlags, volumeID, err)
+			return err
+		}
+		log.Infof("Successfully cleared control flags %v for volumeID: %q", controlFlags, volumeID)
+		return nil
+	}
+	start := time.Now()
+	err := internalClearVolumeControlFlags()
+	if err != nil {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsClearVolumeControlFlagsOpType,
+			prometheus.PrometheusFailStatus).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CnsControlOpsHistVec.WithLabelValues(prometheus.PrometheusCnsClearVolumeControlFlagsOpType,
+			prometheus.PrometheusPassStatus).Observe(time.Since(start).Seconds())
+	}
+	return err
 }
 
 // GetAllManagerInstances returns all Manager instances

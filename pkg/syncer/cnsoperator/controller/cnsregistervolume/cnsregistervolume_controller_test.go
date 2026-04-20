@@ -160,6 +160,14 @@ func (m *mockVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, vol
 	panic("implement me")
 }
 
+func (m *mockVolumeManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	return nil
+}
+
+func (m *mockVolumeManager) ClearVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	return nil
+}
+
 func (m *mockVolumeManager) CreateSnapshot(ctx context.Context, volumeID string,
 	desc string, extraParams interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
 	//TODO implement me

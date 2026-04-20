@@ -150,6 +150,9 @@ rules:
   - apiGroups: ["iaas.vmware.com"]
     resources: ["capabilities"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cnsdp.vmware.com"]
+    resources: ["cbtconfigs"]
+    verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

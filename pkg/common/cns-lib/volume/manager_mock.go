@@ -141,6 +141,16 @@ func (m MockManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID s
 	panic("implement me")
 }
 
+func (m MockManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m MockManager) ClearVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m MockManager) CreateSnapshot(ctx context.Context, volumeID string, desc string,
 	extraParams interface{}) (*CnsSnapshotInfo, error) {
 	//TODO implement me

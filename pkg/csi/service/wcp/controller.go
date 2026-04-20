@@ -96,6 +96,8 @@ var (
 	IsMultipleClustersPerVsphereZoneFSSEnabled bool
 	// isVsanFileVolumeServiceFSSEnabled is true when supports_vsan_fileservice capability is enabled on the supervisor.
 	isVsanFileVolumeServiceFSSEnabled bool
+	// isCSIBackupAPIEnabled is true when supports_CSI_Backup_API FSS is enabled.
+	isCSIBackupAPIEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -213,6 +215,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.SharedDiskFss, "", "")
 	}
+	isCSIBackupAPIEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
+	if !isCSIBackupAPIEnabled {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.CSI_Backup_API, "", "")
+	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,
@@ -270,14 +277,16 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 	log.Info("Initialized Kubernetes client")
 
-	if isVsanFileVolumeServiceFSSEnabled {
+	// One dynamic client for File Volume Service and/or CBTConfig (CSI Backup) API.
+	if isVsanFileVolumeServiceFSSEnabled || isCSIBackupAPIEnabled {
 		c.dynamicClient, err = dynamic.NewForConfig(cfg)
 		if err != nil {
 			log.Errorf("failed to create dynamic Kubernetes client. err=%v", err)
 			return err
 		}
 		log.Info("Initialized dynamic Kubernetes client")
-
+	}
+	if isVsanFileVolumeServiceFSSEnabled {
 		fvsScheme := runtime.NewScheme()
 		if err = fvsapis.AddToScheme(fvsScheme); err != nil {
 			log.Errorf("failed to add FileVolume API types to scheme. err=%v", err)
@@ -1180,6 +1189,23 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create CnsVolumeInfo CR for volumeID %q due to missing pvc namespace "+
 					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
+		}
+	}
+
+	if isCSIBackupAPIEnabled {
+		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
+			enableCbt, err := common.IsCBTEnabledForNamespace(ctx, c.dynamicClient, pvcNamespace)
+			if err != nil {
+				log.Warnf("failed to get enable CBT for namespace %s with error %+v", pvcNamespace, err)
+			} else if enableCbt {
+				err = common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeInfo.VolumeID.Id)
+				if err != nil {
+					log.Warnf("failed to set CBT flags for volume %s with error %+v", volumeInfo.VolumeID.Id, err)
+				}
+			}
+		} else {
+			log.Warnf("failed to set CBT flag for volume %s due to missing PVC namespace from request parameters",
+				volumeInfo.VolumeID.Id)
 		}
 	}
 
