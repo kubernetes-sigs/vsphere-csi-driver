@@ -8,7 +8,6 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/agiledragon/gomonkey/v2"
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	snapshotclientfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
@@ -21,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var (
@@ -603,18 +601,18 @@ func TestValidatePVC(t *testing.T) {
 			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
 			kubeClient := fake.NewClientset(test.kubeObjs...)
 
-			var patches *gomonkey.Patches
-			patches = gomonkey.ApplyFunc(
-				k8s.NewSnapshotterClient, func(ctx context.Context) (snapshotterClientSet.Interface, error) {
-					return snapshotClient, nil
-				})
-			defer patches.Reset()
-
-			patches = gomonkey.ApplyFunc(
-				k8s.NewClient, func(ctx context.Context) (clientset.Interface, error) {
-					return kubeClient, nil
-				})
-			defer patches.Reset()
+			origK8sClient := newK8sClient
+			origSnapshotterClient := newSnapshotterClient
+			defer func() {
+				newK8sClient = origK8sClient
+				newSnapshotterClient = origSnapshotterClient
+			}()
+			newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+				return kubeClient, nil
+			}
+			newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
+				return snapshotClient, nil
+			}
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1099,18 +1097,18 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 			kubeClient := fake.NewClientset(test.kubeObjs...)
 			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
 
-			// Patch k8s client functions
-			patches := gomonkey.ApplyFunc(
-				k8s.NewClient, func(ctx context.Context) (clientset.Interface, error) {
-					return kubeClient, nil
-				})
-			defer patches.Reset()
-
-			patches = gomonkey.ApplyFunc(
-				k8s.NewSnapshotterClient, func(ctx context.Context) (snapshotterClientSet.Interface, error) {
-					return snapshotClient, nil
-				})
-			defer patches.Reset()
+			origK8sClient := newK8sClient
+			origSnapshotterClient := newSnapshotterClient
+			defer func() {
+				newK8sClient = origK8sClient
+				newSnapshotterClient = origSnapshotterClient
+			}()
+			newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+				return kubeClient, nil
+			}
+			newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
+				return snapshotClient, nil
+			}
 
 			// Marshal the PVC to raw JSON
 			pvcBytes, err := json.Marshal(test.pvc)

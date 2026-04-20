@@ -54,6 +54,10 @@ import (
 var (
 	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
 	attachedVmPrefix = "cns.vmware.com/usedby-vm-"
+
+	// removePvcFinalizerFn is a package-level function variable so tests can
+	// inject a fake implementation without architecture-specific monkey patching.
+	removePvcFinalizerFn = removePvcFinalizer
 )
 
 const (
@@ -100,7 +104,7 @@ func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
 	log := logger.GetLogger(ctx)
 
 	for pvcName, volumeName := range getPvcsFromSpecAndStatus(ctx, instance) {
-		err := removePvcFinalizer(ctx, c, k8sClient, cnsOperatorClient,
+		err := removePvcFinalizerFn(ctx, c, k8sClient, cnsOperatorClient,
 			pvcName, instance.Namespace, instance.Spec.InstanceUUID)
 		if err != nil {
 			updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", err,

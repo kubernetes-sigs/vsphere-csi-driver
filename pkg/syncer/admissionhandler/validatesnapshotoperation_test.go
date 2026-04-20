@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	snapshotclientfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 var admissionReview_snapshotclass = v1.AdmissionReview{
@@ -113,11 +111,11 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 		},
 	}
 	snapshotClient := snapshotclientfake.NewSimpleClientset(snapshotClassObj...)
-	patches := gomonkey.ApplyFunc(
-		k8s.NewSnapshotterClient, func(ctx context.Context) (snapshotterClientSet.Interface, error) {
-			return snapshotClient, nil
-		})
-	defer patches.Reset()
+	origSnapshotterClient := newSnapshotterClient
+	defer func() { newSnapshotterClient = origSnapshotterClient }()
+	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
+		return snapshotClient, nil
+	}
 
 	// Validate vSphere VolumeSnapshot creation with CSI snapshot FSS disabled
 	admissionReview_snapshot.Request.Object = runtime.RawExtension{
@@ -145,11 +143,9 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 		},
 	}
 	snapshotClient = snapshotclientfake.NewSimpleClientset(snapshotClassObj...)
-	patches_nonvSphere := gomonkey.ApplyFunc(
-		k8s.NewSnapshotterClient, func(ctx context.Context) (snapshotterClientSet.Interface, error) {
-			return snapshotClient, nil
-		})
-	defer patches_nonvSphere.Reset()
+	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
+		return snapshotClient, nil
+	}
 
 	// Validate non-vSphere VolumeSnapshot creation with CSI snapshot FSS disabled
 	admissionReview_snapshot.Request.Object = runtime.RawExtension{
@@ -256,12 +252,11 @@ func TestValidateSnapshotOperationSupervisorRequestWithNamespaceDeletion(t *test
 			// Create fake k8s client with the test namespace
 			k8sClient := fake.NewClientset(tt.namespace)
 
-			// Patch the k8s.NewClient function to return our fake client
-			patches := gomonkey.ApplyFunc(
-				k8s.NewClient, func(ctx context.Context) (kubernetes.Interface, error) {
-					return k8sClient, nil
-				})
-			defer patches.Reset()
+			origK8sClient := newK8sClient
+			defer func() { newK8sClient = origK8sClient }()
+			newK8sClient = func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sClient, nil
+			}
 
 			// Create admission request for VolumeSnapshot deletion
 			volumeSnapshotJSON := `{
@@ -354,12 +349,11 @@ func TestIsNamespaceBeingDeleted(t *testing.T) {
 				k8sClient = fake.NewClientset()
 			}
 
-			// Patch the k8s.NewClient function to return our fake client
-			patches := gomonkey.ApplyFunc(
-				k8s.NewClient, func(ctx context.Context) (kubernetes.Interface, error) {
-					return k8sClient, nil
-				})
-			defer patches.Reset()
+			origK8sClient := newK8sClient
+			defer func() { newK8sClient = origK8sClient }()
+			newK8sClient = func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sClient, nil
+			}
 
 			// Call the function under test
 			result := isNamespaceBeingDeleted(ctx, tt.namespaceName)
@@ -468,12 +462,11 @@ func TestValidateSnapshotOperationGuestRequestWithNamespaceDeletion(t *testing.T
 			// Create fake k8s client with the test namespace
 			k8sClient := fake.NewClientset(tt.namespace)
 
-			// Patch the k8s.NewClient function to return our fake client
-			patches := gomonkey.ApplyFunc(
-				k8s.NewClient, func(ctx context.Context) (kubernetes.Interface, error) {
-					return k8sClient, nil
-				})
-			defer patches.Reset()
+			origK8sClient := newK8sClient
+			defer func() { newK8sClient = origK8sClient }()
+			newK8sClient = func(ctx context.Context) (kubernetes.Interface, error) {
+				return k8sClient, nil
+			}
 
 			// Create admission request for VolumeSnapshot deletion
 			volumeSnapshotJSON := `{
