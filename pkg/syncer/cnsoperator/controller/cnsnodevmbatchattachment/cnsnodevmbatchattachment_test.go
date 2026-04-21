@@ -847,16 +847,16 @@ func TestRemovePvcProtectionFinalizersForTrackedPVCs_AllSucceed(t *testing.T) {
 	clientset := k8sFake.NewClientset()
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
 
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyFunc(removePvcFinalizer, func(ctx context.Context, patchClient crclient.Client,
+	origRemovePvcFinalizerFn := removePvcFinalizerFn
+	defer func() { removePvcFinalizerFn = origRemovePvcFinalizerFn }()
+	removePvcFinalizerFn = func(ctx context.Context, patchClient crclient.Client,
 		k8sClient kubernetes.Interface, cnsOpClient crclient.Client,
 		pvcName, namespace, vmInstanceUUID string) error {
 		assert.Equal(t, testNamespace, namespace)
 		assert.Equal(t, base.Spec.InstanceUUID, vmInstanceUUID)
 		assert.Contains(t, []string{"pvc-1", "pvc-2"}, pvcName)
 		return nil
-	})
+	}
 
 	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
 	assert.NoError(t, err)
@@ -881,13 +881,13 @@ func TestRemovePvcProtectionFinalizersForTrackedPVCs_RemoveFinalizerErrorUpdates
 	cnsOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
 
 	wantErr := errors.New("mock removePvcFinalizer failure")
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-	patches.ApplyFunc(removePvcFinalizer, func(ctx context.Context, patchClient crclient.Client,
+	origRemovePvcFinalizerFn := removePvcFinalizerFn
+	defer func() { removePvcFinalizerFn = origRemovePvcFinalizerFn }()
+	removePvcFinalizerFn = func(ctx context.Context, patchClient crclient.Client,
 		k8sClient kubernetes.Interface, cnsOpClient crclient.Client,
 		pvcName, namespace, vmInstanceUUID string) error {
 		return wantErr
-	})
+	}
 
 	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
 	assert.ErrorIs(t, err, wantErr)

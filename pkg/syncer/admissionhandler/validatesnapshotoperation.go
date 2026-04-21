@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 )
@@ -91,7 +90,7 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		// If no volume snapshot class mentioned i.e. default volume snapshot class to be used, then
 		// following checks are skipped. Currently vSphere driver snapshot class is not marked default.
 		if *vs.Spec.VolumeSnapshotClassName != "" {
-			snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+			snapshotterClient, err := newSnapshotterClient(ctx)
 			if err != nil {
 				reason := fmt.Sprintf("failed to get snapshotterClient with error: %v. for class %s",
 					err, *vs.Spec.VolumeSnapshotClassName)
@@ -153,7 +152,7 @@ func validateSnapshotOperationSupervisorRequest(ctx context.Context,
 // checkIfLinkedClonesExist checks if there are any LinkedClone volumes created out of the
 // VolumeSnapshot
 func checkIfLinkedClonesExist(ctx context.Context, vs snap.VolumeSnapshot) admission.Response {
-	k8sClient, err := k8s.NewClient(ctx)
+	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		return admission.Denied("failed to get k8s client. Error: " + err.Error())
 	}
@@ -187,7 +186,7 @@ func checkIfLinkedClonesExist(ctx context.Context, vs snap.VolumeSnapshot) admis
 // 2. Namespace is not found (already deleted)
 func isNamespaceBeingDeleted(ctx context.Context, namespaceName string) bool {
 	log := logger.GetLogger(ctx)
-	k8sClient, err := k8s.NewClient(ctx)
+	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		log.Errorf("Failed to get kubernetes client while checking namespace deletion status: %v", err)
 		return false

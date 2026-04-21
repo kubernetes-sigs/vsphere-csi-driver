@@ -13,12 +13,22 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+)
+
+var (
+	// newK8sClient and newSnapshotterClient are package-level function variables
+	// that default to the real constructors. Tests can override them to inject
+	// fake clients without relying on architecture-specific monkey patching.
+	newK8sClient         func(ctx context.Context) (clientset.Interface, error)            = k8s.NewClient
+	newSnapshotterClient func(ctx context.Context) (snapshotterClientSet.Interface, error) = k8s.NewSnapshotterClient
 )
 
 const (
@@ -213,7 +223,7 @@ func getPVReclaimPolicyForPVC(ctx context.Context, pvc corev1.PersistentVolumeCl
 		return result, logger.LogNewErrorf(log, "No PV is bound to the PVC %s/%s", pvc.Namespace, pvc.Name)
 	}
 
-	kubeClient, err := k8s.NewClient(ctx)
+	kubeClient, err := newK8sClient(ctx)
 	if err != nil {
 		return result, logger.LogNewErrorf(log, "failed to get kube client with error: %v. "+
 			"Stopping getting reclaim policy for PVC, %s/%s", err, pvc.Namespace, pvc.Name)
@@ -233,7 +243,7 @@ func getSnapshotsForPVC(ctx context.Context, ns string, name string) ([]snapshot
 
 	var result []snapshotv1.VolumeSnapshot
 
-	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	snapshotterClient, err := newSnapshotterClient(ctx)
 	if err != nil {
 		log.Errorf("failed to get snapshotterClient with error: %v. "+
 			"Stopping getting snapshots for PVC, %s/%s", err, ns, name)
@@ -366,7 +376,7 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		}
 	}
 
-	k8sClient, err := k8s.NewClient(ctx)
+	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
@@ -377,7 +387,7 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		}
 	}
 
-	snapClient, err := k8s.NewSnapshotterClient(ctx)
+	snapClient, err := newSnapshotterClient(ctx)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
