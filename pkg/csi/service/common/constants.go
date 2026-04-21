@@ -412,8 +412,6 @@ const (
 	// CSISVFeatureStateReplication is feature flag for SV feature state
 	// replication feature.
 	CSISVFeatureStateReplication = "csi-sv-feature-states-replication"
-	// FileVolume is feature flag name for file volume support in WCP.
-	FileVolume = "file-volume"
 	// TriggerCSIFullSyync is feature flag to trigger full sync.
 	TriggerCsiFullSync = "trigger-csi-fullsync"
 	// CSIVolumeManagerIdempotency is the feature flag for idempotency handling
