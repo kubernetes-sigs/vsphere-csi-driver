@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -146,16 +147,51 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 	return k8s.PatchFinalizers(ctx, c, instance, finalizersOnInstance)
 }
 
+// buildVMSpecVolumeCache creates a map of PVC names referenced in the VM spec for efficient lookups.
+// Returns a map where key is PVC name and value is true if the PVC is referenced in VM spec.
+// Returns an empty map if vm is nil.
+func buildVMSpecVolumeCache(vm *vmoperatortypes.VirtualMachine) map[string]bool {
+	volumeCache := make(map[string]bool)
+
+	if vm == nil {
+		return volumeCache
+	}
+
+	for _, vmVol := range vm.Spec.Volumes {
+		if vmVol.VirtualMachineVolumeSource.PersistentVolumeClaim != nil {
+			volumeCache[vmVol.VirtualMachineVolumeSource.PersistentVolumeClaim.ClaimName] = true
+		}
+	}
+	return volumeCache
+}
+
 // getVolumesToDetachFromInstance finds out which are the volumes to detach by finding out which are
 // the volumes present in attachedFCDs but not in spec of the instance.
 func getVolumesToDetachFromInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
+	vmOperatorClient client.Client,
 	attachedFCDs map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails) (pvcsToDetach map[string]string, err error) {
 	log := logger.GetLogger(ctx)
 
 	// Map contains PVCs which need to be detached.
 	pvcsToDetach = make(map[string]string)
+
+	vmKey := types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}
+	vm, _, vmGetErr := utils.GetVirtualMachine(ctx, vmKey, vmOperatorClient)
+	if vmGetErr != nil {
+		if apierrors.IsNotFound(vmGetErr) {
+			log.Infof("VirtualMachine %s/%s not found; skipping VM spec safety check and continuing detach list computation",
+				instance.Namespace, instance.Name)
+			vm = nil
+		} else {
+			return pvcsToDetach, fmt.Errorf("failed to get VirtualMachine %s in namespace %s: %s",
+				instance.Name, instance.Namespace, vmGetErr.Error())
+		}
+	}
+
+	// Create a cache of all volumes in the VM spec for efficient lookups during safety checks
+	vmSpecVolumeCache := buildVMSpecVolumeCache(vm)
 
 	/// Add those volumes to to pvcsToDetach
 	// which are present in attachedFCDs list but not in
@@ -176,10 +212,13 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		}
 
 		addPVCToDetachList := false
+		performSafetyCheck := false
 
 		if volumeInSpec, ok := volumeIdsInSpec[attachedFcdId]; !ok {
 			// If PVC is not present in CR spec but is attached to the VM, then add it to PVCs to detach list.
 			addPVCToDetachList = true
+			// ensure PVC does not exist on VM spec.
+			performSafetyCheck = true
 		} else if volumeInSpec.ControllerKey != attachedFcdIdBacking.ControllerKey ||
 			volumeInSpec.UnitNumber != attachedFcdIdBacking.UnitNumber ||
 			volumeInSpec.SharingMode != attachedFcdIdBacking.SharingMode ||
@@ -210,6 +249,16 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 				controllerutil.ContainsFinalizer(pvcObj, cnsoperatortypes.CNSPvcFinalizer) {
 				log.Debugf("PVC %s does not have usedby-vm annotation. PVC not attached via CnsNodeVMBatchAttachment.", pvcName)
 				continue
+			}
+
+			if performSafetyCheck && vm != nil {
+				// Ensure the PVC is not still referenced in VM spec before detaching.
+				if vmSpecVolumeCache[pvcName] {
+					log.Infof("Skipping detach for PVC %s/%s with FCD %s from VM Instance UUID %s because it is still "+
+						"referenced in VirtualMachine %s spec. This indicates the PVC is actively used by the VM.",
+						pvcNs, pvcName, attachedFcdId, instance.Spec.InstanceUUID, instance.Name)
+					continue
+				}
 			}
 			pvcsToDetach[pvcName] = attachedFcdId
 		}
@@ -385,6 +434,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	client client.Client,
 	k8sClient kubernetes.Interface,
 	cnsOperatorClient client.Client,
+	vmOperatorClient client.Client,
 	attachedFCDs map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails,
 	volumeNamesInSpec map[string]string) (map[string]string, error) {
@@ -392,7 +442,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 
 	// Find out the volumes to detach by taking a diff between
 	// the instance spec and the FCDs currently attached to the VM on vCenter.
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and volumes to detach from instance spec. Err: %s", err)
 		return pvcsToDetach, err
@@ -689,7 +739,7 @@ func getVmObject(ctx context.Context, client client.Client, configInfo config.Co
 
 func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, client client.Client, k8sClient kubernetes.Interface,
-	cnsOperatorClient client.Client) (map[string]string,
+	cnsOperatorClient client.Client, vmOperatorClient client.Client) (map[string]string,
 	map[string]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -720,7 +770,7 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 	}
 
 	// Find the volumes to detach from the vCenter.
-	pvcsToDetach, err = getVolumesToDetach(ctx, client, k8sClient, cnsOperatorClient, instance, vm,
+	pvcsToDetach, err = getVolumesToDetach(ctx, client, k8sClient, cnsOperatorClient, vmOperatorClient, instance, vm,
 		attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to detach from the vCenter for instance %s", instance.Name)
@@ -743,6 +793,7 @@ func getVolumesToAttachAndDetach(ctx context.Context, instance *v1alpha1.CnsNode
 func getVolumesToDetach(ctx context.Context, client client.Client,
 	k8sClient kubernetes.Interface,
 	cnsOperatorClient client.Client,
+	vmOperatorClient client.Client,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	vm *cnsvsphere.VirtualMachine, attachedFcdList map[string]FCDBackingDetails,
 	volumeIdsInSpec map[string]FCDBackingDetails, volumeNamesInSpec map[string]string) (map[string]string, error) {
@@ -750,7 +801,7 @@ func getVolumesToDetach(ctx context.Context, client client.Client,
 
 	// Find volumes to be detached from the VM by takinga diff with FCDs attached to VM on vCenter.
 	volumesToDetach, err := getVolumesToDetachForVmFromVC(ctx, instance, client, k8sClient,
-		cnsOperatorClient, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
+		cnsOperatorClient, vmOperatorClient, attachedFcdList, volumeIdsInSpec, volumeNamesInSpec)
 	if err != nil {
 		log.Errorf("failed to find volumes to attach and detach. Err: %s", err)
 		return map[string]string{}, err
