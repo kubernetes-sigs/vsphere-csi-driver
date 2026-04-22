@@ -292,7 +292,7 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	} else {
 		// If VM was found on vCenter, find the volumes to be attached and detached.
 		volumesToAttach, volumesToDetach, err = getVolumesToAttachAndDetach(batchAttachCtx, instance, vm, r.client, k8sClient,
-			r.cnsOperatorClient)
+			r.cnsOperatorClient, r.vmOperatorClient)
 		if err != nil {
 			log.Errorf("failed to find volumes to detach for instance %s. Err: %s",
 				request.NamespacedName.String(), err)
