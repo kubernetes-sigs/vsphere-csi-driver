@@ -275,6 +275,9 @@ func TestListFVSCandidateInstanceNamespaces(t *testing.T) {
 		&v1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "inst-ns",
+				Labels: map[string]string{
+					NamespaceLabelFVSInstance: "true",
+				},
 				Annotations: map[string]string{
 					AnnotationVPCNetworkConfig: instAnn,
 				},

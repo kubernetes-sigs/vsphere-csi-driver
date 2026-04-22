@@ -55,6 +55,9 @@ const (
 	fvsWaitMax = 5 * time.Minute
 	// AnnotationVPCNetworkConfig is set on supervisor namespaces; value is the VPCNetworkConfiguration CR name.
 	AnnotationVPCNetworkConfig = "nsx.vmware.com/vpc_network_config"
+	// NamespaceLabelFVSInstance marks FVS instance namespaces (supervisor namespaces that host FileVolume CRs).
+	// Expected label value is "true".
+	NamespaceLabelFVSInstance = "fvs_instance_namespace"
 )
 
 var (
@@ -166,8 +169,10 @@ func (c *controller) listFVSCandidateInstanceNamespaces(ctx context.Context, pvc
 	if c.namespaceLister == nil {
 		return nil, fmt.Errorf("namespace lister is not initialized")
 	}
-	// TODO: FileVolumeService: filter namespaces by labels for instance namespaces
-	nsObjs, err := c.namespaceLister.List(labels.Everything())
+	instanceNSSelector := labels.SelectorFromSet(labels.Set{
+		NamespaceLabelFVSInstance: "true",
+	})
+	nsObjs, err := c.namespaceLister.List(instanceNSSelector)
 	if err != nil {
 		return nil, fmt.Errorf("list namespaces from informer cache: %w", err)
 	}
