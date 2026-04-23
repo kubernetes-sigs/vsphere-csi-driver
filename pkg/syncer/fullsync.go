@@ -43,7 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
-	ccV1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
@@ -1675,7 +1675,7 @@ func RemoveCNSFinalizerFromPVCIfTKGClusterDeleted(ctx context.Context, k8sClient
 		log.Error(msg)
 		return
 	}
-	ccClient, err := k8s.NewClientForGroup(ctx, restClientConfig, ccV1beta1.GroupVersion.Group)
+	ccClient, err := k8s.NewClientForGroup(ctx, restClientConfig, ccV1beta2.GroupVersion.Group)
 	if err != nil {
 		msg := fmt.Sprintf("RemoveCNSFinalizerFromPVCIfTKGClusterDeleted: Failed to get vmOperatorClient. "+
 			"Err: %+v", err)
@@ -1708,7 +1708,7 @@ func RemoveCNSFinalizerFromPVCIfTKGClusterDeleted(ctx context.Context, k8sClient
 					okToRemoveFinalizer = true
 				}
 			} else {
-				cc := &ccV1beta1.Cluster{}
+				cc := &ccV1beta2.Cluster{}
 				err := ccClient.Get(ctx, client.ObjectKey{
 					Namespace: pvc.Namespace,
 					Name:      tkcClusterName,
@@ -1755,7 +1755,7 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 		log.Error(msg)
 		return
 	}
-	ccClient, err := k8s.NewClientForGroup(ctx, restClientConfig, ccV1beta1.GroupVersion.Group)
+	ccClient, err := k8s.NewClientForGroup(ctx, restClientConfig, ccV1beta2.GroupVersion.Group)
 	if err != nil {
 		msg := fmt.Sprintf("RemoveCNSFinalizerFromSnapIfTKGClusterDeleted: Failed to get vmOperatorClient. "+
 			"Err: %+v", err)
@@ -1788,7 +1788,7 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 					okToRemoveFinalizer = true
 				}
 			} else {
-				cc := &ccV1beta1.Cluster{}
+				cc := &ccV1beta2.Cluster{}
 				err := ccClient.Get(ctx, client.ObjectKey{
 					Namespace: vs.Namespace,
 					Name:      tkcClusterName,
