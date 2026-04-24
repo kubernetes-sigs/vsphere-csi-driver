@@ -139,6 +139,24 @@ func (m *mockVolumeManager) ResetManager(ctx context.Context, vcenter *cnsvspher
 	panic("implement me")
 }
 
+func (m *mockVolumeManager) QueryFCDAllocatedBlocks(ctx context.Context,
+	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) ([]cnsvolume.AllocatedArea, uint64, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
+	[]cnsvolume.ChangedArea, uint64, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockVolumeManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockVolumeManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {
 	//TODO implement me
 	panic("implement me")

@@ -28,9 +28,12 @@ import (
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -162,6 +165,14 @@ type Manager interface {
 	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
 	// ReRegisterVolume re-registers a volume to CNS when CnsNotRegisteredFault is encountered
 	ReRegisterVolume(ctx context.Context, volumeID string) error
+	// QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas (changeId "*").
+	QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string, startingOffset uint64,
+		maxResults uint32) ([]AllocatedArea, uint64, error)
+	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
+	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
+		maxResults uint32) ([]ChangedArea, uint64, error)
+	// GetFCDSnapshotChangeID returns the CBT change ID from an FCD snapshot (VSLM RetrieveSnapshotDetails).
+	GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4109,4 +4120,272 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 
 	log.Infof("volume %q unregistered successfully", volumeID)
 	return "", nil
+}
+
+// vslmNewClientFunc creates a VSLM client (overridable in unit tests).
+var vslmNewClientFunc = vslm.NewClient
+
+// AllocatedArea is a byte range reported as allocated on an FCD snapshot.
+type AllocatedArea struct {
+	Offset uint64
+	Length uint64
+}
+
+// ChangedArea is a byte range reported as changed between FCD snapshots.
+type ChangedArea struct {
+	Offset uint64
+	Length uint64
+}
+
+func runQueryChangedDiskAreasViaVslm(ctx context.Context, vim25Client *vim25.Client,
+	volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+	if vim25Client == nil {
+		return nil, fmt.Errorf("vim25 client is nil")
+	}
+	vslmClient, err := vslmNewClientFunc(ctx, vim25Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VSLM client: %v", err)
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
+	return globalObjectManager.QueryChangedDiskAreas(ctx, volumeID, snapshotID, startingOffset, changeID)
+}
+
+// defaultQueryChangedDiskAreasHook is the production VSLM path; tests may replace QueryChangedDiskAreasHook.
+func defaultQueryChangedDiskAreasHook(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+	if vcenter == nil || vcenter.Client == nil {
+		return nil, fmt.Errorf("vCenter is not connected")
+	}
+	return runQueryChangedDiskAreasViaVslm(ctx, vcenter.Client.Client, volumeID, snapshotID, startingOffset, changeID)
+}
+
+// QueryChangedDiskAreasHook calls VSLM QueryChangedDiskAreas; unit tests may replace it.
+var QueryChangedDiskAreasHook = defaultQueryChangedDiskAreasHook
+
+func runRetrieveSnapshotDetailsViaVslm(ctx context.Context, vim25Client *vim25.Client,
+	volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
+	if vim25Client == nil {
+		return nil, fmt.Errorf("vim25 client is nil")
+	}
+	vslmClient, err := vslmNewClientFunc(ctx, vim25Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VSLM client: %v", err)
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
+	return globalObjectManager.RetrieveSnapshotDetails(ctx, volumeID, snapshotID)
+}
+
+// defaultRetrieveSnapshotDetailsHook is the production VSLM path; tests may replace RetrieveSnapshotDetailsHook.
+func defaultRetrieveSnapshotDetailsHook(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
+	if vcenter == nil || vcenter.Client == nil {
+		return nil, fmt.Errorf("vCenter is not connected")
+	}
+	return runRetrieveSnapshotDetailsViaVslm(ctx, vcenter.Client.Client, volumeID, snapshotID)
+}
+
+// RetrieveSnapshotDetailsHook calls VSLM RetrieveSnapshotDetails; unit tests may replace it.
+var RetrieveSnapshotDetailsHook = defaultRetrieveSnapshotDetailsHook
+
+func (m *defaultManager) fcdVirtualCenter(ctx context.Context) (*cnsvsphere.VirtualCenter, error) {
+	log := logger.GetLogger(ctx)
+	err := validateManager(ctx, m)
+	if err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return nil, err
+	}
+	return m.virtualCenter, nil
+}
+
+// GetFCDSnapshotChangeID returns ChangedBlockTrackingId from FCD snapshot details (VSLM).
+func (m *defaultManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("GetFCDSnapshotChangeID: volume=%s snapshot=%s", volumeID, snapshotID)
+
+	vcenter, err := m.fcdVirtualCenter(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vCenter from volume manager: %v", err)
+	}
+
+	snapshotDetails, err := RetrieveSnapshotDetailsHook(ctx, vcenter, vim25types.ID{Id: volumeID}, vim25types.ID{Id: snapshotID})
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve snapshot details via VSLM API: %v", err)
+	}
+
+	changeID := snapshotDetails.ChangedBlockTrackingId
+	if changeID == "" {
+		return "", fmt.Errorf("changeId is empty in snapshot %s (CBT may not be enabled)", snapshotID)
+	}
+
+	log.Debugf("Retrieved changeId %s for snapshot %s", changeID, snapshotID)
+	return changeID, nil
+}
+
+// QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas with changeId "*".
+func (m *defaultManager) QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string,
+	startingOffset uint64, maxResults uint32) ([]AllocatedArea, uint64, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("QueryFCDAllocatedBlocks: volume=%s snapshot=%s offset=%d maxResults=%d",
+		volumeID, snapshotID, startingOffset, maxResults)
+
+	vcenter, err := m.fcdVirtualCenter(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get vCenter from volume manager: %v", err)
+	}
+
+	vslmVolumeID := vim25types.ID{Id: volumeID}
+	vslmSnapshotID := vim25types.ID{Id: snapshotID}
+	const allocatedChangeID = "*"
+
+	log.Debugf("Calling VSLM QueryChangedDiskAreas with changeId='*' for all allocated blocks")
+	diskChangeInfo, err := QueryChangedDiskAreasHook(
+		ctx, vcenter, vslmVolumeID, vslmSnapshotID, int64(startingOffset), allocatedChangeID)
+	if err != nil {
+		return nil, 0, TranslateVslmError(log, err)
+	}
+
+	var allocatedAreas []AllocatedArea
+	nextOffset := startingOffset
+	for _, area := range diskChangeInfo.ChangedArea {
+		if uint32(len(allocatedAreas)) >= maxResults {
+			break
+		}
+		allocatedAreas = append(allocatedAreas, AllocatedArea{
+			Offset: uint64(area.Start),
+			Length: uint64(area.Length),
+		})
+		areaEnd := uint64(area.Start) + uint64(area.Length)
+		if areaEnd > nextOffset {
+			nextOffset = areaEnd
+		}
+	}
+	if uint32(len(allocatedAreas)) < maxResults {
+		nextOffset = 0
+	}
+	log.Debugf("QueryFCDAllocatedBlocks: returned %d allocated areas, next offset %d",
+		len(allocatedAreas), nextOffset)
+	return allocatedAreas, nextOffset, nil
+}
+
+// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
+func (m *defaultManager) QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string,
+	startingOffset uint64, maxResults uint32) ([]ChangedArea, uint64, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("QueryFCDChangedBlocks: volume=%s target=%s offset=%d maxResults=%d",
+		volumeID, targetSnapshotID, startingOffset, maxResults)
+
+	vcenter, err := m.fcdVirtualCenter(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get vCenter from volume manager: %v", err)
+	}
+
+	vslmVolumeID := vim25types.ID{Id: volumeID}
+	vslmTargetSnapshotID := vim25types.ID{Id: targetSnapshotID}
+
+	log.Debugf("Calling VSLM QueryChangedDiskAreas with base changeId for delta")
+	diskChangeInfo, err := QueryChangedDiskAreasHook(
+		ctx, vcenter, vslmVolumeID, vslmTargetSnapshotID, int64(startingOffset), baseChangeID)
+	if err != nil {
+		return nil, 0, TranslateVslmError(log, err)
+	}
+
+	var changedAreas []ChangedArea
+	nextOffset := startingOffset
+	for _, area := range diskChangeInfo.ChangedArea {
+		if uint32(len(changedAreas)) >= maxResults {
+			break
+		}
+		changedAreas = append(changedAreas, ChangedArea{
+			Offset: uint64(area.Start),
+			Length: uint64(area.Length),
+		})
+		areaEnd := uint64(area.Start) + uint64(area.Length)
+		if areaEnd > nextOffset {
+			nextOffset = areaEnd
+		}
+	}
+	if uint32(len(changedAreas)) < maxResults {
+		nextOffset = 0
+	}
+	log.Debugf("QueryFCDChangedBlocks: returned %d changed areas, next offset %d",
+		len(changedAreas), nextOffset)
+	return changedAreas, nextOffset, nil
+}
+
+// TranslateVslmError maps VSLM and VADP error codes to standard CSI gRPC error codes.
+func TranslateVslmError(log *zap.SugaredLogger, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	errMsg := err.Error()
+
+	if soap.IsSoapFault(err) {
+		fault := soap.ToSoapFault(err).VimFault()
+
+		switch f := fault.(type) {
+		case *vim25types.FileFault:
+			msgID := ""
+			if len(f.FaultMessage) > 0 {
+				msgID = f.FaultMessage[0].Key
+			} else {
+				if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noTrack") {
+					msgID = "vim.hostd.vmsvc.cbt.noTrack"
+				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noEpoch") {
+					msgID = "vim.hostd.vmsvc.cbt.noEpoch"
+				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.cannotGetChanges") {
+					msgID = "vim.hostd.vmsvc.cbt.cannotGetChanges"
+				}
+			}
+
+			switch msgID {
+			case "vim.hostd.vmsvc.cbt.noTrack":
+				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"CBT disabled or not enabled. The caller should perform a full backup instead: %v", err)
+			case "vim.hostd.vmsvc.cbt.noEpoch":
+				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"Cannot get current epoch when changeId=*. The caller should perform a full backup instead: %v", err)
+			case "vim.hostd.vmsvc.cbt.cannotGetChanges":
+				if strings.Contains(strings.ToLower(errMsg), "corrupt") {
+					return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"ctk file corrupted. The caller should perform a full backup instead: %v", err)
+				}
+				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"changeID mismatch. The caller should correct the error and resubmit the call: %v", err)
+			default:
+				return logger.LogNewErrorCodef(log, codes.Internal,
+					"Internal errors such ctk disk open fails, FCD disk locked, disk missing, etc. "+
+						"CSI driver should retry the operation: %v", err)
+			}
+		case *vim25types.SystemError:
+			return logger.LogNewErrorCodef(log, codes.Internal,
+				"Internal system error. CSI driver should retry the operation: %v", err)
+		case *vim25types.InvalidArgument:
+			if f.InvalidProperty == "startOffset" || strings.Contains(errMsg, "startOffset") {
+				return logger.LogNewErrorCodef(log, codes.OutOfRange,
+					"start offset specified beyond volume size. The caller should specify a valid offset: %v", err)
+			}
+			if f.InvalidProperty == "snapshotId" || strings.Contains(errMsg, "snapshotId") {
+				return logger.LogNewErrorCodef(log, codes.NotFound,
+					"snapshot ID not found for FCD. The caller should re-check that these objects exist: %v", err)
+			}
+			if f.InvalidProperty == "changeId" || strings.Contains(errMsg, "changeId") {
+				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"invalid format for changeID. The caller should correct the error and resubmit the call: %v", err)
+			}
+			if f.InvalidProperty == "deviceKey" || strings.Contains(errMsg, "deviceKey") {
+				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"Device key doesn't exist, Disk has no backing, or Disk backing "+
+						"type doesn't support CBT. The caller should correct the "+
+						"error and resubmit the call: %v", err)
+			}
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"invalid argument %s: %v", f.InvalidProperty, err)
+		case *vim25types.NotFound:
+			return logger.LogNewErrorCodef(log, codes.NotFound,
+				"FCD not found in VC inventory. The caller should re-check that these objects exist: %v", err)
+		}
+	}
+
+	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
 }

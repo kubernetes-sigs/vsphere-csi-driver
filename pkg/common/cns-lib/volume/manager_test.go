@@ -2,13 +2,21 @@ package volume
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	"github.com/vmware/govmomi/vslm"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -529,4 +537,423 @@ func TestReRegistrationIdempotency(t *testing.T) {
 				"Test: %s - %s", tt.name, tt.description)
 		})
 	}
+}
+
+func createFCDSoapFault(fault vim25types.AnyType, msg string) error {
+	f := &soap.Fault{String: msg}
+	f.Detail.Fault = fault
+	return soap.WrapSoapFault(f)
+}
+
+func TestTranslateVslmError(t *testing.T) {
+	ctx := context.Background()
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+
+	tests := []struct {
+		name     string
+		err      error
+		wantCode codes.Code
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			wantCode: codes.OK,
+		},
+		{
+			name: "SOAP FileFault with noTrack",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{
+					MethodFault: vim25types.MethodFault{
+						FaultMessage: []vim25types.LocalizableMessage{
+							{Key: "vim.hostd.vmsvc.cbt.noTrack"},
+						},
+					},
+				},
+			}, ""),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "SOAP FileFault with noEpoch",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{
+					MethodFault: vim25types.MethodFault{
+						FaultMessage: []vim25types.LocalizableMessage{
+							{Key: "vim.hostd.vmsvc.cbt.noEpoch"},
+						},
+					},
+				},
+			}, ""),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "SOAP FileFault with corrupt cannotGetChanges",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{
+					MethodFault: vim25types.MethodFault{
+						FaultMessage: []vim25types.LocalizableMessage{
+							{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges", Message: "file is corrupted"},
+						},
+					},
+				},
+			}, "file is corrupted"),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "SOAP FileFault with mismatched cannotGetChanges",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{
+					MethodFault: vim25types.MethodFault{
+						FaultMessage: []vim25types.LocalizableMessage{
+							{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges"},
+						},
+					},
+				},
+			}, ""),
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "SOAP FileFault generic",
+			err:      createFCDSoapFault(&vim25types.FileFault{}, ""),
+			wantCode: codes.Internal,
+		},
+		{
+			name:     "SOAP SystemError",
+			err:      createFCDSoapFault(&vim25types.SystemError{}, ""),
+			wantCode: codes.Internal,
+		},
+		{
+			name: "SOAP InvalidArgument startOffset",
+			err: createFCDSoapFault(&vim25types.InvalidArgument{
+				InvalidProperty: "startOffset",
+			}, ""),
+			wantCode: codes.OutOfRange,
+		},
+		{
+			name: "SOAP InvalidArgument snapshotId",
+			err: createFCDSoapFault(&vim25types.InvalidArgument{
+				InvalidProperty: "snapshotId",
+			}, ""),
+			wantCode: codes.NotFound,
+		},
+		{
+			name: "SOAP InvalidArgument changeId",
+			err: createFCDSoapFault(&vim25types.InvalidArgument{
+				InvalidProperty: "changeId",
+			}, ""),
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "SOAP InvalidArgument deviceKey",
+			err: createFCDSoapFault(&vim25types.InvalidArgument{
+				InvalidProperty: "deviceKey",
+			}, ""),
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "SOAP NotFound",
+			err:      createFCDSoapFault(&vim25types.NotFound{}, ""),
+			wantCode: codes.NotFound,
+		},
+		{
+			name:     "plain error with CBT message substring",
+			err:      fmt.Errorf("some inner error: vim.hostd.vmsvc.cbt.noTrack"),
+			wantCode: codes.Internal,
+		},
+		{
+			name:     "plain error with vim.fault substring",
+			err:      fmt.Errorf("some inner error: vim.fault.NotFound occurred"),
+			wantCode: codes.Internal,
+		},
+		{
+			name:     "plain error generic",
+			err:      fmt.Errorf("random network timeout"),
+			wantCode: codes.Internal,
+		},
+		{
+			name: "SOAP FileFault noTrack via error message substring",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
+			}, "vim.hostd.vmsvc.cbt.noTrack"),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "SOAP FileFault noEpoch via error message substring",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
+			}, "vim.hostd.vmsvc.cbt.noEpoch"),
+			wantCode: codes.FailedPrecondition,
+		},
+		{
+			name: "SOAP FileFault cannotGetChanges via error message substring",
+			err: createFCDSoapFault(&vim25types.FileFault{
+				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
+			}, "vim.hostd.vmsvc.cbt.cannotGetChanges"),
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name: "SOAP InvalidArgument unknown property",
+			err: createFCDSoapFault(&vim25types.InvalidArgument{
+				InvalidProperty: "otherProperty",
+			}, ""),
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "SOAP fault type not specially handled",
+			err:      createFCDSoapFault(&vim25types.AlreadyExists{}, "exists"),
+			wantCode: codes.Internal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := TranslateVslmError(log, tt.err)
+
+			if tt.err == nil {
+				if err != nil {
+					t.Errorf("Expected nil error, got: %v", err)
+				}
+				return
+			}
+
+			if status.Code(err) != tt.wantCode {
+				t.Errorf("TranslateVslmError() returned code %v, want %v. Error: %v", status.Code(err), tt.wantCode, err)
+			}
+		})
+	}
+}
+
+func TestFcdVirtualCenter(t *testing.T) {
+	ctx := context.Background()
+	ctx = logger.NewContextWithLogger(ctx)
+
+	mNil := &defaultManager{virtualCenter: nil}
+	_, err := mNil.fcdVirtualCenter(ctx)
+	assert.Error(t, err)
+
+	mOK := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+	vc, err := mOK.fcdVirtualCenter(ctx)
+	assert.NoError(t, err)
+	assert.Same(t, mOK.virtualCenter, vc)
+}
+
+func TestGetFCDSnapshotChangeID(t *testing.T) {
+	ctx := context.Background()
+	ctx = logger.NewContextWithLogger(ctx)
+
+	orig := RetrieveSnapshotDetailsHook
+	defer func() { RetrieveSnapshotDetailsHook = orig }()
+
+	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+
+	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
+		assert.Equal(t, "vol-1", volumeID.Id)
+		assert.Equal(t, "snap-1", snapshotID.Id)
+		return &vim25types.VStorageObjectSnapshotDetails{ChangedBlockTrackingId: "cid-99"}, nil
+	}
+	id, err := m.GetFCDSnapshotChangeID(ctx, "vol-1", "snap-1")
+	assert.NoError(t, err)
+	assert.Equal(t, "cid-99", id)
+
+	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
+		return nil, fmt.Errorf("vslm failed")
+	}
+	_, err = m.GetFCDSnapshotChangeID(ctx, "v", "s")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to retrieve snapshot details")
+
+	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
+		return &vim25types.VStorageObjectSnapshotDetails{ChangedBlockTrackingId: ""}, nil
+	}
+	_, err = m.GetFCDSnapshotChangeID(ctx, "v", "snap-empty")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "changeId is empty")
+
+	mBad := &defaultManager{virtualCenter: nil}
+	_, err = mBad.GetFCDSnapshotChangeID(ctx, "v", "s")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get vCenter from volume manager")
+}
+
+func TestQueryFCDAllocatedBlocks(t *testing.T) {
+	ctx := context.Background()
+	ctx = logger.NewContextWithLogger(ctx)
+
+	orig := QueryChangedDiskAreasHook
+	defer func() { QueryChangedDiskAreasHook = orig }()
+
+	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		assert.Equal(t, "*", changeID)
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 4096},
+				{Start: 8192, Length: 4096},
+			},
+		}, nil
+	}
+	areas, next, err := m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 10)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 2)
+	assert.Equal(t, uint64(0), next)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 4096},
+				{Start: 4096, Length: 4096},
+			},
+		}, nil
+	}
+	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 2)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 2)
+	assert.Equal(t, uint64(8192), next)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 4096},
+				{Start: 4096, Length: 4096},
+				{Start: 8192, Length: 4096},
+			},
+		}, nil
+	}
+	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 2)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 2)
+	assert.Equal(t, uint64(8192), next)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return nil, fmt.Errorf("vslm down")
+	}
+	_, _, err = m.QueryFCDAllocatedBlocks(ctx, "v", "s", 0, 10)
+	assert.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+
+	mNil := &defaultManager{virtualCenter: nil}
+	_, _, err = mNil.QueryFCDAllocatedBlocks(ctx, "v", "s", 0, 10)
+	assert.Error(t, err)
+}
+
+func TestQueryFCDChangedBlocks(t *testing.T) {
+	ctx := context.Background()
+	ctx = logger.NewContextWithLogger(ctx)
+
+	orig := QueryChangedDiskAreasHook
+	defer func() { QueryChangedDiskAreasHook = orig }()
+
+	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		assert.Equal(t, "base-cid", changeID)
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{{Start: 100, Length: 200}},
+		}, nil
+	}
+	areas, next, err := m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "base-cid", 0, 5)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 1)
+	assert.Equal(t, uint64(0), next)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 512},
+				{Start: 512, Length: 512},
+			},
+		}, nil
+	}
+	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 2)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 2)
+	assert.Equal(t, uint64(1024), next)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return nil, createFCDSoapFault(&vim25types.InvalidArgument{InvalidProperty: "snapshotId"}, "")
+	}
+	_, _, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 10)
+	assert.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+
+	mNil := &defaultManager{virtualCenter: nil}
+	_, _, err = mNil.QueryFCDChangedBlocks(ctx, "v", "t", "c", 0, 10)
+	assert.Error(t, err)
+
+	QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64, changeID string) (*vim25types.DiskChangeInfo, error) {
+		return &vim25types.DiskChangeInfo{
+			ChangedArea: []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 100},
+				{Start: 200, Length: 100},
+				{Start: 400, Length: 100},
+			},
+		}, nil
+	}
+	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 2)
+	assert.NoError(t, err)
+	assert.Len(t, areas, 2)
+	assert.Equal(t, uint64(300), next)
+}
+
+func TestRunQueryChangedDiskAreasViaVslmNilClient(t *testing.T) {
+	ctx := context.Background()
+	_, err := runQueryChangedDiskAreasViaVslm(ctx, nil, vim25types.ID{Id: "v"}, vim25types.ID{Id: "s"}, 0, "*")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vim25 client is nil")
+}
+
+func TestRunRetrieveSnapshotDetailsViaVslmNilClient(t *testing.T) {
+	ctx := context.Background()
+	_, err := runRetrieveSnapshotDetailsViaVslm(ctx, nil, vim25types.ID{Id: "v"}, vim25types.ID{Id: "s"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "vim25 client is nil")
+}
+
+func TestRunQueryChangedDiskAreasViaVslmNewClientError(t *testing.T) {
+	orig := vslmNewClientFunc
+	defer func() { vslmNewClientFunc = orig }()
+	vslmNewClientFunc = func(ctx context.Context, c *vim25.Client) (*vslm.Client, error) {
+		return nil, fmt.Errorf("injected vslm failure")
+	}
+	ctx := context.Background()
+	_, err := runQueryChangedDiskAreasViaVslm(ctx, &vim25.Client{}, vim25types.ID{Id: "v"}, vim25types.ID{Id: "s"}, 0, "*")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create VSLM client")
+}
+
+func TestRunRetrieveSnapshotDetailsViaVslmNewClientError(t *testing.T) {
+	orig := vslmNewClientFunc
+	defer func() { vslmNewClientFunc = orig }()
+	vslmNewClientFunc = func(ctx context.Context, c *vim25.Client) (*vslm.Client, error) {
+		return nil, fmt.Errorf("injected vslm failure")
+	}
+	ctx := context.Background()
+	_, err := runRetrieveSnapshotDetailsViaVslm(ctx, &vim25.Client{}, vim25types.ID{Id: "v"}, vim25types.ID{Id: "s"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create VSLM client")
+}
+
+func TestDefaultVslmHooksDisconnectedVC(t *testing.T) {
+	ctx := context.Background()
+	_, err := defaultQueryChangedDiskAreasHook(ctx, nil, vim25types.ID{}, vim25types.ID{}, 0, "*")
+	assert.Error(t, err)
+	_, err = defaultQueryChangedDiskAreasHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{}, 0, "*")
+	assert.Error(t, err)
+
+	_, err = defaultRetrieveSnapshotDetailsHook(ctx, nil, vim25types.ID{}, vim25types.ID{})
+	assert.Error(t, err)
+	_, err = defaultRetrieveSnapshotDetailsHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{})
+	assert.Error(t, err)
 }
