@@ -90,6 +90,15 @@ const (
 	// AttributeStorageClassName represents name of the Storage Class.
 	AttributeStorageClassName = "csi.storage.k8s.io/sc/name"
 
+	// StorageClassVsanFileServicePolicy is the supervisor StorageClass for vSAN file service (immediate binding).
+	StorageClassVsanFileServicePolicy = "vsan-file-service-policy"
+	// StorageClassVsanFileServicePolicyLateBinding is the supervisor StorageClass for vSAN file service (late binding).
+	StorageClassVsanFileServicePolicyLateBinding = "vsan-file-service-policy-latebinding"
+
+	// FVSVolumeIDPrefix is the CSI volume ID prefix for the FVS FileVolume CR workflow
+	// (fv:<instance-namespace>:<filevolume-name>).
+	FVSVolumeIDPrefix = "fv:"
+
 	// AttributeIsLinkedClone represents if this is a linked clone request
 	AttributeIsLinkedClone = "csi.vsphere.volume/fast-provisioning"
 

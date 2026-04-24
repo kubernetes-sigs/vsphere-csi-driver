@@ -185,14 +185,21 @@ func (im *InformerManager) AddPVListener(ctx context.Context, add func(obj inter
 	return nil
 }
 
+// InitNamespaceInformer registers the cluster Namespace shared informer with the factory (no event handlers).
+// Idempotent. Call before Listen when only the Namespace lister/cache is needed (e.g. WCP FVS).
+func (im *InformerManager) InitNamespaceInformer() {
+	if im.namespaceInformer != nil {
+		return
+	}
+	im.namespaceInformer = im.informerFactory.Core().V1().Namespaces().Informer()
+	im.namespaceSynced = im.namespaceInformer.HasSynced
+}
+
 // AddNamespaceListener hooks up add, update, delete callbacks.
 func (im *InformerManager) AddNamespaceListener(ctx context.Context, add func(obj interface{}),
 	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
 	log := logger.GetLogger(ctx)
-	if im.namespaceInformer == nil {
-		im.namespaceInformer = im.informerFactory.Core().V1().Namespaces().Informer()
-	}
-	im.namespaceSynced = im.namespaceInformer.HasSynced
+	im.InitNamespaceInformer()
 
 	_, err := im.namespaceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
@@ -288,6 +295,22 @@ func (im *InformerManager) GetConfigMapLister() corelisters.ConfigMapLister {
 // GetPodLister returns Pod Lister for the calling informer manager.
 func (im *InformerManager) GetPodLister() corelisters.PodLister {
 	return im.informerFactory.Core().V1().Pods().Lister()
+}
+
+// Client returns the Kubernetes clientset associated with this informer manager.
+func (im *InformerManager) Client() clientset.Interface {
+	return im.client
+}
+
+// GetNamespaceLister returns the Namespace lister for the shared factory (register the informer via
+// InitNamespaceInformer or AddNamespaceListener before relying on cache contents).
+func (im *InformerManager) GetNamespaceLister() corelisters.NamespaceLister {
+	return im.informerFactory.Core().V1().Namespaces().Lister()
+}
+
+// NamespaceInformerSynced returns the namespace informer's HasSynced func, or nil if not registered.
+func (im *InformerManager) NamespaceInformerSynced() cache.InformerSynced {
+	return im.namespaceSynced
 }
 
 // Listen starts the Informers.

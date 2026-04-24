@@ -259,11 +259,15 @@ func getSnatIpFromNamespaceNetworkInfo(ctx context.Context, dc dynamic.Interface
 	return snatIP, nil
 }
 
-// GetNetworkProvider reads the network-config configmap in Supervisor cluster.
+// GetNetworkProviderFunc is the implementation used by GetNetworkProvider; tests may replace it to avoid
+// monkey-patching the real Kubernetes client.
+var GetNetworkProviderFunc = getNetworkProviderFromConfigMap
+
+// getNetworkProviderFromConfigMap reads the network-config configmap in Supervisor cluster.
 // Returns the network provider as NSXT_CONTAINER_PLUGIN for NSX-T, or
 // VSPHERE_NETWORK for VDS. Otherwise, returns an error, if network provider is
 // not present in the configmap.
-func GetNetworkProvider(ctx context.Context) (string, error) {
+func getNetworkProviderFromConfigMap(ctx context.Context) (string, error) {
 	log := logger.GetLogger(ctx)
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
@@ -285,6 +289,11 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 
 	return "", fmt.Errorf("could not find network provider field in configmap %q in namespace %q",
 		wcpNetworkConfigMap, kubeSystemNamespace)
+}
+
+// GetNetworkProvider reads the network-config configmap in Supervisor cluster.
+func GetNetworkProvider(ctx context.Context) (string, error) {
+	return GetNetworkProviderFunc(ctx)
 }
 
 // GetVCDatacenterFromConfig returns datacenter registered for each vCenter
