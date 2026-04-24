@@ -275,7 +275,7 @@ func TestGetMetadataAllocated_InvalidSnapshotID(t *testing.T) {
 
 // TestAllocatedAreaConversion tests the conversion from VSLM response to CSI format
 func TestAllocatedAreaConversion(t *testing.T) {
-	areas := []AllocatedArea{
+	areas := []cnsvolume.AllocatedArea{
 		{Offset: 0, Length: 4096},
 		{Offset: 8192, Length: 4096},
 		{Offset: 16384, Length: 8192},
@@ -305,7 +305,7 @@ func TestAllocatedAreaConversion(t *testing.T) {
 
 // TestChangedAreaConversion tests the conversion from VSLM response to CSI format
 func TestChangedAreaConversion(t *testing.T) {
-	areas := []ChangedArea{
+	areas := []cnsvolume.ChangedArea{
 		{Offset: 4096, Length: 4096},
 		{Offset: 12288, Length: 4096},
 	}
@@ -331,14 +331,14 @@ func TestChangedAreaConversion(t *testing.T) {
 func TestPaginationLogic(t *testing.T) {
 	tests := []struct {
 		name           string
-		areas          []AllocatedArea
+		areas          []cnsvolume.AllocatedArea
 		maxResults     uint32
 		startingOffset uint64
 		wantNextOffset uint64
 	}{
 		{
 			name: "fewer results than max",
-			areas: []AllocatedArea{
+			areas: []cnsvolume.AllocatedArea{
 				{Offset: 0, Length: 4096},
 				{Offset: 8192, Length: 4096},
 			},
@@ -348,7 +348,7 @@ func TestPaginationLogic(t *testing.T) {
 		},
 		{
 			name: "exactly max results",
-			areas: []AllocatedArea{
+			areas: []cnsvolume.AllocatedArea{
 				{Offset: 0, Length: 4096},
 				{Offset: 4096, Length: 4096},
 			},
@@ -358,7 +358,7 @@ func TestPaginationLogic(t *testing.T) {
 		},
 		{
 			name: "more results than max",
-			areas: []AllocatedArea{
+			areas: []cnsvolume.AllocatedArea{
 				{Offset: 0, Length: 4096},
 				{Offset: 4096, Length: 4096},
 				{Offset: 8192, Length: 4096},
@@ -469,12 +469,11 @@ func TestGetMetadataAllocated_Success(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	// Mock the VSLM call
-	origQueryChangedDiskAreasFunc := queryChangedDiskAreasFunc
-	defer func() { queryChangedDiskAreasFunc = origQueryChangedDiskAreasFunc }()
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
 
-	queryChangedDiskAreasFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeId string) (*types.DiskChangeInfo, error) {
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
 		return &types.DiskChangeInfo{
 			ChangedArea: []types.DiskChangeExtent{
 				{Start: 0, Length: 4096},
@@ -527,12 +526,11 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 	}
 	volID := respCreate.Volume.VolumeId
 
-	// Mock the VSLM call
-	origQueryChangedDiskAreasFunc := queryChangedDiskAreasFunc
-	defer func() { queryChangedDiskAreasFunc = origQueryChangedDiskAreasFunc }()
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
 
-	queryChangedDiskAreasFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeId string) (*types.DiskChangeInfo, error) {
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
 		return &types.DiskChangeInfo{
 			ChangedArea: []types.DiskChangeExtent{
 				{Start: 8192, Length: 4096},
@@ -555,15 +553,190 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 	}
 }
 
+// makeFCDSoapFault builds a govmomi SOAP fault wrapping the given vim fault
+// payload. Mirrors the helper used in the cnsvolume package tests.
+func makeFCDSoapFault(fault types.AnyType, msg string) error {
+	f := &soap.Fault{String: msg}
+	f.Detail.Fault = fault
+	return soap.WrapSoapFault(f)
+}
+
+// TestVslmErrorToCSICode locks in the unit-level mapping used by the wcp
+// controller when wrapping VSLM errors: it must surface any explicit gRPC
+// status code from the inner error (e.g. FailedPrecondition / OutOfRange /
+// NotFound) and only fall back to Internal for plain errors.
+func TestVslmErrorToCSICode(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want codes.Code
+	}{
+		{name: "nil", err: nil, want: codes.OK},
+		{name: "FailedPrecondition status", err: status.Error(codes.FailedPrecondition, "x"), want: codes.FailedPrecondition},
+		{name: "OutOfRange status", err: status.Error(codes.OutOfRange, "x"), want: codes.OutOfRange},
+		{name: "InvalidArgument status", err: status.Error(codes.InvalidArgument, "x"), want: codes.InvalidArgument},
+		{name: "NotFound status", err: status.Error(codes.NotFound, "x"), want: codes.NotFound},
+		{name: "Internal status", err: status.Error(codes.Internal, "x"), want: codes.Internal},
+		{name: "plain error", err: fmt.Errorf("oops"), want: codes.Internal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := vslmErrorToCSICode(tt.err); got != tt.want {
+				t.Errorf("vslmErrorToCSICode(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// runVSLMErrorPropagationCase asserts that the wcp controller propagates the
+// gRPC status code produced by cnsvolume.TranslateVslmError end-to-end (instead
+// of overwriting it with codes.Internal).
+//
+// Each case: stub QueryChangedDiskAreasHook to return a SOAP fault, then drive
+// either GetMetadataAllocated or GetMetadataDelta and assert status.Code(err).
+func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault types.AnyType,
+	faultMsg string, isDelta bool, wantCode codes.Code) {
+	t.Run(name, func(t *testing.T) {
+		ct := getControllerTest(t)
+		fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+		_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
+
+		origVolumeManager := ct.controller.manager.VolumeManager
+		ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
+		defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
+
+		reqCreate := &csi.CreateVolumeRequest{
+			Name: fmt.Sprintf("%s-%s", testVolumeName, name),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			VolumeCapabilities: []*csi.VolumeCapability{
+				{
+					AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+					AccessMode: &csi.VolumeCapability_AccessMode{
+						Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+					},
+				},
+			},
+		}
+		respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+		if err != nil {
+			t.Fatalf("Failed to create volume: %v", err)
+		}
+		volID := respCreate.Volume.VolumeId
+
+		origHook := cnsvolume.QueryChangedDiskAreasHook
+		defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
+		cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+			volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
+			return nil, makeFCDSoapFault(vimFault, faultMsg)
+		}
+
+		if isDelta {
+			req := &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+				TargetSnapshotId: volID + "+snapshot-456",
+				MaxResults:       1,
+			}
+			err = ct.controller.GetMetadataDelta(req, &mockDeltaServer{ctx: ctx})
+		} else {
+			req := &csi.GetMetadataAllocatedRequest{
+				SnapshotId: volID + "+snapshot-456",
+				MaxResults: 1,
+			}
+			err = ct.controller.GetMetadataAllocated(req, &mockAllocatedServer{ctx: ctx})
+		}
+
+		if err == nil {
+			t.Fatalf("Expected error %v, got nil", wantCode)
+		}
+		if got := status.Code(err); got != wantCode {
+			t.Errorf("Expected status code %v, got %v (err=%v)", wantCode, got, err)
+		}
+	})
+}
+
+// TestGetMetadataAllocated_PreservesVSLMErrorCode verifies that for
+// GetMetadataAllocated the controller surfaces the gRPC code chosen by
+// cnsvolume.TranslateVslmError instead of clobbering it with codes.Internal.
+func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
+	// noTrack -> CBT not enabled -> FailedPrecondition.
+	runVSLMErrorPropagationCase(t, "FailedPrecondition_noTrack",
+		&types.FileFault{
+			VimFault: types.VimFault{
+				MethodFault: types.MethodFault{
+					FaultMessage: []types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noTrack"}},
+				},
+			},
+		}, "", false, codes.FailedPrecondition)
+
+	// startOffset out of range -> OutOfRange.
+	runVSLMErrorPropagationCase(t, "OutOfRange_startOffset",
+		&types.InvalidArgument{InvalidProperty: "startOffset"}, "",
+		false, codes.OutOfRange)
+
+	// snapshotId not found -> NotFound.
+	runVSLMErrorPropagationCase(t, "NotFound_snapshotId",
+		&types.InvalidArgument{InvalidProperty: "snapshotId"}, "",
+		false, codes.NotFound)
+
+	// changeId malformed -> InvalidArgument.
+	runVSLMErrorPropagationCase(t, "InvalidArgument_changeId",
+		&types.InvalidArgument{InvalidProperty: "changeId"}, "",
+		false, codes.InvalidArgument)
+
+	// Generic VSLM SystemError -> Internal (already-wrapped case still works).
+	runVSLMErrorPropagationCase(t, "Internal_systemError",
+		&types.SystemError{}, "", false, codes.Internal)
+}
+
+// TestGetMetadataDelta_PreservesVSLMErrorCode is the same end-to-end
+// propagation check as above, but driven through GetMetadataDelta (which uses
+// QueryFCDChangedBlocks under the hood).
+func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
+	runVSLMErrorPropagationCase(t, "FailedPrecondition_noEpoch",
+		&types.FileFault{
+			VimFault: types.VimFault{
+				MethodFault: types.MethodFault{
+					FaultMessage: []types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noEpoch"}},
+				},
+			},
+		}, "", true, codes.FailedPrecondition)
+
+	runVSLMErrorPropagationCase(t, "FailedPrecondition_corruptCTK",
+		&types.FileFault{
+			VimFault: types.VimFault{
+				MethodFault: types.MethodFault{
+					FaultMessage: []types.LocalizableMessage{
+						{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges", Message: "file is corrupted"},
+					},
+				},
+			},
+		}, "file is corrupted", true, codes.FailedPrecondition)
+
+	runVSLMErrorPropagationCase(t, "InvalidArgument_changeIDMismatch",
+		&types.FileFault{
+			VimFault: types.VimFault{
+				MethodFault: types.MethodFault{
+					FaultMessage: []types.LocalizableMessage{
+						{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges"},
+					},
+				},
+			},
+		}, "", true, codes.InvalidArgument)
+
+	runVSLMErrorPropagationCase(t, "NotFound_FCD",
+		&types.NotFound{}, "", true, codes.NotFound)
+}
+
 // TestGetSnapshotChangeIdFromFCD tests the function that retrieves change ID
 func TestGetSnapshotChangeIdFromFCD(t *testing.T) {
 	ct := getControllerTest(t)
 
-	// Mock the VSLM call
-	origRetrieveSnapshotDetailsFunc := retrieveSnapshotDetailsFunc
-	defer func() { retrieveSnapshotDetailsFunc = origRetrieveSnapshotDetailsFunc }()
+	origHook := cnsvolume.RetrieveSnapshotDetailsHook
+	defer func() { cnsvolume.RetrieveSnapshotDetailsHook = origHook }()
 
-	retrieveSnapshotDetailsFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	cnsvolume.RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
 		volumeID types.ID, snapshotID types.ID) (*types.VStorageObjectSnapshotDetails, error) {
 		return &types.VStorageObjectSnapshotDetails{
 			ChangedBlockTrackingId: "mock-change-id-from-fcd",
@@ -578,8 +751,7 @@ func TestGetSnapshotChangeIdFromFCD(t *testing.T) {
 		t.Errorf("Expected mock-change-id-from-fcd, got: %s", changeId)
 	}
 
-	// Test empty change ID
-	retrieveSnapshotDetailsFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+	cnsvolume.RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
 		volumeID types.ID, snapshotID types.ID) (*types.VStorageObjectSnapshotDetails, error) {
 		return &types.VStorageObjectSnapshotDetails{
 			ChangedBlockTrackingId: "", // empty
@@ -589,157 +761,5 @@ func TestGetSnapshotChangeIdFromFCD(t *testing.T) {
 	_, err = ct.controller.getSnapshotChangeIdFromFCD(ctx, testVolumeName, "snapshot-123")
 	if err == nil {
 		t.Errorf("Expected error for empty change ID, got nil")
-	}
-}
-
-func createSoapFault(fault types.AnyType, msg string) error {
-	f := &soap.Fault{String: msg}
-	f.Detail.Fault = fault
-	return soap.WrapSoapFault(f)
-}
-
-// TestTranslateVslmError tests the error mapping logic for VSLM API errors
-func TestTranslateVslmError(t *testing.T) {
-	ctx := context.Background()
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-
-	tests := []struct {
-		name     string
-		err      error
-		wantCode codes.Code
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			wantCode: codes.OK,
-		},
-		{
-			name: "SOAP FileFault with noTrack",
-			err: createSoapFault(&types.FileFault{
-				VimFault: types.VimFault{
-					MethodFault: types.MethodFault{
-						FaultMessage: []types.LocalizableMessage{
-							{Key: "vim.hostd.vmsvc.cbt.noTrack"},
-						},
-					},
-				},
-			}, ""),
-			wantCode: codes.FailedPrecondition,
-		},
-		{
-			name: "SOAP FileFault with noEpoch",
-			err: createSoapFault(&types.FileFault{
-				VimFault: types.VimFault{
-					MethodFault: types.MethodFault{
-						FaultMessage: []types.LocalizableMessage{
-							{Key: "vim.hostd.vmsvc.cbt.noEpoch"},
-						},
-					},
-				},
-			}, ""),
-			wantCode: codes.FailedPrecondition,
-		},
-		{
-			name: "SOAP FileFault with corrupt cannotGetChanges",
-			err: createSoapFault(&types.FileFault{
-				VimFault: types.VimFault{
-					MethodFault: types.MethodFault{
-						FaultMessage: []types.LocalizableMessage{
-							{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges", Message: "file is corrupted"},
-						},
-					},
-				},
-			}, "file is corrupted"),
-			wantCode: codes.FailedPrecondition,
-		},
-		{
-			name: "SOAP FileFault with mismatched cannotGetChanges",
-			err: createSoapFault(&types.FileFault{
-				VimFault: types.VimFault{
-					MethodFault: types.MethodFault{
-						FaultMessage: []types.LocalizableMessage{
-							{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges"},
-						},
-					},
-				},
-			}, ""),
-			wantCode: codes.InvalidArgument,
-		},
-		{
-			name:     "SOAP FileFault generic",
-			err:      createSoapFault(&types.FileFault{}, ""),
-			wantCode: codes.Internal,
-		},
-		{
-			name:     "SOAP SystemError",
-			err:      createSoapFault(&types.SystemError{}, ""),
-			wantCode: codes.Internal,
-		},
-		{
-			name: "SOAP InvalidArgument startOffset",
-			err: createSoapFault(&types.InvalidArgument{
-				InvalidProperty: "startOffset",
-			}, ""),
-			wantCode: codes.OutOfRange,
-		},
-		{
-			name: "SOAP InvalidArgument snapshotId",
-			err: createSoapFault(&types.InvalidArgument{
-				InvalidProperty: "snapshotId",
-			}, ""),
-			wantCode: codes.NotFound,
-		},
-		{
-			name: "SOAP InvalidArgument changeId",
-			err: createSoapFault(&types.InvalidArgument{
-				InvalidProperty: "changeId",
-			}, ""),
-			wantCode: codes.InvalidArgument,
-		},
-		{
-			name: "SOAP InvalidArgument deviceKey",
-			err: createSoapFault(&types.InvalidArgument{
-				InvalidProperty: "deviceKey",
-			}, ""),
-			wantCode: codes.InvalidArgument,
-		},
-		{
-			name:     "SOAP NotFound",
-			err:      createSoapFault(&types.NotFound{}, ""),
-			wantCode: codes.NotFound,
-		},
-		{
-			name:     "plain error with CBT message substring",
-			err:      fmt.Errorf("some inner error: vim.hostd.vmsvc.cbt.noTrack"),
-			wantCode: codes.Internal,
-		},
-		{
-			name:     "plain error with vim.fault substring",
-			err:      fmt.Errorf("some inner error: vim.fault.NotFound occurred"),
-			wantCode: codes.Internal,
-		},
-		{
-			name:     "plain error generic",
-			err:      fmt.Errorf("random network timeout"),
-			wantCode: codes.Internal,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := translateVslmError(log, tt.err)
-
-			if tt.err == nil {
-				if err != nil {
-					t.Errorf("Expected nil error, got: %v", err)
-				}
-				return
-			}
-
-			if status.Code(err) != tt.wantCode {
-				t.Errorf("translateVslmError() returned code %v, want %v. Error: %v", status.Code(err), tt.wantCode, err)
-			}
-		})
 	}
 }
