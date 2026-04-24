@@ -353,7 +353,9 @@ func startAvailabilityZoneInformer(ctx context.Context, cfg *restclient.Config) 
 		AddFunc: func(obj interface{}) {
 			azCRAdded(obj)
 		},
-		UpdateFunc: nil,
+		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
+			azCRUpdated(oldObj, newObj)
+		},
 		DeleteFunc: func(obj interface{}) {
 			azCRDeleted(obj)
 		},
@@ -392,7 +394,42 @@ func azCRAdded(obj interface{}) {
 	addToAZClusterMap(ctx, azName, clusterComputeResourceMoIds)
 }
 
-// azCRUpdated handles deleting AZ name in the cache.
+// azCRUpdated syncs the azClusterMap when an AvailabilityZone CR is updated, for example
+// when a new cluster is added to the zone or a cluster is removed from the zone.
+func azCRUpdated(oldObj interface{}, newObj interface{}) {
+	ctx, log := logger.GetNewContextWithLogger()
+	azName, found, err := unstructured.NestedString(newObj.(*unstructured.Unstructured).Object, "metadata", "name")
+	if !found || err != nil {
+		log.Errorf("failed to get `name` from AvailabilityZone instance: %+v, Error: %+v", newObj, err)
+		return
+	}
+	newClusters, nFound, nErr := unstructured.NestedStringSlice(newObj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	if len(newClusters) == 0 || !nFound || nErr != nil {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from AvailabilityZone instance: %+v, "+
+			"Error: %+v", newObj, nErr)
+		return
+	}
+	oldClusters, oFound, oErr := unstructured.NestedStringSlice(oldObj.(*unstructured.Unstructured).Object,
+		"spec", "clusterComputeResourceMoIDs")
+	oldOK := len(oldClusters) > 0 && oFound && oErr == nil
+	if oldOK && slices.Equal(oldClusters, newClusters) {
+		log.Debugf("azCRUpdated: no change in spec.clusterComputeResourceMoIDs for AvailabilityZone %q, ignoring",
+			azName)
+		return
+	}
+	if !oldOK {
+		log.Errorf("failed to get `clusterComputeResourceMoIds` from old AvailabilityZone instance: %+v, "+
+			"Error: %+v. Will still apply new spec to cache", oldObj, oErr)
+		log.Infof("azCRUpdated: refreshing AvailabilityZone %q cluster list in cache to %v", azName, newClusters)
+	} else {
+		log.Infof("azCRUpdated: AvailabilityZone %q cluster list changed from %v to %v, updating topology cache",
+			azName, oldClusters, newClusters)
+	}
+	addToAZClusterMap(ctx, azName, newClusters)
+}
+
+// azCRDeleted handles removing the AZ from the cache.
 func azCRDeleted(obj interface{}) {
 	ctx, log := logger.GetNewContextWithLogger()
 	// Retrieve name of CR instance.

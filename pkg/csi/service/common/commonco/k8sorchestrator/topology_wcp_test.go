@@ -18,11 +18,16 @@ package k8sorchestrator
 
 import (
 	"context"
+	"runtime"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -446,5 +451,250 @@ func TestWCPControllerVolumeTopology_GetSharedDatastoresInTopology(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+// makeTestAvailabilityZoneUnstructured builds a minimal AvailabilityZone-shaped object for informer handler tests.
+func makeTestAvailabilityZoneUnstructured(t *testing.T, name string, clusterMoIDs []string) *unstructured.Unstructured {
+	t.Helper()
+	u := &unstructured.Unstructured{Object: map[string]interface{}{}}
+	if err := unstructured.SetNestedField(u.Object, name, "metadata", "name"); err != nil {
+		t.Fatalf("SetNestedField metadata.name: %v", err)
+	}
+	err := unstructured.SetNestedStringSlice(
+		u.Object, clusterMoIDs, "spec", "clusterComputeResourceMoIDs")
+	if err != nil {
+		t.Fatalf("SetNestedStringSlice spec.clusterComputeResourceMoIDs: %v", err)
+	}
+	return u
+}
+
+// TestAzCRUpdated_MultipleClustersPerZone tests MCZ: when a new cluster is added to an existing
+// AvailabilityZone (in-place CR update), azClustersMap must include the new cluster so datastore
+// intersection and register-volume topology can see datastores from that cluster.
+func TestAzCRUpdated_MultipleClustersPerZone(t *testing.T) {
+	origPodVM := isPodVMOnStretchedSupervisorEnabled
+	origAz := azClusterMap
+	origAzs := azClustersMap
+	defer func() {
+		isPodVMOnStretchedSupervisorEnabled = origPodVM
+		azClusterMap = origAz
+		azClustersMap = origAzs
+	}()
+
+	isPodVMOnStretchedSupervisorEnabled = true
+	azClusterMap = make(map[string]string)
+	zoneName := "wcp-vpc-compute-cluster-domain"
+	azClustersMap = map[string][]string{
+		zoneName: {"domain-c58"},
+	}
+
+	oldObj := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58"})
+	newObj := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58", "domain-c51"})
+
+	azCRUpdated(oldObj, newObj)
+
+	got := azClustersMap[zoneName]
+	want := []string{"domain-c58", "domain-c51"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("azClustersMap[%q] = %v, want %v", zoneName, got, want)
+	}
+}
+
+// TestAzCRUpdated_SingleClusterModeFirstElement tests non-MCZ path: cache stores the first cluster MOID only;
+// updates must refresh when that first entry changes.
+func TestAzCRUpdated_SingleClusterModeFirstElement(t *testing.T) {
+	origPodVM := isPodVMOnStretchedSupervisorEnabled
+	origAz := azClusterMap
+	origAzs := azClustersMap
+	defer func() {
+		isPodVMOnStretchedSupervisorEnabled = origPodVM
+		azClusterMap = origAz
+		azClustersMap = origAzs
+	}()
+
+	isPodVMOnStretchedSupervisorEnabled = false
+	azClustersMap = make(map[string][]string)
+	zoneName := "zone-a"
+	azClusterMap = map[string]string{zoneName: "domain-old"}
+
+	oldObj := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-old"})
+	newObj := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-new", "domain-old"})
+
+	azCRUpdated(oldObj, newObj)
+
+	if got := azClusterMap[zoneName]; got != "domain-new" {
+		t.Fatalf("azClusterMap[%q] = %q, want domain-new (first spec.clusterComputeResourceMoID)", zoneName, got)
+	}
+}
+
+// TestAzCRUpdated_NoChangeSkipsCacheWrite verifies identical old/new spec does not require a spec change
+// (equivalent cluster lists are a no-op for the update path).
+func TestAzCRUpdated_NoChangeSkipsCacheWrite(t *testing.T) {
+	origPodVM := isPodVMOnStretchedSupervisorEnabled
+	origAz := azClusterMap
+	origAzs := azClustersMap
+	defer func() {
+		isPodVMOnStretchedSupervisorEnabled = origPodVM
+		azClusterMap = origAz
+		azClustersMap = origAzs
+	}()
+
+	isPodVMOnStretchedSupervisorEnabled = true
+	azClusterMap = make(map[string]string)
+	zoneName := "zone-unchanged"
+	origSlice := []string{"domain-c1", "domain-c2"}
+	azClustersMap = map[string][]string{zoneName: origSlice}
+
+	u := makeTestAvailabilityZoneUnstructured(t, zoneName, origSlice)
+	azCRUpdated(u, u)
+
+	if got := azClustersMap[zoneName]; !slices.Equal(got, origSlice) {
+		t.Fatalf("azClustersMap[%q] = %v, want unchanged %v", zoneName, got, origSlice)
+	}
+}
+
+// TestGetTopologyInfoFromNodes_CnsRegisterVolumeSucceedsWhenClusterAddedToZone covers MCZ: a static volume on a
+// datastore that exists only after a new vSphere cluster is added to the zone cannot be resolved until
+// azCRUpdated applies the in-place AvailabilityZone spec change; then GetTopologyInfoFromNodes returns the zone.
+func TestGetTopologyInfoFromNodes_CnsRegisterVolumeSucceedsWhenClusterAddedToZone(t *testing.T) {
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
+	ctx := context.Background()
+	origPodVM := isPodVMOnStretchedSupervisorEnabled
+	origAz := azClusterMap
+	origAzs := azClustersMap
+	defer func() {
+		isPodVMOnStretchedSupervisorEnabled = origPodVM
+		azClusterMap = origAz
+		azClustersMap = origAzs
+	}()
+
+	zoneName := "wcp-vpc-compute-cluster-zone"
+	// Datastore only visible once domain-c51 is in the zone's cluster list (e.g. volume on new cluster's vSAN).
+	newClusterOnlyDatastoreURL := "ds:///vmfs/volumes/vsan-new-c51-only/"
+
+	patches := gomonkey.ApplyFunc(getSharedDatastoresInClusters, func(
+		_ context.Context, clusterMorefs []string, _ *cnsvsphere.VirtualCenter,
+	) ([]*cnsvsphere.DatastoreInfo, error) {
+		existingURL := "ds:///vmfs/volumes/vsan-c58-shared/"
+		out := []*cnsvsphere.DatastoreInfo{createDatastoreInfo("ds-c58", existingURL)}
+		for _, m := range clusterMorefs {
+			if m == "domain-c51" {
+				out = append(out, createDatastoreInfo("ds-c51", newClusterOnlyDatastoreURL))
+				break
+			}
+		}
+		return out, nil
+	})
+	defer patches.Reset()
+
+	isPodVMOnStretchedSupervisorEnabled = true
+	azClusterMap = make(map[string]string)
+	// Stale cache: only the original cluster (second cluster not yet applied by informer).
+	azClustersMap = map[string][]string{zoneName: {"domain-c58"}}
+
+	wcpTopo := &wcpControllerVolumeTopology{}
+	params := commoncotypes.WCPRetrieveTopologyInfoParams{
+		DatastoreURL:           newClusterOnlyDatastoreURL,
+		StorageTopologyType:    "zonal",
+		TopologyRequirement:    nil,
+		Vc:                     nil,
+		TopoSegToDatastoresMap: nil,
+	}
+
+	_, err := wcpTopo.GetTopologyInfoFromNodes(ctx, params)
+	if err == nil {
+		t.Fatal("GetTopologyInfoFromNodes with stale cache: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "could not find the topology of the volume provisioned on datastore") {
+		t.Fatalf("expected topology-not-found with stale cache, got: %v", err)
+	}
+
+	oldCR := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58"})
+	newCR := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58", "domain-c51"})
+	azCRUpdated(oldCR, newCR)
+
+	segments, err := wcpTopo.GetTopologyInfoFromNodes(ctx, params)
+	if err != nil {
+		t.Fatalf("GetTopologyInfoFromNodes after cluster add: unexpected error: %v", err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("len(segments) = %d, want 1: %+v", len(segments), segments)
+	}
+	if got := segments[0][v1.LabelTopologyZone]; got != zoneName {
+		t.Fatalf("zone = %q, want %q", got, zoneName)
+	}
+}
+
+// TestGetTopologyInfoFromNodes_CnsRegisterVolumeFailsWhenClusterRemovedFromZone mirrors the CnsRegisterVolume
+// control path: GetTopologyInfoFromNodes with zonal + nil topology requirement, using azClustersMap. When
+// a vSphere cluster is removed from the AvailabilityZone (cache updated by azCRUpdated) but the volume
+// still sits on a datastore that was only part of the removed cluster, registration must not succeed with
+// a made-up zone—the same "could not find the topology" error the controller returns.
+func TestGetTopologyInfoFromNodes_CnsRegisterVolumeFailsWhenClusterRemovedFromZone(t *testing.T) {
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
+	}
+	ctx := context.Background()
+	origPodVM := isPodVMOnStretchedSupervisorEnabled
+	origAz := azClusterMap
+	origAzs := azClustersMap
+	defer func() {
+		isPodVMOnStretchedSupervisorEnabled = origPodVM
+		azClusterMap = origAz
+		azClustersMap = origAzs
+	}()
+
+	zoneName := "wcp-vpc-compute-cluster-zone"
+	// URL only present when the removed vSphere cluster is still in the zone's cluster list.
+	removedClusterOnlyDatastoreURL := "ds:///vmfs/volumes/vsan-removed-c51-only/"
+
+	patches := gomonkey.ApplyFunc(getSharedDatastoresInClusters, func(
+		_ context.Context, clusterMorefs []string, _ *cnsvsphere.VirtualCenter,
+	) ([]*cnsvsphere.DatastoreInfo, error) {
+		remainingURL := "ds:///vmfs/volumes/vsan-c58-shared/"
+		out := []*cnsvsphere.DatastoreInfo{createDatastoreInfo("ds-remaining", remainingURL)}
+		for _, m := range clusterMorefs {
+			if m == "domain-c51" {
+				out = append(out, createDatastoreInfo("ds-on-removed", removedClusterOnlyDatastoreURL))
+				break
+			}
+		}
+		return out, nil
+	})
+	defer patches.Reset()
+
+	isPodVMOnStretchedSupervisorEnabled = true
+	azClusterMap = make(map[string]string)
+	azClustersMap = map[string][]string{zoneName: {"domain-c58", "domain-c51"}}
+
+	wcpTopo := &wcpControllerVolumeTopology{}
+	params := commoncotypes.WCPRetrieveTopologyInfoParams{
+		DatastoreURL:           removedClusterOnlyDatastoreURL,
+		StorageTopologyType:    "zonal",
+		TopologyRequirement:    nil,
+		Vc:                     nil,
+		TopoSegToDatastoresMap: nil,
+	}
+
+	_, err := wcpTopo.GetTopologyInfoFromNodes(ctx, params)
+	if err != nil {
+		t.Fatalf("GetTopologyInfoFromNodes (both clusters in zone) unexpected error: %v", err)
+	}
+
+	// In-place CR update: domain-c51 removed from spec.clusterComputeResourceMoIDs; cache matches production.
+	oldCR := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58", "domain-c51"})
+	newCR := makeTestAvailabilityZoneUnstructured(t, zoneName, []string{"domain-c58"})
+	azCRUpdated(oldCR, newCR)
+
+	_, err = wcpTopo.GetTopologyInfoFromNodes(ctx, params)
+	if err == nil {
+		t.Fatalf("GetTopologyInfoFromNodes after cluster removal: want error " +
+			"(CnsRegisterVolume would succeed incorrectly), got nil")
+	}
+	if !strings.Contains(err.Error(), "could not find the topology of the volume provisioned on datastore") {
+		t.Fatalf("expected static-provision / CnsRegisterVolume style topology error, got: %v", err)
 	}
 }
