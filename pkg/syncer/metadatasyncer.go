@@ -130,6 +130,15 @@ var (
 	// IsWorkloadDomainIsolationSupported is true when Workload_Domain_Isolation_Supported FSS is enabled.
 	IsWorkloadDomainIsolationSupported bool
 
+	// IsVsanFileVolumeServiceEnabled is the effective vSAN File Volume / FVS gate for this
+	// syncer process (exactly one cluster flavor applies):
+	//   - Supervisor (workload): set from common.VsanFileVolumeService (supports_vsan_fileservice).
+	//   - Guest: set to true only when both PVCSI internal FSS and supervisor capability
+	//     are enabled: IsPVCSIFSSEnabled(VsanFileVolumeServiceSupportFSS) &&
+	//     IsFSSEnabled(VsanFileVolumeServiceSupportFSS) (same keys as before).
+	// When true, metadata syncer / full-sync skip FVS-backed volume CNS / CnsVolumeMetadata paths.
+	IsVsanFileVolumeServiceEnabled bool
+
 	// PeriodicSyncIntervalInMin the time interval to run sync for
 	PeriodicSyncIntervalInMin time.Duration
 )
@@ -360,7 +369,9 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")
 		}
-		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService) {
+		IsVsanFileVolumeServiceEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.VsanFileVolumeService)
+		if !IsVsanFileVolumeServiceEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.VsanFileVolumeService, "", "")
 		}
@@ -393,6 +404,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			ctx, common.VsanFileVolumeServiceSupportFSS)
 		vsanFileServiceEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
 			ctx, common.VsanFileVolumeServiceSupportFSS)
+		IsVsanFileVolumeServiceEnabled = vsanFilePVCSIFSS && vsanFileServiceEnabled
 		if vsanFilePVCSIFSS && !vsanFileServiceEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.VsanFileVolumeService,
@@ -2631,9 +2643,19 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if shouldSkipFVSMetadataPushGuest(newPvc, pv) {
+			log.Infof("PVCUpdated: Skipping CnsVolumeMetadata push for FVS-backed PVC %q in namespace %q",
+				newPvc.Name, newPvc.Namespace)
+			return
+		}
 		// Invoke volume updated method for pvCSI.
 		pvcsiVolumeUpdated(ctx, newPvc, pv.Spec.CSI.VolumeHandle, metadataSyncer)
 	} else {
+		if shouldSkipFVSMetadataPushSupervisor(pv) {
+			log.Infof("PVCUpdated: Skipping CNS metadata push for FVS-backed PVC %q in namespace %q (volumeHandle=%q)",
+				newPvc.Name, newPvc.Namespace, pv.Spec.CSI.VolumeHandle)
+			return
+		}
 		csiPVCUpdated(ctx, newPvc, pv, metadataSyncer)
 	}
 }
@@ -2684,9 +2706,19 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if shouldSkipFVSMetadataPushGuest(pvc, pv) {
+			log.Infof("PVCDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PVC %q in namespace %q",
+				pvc.Name, pvc.Namespace)
+			return
+		}
 		// Invoke volume deleted method for pvCSI.
 		pvcsiVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer, pv)
 	} else {
+		if shouldSkipFVSMetadataPushSupervisor(pv) {
+			log.Infof("PVCDeleted: Skipping CNS metadata delete for FVS-backed PVC %q in namespace %q (volumeHandle=%q)",
+				pvc.Name, pvc.Namespace, pv.Spec.CSI.VolumeHandle)
+			return
+		}
 		csiPVCDeleted(ctx, pvc, pv, metadataSyncer)
 	}
 }
@@ -2807,9 +2839,19 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if shouldSkipFVSMetadataPushGuest(nil, newPv) {
+			log.Infof("PVUpdated: Skipping CnsVolumeMetadata push for FVS-backed PV %q (storageClass=%q)",
+				newPv.Name, newPv.Spec.StorageClassName)
+			return
+		}
 		// Invoke volume updated method for pvCSI.
 		pvcsiVolumeUpdated(ctx, newPv, newPv.Spec.CSI.VolumeHandle, metadataSyncer)
 	} else {
+		if shouldSkipFVSMetadataPushSupervisor(newPv) {
+			log.Infof("PVUpdated: Skipping CNS metadata push for FVS-backed PV %q (volumeHandle=%q)",
+				newPv.Name, newPv.Spec.CSI.VolumeHandle)
+			return
+		}
 		csiPVUpdated(ctx, newPv, oldPv, metadataSyncer)
 	}
 }
@@ -2848,9 +2890,19 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if shouldSkipFVSMetadataPushGuest(nil, pv) {
+			log.Infof("PVDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PV %q (storageClass=%q)",
+				pv.Name, pv.Spec.StorageClassName)
+			return
+		}
 		// Invoke volume deleted method for pvCSI.
 		pvcsiVolumeDeleted(ctx, string(pv.GetUID()), metadataSyncer, pv)
 	} else {
+		if shouldSkipFVSMetadataPushSupervisor(pv) {
+			log.Infof("PVDeleted: Skipping CNS metadata delete for FVS-backed PV %q (volumeHandle=%q)",
+				pv.Name, pv.Spec.CSI.VolumeHandle)
+			return
+		}
 		csiPVDeleted(ctx, pv, metadataSyncer)
 	}
 }
@@ -3586,6 +3638,13 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
+				// Skip FVS-backed file volumes: CNS does not own these volumes so we should not
+				// push pod metadata updates for them.
+				if shouldSkipFVSMetadataPushSupervisor(pv) {
+					log.Infof("PodUpdated: skipping pod metadata push for FVS-backed PVC %q in namespace %q "+
+						"on pod %q (volumeHandle=%q)", pvc.Name, pvc.Namespace, pod.Name, pv.Spec.CSI.VolumeHandle)
+					continue
+				}
 				if !deleteFlag {
 					// We need to update metadata for pods having corresponding PVC
 					// as an entity reference.

@@ -162,6 +162,12 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 		if volume.PersistentVolumeClaim != nil {
 			valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
 			if valid {
+				// Skip FVS-backed file volumes: CnsVolumeMetadata is not pushed for them.
+				if shouldSkipFVSMetadataPushGuest(pvc, pv) {
+					log.Infof("pvCSI PODUpdatedDeleted: skipping pod entityReference for FVS-backed PVC %q "+
+						"in namespace %q on pod %q", pvc.Name, pvc.Namespace, pod.Name)
+					continue
+				}
 				entityReferences = append(entityReferences,
 					cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Name, pvc.Namespace,
 						cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,

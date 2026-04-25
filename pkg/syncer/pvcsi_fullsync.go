@@ -238,6 +238,16 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 
 	// Create cnsvolumemetadata objects for PV and PVC entity types.
 	for _, pv := range pvList {
+		// Skip PVs that are backed by the new vSAN FileVolumeService on the supervisor.
+		// For these PVs, the supervisor does not push CnsVolumeMetadata to CNS, so there
+		// is no need to reconcile guest CnsVolumeMetadata for them either. Detection is
+		// based on the storage class name; the guest cannot rely on the supervisor's
+		// FVS volume-id prefix because the volume handle is opaque on this side.
+		if IsVsanFileVolumeServiceEnabled && common.IsFVSStorageClassName(pv.Spec.StorageClassName) {
+			log.Debugf("FullSync: skipping FVS-backed PV %q (storageClass=%q) for CnsVolumeMetadata sync",
+				pv.Name, pv.Spec.StorageClassName)
+			continue
+		}
 		var volumeNames []string
 		volumeNames = append(volumeNames, pv.Spec.CSI.VolumeHandle)
 
