@@ -317,17 +317,6 @@ func isFVSPersistentVolume(pv *v1.PersistentVolume) bool {
 	return common.IsFVSVolumeHandle(pv.Spec.CSI.VolumeHandle)
 }
 
-// isFVSPersistentVolumeClaim returns true if the PVC's storage class is one of the
-// FVS storage classes. Used by the guest cluster metadata syncer where only the
-// PVC/PV objects are available (no access to supervisor volume IDs). Storage-class
-// matching is delegated to the shared helper common.IsFVSStorageClassName.
-func isFVSPersistentVolumeClaim(pvc *v1.PersistentVolumeClaim) bool {
-	if pvc == nil || pvc.Spec.StorageClassName == nil {
-		return false
-	}
-	return common.IsFVSStorageClassName(*pvc.Spec.StorageClassName)
-}
-
 // shouldSkipFVSMetadataPush decides whether the metadata syncer / full-sync should
 // skip pushing volume metadata for the supplied PV in the supervisor cluster.
 // Returns true only when the VsanFileVolumeService capability is enabled AND the
@@ -350,7 +339,7 @@ func shouldSkipFVSMetadataPushGuest(pvc *v1.PersistentVolumeClaim, pv *v1.Persis
 	if !IsVsanFileVolumeServiceEnabled {
 		return false
 	}
-	if isFVSPersistentVolumeClaim(pvc) {
+	if common.IsFVSPersistentVolumeClaim(pvc) {
 		return true
 	}
 	if pv != nil && common.IsFVSStorageClassName(pv.Spec.StorageClassName) {

@@ -29,6 +29,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -582,4 +583,15 @@ func IsFVSStorageClassName(storageClassName string) bool {
 	default:
 		return false
 	}
+}
+
+// IsFVSPersistentVolumeClaim returns true when the PVC's storage class is one
+// of the vSAN file service storage classes used for the new FileVolumeService
+// workflow (see IsFVSStorageClassName). Applies to guest or supervisor PVC
+// objects wherever the FVS storage class names are set.
+func IsFVSPersistentVolumeClaim(pvc *corev1.PersistentVolumeClaim) bool {
+	if pvc == nil || pvc.Spec.StorageClassName == nil {
+		return false
+	}
+	return IsFVSStorageClassName(*pvc.Spec.StorageClassName)
 }

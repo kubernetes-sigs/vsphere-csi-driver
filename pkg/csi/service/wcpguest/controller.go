@@ -173,6 +173,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
 			common.VsanFileVolumeService, config.GC.Port, config.GC.Endpoint)
 	}
+	IsVsanFileVolumeServiceEnabled = vsanFileVolumeServicePVCSIFSS && vsanFileServiceEnabled
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
 		if err != nil {
@@ -909,6 +910,27 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 func controllerPublishForFileVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest, c *controller) (
 	*csi.ControllerPublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+	if IsVsanFileVolumeServiceEnabled {
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+			ctx, req.VolumeId, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				msg := fmt.Sprintf("supervisor PVC %q not found in namespace %q", req.VolumeId, c.supervisorNamespace)
+				log.Error(msg)
+				return nil, csifault.CSINotFoundFault, status.Error(codes.NotFound, msg)
+			}
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in namespace %q. Error: %+v",
+				req.VolumeId, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+		}
+		// FVS-backed supervisor volumes skip CnsFileAccessConfig: the NFS export is reachable
+		// across the VPC without per-VM ACLs. The legacy guest file path would create that CR
+		// for attach ACLs, which is unnecessary and incorrect for File Volume Service volumes.
+		if common.IsFVSPersistentVolumeClaim(svPVC) {
+			return ControllerPublishForFileVolumeServiceVolume(ctx, req, svPVC)
+		}
+	}
 	// Build the CnsFileAccessConfig instance name and namespace
 	cnsFileAccessConfigInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
@@ -1251,6 +1273,27 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+
+	if IsVsanFileVolumeServiceEnabled {
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+			ctx, req.VolumeId, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				msg := fmt.Sprintf("supervisor PVC %q not found in namespace %q", req.VolumeId, c.supervisorNamespace)
+				log.Error(msg)
+				return nil, csifault.CSINotFoundFault, status.Error(codes.NotFound, msg)
+			}
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in namespace %q. Error: %+v",
+				req.VolumeId, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+		}
+		// Same rationale as FVS publish: no CnsFileAccessConfig was created, so do not run the
+		// legacy unpublish path that deletes it; return success after the FVS-specific handling.
+		if common.IsFVSPersistentVolumeClaim(svPVC) {
+			return ControllerUnpublishForFileVolumeServiceVolume(ctx, req)
+		}
+	}
 	// Adding watch on the CnsFileAccessConfig instance to register for updates
 	cnsFileAccessConfigWatcher, err := k8s.NewCnsFileAccessConfigWatcher(ctx, c.restClientConfig, c.supervisorNamespace)
 	if err != nil {

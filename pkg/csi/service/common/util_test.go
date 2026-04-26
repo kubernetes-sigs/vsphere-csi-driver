@@ -26,6 +26,8 @@ import (
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/dynamic"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -725,6 +727,34 @@ func TestIsFVSStorageClassName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := IsFVSStorageClassName(tt.storageClassName); got != tt.want {
 				t.Fatalf("IsFVSStorageClassName(%q) = %v, want %v", tt.storageClassName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsFVSPersistentVolumeClaim(t *testing.T) {
+	scFVS := StorageClassVsanFileServicePolicy
+	scLegacy := "legacy-file-sc"
+	tests := []struct {
+		name string
+		pvc  *corev1.PersistentVolumeClaim
+		want bool
+	}{
+		{"nil pvc", nil, false},
+		{"nil storage class", &corev1.PersistentVolumeClaim{}, false},
+		{"legacy sc", &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "p"},
+			Spec:       corev1.PersistentVolumeClaimSpec{StorageClassName: &scLegacy},
+		}, false},
+		{"FVS immediate", &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "p"},
+			Spec:       corev1.PersistentVolumeClaimSpec{StorageClassName: &scFVS},
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSPersistentVolumeClaim(tt.pvc); got != tt.want {
+				t.Fatalf("IsFVSPersistentVolumeClaim() = %v, want %v", got, tt.want)
 			}
 		})
 	}
