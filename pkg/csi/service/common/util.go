@@ -29,6 +29,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -553,4 +554,44 @@ func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, 
 	}
 
 	return false, nil
+}
+
+// IsFVSVolumeHandle returns true if the supplied CSI volume handle was minted by
+// the vSAN FileVolumeService (FVS) workflow on the supervisor. FVS volume IDs are
+// formatted as "fv:<instance-namespace>:<filevolume-name>" (see FVSVolumeIDPrefix).
+//
+// This is the supervisor-side identification helper. The guest cluster cannot rely
+// on the volume handle (the supervisor-side volume id is opaque on the guest) and
+// must use IsFVSStorageClassName instead.
+func IsFVSVolumeHandle(volumeHandle string) bool {
+	return strings.HasPrefix(volumeHandle, FVSVolumeIDPrefix)
+}
+
+// IsFVSStorageClassName returns true if the supplied storage class name is one of
+// the vSAN file service storage classes that route provisioning through FVS on the
+// supervisor (StorageClassVsanFileServicePolicy or
+// StorageClassVsanFileServicePolicyLateBinding).
+//
+// This is the guest-cluster identification helper. The guest sees the supervisor
+// PVC name as the volume handle (no FVS prefix) so it must look at the storage
+// class to decide whether the volume is FVS-backed.
+func IsFVSStorageClassName(storageClassName string) bool {
+	switch storageClassName {
+	case StorageClassVsanFileServicePolicy,
+		StorageClassVsanFileServicePolicyLateBinding:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsFVSPersistentVolumeClaim returns true when the PVC's storage class is one
+// of the vSAN file service storage classes used for the new FileVolumeService
+// workflow (see IsFVSStorageClassName). Applies to guest or supervisor PVC
+// objects wherever the FVS storage class names are set.
+func IsFVSPersistentVolumeClaim(pvc *corev1.PersistentVolumeClaim) bool {
+	if pvc == nil || pvc.Spec.StorageClassName == nil {
+		return false
+	}
+	return IsFVSStorageClassName(*pvc.Spec.StorageClassName)
 }

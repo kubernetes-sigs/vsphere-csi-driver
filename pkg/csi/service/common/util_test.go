@@ -26,6 +26,8 @@ import (
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/dynamic"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -685,4 +687,75 @@ func TestIsCBTEnabledForNamespace(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, ok)
 	})
+}
+
+func TestIsFVSVolumeHandle(t *testing.T) {
+	tests := []struct {
+		name         string
+		volumeHandle string
+		want         bool
+	}{
+		{"empty handle", "", false},
+		{"legacy supervisor pvc name", "test-tkc-pvc-12345", false},
+		{"FCD volume id", "12345678-1234-1234-1234-123456789012", false},
+		{"legacy file: prefix", "file:abc-def", false},
+		{"FVS volume id", "fv:my-instance-ns:my-fv-name", true},
+		{"FVS prefix only", "fv:", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSVolumeHandle(tt.volumeHandle); got != tt.want {
+				t.Fatalf("IsFVSVolumeHandle(%q) = %v, want %v", tt.volumeHandle, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsFVSStorageClassName(t *testing.T) {
+	tests := []struct {
+		name             string
+		storageClassName string
+		want             bool
+	}{
+		{"empty", "", false},
+		{"unrelated sc", "wcpglobal-storage-profile", false},
+		{"legacy file sc", "file-storage-class", false},
+		{"FVS immediate", StorageClassVsanFileServicePolicy, true},
+		{"FVS late binding", StorageClassVsanFileServicePolicyLateBinding, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSStorageClassName(tt.storageClassName); got != tt.want {
+				t.Fatalf("IsFVSStorageClassName(%q) = %v, want %v", tt.storageClassName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsFVSPersistentVolumeClaim(t *testing.T) {
+	scFVS := StorageClassVsanFileServicePolicy
+	scLegacy := "legacy-file-sc"
+	tests := []struct {
+		name string
+		pvc  *corev1.PersistentVolumeClaim
+		want bool
+	}{
+		{"nil pvc", nil, false},
+		{"nil storage class", &corev1.PersistentVolumeClaim{}, false},
+		{"legacy sc", &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "p"},
+			Spec:       corev1.PersistentVolumeClaimSpec{StorageClassName: &scLegacy},
+		}, false},
+		{"FVS immediate", &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "p"},
+			Spec:       corev1.PersistentVolumeClaimSpec{StorageClassName: &scFVS},
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSPersistentVolumeClaim(tt.pvc); got != tt.want {
+				t.Fatalf("IsFVSPersistentVolumeClaim() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
