@@ -499,23 +499,27 @@ const (
 	// HighPVNodeDensity is an FSS for guest cluster nodes that, when enabled,
 	// raises MAX_VOLUMES_PER_NODE from 59 to 255 in NodeGetInfo responses.
 	HighPVNodeDensity = "high-pv-node-density"
+	// SupportsExposingStoragePolicyAttributes is the supervisor capability that gates exposing
+	// storage policy attributes to devops users.
+	SupportsExposingStoragePolicyAttributes = "supports_exposing_storage_policy_attributes"
 )
 
 var WCPFeatureStates = map[string]struct{}{
-	PodVMOnStretchedSupervisor:     {},
-	CSIDetachOnSupervisor:          {},
-	WorkloadDomainIsolation:        {},
-	VPCCapabilitySupervisor:        {},
-	VolFromSnapshotOnTargetDs:      {},
-	SharedDiskFss:                  {},
-	LinkedCloneSupport:             {},
-	WCPMobilityNonDisruptiveImport: {},
-	WCPVMServiceVMSnapshots:        {},
-	BYOKEncryption:                 {},
-	FCDTransactionSupport:          {},
-	MultipleClustersPerVsphereZone: {},
-	FileVolumesWithVmService:       {},
-	VsanFileVolumeService:          {},
+	PodVMOnStretchedSupervisor:              {},
+	CSIDetachOnSupervisor:                   {},
+	WorkloadDomainIsolation:                 {},
+	VPCCapabilitySupervisor:                 {},
+	VolFromSnapshotOnTargetDs:               {},
+	SharedDiskFss:                           {},
+	LinkedCloneSupport:                      {},
+	WCPMobilityNonDisruptiveImport:          {},
+	WCPVMServiceVMSnapshots:                 {},
+	BYOKEncryption:                          {},
+	FCDTransactionSupport:                   {},
+	MultipleClustersPerVsphereZone:          {},
+	FileVolumesWithVmService:                {},
+	VsanFileVolumeService:                   {},
+	SupportsExposingStoragePolicyAttributes: {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -523,14 +527,15 @@ var WCPFeatureStates = map[string]struct{}{
 // During FSS check if driver detects that the capabilities is disabled in the cached configmap,
 // it will re-fetch the configmap and update the cached configmap.
 var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
-	WorkloadDomainIsolation:        {},
-	LinkedCloneSupport:             {},
-	MultipleClustersPerVsphereZone: {},
-	WCPVMServiceVMSnapshots:        {},
-	BYOKEncryption:                 {},
-	SharedDiskFss:                  {},
-	FileVolumesWithVmService:       {},
-	VsanFileVolumeService:          {},
+	WorkloadDomainIsolation:                 {},
+	LinkedCloneSupport:                      {},
+	MultipleClustersPerVsphereZone:          {},
+	WCPVMServiceVMSnapshots:                 {},
+	BYOKEncryption:                          {},
+	SharedDiskFss:                           {},
+	FileVolumesWithVmService:                {},
+	VsanFileVolumeService:                   {},
+	SupportsExposingStoragePolicyAttributes: {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
