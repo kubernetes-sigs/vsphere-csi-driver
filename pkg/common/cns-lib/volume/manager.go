@@ -1013,13 +1013,63 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 					log.Errorf("failed to create volume with VolumeID: %q, faultType: %q, err: %v",
 						spec.VolumeId.Id, faultType, err)
 					if IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
-						log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", spec.VolumeId.Id)
+						// Handle CnsVolumeAlreadyExistsFault per CSI Transaction Support Design Spec.
+						// See: https://vmw-confluence.broadcom.net/spaces/CNAS/pages/2208445635/Design+Spec+-+CSI+Transaction+Support
+						//
+						// Design Spec Cases:
+						// - Case 2/5: Volume on SAME datastore in request → return success (CSI idempotency)
+						// - Case 3/4: Volume on DIFFERENT datastore not in request → delete and recreate
+						log.Infof("Observed volume with Id: %q already exists. Querying to verify datastore and capacity.", spec.VolumeId.Id)
+
+						var requestedCapacityMb int64
+						if spec.BackingObjectDetails != nil {
+							requestedCapacityMb = spec.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+						}
+
+						// Query existing volume to check datastore and capacity
+						checkResult, queryErr := validateVolumeDatastoreAndCapacity(ctx, m, spec.VolumeId.Id,
+							requestedCapacityMb, spec.Datastores)
+						if queryErr != nil {
+							log.Errorf("Failed to query existing volume %q: %v", spec.VolumeId.Id, queryErr)
+							return nil, faultType, err
+						}
+
+						if checkResult.IsOnRequestedDatastore {
+							// Design Spec Case 2/5: Volume exists on a datastore in the requested list
+							// Per CSI spec, CreateVolume MUST be idempotent - return success
+							if checkResult.HasSufficientCapacity {
+								log.Infof("Design Spec Case 2/5: Existing volume %q is on requested datastore %q "+
+									"with sufficient capacity (%d MB >= %d MB). Returning success per CSI idempotency.",
+									spec.VolumeId.Id, checkResult.ExistingDatastoreURL,
+									checkResult.ExistingCapacityMb, requestedCapacityMb)
+								return &CnsVolumeInfo{
+									DatastoreURL: checkResult.ExistingDatastoreURL,
+									VolumeID:     *spec.VolumeId,
+								}, "", nil
+							}
+							// Volume exists on correct datastore but has insufficient capacity
+							log.Errorf("Existing volume %q on datastore %q has insufficient capacity (%d MB < %d MB).",
+								spec.VolumeId.Id, checkResult.ExistingDatastoreURL,
+								checkResult.ExistingCapacityMb, requestedCapacityMb)
+							return nil, faultType, fmt.Errorf("volume %q already exists with insufficient capacity", spec.VolumeId.Id)
+						}
+
+						// Design Spec Case 3/4: Volume exists on a datastore NOT in the requested list
+						// Per design spec: delete the existing volume and request a new one
+						log.Infof("Design Spec Case 3/4: Existing volume %q is on datastore %q which is NOT in "+
+							"the requested datastore list. Deleting volume and recreating per design spec.",
+							spec.VolumeId.Id, checkResult.ExistingDatastoreURL)
+
 						deleteFaultType, deleteError := m.deleteVolume(ctx, spec.VolumeId.Id, true)
 						if deleteError != nil {
-							log.Errorf("failed to delete volume: %q to handle CnsVolumeAlreadyExistsFault , err :%v", spec.VolumeId.Id, err)
+							log.Errorf("Failed to delete volume %q (on wrong datastore %q): %v",
+								spec.VolumeId.Id, checkResult.ExistingDatastoreURL, deleteError)
 							return nil, deleteFaultType, deleteError
 						}
-						log.Infof("Attempt to re-create volume with Id: %q", spec.VolumeId.Id)
+						log.Infof("Successfully deleted volume %q from wrong datastore %q. Retrying create on requested datastores.",
+							spec.VolumeId.Id, checkResult.ExistingDatastoreURL)
+
+						// Retry volume creation on the correct datastores
 						cnsVolumeInfo, faultType, err = m.createVolumeWithTransaction(ctx, spec, extraParams)
 						return cnsVolumeInfo, faultType, err
 					}

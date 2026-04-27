@@ -549,21 +549,80 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{},
 		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
 			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
 		if cnsvolume.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
-			log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", createSpec.VolumeId.Id)
+			// Handle CnsVolumeAlreadyExistsFault per CSI Transaction Support Design Spec.
+			// See: https://vmw-confluence.broadcom.net/spaces/CNAS/pages/2208445635/Design+Spec+-+CSI+Transaction+Support
+			//
+			// Design Spec Cases:
+			// - Case 2/5: Volume on SAME datastore in request → return success (CSI idempotency)
+			// - Case 3/4: Volume on DIFFERENT datastore not in request → delete and recreate
+			log.Infof("Observed volume with Id: %q already exists. Querying to verify datastore and capacity.",
+				createSpec.VolumeId.Id)
+
+			querySelection := &cnstypes.CnsQuerySelection{
+				Names: []string{
+					string(cnstypes.QuerySelectionNameTypeDataStoreUrl),
+					string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+				},
+			}
+			existingVolume, queryErr := QueryVolumeByID(ctx, params.VolumeManager, createSpec.VolumeId.Id, querySelection)
+			if queryErr != nil {
+				log.Errorf("failed to query existing volume %q: %v", createSpec.VolumeId.Id, queryErr)
+				return nil, faultType, err
+			}
+
+			requestedCapacityMb := createSpec.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+			existingCapacityMb := existingVolume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+			existingDatastoreURL := existingVolume.DatastoreUrl
+
+			// Check if the existing volume's datastore is in the requested datastore list
+			isOnRequestedDatastore := false
+			for _, sharedDs := range params.SharedDatastores {
+				if strings.EqualFold(strings.TrimSpace(sharedDs.Info.Url), strings.TrimSpace(existingDatastoreURL)) {
+					isOnRequestedDatastore = true
+					break
+				}
+			}
+
+			if isOnRequestedDatastore {
+				// Design Spec Case 2/5: Volume exists on a datastore in the requested list
+				// Per CSI spec, CreateVolume MUST be idempotent - return success
+				if existingCapacityMb >= requestedCapacityMb {
+					log.Infof("Design Spec Case 2/5: Existing volume %q is on requested datastore %q "+
+						"with sufficient capacity (%d MB >= %d MB). Returning success per CSI idempotency.",
+						createSpec.VolumeId.Id, existingDatastoreURL, existingCapacityMb, requestedCapacityMb)
+					return &cnsvolume.CnsVolumeInfo{
+						DatastoreURL: existingDatastoreURL,
+						VolumeID:     *createSpec.VolumeId,
+					}, "", nil
+				}
+				// Volume exists on correct datastore but has insufficient capacity
+				log.Errorf("Existing volume %q on datastore %q has insufficient capacity (%d MB < %d MB).",
+					createSpec.VolumeId.Id, existingDatastoreURL, existingCapacityMb, requestedCapacityMb)
+				return nil, faultType, fmt.Errorf("volume %q already exists with insufficient capacity", createSpec.VolumeId.Id)
+			}
+
+			// Design Spec Case 3/4: Volume exists on a datastore NOT in the requested list
+			// Per design spec: delete the existing volume and request a new one
+			log.Infof("Design Spec Case 3/4: Existing volume %q is on datastore %q which is NOT in "+
+				"the requested datastore list. Deleting volume and recreating per design spec.",
+				createSpec.VolumeId.Id, existingDatastoreURL)
+
 			_, deleteError := params.VolumeManager.DeleteVolume(ctx, createSpec.VolumeId.Id, true)
 			if deleteError != nil {
-				log.Errorf("failed to delete volume: %q, err :%v", createSpec.VolumeId.Id, err)
+				log.Errorf("Failed to delete volume %q (on wrong datastore %q): %v",
+					createSpec.VolumeId.Id, existingDatastoreURL, deleteError)
 				return nil, faultType, err
 			}
-			log.Infof("Attempt to re-create volume with Id: %q", createSpec.VolumeId.Id)
-			volumeInfo, faultType, err := params.VolumeManager.CreateVolume(ctx, createSpec, nil)
+			log.Infof("Successfully deleted volume %q from wrong datastore %q. Retrying create on requested datastores.",
+				createSpec.VolumeId.Id, existingDatastoreURL)
+
+			// Retry volume creation on the correct datastores
+			volumeInfo, faultType, err = params.VolumeManager.CreateVolume(ctx, createSpec, nil)
 			if err != nil {
-				log.Errorf("failed to re-create disk %s on vCenter %q with error %+v faultType %q",
-					params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
+				log.Errorf("Failed to recreate volume %q on requested datastores: %v", createSpec.VolumeId.Id, err)
 				return nil, faultType, err
-			} else {
-				return volumeInfo, "", nil
 			}
+			return volumeInfo, "", nil
 		}
 		return nil, faultType, err
 	}

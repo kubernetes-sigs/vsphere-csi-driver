@@ -514,6 +514,122 @@ func validateVolumeCapacity(ctx context.Context, m *defaultManager, volumeID str
 		queryResult.Volumes[0].BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb >= size
 }
 
+// VolumeDatastoreCheckResult contains the result of checking if an existing volume
+// is on a compatible datastore.
+type VolumeDatastoreCheckResult struct {
+	// IsOnRequestedDatastore is true if the volume's datastore is in the requested list
+	IsOnRequestedDatastore bool
+	// HasSufficientCapacity is true if the volume capacity >= requested capacity
+	HasSufficientCapacity bool
+	// ExistingDatastoreURL is the datastore URL where the volume currently resides
+	ExistingDatastoreURL string
+	// ExistingCapacityMb is the current capacity of the volume
+	ExistingCapacityMb int64
+}
+
+// validateVolumeDatastoreAndCapacity queries the CNS volume and validates:
+// 1. Whether the volume's datastore is in the requested datastore list
+// 2. Whether the volume's capacity meets or exceeds the requested capacity
+//
+// This implements the CSI Transaction Support design spec handling for CnsVolumeAlreadyExistsFault:
+// - Design Spec Case 2/5: Volume on same datastore → return success (IsOnRequestedDatastore=true)
+// - Design Spec Case 3/4: Volume on different datastore → delete and recreate (IsOnRequestedDatastore=false)
+//
+// See: https://vmw-confluence.broadcom.net/spaces/CNAS/pages/2208445635/Design+Spec+-+CSI+Transaction+Support
+func validateVolumeDatastoreAndCapacity(ctx context.Context, m *defaultManager, volumeID string,
+	requestedCapacityMb int64, requestedDatastores []types.ManagedObjectReference) (*VolumeDatastoreCheckResult, error) {
+	log := logger.GetLogger(ctx)
+
+	// Query volume to get datastore URL and capacity
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeDataStoreUrl),
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+		},
+	}
+	queryResult, err := m.QueryAllVolume(ctx, queryFilter, querySelection)
+	if err != nil {
+		log.Errorf("failed to query CNS for volume %s: %v", volumeID, err)
+		return nil, err
+	}
+	if len(queryResult.Volumes) == 0 {
+		log.Errorf("volume %s not found in CNS query result", volumeID)
+		return nil, errors.New("volume not found")
+	}
+
+	existingVolume := queryResult.Volumes[0]
+	existingDatastoreURL := existingVolume.DatastoreUrl
+	existingCapacityMb := existingVolume.BackingObjectDetails.GetCnsBackingObjectDetails().CapacityInMb
+
+	result := &VolumeDatastoreCheckResult{
+		ExistingDatastoreURL:  existingDatastoreURL,
+		ExistingCapacityMb:    existingCapacityMb,
+		HasSufficientCapacity: existingCapacityMb >= requestedCapacityMb,
+	}
+
+	// Check if the existing volume's datastore is in the requested datastore list
+	// Per design spec: CSI must verify whether the datastore is part of the list of
+	// datastores provided for volume provisioning
+	if len(requestedDatastores) == 0 {
+		// If no specific datastores were requested, consider any datastore as valid
+		log.Debugf("No specific datastores requested, accepting existing datastore %q for volume %q",
+			existingDatastoreURL, volumeID)
+		result.IsOnRequestedDatastore = true
+		return result, nil
+	}
+
+	// Get datastore URLs for the requested datastores to compare
+	for _, requestedDS := range requestedDatastores {
+		dsURL, dsErr := getDatastoreURL(ctx, m.virtualCenter, requestedDS)
+		if dsErr != nil {
+			log.Warnf("Failed to get URL for datastore %v: %v", requestedDS, dsErr)
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(dsURL), strings.TrimSpace(existingDatastoreURL)) {
+			log.Infof("Volume %q exists on datastore %q which is in the requested datastore list",
+				volumeID, existingDatastoreURL)
+			result.IsOnRequestedDatastore = true
+			return result, nil
+		}
+	}
+
+	log.Infof("Volume %q exists on datastore %q which is NOT in the requested datastore list",
+		volumeID, existingDatastoreURL)
+	result.IsOnRequestedDatastore = false
+	return result, nil
+}
+
+// getDatastoreURL retrieves the URL for a given datastore ManagedObjectReference.
+func getDatastoreURL(ctx context.Context, vc *cnsvsphere.VirtualCenter, dsRef types.ManagedObjectReference) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Get property collector
+	pc := property.DefaultCollector(vc.Client.Client)
+
+	// Retrieve the datastore info
+	var dsMo mo.Datastore
+	err := pc.RetrieveOne(ctx, dsRef, []string{"info"}, &dsMo)
+	if err != nil {
+		log.Errorf("Failed to retrieve datastore info for %v: %v", dsRef, err)
+		return "", err
+	}
+
+	if dsMo.Info == nil {
+		return "", errors.New("datastore info is nil")
+	}
+
+	// Get the URL from the datastore info
+	dsInfo := dsMo.Info.GetDatastoreInfo()
+	if dsInfo == nil {
+		return "", errors.New("datastore info is nil")
+	}
+
+	return dsInfo.Url, nil
+}
+
 // validateSnapshotDeleted queries the CNS snapshot and validates whether the specific snapshot is deleted
 // returns true if the specific snapshot is deleted
 func validateSnapshotDeleted(ctx context.Context, m *defaultManager, volumeID string, snapshotID string) bool {
