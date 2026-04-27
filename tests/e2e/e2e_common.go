@@ -182,6 +182,7 @@ const (
 	resizePollInterval                        = 2 * time.Second
 	restartOperation                          = "restart"
 	rqLimit                                   = "500Gi"
+	rqLimitTightForQuotaNegativeTests         = "3Gi"
 	rqLimitScaleTest                          = "900Gi"
 	rootUser                                  = "root"
 	defaultrqLimit                            = "20Gi"

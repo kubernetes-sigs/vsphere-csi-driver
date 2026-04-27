@@ -1542,11 +1542,11 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			2. Create PVC which uses the StorageClass created in step 1.
 			3. Wait for PV to be provisioned.
 			4. Wait for PVC's status to become Bound and note down the size
-			5. Delete reource quota and  modify PVC size to trigger offline volume expansion
-			6. Editing PVC will fail saying nsufficient quota
-			7. Create a Pod using the above created PVC
-			8. Modify PVC's size to trigger online volume expansion - this will fail saying saying nsufficient quota
-		    9. Add suffecient quota to namespace
+			5. Set a tight storage policy quota and modify PVC size to trigger offline volume expansion
+			6. Editing PVC will fail with insufficient quota (validate-quota-on-update)
+			7. Create a Pod using the PVC (quota remains tight)
+			8. Modify PVC size to trigger online volume expansion — fails with insufficient quota
+			9. Restore sufficient quota to the namespace
 			10. verify the PVC status will change to "FilesystemResizePending". Wait till the status is removed
 			11. Verify the resized PVC by doing CNS query
 			12. Make sure data is intact on the PV mounted on the pod
@@ -1605,8 +1605,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
-		ginkgo.By("Delete existing resource quota")
-		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, newNamespace, "2Gi")
+		ginkgo.By("Set tight storage policy quota for offline expansion negative check")
+		setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, newNamespace, rqLimitTightForQuotaNegativeTests)
 		defer func() {
 			ginkgo.By("In defer block, Setting quota back to 500Gi")
 			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName2, newNamespace, rqLimit)
