@@ -26,6 +26,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -381,14 +382,24 @@ func (or *operationRequestStore) DeleteRequestDetails(ctx context.Context, name 
 	return nil
 }
 
+// staleInProgressTaskThreshold is the duration after which an InProgress task
+// is considered orphaned and will be force-transitioned to Error. This handles
+// cases where the CSI operation context expired before the final status could
+// be persisted, leaving the CR stuck with an InProgress entry that prevents
+// cleanup and leaks quota reservations.
+const staleInProgressTaskThreshold = 48 * time.Hour
+
 // cleanupStaleInstances cleans up CnsVolumeOperationRequest instances
-// with latest TaskInvocationTimestamp older than 15 minutes
+// with latest TaskInvocationTimestamp older than 15 minutes.
+// It also force-transitions InProgress tasks older than staleInProgressTaskThreshold
+// to Error so they become eligible for cleanup on the next cycle.
 func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 	ticker := time.NewTicker(time.Duration(cleanupInterval) * time.Minute)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("CnsVolumeOperationRequest clean up interval is set to %d minutes", cleanupInterval)
 	for ; true; <-ticker.C {
 		cutoffTime := time.Now().Add(-15 * time.Minute)
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
 		continueToken := ""
 		log.Infof("Cleaning up stale CnsVolumeOperationRequest instances.")
 		for {
@@ -405,16 +416,23 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 			}
 			for _, instance := range cnsVolumeOperationRequestList.Items {
 				latestOperationDetailsLength := len(instance.Status.LatestOperationDetails)
-				// Skip if task is still in progress
-				if latestOperationDetailsLength != 0 &&
-					instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].TaskStatus ==
-						TaskInvocationStatusInProgress {
+				if latestOperationDetailsLength == 0 {
 					continue
 				}
-				// Delete instance if TaskInvocationTimestamp is older than 15 minutes
-				if latestOperationDetailsLength != 0 &&
-					instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].
-						TaskInvocationTimestamp.Time.After(cutoffTime) {
+				latestOp := &instance.Status.LatestOperationDetails[latestOperationDetailsLength-1]
+
+				if latestOp.TaskStatus == TaskInvocationStatusInProgress {
+					if latestOp.TaskInvocationTimestamp.Time.Before(staleInProgressCutoff) {
+						log.Infof("CnsVolumeOperationRequest instance %q has stale InProgress task %q "+
+							"(invoked at %v, older than %v). Transitioning to Error.",
+							instance.Name, latestOp.TaskID,
+							latestOp.TaskInvocationTimestamp.Time, staleInProgressTaskThreshold)
+						or.forceTransitionStaleInProgressToError(ctx, &instance)
+					}
+					continue
+				}
+
+				if latestOp.TaskInvocationTimestamp.Time.After(cutoffTime) {
 					log.Debugf("CnsVolumeOperationRequest instance %q is skipped for deletion", instance.Name)
 					continue
 				}
@@ -436,6 +454,52 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 			}
 		}
 		log.Infof("Clean up of stale CnsVolumeOperationRequest complete.")
+	}
+}
+
+// forceTransitionStaleInProgressToError marks all InProgress entries in the
+// given CnsVolumeOperationRequest as Error and proactively zeroes the quota
+// reservation. This allows the normal cleanup cycle to delete the CR on its
+// next pass without leaving leaked reservations.
+func (or *operationRequestStore) forceTransitionStaleInProgressToError(
+	ctx context.Context,
+	instance *cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest,
+) {
+	log := logger.GetLogger(ctx)
+	updated := instance.DeepCopy()
+	modified := false
+	orphanMsg := fmt.Sprintf("task orphaned: still InProgress after %s", staleInProgressTaskThreshold)
+
+	for i := range updated.Status.LatestOperationDetails {
+		if updated.Status.LatestOperationDetails[i].TaskStatus == TaskInvocationStatusInProgress {
+			updated.Status.LatestOperationDetails[i].TaskStatus = TaskInvocationStatusError
+			updated.Status.LatestOperationDetails[i].Error = orphanMsg
+			modified = true
+		}
+	}
+	if updated.Status.FirstOperationDetails.TaskStatus == TaskInvocationStatusInProgress {
+		updated.Status.FirstOperationDetails.TaskStatus = TaskInvocationStatusError
+		updated.Status.FirstOperationDetails.Error = orphanMsg
+		modified = true
+	}
+
+	if !modified {
+		return
+	}
+
+	if isPodVMOnStretchSupervisorFSSEnabled && updated.Status.StorageQuotaDetails != nil &&
+		updated.Status.StorageQuotaDetails.Reserved != nil {
+		log.Infof("Zeroing quota reservation for orphaned CnsVolumeOperationRequest %s/%s "+
+			"(was %s)", instance.Namespace, instance.Name, updated.Status.StorageQuotaDetails.Reserved.String())
+		updated.Status.StorageQuotaDetails.Reserved = resource.NewQuantity(0, resource.BinarySI)
+	}
+
+	if err := or.k8sclient.Update(ctx, updated); err != nil {
+		log.Errorf("failed to force-transition stale InProgress tasks to Error for "+
+			"CnsVolumeOperationRequest %s/%s: %v", instance.Namespace, instance.Name, err)
+	} else {
+		log.Infof("Successfully transitioned stale InProgress tasks to Error for "+
+			"CnsVolumeOperationRequest %s/%s", instance.Namespace, instance.Name)
 	}
 }
 

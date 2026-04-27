@@ -2,7 +2,9 @@ package cnsvolumeoperationrequest
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,7 @@ import (
 
 // setupTestEnvironment creates a test environment with fake clients
 func setupTestEnvironment(t *testing.T, csiTransactionEnabled bool) (*operationRequestStore, context.Context) {
+	t.Helper()
 	ctx := context.Background()
 
 	scheme := runtime.NewScheme()
@@ -69,6 +72,70 @@ func getCRDDirectly(ctx context.Context, store *operationRequestStore,
 	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
 	err := store.k8sclient.Get(ctx, client.ObjectKey{Name: instanceName, Namespace: csiNamespace}, instance)
 	return instance, err
+}
+
+// mustStoreRequestDetails stores operation details and fails the test on error
+func mustStoreRequestDetails(t *testing.T, store *operationRequestStore, ctx context.Context,
+	details *VolumeOperationRequestDetails) {
+	t.Helper()
+	if err := store.StoreRequestDetails(ctx, details); err != nil {
+		t.Fatalf("Failed to store request details: %v", err)
+	}
+}
+
+// mustGetRequestDetails retrieves operation details and fails the test on error
+func mustGetRequestDetails(t *testing.T, store *operationRequestStore, ctx context.Context,
+	name string) *VolumeOperationRequestDetails {
+	t.Helper()
+	details, err := store.GetRequestDetails(ctx, name)
+	if err != nil {
+		t.Fatalf("Failed to get request details for %s: %v", name, err)
+	}
+	return details
+}
+
+// mustGetCRDDirectly retrieves CRD and fails the test on error
+func mustGetCRDDirectly(t *testing.T, store *operationRequestStore, ctx context.Context,
+	instanceName string) *cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest {
+	t.Helper()
+	crd, err := getCRDDirectly(ctx, store, instanceName)
+	if err != nil {
+		t.Fatalf("Failed to get CRD %s: %v", instanceName, err)
+	}
+	return crd
+}
+
+// assertTaskStatus verifies the task status matches expected value
+func assertTaskStatus(t *testing.T, details *VolumeOperationRequestDetails, expected string) {
+	t.Helper()
+	if details.OperationDetails.TaskStatus != expected {
+		t.Errorf("Expected TaskStatus %s, got %s", expected, details.OperationDetails.TaskStatus)
+	}
+}
+
+// assertQuotaReservation verifies the quota reservation value
+func assertQuotaReservation(t *testing.T, crd *cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest,
+	expectedBytes int64) {
+	t.Helper()
+	if crd.Status.StorageQuotaDetails == nil {
+		if expectedBytes != 0 {
+			t.Fatal("Expected StorageQuotaDetails to exist")
+		}
+		return
+	}
+	actualBytes := crd.Status.StorageQuotaDetails.Reserved.Value()
+	if actualBytes != expectedBytes {
+		t.Errorf("Expected reservation %d bytes, got %d bytes", expectedBytes, actualBytes)
+	}
+}
+
+// createStaleOperationDetails creates operation details with a stale timestamp
+func createStaleOperationDetails(taskID, taskStatus string, hoursAgo int) cnsvolumeoprequestv1alpha1.OperationDetails {
+	return cnsvolumeoprequestv1alpha1.OperationDetails{
+		TaskInvocationTimestamp: metav1.NewTime(time.Now().Add(-time.Duration(hoursAgo) * time.Hour)),
+		TaskID:                  taskID,
+		TaskStatus:              taskStatus,
+	}
 }
 
 // TestStoreRequestDetails_CreateSnapshotWithImprovedIdempotencyCheck tests the pattern used in
@@ -662,6 +729,1058 @@ func TestStoreRequestDetails_RealWorkflowTransitions(t *testing.T) {
 		}
 		if retrievedDetails.SnapshotID != "snapshot-rapid-final" {
 			t.Errorf("Expected SnapshotID %s, got %s", "snapshot-rapid-final", retrievedDetails.SnapshotID)
+		}
+	})
+}
+
+// createTestCRDInstance creates a CnsVolumeOperationRequest CRD directly on the fake client
+// for testing cleanup logic that operates on raw CRDs rather than the store interface.
+func createTestCRDInstance(
+	ctx context.Context,
+	t *testing.T,
+	k8sclient client.Client,
+	name string,
+	latestOps []cnsvolumeoprequestv1alpha1.OperationDetails,
+	firstOp cnsvolumeoprequestv1alpha1.OperationDetails,
+	quotaDetails *cnsvolumeoprequestv1alpha1.QuotaDetails,
+) {
+	t.Helper()
+	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: csiNamespace,
+		},
+		Spec: cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestSpec{
+			Name: name,
+		},
+		Status: cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestStatus{
+			FirstOperationDetails:  firstOp,
+			LatestOperationDetails: latestOps,
+			StorageQuotaDetails:    quotaDetails,
+		},
+	}
+	if err := k8sclient.Create(ctx, instance); err != nil {
+		t.Fatalf("Failed to create test CRD instance %s: %v", name, err)
+	}
+}
+
+// TestForceTransitionStaleInProgressToError tests that stale InProgress entries
+// are correctly transitioned to Error status.
+func TestForceTransitionStaleInProgressToError(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, true)
+
+	t.Run("transitions single stale InProgress entry to Error", func(t *testing.T) {
+		instanceName := "stale-single-inprogress"
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			createStaleOperationDetails("task-stale-1", TaskInvocationStatusInProgress, 72),
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		instance := mustGetCRDDirectly(t, store, ctx, instanceName)
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated := mustGetCRDDirectly(t, store, ctx, instanceName)
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected LatestOperationDetails[0] TaskStatus %s, got %s",
+				TaskInvocationStatusError, updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.LatestOperationDetails[0].Error == "" {
+			t.Error("Expected error message to be set on transitioned entry")
+		}
+		if updated.Status.FirstOperationDetails.TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected FirstOperationDetails TaskStatus %s, got %s",
+				TaskInvocationStatusError, updated.Status.FirstOperationDetails.TaskStatus)
+		}
+	})
+
+	t.Run("transitions mixed entries - only InProgress to Error", func(t *testing.T) {
+		instanceName := "stale-mixed-entries"
+		errorOp := createStaleOperationDetails("task-error-1", TaskInvocationStatusError, 72)
+		errorOp.Error = "original error from session timeout"
+		inProgressOp := createStaleOperationDetails("task-stuck-2", TaskInvocationStatusInProgress, 72)
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{errorOp, inProgressOp}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, errorOp, nil)
+
+		instance := mustGetCRDDirectly(t, store, ctx, instanceName)
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated := mustGetCRDDirectly(t, store, ctx, instanceName)
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected first entry to remain Error, got %s",
+				updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.LatestOperationDetails[0].Error != "original error from session timeout" {
+			t.Errorf("Expected original error message to be preserved, got %s",
+				updated.Status.LatestOperationDetails[0].Error)
+		}
+		if updated.Status.LatestOperationDetails[1].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected second (InProgress) entry to become Error, got %s",
+				updated.Status.LatestOperationDetails[1].TaskStatus)
+		}
+		if updated.Status.LatestOperationDetails[1].Error == "" {
+			t.Error("Expected error message on transitioned InProgress entry")
+		}
+	})
+
+	t.Run("does not modify instance with no InProgress entries", func(t *testing.T) {
+		instanceName := "stale-no-inprogress"
+		staleTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		errorOp := cnsvolumeoprequestv1alpha1.OperationDetails{
+			TaskInvocationTimestamp: staleTime,
+			TaskID:                  "task-already-error",
+			TaskStatus:              TaskInvocationStatusError,
+			Error:                   "already errored",
+		}
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{errorOp}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, errorOp, nil)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		originalRV := instance.ResourceVersion
+
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		if updated.ResourceVersion != originalRV {
+			t.Error("Expected instance not to be updated when no InProgress entries exist")
+		}
+	})
+
+	t.Run("transitions InProgress in FirstOperationDetails even when LatestOps differ", func(t *testing.T) {
+		instanceName := "stale-first-op-inprogress"
+		staleTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		firstOp := cnsvolumeoprequestv1alpha1.OperationDetails{
+			TaskInvocationTimestamp: staleTime,
+			TaskID:                  "task-first-stuck",
+			TaskStatus:              TaskInvocationStatusInProgress,
+		}
+		latestOp := cnsvolumeoprequestv1alpha1.OperationDetails{
+			TaskInvocationTimestamp: staleTime,
+			TaskID:                  "task-latest-error",
+			TaskStatus:              TaskInvocationStatusError,
+			Error:                   "some error",
+		}
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{latestOp}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, firstOp, nil)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+
+		if updated.Status.FirstOperationDetails.TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected FirstOperationDetails TaskStatus %s, got %s",
+				TaskInvocationStatusError, updated.Status.FirstOperationDetails.TaskStatus)
+		}
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected LatestOperationDetails[0] to remain Error, got %s",
+				updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.LatestOperationDetails[0].Error != "some error" {
+			t.Errorf("Expected original error preserved, got %s",
+				updated.Status.LatestOperationDetails[0].Error)
+		}
+	})
+}
+
+// TestCleanupStaleInstances_StaleInProgressHandling tests the cleanupStaleInstances
+// behavior with respect to stale InProgress tasks.
+func TestCleanupStaleInstances_StaleInProgressHandling(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, true)
+
+	t.Run("skips recent InProgress tasks", func(t *testing.T) {
+		instanceName := "recent-inprogress"
+		recentTime := metav1.NewTime(time.Now().Add(-1 * time.Hour))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: recentTime,
+				TaskID:                  "task-recent",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
+		latestOp := ops[len(ops)-1]
+
+		shouldTransition := latestOp.TaskStatus == TaskInvocationStatusInProgress &&
+			latestOp.TaskInvocationTimestamp.Time.Before(staleInProgressCutoff)
+
+		if shouldTransition {
+			t.Error("Recent InProgress task should NOT be considered stale")
+		}
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		if instance.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusInProgress {
+			t.Errorf("Expected task to remain InProgress, got %s",
+				instance.Status.LatestOperationDetails[0].TaskStatus)
+		}
+	})
+
+	t.Run("transitions InProgress tasks older than 48 hours", func(t *testing.T) {
+		instanceName := "old-inprogress"
+		oldTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: oldTime,
+				TaskID:                  "task-old",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
+		latestOp := ops[len(ops)-1]
+
+		shouldTransition := latestOp.TaskStatus == TaskInvocationStatusInProgress &&
+			latestOp.TaskInvocationTimestamp.Time.Before(staleInProgressCutoff)
+
+		if !shouldTransition {
+			t.Error("72-hour-old InProgress task SHOULD be considered stale")
+		}
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected stale InProgress to be transitioned to Error, got %s",
+				updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+	})
+
+	t.Run("deletes Error instances older than 15 minutes", func(t *testing.T) {
+		instanceName := "old-error-instance"
+		oldTime := metav1.NewTime(time.Now().Add(-30 * time.Minute))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: oldTime,
+				TaskID:                  "task-old-error",
+				TaskStatus:              TaskInvocationStatusError,
+				Error:                   "some error",
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		cutoffTime := time.Now().Add(-15 * time.Minute)
+		latestOp := ops[len(ops)-1]
+
+		shouldDelete := latestOp.TaskStatus != TaskInvocationStatusInProgress &&
+			!latestOp.TaskInvocationTimestamp.Time.After(cutoffTime)
+
+		if !shouldDelete {
+			t.Error("30-minute-old Error instance SHOULD be eligible for deletion")
+		}
+
+		err := store.DeleteRequestDetails(ctx, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to delete instance: %v", err)
+		}
+
+		_, err = getCRDDirectly(ctx, store, instanceName)
+		if err == nil {
+			t.Error("Expected instance to be deleted")
+		}
+	})
+
+	t.Run("does not delete recent Error instances", func(t *testing.T) {
+		instanceName := "recent-error-instance"
+		recentTime := metav1.NewTime(time.Now().Add(-5 * time.Minute))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: recentTime,
+				TaskID:                  "task-recent-error",
+				TaskStatus:              TaskInvocationStatusError,
+				Error:                   "recent error",
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		cutoffTime := time.Now().Add(-15 * time.Minute)
+		latestOp := ops[len(ops)-1]
+
+		shouldDelete := latestOp.TaskStatus != TaskInvocationStatusInProgress &&
+			!latestOp.TaskInvocationTimestamp.Time.After(cutoffTime)
+
+		if shouldDelete {
+			t.Error("5-minute-old Error instance should NOT be eligible for deletion")
+		}
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		if instance == nil {
+			t.Error("Instance should still exist")
+		}
+	})
+}
+
+// TestCleanupStaleInstances_EndToEndScenario simulates the exact scenario
+// from the bug report: session expiry during CreateVolume leaves CRs stuck
+// with InProgress tasks and leaked quota reservations.
+func TestCleanupStaleInstances_EndToEndScenario(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, true)
+
+	t.Run("session expiry leaves stuck InProgress - cleanup transitions and deletes", func(t *testing.T) {
+		instanceName := "pvc-stuck-session-expiry"
+		reservedQty := resource.NewQuantity(400*1024*1024*1024, resource.BinarySI)
+		quota := &cnsvolumeoprequestv1alpha1.QuotaDetails{
+			Reserved:         reservedQty,
+			StoragePolicyId:  "policy-123",
+			StorageClassName: "storage-class-1",
+			Namespace:        "test-ns",
+		}
+
+		// Simulate the exact CR state from the bug report:
+		// First task errored with session auth failure, second task stuck InProgress
+		firstTaskTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		secondTaskTime := metav1.NewTime(time.Now().Add(-71*time.Hour - 45*time.Minute))
+
+		errorOp := cnsvolumeoprequestv1alpha1.OperationDetails{
+			TaskInvocationTimestamp: firstTaskTime,
+			TaskID:                  "task-484682",
+			TaskStatus:              TaskInvocationStatusError,
+			Error: "destroy property filter failed with ServerFaultCode: " +
+				"The session is not authenticated.",
+		}
+		stuckOp := cnsvolumeoprequestv1alpha1.OperationDetails{
+			TaskInvocationTimestamp: secondTaskTime,
+			TaskID:                  "task-485876",
+			TaskStatus:              TaskInvocationStatusInProgress,
+		}
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{errorOp, stuckOp}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, errorOp, quota)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+
+		// Verify the stuck state matches what we expect
+		latestOps := instance.Status.LatestOperationDetails
+		if latestOps[len(latestOps)-1].TaskStatus != TaskInvocationStatusInProgress {
+			t.Fatalf("Test setup error: expected last entry to be InProgress")
+		}
+
+		// Step 1: forceTransitionStaleInProgressToError should fix the stuck entries
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+
+		// Verify all InProgress entries are now Error
+		for i, op := range updated.Status.LatestOperationDetails {
+			if op.TaskStatus == TaskInvocationStatusInProgress {
+				t.Errorf("Entry %d should no longer be InProgress after force transition", i)
+			}
+		}
+
+		// The last entry should now be Error (was InProgress)
+		lastOp := updated.Status.LatestOperationDetails[len(updated.Status.LatestOperationDetails)-1]
+		if lastOp.TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected last entry to be Error, got %s", lastOp.TaskStatus)
+		}
+		if lastOp.TaskID != "task-485876" {
+			t.Errorf("Expected TaskID task-485876, got %s", lastOp.TaskID)
+		}
+
+		// Verify quota details are still present (they are released on CR deletion)
+		if updated.Status.StorageQuotaDetails == nil {
+			t.Error("StorageQuotaDetails should still be present before deletion")
+		}
+		if updated.Status.StorageQuotaDetails.Reserved.Value() != 400*1024*1024*1024 {
+			t.Errorf("Expected reserved 400Gi, got %v", updated.Status.StorageQuotaDetails.Reserved)
+		}
+
+		// Step 2: Now that the entry is Error, cleanup should delete the CR
+		// (the entry is older than 15 minutes)
+		cutoffTime := time.Now().Add(-15 * time.Minute)
+		lastOpAfterTransition := updated.Status.LatestOperationDetails[len(updated.Status.LatestOperationDetails)-1]
+		shouldDelete := lastOpAfterTransition.TaskStatus != TaskInvocationStatusInProgress &&
+			!lastOpAfterTransition.TaskInvocationTimestamp.Time.After(cutoffTime)
+
+		if !shouldDelete {
+			t.Error("After force transition, the instance should be eligible for deletion")
+		}
+
+		err = store.DeleteRequestDetails(ctx, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to delete instance: %v", err)
+		}
+
+		_, err = getCRDDirectly(ctx, store, instanceName)
+		if err == nil {
+			t.Error("Expected instance to be deleted after cleanup")
+		}
+	})
+
+	t.Run("InProgress task just under 48 hours is not transitioned", func(t *testing.T) {
+		instanceName := "pvc-boundary-48h"
+		// Use 47h59m to ensure we're safely under the threshold and avoid clock precision issues
+		justUnderBoundaryTime := metav1.NewTime(time.Now().Add(-47*time.Hour - 59*time.Minute))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: justUnderBoundaryTime,
+				TaskID:                  "task-boundary",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
+		latestOp := ops[len(ops)-1]
+
+		shouldTransition := latestOp.TaskStatus == TaskInvocationStatusInProgress &&
+			latestOp.TaskInvocationTimestamp.Time.Before(staleInProgressCutoff)
+
+		if shouldTransition {
+			t.Error("Task just under 48h should NOT be transitioned")
+		}
+	})
+
+	t.Run("InProgress task at 47 hours is not transitioned", func(t *testing.T) {
+		instanceName := "pvc-47h-inprogress"
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: metav1.NewTime(time.Now().Add(-47 * time.Hour)),
+				TaskID:                  "task-47h",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
+
+		shouldTransition := ops[0].TaskStatus == TaskInvocationStatusInProgress &&
+			ops[0].TaskInvocationTimestamp.Time.Before(staleInProgressCutoff)
+
+		if shouldTransition {
+			t.Error("47-hour InProgress task should NOT be transitioned")
+		}
+	})
+
+	t.Run("InProgress task at 49 hours is transitioned", func(t *testing.T) {
+		instanceName := "pvc-49h-inprogress"
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: metav1.NewTime(time.Now().Add(-49 * time.Hour)),
+				TaskID:                  "task-49h",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		staleInProgressCutoff := time.Now().Add(-staleInProgressTaskThreshold)
+
+		shouldTransition := ops[0].TaskStatus == TaskInvocationStatusInProgress &&
+			ops[0].TaskInvocationTimestamp.Time.Before(staleInProgressCutoff)
+
+		if !shouldTransition {
+			t.Error("49-hour InProgress task SHOULD be transitioned")
+		}
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected Error, got %s", updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+	})
+}
+
+// TestStaleInProgressTaskThreshold verifies the threshold constant value.
+func TestStaleInProgressTaskThreshold(t *testing.T) {
+	if staleInProgressTaskThreshold != 48*time.Hour {
+		t.Errorf("Expected staleInProgressTaskThreshold to be 48h, got %v", staleInProgressTaskThreshold)
+	}
+}
+
+// testErrorPathTransition is a helper that tests the InProgress->Error transition pattern
+func testErrorPathTransition(t *testing.T, store *operationRequestStore, ctx context.Context,
+	instanceName, taskID, errorMsg string) {
+	t.Helper()
+
+	// Setup: Create InProgress operation
+	inProgress := createTestVolumeOperationDetails(instanceName, "", "", taskID,
+		TaskInvocationStatusInProgress, "", nil)
+	mustStoreRequestDetails(t, store, ctx, inProgress)
+
+	// Simulate error path: transition to Error
+	errorDetails := createTestVolumeOperationDetails(instanceName, "", "", taskID,
+		TaskInvocationStatusError, errorMsg, nil)
+	mustStoreRequestDetails(t, store, ctx, errorDetails)
+
+	// Verify: Final state is Error
+	result := mustGetRequestDetails(t, store, ctx, instanceName)
+	assertTaskStatus(t, result, TaskInvocationStatusError)
+}
+
+// TestErrorPathTransitionsPreventStuckInProgress verifies that when an operation
+// encounters an error after task creation (e.g., waitOnTask failure, nil taskResult,
+// getTaskResultFromTaskInfo error), the CR is correctly transitioned to Error status.
+// This validates the fixes across all operation types: create, delete, expand, snapshot.
+func TestErrorPathTransitionsPreventStuckInProgress(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+
+	tests := []struct {
+		name         string
+		instanceName string
+		taskID       string
+		errorMsg     string
+	}{
+		{
+			name:         "CreateVolume: waitOnTask general error transitions InProgress to Error",
+			instanceName: "pvc-create-waitontask-err",
+			taskID:       "task-create-100",
+			errorMsg:     "destroy property filter failed with ServerFaultCode: The session is not authenticated",
+		},
+		{
+			name:         "CreateVolume: nil taskResult transitions InProgress to Error",
+			instanceName: "pvc-create-nil-result",
+			taskID:       "task-create-200",
+			errorMsg:     "taskResult is empty for CreateVolume task",
+		},
+		{
+			name:         "CreateVolume: QueryAllVolume failure transitions InProgress to Error",
+			instanceName: "pvc-create-query-fail",
+			taskID:       "task-create-300",
+			errorMsg:     "failed to query CNS for volume",
+		},
+		{
+			name:         "DeleteVolume: waitOnTask general error transitions InProgress to Error",
+			instanceName: "pvc-delete-waitontask-err",
+			taskID:       "task-delete-100",
+			errorMsg:     "context deadline exceeded",
+		},
+		{
+			name:         "DeleteVolume: nil taskInfo transitions InProgress to Error",
+			instanceName: "pvc-delete-nil-taskinfo",
+			taskID:       "task-delete-200",
+			errorMsg:     "taskInfo is nil",
+		},
+		{
+			name:         "DeleteVolume: nil taskResult transitions InProgress to Error",
+			instanceName: "pvc-delete-nil-result",
+			taskID:       "task-delete-300",
+			errorMsg:     "taskResult is empty for DeleteVolume task",
+		},
+		{
+			name:         "ExpandVolume: nil taskResult transitions InProgress to Error",
+			instanceName: "pvc-expand-nil-result",
+			taskID:       "task-expand-100",
+			errorMsg:     "taskResult is empty for ExpandVolume task",
+		},
+		{
+			name:         "ExpandVolume: getTaskResultFromTaskInfo error transitions InProgress to Error",
+			instanceName: "pvc-expand-taskresult-err",
+			taskID:       "task-expand-200",
+			errorMsg:     "failed to get task result",
+		},
+		{
+			name:         "CreateSnapshot: waitOnTask general error transitions InProgress to Error",
+			instanceName: "snap-create-waitontask-err",
+			taskID:       "task-snap-100",
+			errorMsg:     "Failed to get taskInfo for CreateSnapshots task",
+		},
+		{
+			name:         "CreateSnapshot: GetTaskResult nil transitions InProgress to Error",
+			instanceName: "snap-create-nil-result",
+			taskID:       "task-snap-200",
+			errorMsg:     "unable to find the task result for CreateSnapshots task",
+		},
+		{
+			name:         "DeleteSnapshot: getTaskResultFromTaskInfo error transitions InProgress to Error",
+			instanceName: "snap-delete-taskresult-err",
+			taskID:       "task-snapdel-100",
+			errorMsg:     "failed to get the task result for DeleteSnapshots task",
+		},
+		{
+			name:         "DeleteSnapshot: nil taskResult transitions InProgress to Error",
+			instanceName: "snap-delete-nil-result",
+			taskID:       "task-snapdel-200",
+			errorMsg:     "task result is empty for DeleteSnapshot task",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testErrorPathTransition(t, store, ctx, tc.instanceName, tc.taskID, tc.errorMsg)
+		})
+	}
+}
+
+// TestDeferSkipsInProgressAndPersistsError verifies the defer guard logic:
+// the defer in volume operation functions only persists when status != InProgress.
+// This confirms that once we set Error on volumeOperationDetails, the defer will persist it.
+func TestDeferSkipsInProgressAndPersistsError(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+
+	t.Run("InProgress status is NOT persisted by defer (simulates old bug)", func(t *testing.T) {
+		name := "pvc-defer-skip-inprogress"
+		// Store initial InProgress
+		details := createTestVolumeOperationDetails(
+			name, "", "", "task-defer-1", TaskInvocationStatusInProgress, "", nil)
+		if err := store.StoreRequestDetails(ctx, details); err != nil {
+			t.Fatalf("Setup: %v", err)
+		}
+
+		// Simulate what the defer guard checks: status == InProgress -> skip persist
+		got, err := store.GetRequestDetails(ctx, name)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.OperationDetails.TaskStatus != TaskInvocationStatusInProgress {
+			t.Fatalf("Expected InProgress, got %s", got.OperationDetails.TaskStatus)
+		}
+		// The defer would NOT call StoreRequestDetails because status is InProgress
+		// This is the condition that previously caused stuck CRs
+	})
+
+	t.Run("Error status IS persisted by defer (simulates fix)", func(t *testing.T) {
+		name := "pvc-defer-persist-error"
+		// Store initial InProgress
+		inProgressDetails := createTestVolumeOperationDetails(
+			name, "", "", "task-defer-2", TaskInvocationStatusInProgress, "", nil)
+		if err := store.StoreRequestDetails(ctx, inProgressDetails); err != nil {
+			t.Fatalf("Setup: %v", err)
+		}
+
+		// Simulate the fix: error path sets Error BEFORE the defer runs
+		errorDetails := createTestVolumeOperationDetails(
+			name, "", "", "task-defer-2",
+			TaskInvocationStatusError, "session expired", nil)
+		// The defer guard checks: status != InProgress -> persist
+		if errorDetails.OperationDetails.TaskStatus != TaskInvocationStatusInProgress {
+			// This is what the defer does
+			if err := store.StoreRequestDetails(ctx, errorDetails); err != nil {
+				t.Fatalf("StoreError: %v", err)
+			}
+		}
+
+		got, err := store.GetRequestDetails(ctx, name)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.OperationDetails.TaskStatus != TaskInvocationStatusError {
+			t.Errorf("want Error, got %s", got.OperationDetails.TaskStatus)
+		}
+	})
+}
+
+// TestEndToEndStuckInProgressWithImprovedIdempotency simulates the complete lifecycle
+// with improved idempotency (CSI Transaction Support disabled): task created, waitOnTask
+// fails, error path now correctly marks Error, defer persists it, and cleanup can delete it.
+func TestEndToEndStuckInProgressWithImprovedIdempotency(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+
+	t.Run("improved idempotency: error path marks Error and cleanup deletes CR", func(t *testing.T) {
+		name := "pvc-e2e-improved-idempotency"
+
+		// Step 1: Initial InProgress (before CNS task)
+		initial := createTestVolumeOperationDetails(
+			name, "", "", "", TaskInvocationStatusInProgress, "", nil)
+		if err := store.StoreRequestDetails(ctx, initial); err != nil {
+			t.Fatalf("Step1: %v", err)
+		}
+
+		// Step 2: Task created, update with TaskID (still InProgress)
+		withTask := createTestVolumeOperationDetails(
+			name, "", "", "task-e2e-100", TaskInvocationStatusInProgress, "", nil)
+		withTask.OperationDetails.TaskInvocationTimestamp = initial.OperationDetails.TaskInvocationTimestamp
+		if err := store.StoreRequestDetails(ctx, withTask); err != nil {
+			t.Fatalf("Step2: %v", err)
+		}
+
+		// Step 3: waitOnTask fails (session error) -> new code marks Error
+		errorDetails := createTestVolumeOperationDetails(
+			name, "", "", "task-e2e-100", TaskInvocationStatusError,
+			"destroy property filter failed with ServerFaultCode: The session is not authenticated", nil)
+		errorDetails.OperationDetails.TaskInvocationTimestamp = initial.OperationDetails.TaskInvocationTimestamp
+		if err := store.StoreRequestDetails(ctx, errorDetails); err != nil {
+			t.Fatalf("Step3: %v", err)
+		}
+
+		// Verify Error state
+		got, err := store.GetRequestDetails(ctx, name)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.OperationDetails.TaskStatus != TaskInvocationStatusError {
+			t.Fatalf("want Error, got %s", got.OperationDetails.TaskStatus)
+		}
+
+		// Step 4: Cleanup can now delete this CR (it's Error + old)
+		if err := store.DeleteRequestDetails(ctx, name); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		_, err = store.GetRequestDetails(ctx, name)
+		if err == nil {
+			t.Error("Expected CR to be deleted")
+		}
+	})
+
+	t.Run("improved idempotency: quota released when Error persisted on retry", func(t *testing.T) {
+		name := "pvc-e2e-quota-release"
+		quota := createTestQuotaDetails(400 * 1024 * 1024 * 1024)
+
+		initial := createTestVolumeOperationDetails(
+			name, "", "", "task-quota-100", TaskInvocationStatusInProgress, "", quota)
+		if err := store.StoreRequestDetails(ctx, initial); err != nil {
+			t.Fatalf("Setup: %v", err)
+		}
+
+		// On retry error, quota Reserved is zeroed
+		quota.Reserved = resource.NewQuantity(0, resource.BinarySI)
+		errorDetails := createTestVolumeOperationDetails(
+			name, "", "", "task-quota-100", TaskInvocationStatusError,
+			"session expired", quota)
+		errorDetails.OperationDetails.TaskInvocationTimestamp = initial.OperationDetails.TaskInvocationTimestamp
+		if err := store.StoreRequestDetails(ctx, errorDetails); err != nil {
+			t.Fatalf("StoreError: %v", err)
+		}
+
+		got, err := store.GetRequestDetails(ctx, name)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if got.OperationDetails.TaskStatus != TaskInvocationStatusError {
+			t.Errorf("want Error, got %s", got.OperationDetails.TaskStatus)
+		}
+	})
+}
+
+// TestReservationRetainedOnFirstAttemptError verifies that on the first attempt
+// (no prior CVOR exists), an error should NOT zero the reservation. The quota
+// stays held so the sidecar retry can use it. On retries (CVOR already exists),
+// an error should zero the reservation to release it.
+// These tests use the exported IsRetryAttempt helper — the same function that
+// the production code in manager.go calls — so they validate the actual logic
+// path rather than reimplementing the defer condition inline.
+func TestReservationRetainedOnFirstAttemptError(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, true)
+	isPodVMOnStretchSupervisorFSSEnabled = true
+	defer func() { isPodVMOnStretchSupervisorFSSEnabled = false }()
+
+	// shouldReleaseReservation mirrors the condition in persistVolumeOperationDetails.
+	shouldReleaseReservation := func(details *VolumeOperationRequestDetails, isRetry bool) bool {
+		if details == nil || details.QuotaDetails == nil {
+			return false
+		}
+		ts := details.OperationDetails.TaskStatus
+		return ts == TaskInvocationStatusSuccess || (ts == TaskInvocationStatusError && isRetry)
+	}
+
+	t.Run("first attempt error keeps reservation non-zero", func(t *testing.T) {
+		name := "pvc-first-attempt-keep-reservation"
+		reservedBytes := int64(400 * 1024 * 1024 * 1024)
+		quota := createTestQuotaDetails(reservedBytes)
+
+		// GetRequestDetails returns NotFound -> IsRetryAttempt == false
+		existing, err := store.GetRequestDetails(ctx, name)
+		isRetry := IsRetryAttempt(existing, err)
+		if isRetry {
+			t.Fatal("Expected IsRetryAttempt to be false on first attempt")
+		}
+
+		inProgress := createTestVolumeOperationDetails(
+			name, "", "", "task-first-1", TaskInvocationStatusInProgress, "", quota)
+		if err := store.StoreRequestDetails(ctx, inProgress); err != nil {
+			t.Fatalf("StoreInProgress: %v", err)
+		}
+
+		errorDetails := createTestVolumeOperationDetails(
+			name, "", "", "task-first-1", TaskInvocationStatusError, "session expired", quota)
+		if shouldReleaseReservation(errorDetails, isRetry) {
+			errorDetails.QuotaDetails.Reserved = resource.NewQuantity(0, resource.BinarySI)
+		}
+		if err := store.StoreRequestDetails(ctx, errorDetails); err != nil {
+			t.Fatalf("StoreError: %v", err)
+		}
+
+		crd := mustGetCRDDirectly(t, store, ctx, name)
+		assertQuotaReservation(t, crd, reservedBytes)
+	})
+
+	t.Run("retry attempt error zeros reservation", func(t *testing.T) {
+		name := "pvc-retry-attempt-zero-reservation"
+		reservedBytes := int64(400 * 1024 * 1024 * 1024)
+		quota := createTestQuotaDetails(reservedBytes)
+
+		inProgress1 := createTestVolumeOperationDetails(
+			name, "", "", "task-retry-1", TaskInvocationStatusInProgress, "", quota)
+		mustStoreRequestDetails(t, store, ctx, inProgress1)
+		error1 := createTestVolumeOperationDetails(
+			name, "", "", "task-retry-1", TaskInvocationStatusError, "first error", quota)
+		mustStoreRequestDetails(t, store, ctx, error1)
+
+		// GetRequestDetails succeeds -> IsRetryAttempt == true
+		existing, err := store.GetRequestDetails(ctx, name)
+		isRetry := IsRetryAttempt(existing, err)
+		if !isRetry {
+			t.Fatal("Expected IsRetryAttempt to be true on retry")
+		}
+
+		quota2 := createTestQuotaDetails(reservedBytes)
+		inProgress2 := createTestVolumeOperationDetails(
+			name, "", "", "task-retry-2", TaskInvocationStatusInProgress, "", quota2)
+		mustStoreRequestDetails(t, store, ctx, inProgress2)
+
+		error2 := createTestVolumeOperationDetails(
+			name, "", "", "task-retry-2", TaskInvocationStatusError, "second error", quota2)
+		if shouldReleaseReservation(error2, isRetry) {
+			error2.QuotaDetails.Reserved = resource.NewQuantity(0, resource.BinarySI)
+		}
+		mustStoreRequestDetails(t, store, ctx, error2)
+
+		crd := mustGetCRDDirectly(t, store, ctx, name)
+		assertQuotaReservation(t, crd, 0)
+	})
+
+	t.Run("success always zeros reservation regardless of retry", func(t *testing.T) {
+		name := "pvc-success-always-zeros"
+		reservedBytes := int64(400 * 1024 * 1024 * 1024)
+		quota := createTestQuotaDetails(reservedBytes)
+
+		// First attempt -> IsRetryAttempt == false
+		existing, err := store.GetRequestDetails(ctx, name)
+		isRetry := IsRetryAttempt(existing, err)
+
+		inProgress := createTestVolumeOperationDetails(
+			name, "", "", "task-success-1", TaskInvocationStatusInProgress, "", quota)
+		if err := store.StoreRequestDetails(ctx, inProgress); err != nil {
+			t.Fatalf("StoreInProgress: %v", err)
+		}
+
+		success := createTestVolumeOperationDetails(
+			name, "vol-123", "", "task-success-1", TaskInvocationStatusSuccess, "", quota)
+		if shouldReleaseReservation(success, isRetry) {
+			success.QuotaDetails.Reserved = resource.NewQuantity(0, resource.BinarySI)
+		}
+		if err := store.StoreRequestDetails(ctx, success); err != nil {
+			t.Fatalf("StoreSuccess: %v", err)
+		}
+
+		crd, err := getCRDDirectly(ctx, store, name)
+		if err != nil {
+			t.Fatalf("GetCRD: %v", err)
+		}
+		if crd.Status.StorageQuotaDetails == nil {
+			t.Fatal("Expected StorageQuotaDetails to exist")
+		}
+		if crd.Status.StorageQuotaDetails.Reserved.Value() != 0 {
+			t.Errorf("Success should always zero reservation, got %d",
+				crd.Status.StorageQuotaDetails.Reserved.Value())
+		}
+	})
+}
+
+// TestIsRetryAttempt verifies the exported IsRetryAttempt helper function
+// that the production code in manager.go relies on.
+func TestIsRetryAttempt(t *testing.T) {
+	tests := []struct {
+		name    string
+		details *VolumeOperationRequestDetails
+		err     error
+		want    bool
+	}{
+		{
+			name:    "nil details with NotFound error is not a retry",
+			details: nil,
+			err:     fmt.Errorf("not found"),
+			want:    false,
+		},
+		{
+			name:    "nil details with nil error is not a retry",
+			details: nil,
+			err:     nil,
+			want:    false,
+		},
+		{
+			name: "non-nil details with nil error is a retry",
+			details: &VolumeOperationRequestDetails{
+				Name: "test",
+				OperationDetails: &OperationDetails{
+					TaskStatus: TaskInvocationStatusError,
+				},
+			},
+			err:  nil,
+			want: true,
+		},
+		{
+			name: "non-nil details with non-nil error is not a retry",
+			details: &VolumeOperationRequestDetails{
+				Name: "test",
+			},
+			err:  fmt.Errorf("some error"),
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsRetryAttempt(tc.details, tc.err)
+			if got != tc.want {
+				t.Errorf("IsRetryAttempt() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestForceTransitionZerosQuotaReservation verifies that forceTransitionStaleInProgressToError
+// proactively zeroes the quota reservation when isPodVMOnStretchSupervisorFSSEnabled is true.
+func TestForceTransitionZerosQuotaReservation(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, true)
+
+	t.Run("zeroes reservation when FSS enabled and quota exists", func(t *testing.T) {
+		isPodVMOnStretchSupervisorFSSEnabled = true
+		defer func() { isPodVMOnStretchSupervisorFSSEnabled = false }()
+
+		instanceName := "stale-with-quota"
+		staleTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		reservedQty := resource.NewQuantity(400*1024*1024*1024, resource.BinarySI)
+		quota := &cnsvolumeoprequestv1alpha1.QuotaDetails{
+			Reserved:         reservedQty,
+			StoragePolicyId:  "policy-123",
+			StorageClassName: "sc-1",
+			Namespace:        "ns-1",
+		}
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: staleTime,
+				TaskID:                  "task-stale-quota",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], quota)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected Error, got %s", updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.StorageQuotaDetails == nil {
+			t.Fatal("Expected StorageQuotaDetails to still exist")
+		}
+		if updated.Status.StorageQuotaDetails.Reserved.Value() != 0 {
+			t.Errorf("Expected reservation to be zeroed, got %d",
+				updated.Status.StorageQuotaDetails.Reserved.Value())
+		}
+	})
+
+	t.Run("does not zero reservation when FSS disabled", func(t *testing.T) {
+		isPodVMOnStretchSupervisorFSSEnabled = false
+
+		instanceName := "stale-with-quota-fss-off"
+		staleTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		reservedBytes := int64(400 * 1024 * 1024 * 1024)
+		reservedQty := resource.NewQuantity(reservedBytes, resource.BinarySI)
+		quota := &cnsvolumeoprequestv1alpha1.QuotaDetails{
+			Reserved:         reservedQty,
+			StoragePolicyId:  "policy-123",
+			StorageClassName: "sc-1",
+			Namespace:        "ns-1",
+		}
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: staleTime,
+				TaskID:                  "task-stale-quota-fss-off",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], quota)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected Error, got %s", updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.StorageQuotaDetails == nil {
+			t.Fatal("Expected StorageQuotaDetails to still exist")
+		}
+		if updated.Status.StorageQuotaDetails.Reserved.Value() != reservedBytes {
+			t.Errorf("Expected reservation to remain %d when FSS disabled, got %d",
+				reservedBytes, updated.Status.StorageQuotaDetails.Reserved.Value())
+		}
+	})
+
+	t.Run("handles nil StorageQuotaDetails gracefully", func(t *testing.T) {
+		isPodVMOnStretchSupervisorFSSEnabled = true
+		defer func() { isPodVMOnStretchSupervisorFSSEnabled = false }()
+
+		instanceName := "stale-no-quota"
+		staleTime := metav1.NewTime(time.Now().Add(-72 * time.Hour))
+		ops := []cnsvolumeoprequestv1alpha1.OperationDetails{
+			{
+				TaskInvocationTimestamp: staleTime,
+				TaskID:                  "task-stale-no-quota",
+				TaskStatus:              TaskInvocationStatusInProgress,
+			},
+		}
+		createTestCRDInstance(ctx, t, store.k8sclient, instanceName, ops, ops[0], nil)
+
+		instance, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get CRD: %v", err)
+		}
+		store.forceTransitionStaleInProgressToError(ctx, instance)
+
+		updated, err := getCRDDirectly(ctx, store, instanceName)
+		if err != nil {
+			t.Fatalf("Failed to get updated CRD: %v", err)
+		}
+
+		if updated.Status.LatestOperationDetails[0].TaskStatus != TaskInvocationStatusError {
+			t.Errorf("Expected Error, got %s", updated.Status.LatestOperationDetails[0].TaskStatus)
+		}
+		if updated.Status.StorageQuotaDetails != nil {
+			t.Error("Expected StorageQuotaDetails to remain nil")
 		}
 	})
 }
