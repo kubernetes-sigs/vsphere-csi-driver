@@ -543,8 +543,8 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SharedDiskFss:                           {},
 	FileVolumesWithVmService:                {},
 	VsanFileVolumeService:                   {},
-	SupportsExposingStoragePolicyAttributes: {},
 	CSI_Backup_API:                          {},
+	SupportsExposingStoragePolicyAttributes: {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
