@@ -900,6 +900,18 @@ func (m *mockVolumeManagerForFullSync) ProtectVolumeFromVMDeletion(ctx context.C
 	return nil
 }
 
+func (m *mockVolumeManagerForFullSync) SetVolumeControlFlags(
+	ctx context.Context, volumeID string, controlFlags []string,
+) error {
+	return nil
+}
+
+func (m *mockVolumeManagerForFullSync) ClearVolumeControlFlags(
+	ctx context.Context, volumeID string, controlFlags []string,
+) error {
+	return nil
+}
+
 func (m *mockVolumeManagerForFullSync) QuerySnapshots(
 	ctx context.Context, snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter,
 ) (*cnstypes.CnsSnapshotQueryResult, error) {

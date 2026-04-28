@@ -74,6 +74,10 @@ const (
 	PrometheusCnsQueryAllVolumeOpType = "query-all-volume"
 	// PrometheusCnsQueryVolumeInfoOpType represents the QueryVolumeInfo operation.
 	PrometheusCnsQueryVolumeInfoOpType = "query-volume-info"
+	// PrometheusCnsSetVolumeControlFlagsOpType represents the SetVolumeControlFlags operation.
+	PrometheusCnsSetVolumeControlFlagsOpType = "set-volume-control-flags"
+	// PrometheusCnsClearVolumeControlFlagsOpType represents the ClearVolumeControlFlags operation.
+	PrometheusCnsClearVolumeControlFlagsOpType = "clear-volume-control-flags"
 	// PrometheusCnsRelocateVolumeOpType represents the RelocateVolume operation.
 	PrometheusCnsRelocateVolumeOpType = "relocate-volume"
 	// PrometheusCnsConfigureVolumeACLOpType represents the ConfigureVolumeAcl operation.

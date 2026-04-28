@@ -13,7 +13,7 @@ require (
 	github.com/pkg/sftp v1.13.6
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260423003402-51227659e236
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20260423003402-51227659e236
-	github.com/vmware/govmomi v0.53.1
+	github.com/vmware/govmomi v0.53.0-alpha.0.0.20260418033738-262be50854f2
 	golang.org/x/crypto v0.50.0
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/yaml.v2 v2.4.0

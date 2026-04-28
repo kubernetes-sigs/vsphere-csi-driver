@@ -187,6 +187,12 @@ func (m *MockVolumeManager) RetrieveVStorageObject(ctx context.Context,
 func (m *MockVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
 	return nil
 }
+func (m *MockVolumeManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	return nil
+}
+func (m *MockVolumeManager) ClearVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
+	return nil
+}
 func (m *MockVolumeManager) CreateSnapshot(ctx context.Context, volumeID string, desc string,
 	extraParams interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
 	return nil, nil

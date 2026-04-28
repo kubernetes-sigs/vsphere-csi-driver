@@ -29,13 +29,16 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -519,4 +522,35 @@ func GetCNSVolumeInfoPatch(ctx context.Context, CapacityInMb int64, volumeId str
 		}
 	}
 	return patch, nil
+}
+
+// IsCBTEnabledForNamespace reports whether any CBTConfig in the namespace has status.enabled true.
+func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, pvcNamespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	gvr := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
+	unstructuredList, err := dynClient.Resource(gvr).Namespace(pvcNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// CRD may not be registered yet, or the API version may be absent from discovery.
+		if apiMeta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+			log.Debugf("CBTConfig CR is not registered, assuming CBT disabled for namespace %s", pvcNamespace)
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to list CBTConfig CRs in namespace %s: %w", pvcNamespace, err)
+	}
+
+	var cbtConfigList cbtconfigv1alpha1.CBTConfigList
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredList.UnstructuredContent(), &cbtConfigList)
+	if err != nil {
+		return false, fmt.Errorf("failed to convert unstructured list to CBTConfigList: %w", err)
+	}
+
+	for _, item := range cbtConfigList.Items {
+		if item.Status.Enabled != nil && *item.Status.Enabled {
+			log.Debugf("CBT is enabled for namespace %s", pvcNamespace)
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
