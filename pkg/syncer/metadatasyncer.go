@@ -2094,17 +2094,32 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 				latestOps := newcnsvolumeoperationrequestObj.Status.LatestOperationDetails
 				latestOp := latestOps[len(latestOps)-1]
 				if latestOp.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
-					log.Debugf("Latest task %s in %s instance %s succeeded. Incrementing \"used\" "+
-						"field in storagepolicyusage CR", latestOp.TaskID,
-						cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
-					log.Infof("Increase the used value in storagePolicyUsage CR %s by %s "+
-						" since the operation was successful CnsVolumeOperationRequest: %s",
-						storagePolicyUsageCR.Name,
-						oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
-						cnsVolumeOperationRequestName)
-					patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-						*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-					increaseUsed = true
+					// Idempotency guard: skip the "used" bump if a prior Success entry already
+					// exists in this CR's LatestOperationDetails. A single CR represents one
+					// logical create for one volume; multiple Success entries can only arise
+					// from retry paths (e.g. after CnsVolumeAlreadyExistsFault) that should
+					// not double-count storage usage.
+					if hasPriorSuccessForVolume(latestOps, latestOp.TaskID) {
+						log.Infof("cnsvolumeoperationrequestCRUpdated: skip incrementing "+
+							"\"used\" for storagepolicyusage CR %s: a prior successful "+
+							"task already accounted for volume %q in "+
+							"CnsVolumeOperationRequest: %s (latest taskID: %s)",
+							storagePolicyUsageCR.Name,
+							newcnsvolumeoperationrequestObj.Status.VolumeID,
+							cnsVolumeOperationRequestName, latestOp.TaskID)
+					} else {
+						log.Debugf("Latest task %s in %s instance %s succeeded. Incrementing \"used\" "+
+							"field in storagepolicyusage CR", latestOp.TaskID,
+							cnsvolumeoperationrequest.CRDSingular, newcnsvolumeoperationrequestObj.Name)
+						log.Infof("Increase the used value in storagePolicyUsage CR %s by %s "+
+							" since the operation was successful CnsVolumeOperationRequest: %s",
+							storagePolicyUsageCR.Name,
+							oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.String(),
+							cnsVolumeOperationRequestName)
+						patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
+							*oldcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
+						increaseUsed = true
+					}
 				}
 			} else {
 				log.Debug("skip increase `used` capacity, for snapshot operation cnsvolumeinfo informer will increase it")
@@ -2130,6 +2145,26 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			}
 		}
 	}
+}
+
+// hasPriorSuccessForVolume returns true if latestOps contains a successful
+// task entry other than the one identified by currentTaskID. This guards
+// against double-counting StoragePolicyUsage.used when a retry path (e.g.
+// after CnsVolumeAlreadyExistsFault) causes multiple Success entries to
+// accumulate in a single CnsVolumeOperationRequest CR for the same volume.
+func hasPriorSuccessForVolume(
+	latestOps []cnsvolumeoperationrequestv1alpha1.OperationDetails,
+	currentTaskID string,
+) bool {
+	for i := range latestOps {
+		if latestOps[i].TaskID == currentTaskID {
+			continue
+		}
+		if latestOps[i].TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
+			return true
+		}
+	}
+	return false
 }
 
 // checkOperationRequestCRForSnapshot will verify if the cnsvolumeopeationrequest CR event is generated

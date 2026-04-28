@@ -747,6 +747,20 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 	if finalErr != nil && !apierrors.IsNotFound(finalErr) {
 		return nil, csifault.CSIInternalFault, finalErr
 	}
+
+	// Idempotent-quota guard for retry paths (e.g. retry after CnsVolumeAlreadyExistsFault):
+	// If a prior invocation already completed successfully for this CR, the storage usage
+	// has been accounted for in StoragePolicyUsage. Suppress QuotaDetails.Reserved
+	// repopulation so the syncer does not see a second "Reserved 1Gi -> 0 + Success"
+	// transition and double-count used.
+	if isPodVMOnStretchSupervisorFSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		quotaInfo != nil && m.operationStore.HasPriorSuccessfulCreate(ctx, volNameFromInputSpec) {
+		log.Infof("createVolumeWithTransaction: suppressing QuotaDetails.Reserved for "+
+			"instance %s because a prior task already completed successfully. "+
+			"Storage usage already accounted in StoragePolicyUsage.", volNameFromInputSpec)
+		quotaInfo = nil
+	}
+
 	defer func() {
 		// Persist the operation details before returning. Only success or error
 		// needs to be stored as InProgress details are stored when the task is

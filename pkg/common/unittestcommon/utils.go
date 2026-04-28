@@ -441,6 +441,23 @@ func (f *fakeVolumeOperationRequestInterface) DeleteRequestDetails(
 	return nil
 }
 
+// HasPriorSuccessfulCreate checks if the stored VolumeOperationRequestDetails
+// for the given name has a successful task status.
+func (f *fakeVolumeOperationRequestInterface) HasPriorSuccessfulCreate(
+	ctx context.Context,
+	name string,
+) bool {
+	instance, ok := f.volumeOperationRequestMap[name]
+	if !ok {
+		return false
+	}
+	if instance.OperationDetails != nil &&
+		instance.OperationDetails.TaskStatus == cnsvolumeoperationrequest.TaskInvocationStatusSuccess {
+		return true
+	}
+	return false
+}
+
 // GetNodesForVolumes returns nodeNames to which the given volumeIDs are attached
 func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID []string) map[string][]string {
 	nodeNames := make(map[string][]string)
