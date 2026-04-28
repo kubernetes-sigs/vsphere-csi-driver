@@ -415,3 +415,4 @@ func PatchVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 	log.Infof("PatchVirtualMachine: successfully patched the virtualmachine, name: %s", vm.Name)
 	return nil
 }
+

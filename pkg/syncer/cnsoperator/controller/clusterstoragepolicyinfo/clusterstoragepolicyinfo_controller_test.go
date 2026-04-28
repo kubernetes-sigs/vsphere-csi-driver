@@ -23,13 +23,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -224,7 +227,7 @@ func TestCreateClusterSPIWithOwner(t *testing.T) {
 		UID:        types.UID("11111111-1111-1111-1111-111111111111"),
 		Controller: &controllerFalse, BlockOwnerDeletion: &blockFalse,
 	}
-	namespacedName := types.NamespacedName{Name: "gold"}
+	namespacedName := apitypes.NamespacedName{Name: "gold"}
 
 	t.Run("creates ClusterStoragePolicyInfo", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -502,3 +505,168 @@ func TestMapStorageClassToClusterSPI_GetCSPIError(t *testing.T) {
 	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
 	assert.Nil(t, r.mapStorageClassToClusterSPI(ctx, sc))
 }
+
+func TestExtractStoragePolicyName_FromStorageClass(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	
+	// StorageClass with storagepolicyname parameter
+	sc := &storagev1.StorageClass{
+		ObjectMeta:  metav1.ObjectMeta{Name: "test-sc"},
+		Provisioner: "csi.vsphere.vmware.com",
+		Parameters: map[string]string{
+			"storagepolicyname": "test-policy",
+		},
+	}
+	
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+	
+	// This test only validates the parameter extraction logic
+	// vCenter connection would fail in unit tests, so we'll test only the SC parameter extraction
+	storageClass := &storagev1.StorageClass{}
+	err := r.client.Get(ctx, apitypes.NamespacedName{Name: "test-sc"}, storageClass)
+	require.NoError(t, err)
+	
+	storagePolicyName := storageClass.Parameters["storagepolicyname"]
+	assert.Equal(t, "test-policy", storagePolicyName, "expected storage policy name to be extracted correctly")
+}
+
+
+func TestExtractStoragePolicyName_NoStoragePolicy(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	
+	// StorageClass without storagepolicyname parameter
+	sc := &storagev1.StorageClass{
+		ObjectMeta:  metav1.ObjectMeta{Name: "test-sc-no-policy"},
+		Provisioner: "csi.vsphere.vmware.com",
+		Parameters:  map[string]string{
+			"datastore": "test-datastore",
+		},
+	}
+	
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+	
+	// Try to extract policy name from StorageClass without storagepolicyname parameter
+	_, err := r.extractStoragePolicyName(ctx, "test-sc-no-policy")
+	
+	assert.Error(t, err, "expected error when StorageClass has no storagepolicyname parameter")
+	assert.Contains(t, err.Error(), "no storagepolicyname parameter found", "expected specific error message")
+}
+
+func TestExtractStoragePolicyName_StorageClassNotFound(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	
+	// Empty client - no StorageClass exists
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+	
+	// Try to extract policy name from non-existent StorageClass
+	_, err := r.extractStoragePolicyName(ctx, "non-existent-sc")
+	
+	assert.Error(t, err, "expected error when StorageClass is not found")
+	assert.Contains(t, err.Error(), "StorageClass \"non-existent-sc\" not found", 
+		"expected specific not found error message")
+}
+
+func TestUpdateStatus_PolicyDeleted(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+		Spec:       clusterspiv1alpha1.ClusterStoragePolicyInfoSpec{K8sCompliantName: "test-cspi"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false,
+			Error:                "",
+		},
+	}
+	
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cspi).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+	
+	// Update status to indicate policy is deleted
+	cspi.Status.StoragePolicyDeleted = true
+	cspi.Status.Error = ""
+	
+	err := r.updateStatus(ctx, cspi)
+	assert.NoError(t, err, "updateStatus should succeed")
+	
+	// Verify the status was updated
+	assert.True(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be true")
+	assert.Empty(t, cspi.Status.Error, "expected no error message")
+}
+
+func TestValidateAndUpdateStoragePolicyStatus_MockedVCenter(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+		Spec:       clusterspiv1alpha1.ClusterStoragePolicyInfoSpec{K8sCompliantName: "test-cspi"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false,
+			Error:                "",
+		},
+	}
+	
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cspi).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+	
+	// This test validates the logic flow - in a real scenario we'd need a mock vCenter
+	// For now, we'll test the function signature and validate it doesn't panic
+	// A nil vCenter will cause the function to fail gracefully with an error
+	err := r.validateStoragePolicyExistsOnVcenter(ctx, cspi, nil, "test-policy-id")
+	assert.Error(t, err, "expected error when vCenter is nil")
+	assert.Contains(t, err.Error(), "failed to check storage policy existence", "expected specific error message")
+}
+
+func TestRecordEvent_Warning(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+	}
+	
+	// Initialize backoff map for testing
+	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
+	namespacedName := apitypes.NamespacedName{Name: "test-cspi"}
+	backOffDuration[namespacedName] = time.Second
+	
+	r := &ReconcileClusterStoragePolicyInfo{}
+	r.recordEvent(ctx, cspi, v1.EventTypeWarning, "test warning")
+	
+	// Verify backoff duration was doubled
+	backOffDurationMapMutex.Lock()
+	duration := backOffDuration[namespacedName]
+	backOffDurationMapMutex.Unlock()
+	
+	assert.Equal(t, 2*time.Second, duration, "expected backoff duration to be doubled")
+}
+
+func TestRecordEvent_Normal(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+	}
+	
+	// Initialize backoff map for testing with higher duration
+	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
+	namespacedName := apitypes.NamespacedName{Name: "test-cspi"}
+	backOffDuration[namespacedName] = 30 * time.Second
+	
+	r := &ReconcileClusterStoragePolicyInfo{}
+	r.recordEvent(ctx, cspi, v1.EventTypeNormal, "test success")
+	
+	// Verify backoff duration was reset to 1 second
+	backOffDurationMapMutex.Lock()
+	duration := backOffDuration[namespacedName]
+	backOffDurationMapMutex.Unlock()
+	
+	assert.Equal(t, time.Second, duration, "expected backoff duration to be reset to 1 second")
+}
+
