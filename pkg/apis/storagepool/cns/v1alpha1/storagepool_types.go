@@ -117,7 +117,3 @@ type StoragePoolList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []StoragePool `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&StoragePool{}, &StoragePoolList{})
-}

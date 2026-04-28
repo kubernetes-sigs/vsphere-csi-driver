@@ -950,7 +950,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		14. Perform cleanup by deleting Pods, PVCs and SC.
 	*/
 
-	ginkgo.It("Any single host isolation from the multicluster hci setup ", ginkgo.Label(p1, file, vanilla,
+	ginkgo.It("Any single host isolation from the multicluster hci setup", ginkgo.Label(p1, file, vanilla,
 		level5, level2, newTest, disruptive), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
