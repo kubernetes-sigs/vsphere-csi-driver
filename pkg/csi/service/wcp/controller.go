@@ -1193,19 +1193,25 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	if isCSIBackupAPIEnabled {
+		// It's the best effort scenario to enable the CBT before create volume.
+		// If any error occurs during CBT enablement, it may be deferred to attachment or
+		// periodic reconciler in syncer.
 		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
-			enableCbt, err := common.IsCBTEnabledForNamespace(ctx, c.dynamicClient, pvcNamespace)
+			// Volumes are created with CBT off by default; only enable when the
+			// namespace has CBT active. enableCbt is true only when configured.
+			enableCbt, _, err := common.CBTStateForNamespace(ctx, c.dynamicClient, pvcNamespace)
 			if err != nil {
-				log.Warnf("failed to get enable CBT for namespace %s with error %+v", pvcNamespace, err)
+				log.Warnf("failed to get CBTConfig for namespace %s: %+v", pvcNamespace, err)
 			} else if enableCbt {
-				err = common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeInfo.VolumeID.Id)
-				if err != nil {
-					log.Warnf("failed to set CBT flags for volume %s with error %+v", volumeInfo.VolumeID.Id, err)
+				volumeID := volumeInfo.VolumeID.Id
+				if err := common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeID); err != nil {
+					log.Warnf("failed to set CBT %t for volume %s: %v", enableCbt, volumeID, err)
+				} else {
+					log.Infof("Successfully set CBT %t for volume %s", enableCbt, volumeID)
 				}
 			}
 		} else {
-			log.Warnf("failed to set CBT flag for volume %s due to missing PVC namespace from request parameters",
-				volumeInfo.VolumeID.Id)
+			log.Warnf("failed to get PVC namespace from request parameters for volume %s", volumeInfo.VolumeID.Id)
 		}
 	}
 
@@ -2005,6 +2011,18 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				"volumeAttachment %v already has the attached status as true. "+
 					"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
 				volumeAttachment)
+		}
+
+		isBlockRequest := !isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})
+		if isCSIBackupAPIEnabled && isBlockRequest {
+			_, pvcNamespace, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(req.VolumeId)
+			// Best-effort: sync CBT state before attach. Any failure is deferred
+			// to the periodic reconciler in the syncer.
+			if ok && pvcNamespace != "" {
+				common.SyncVolumeCBTState(ctx, c.dynamicClient, pvcNamespace, c.manager.VolumeManager, req.VolumeId)
+			} else {
+				log.Warnf("failed to get PVC namespace from request parameters for volume %s", req.VolumeId)
+			}
 		}
 
 		vmuuid, err := getPodVMUUID(ctx, req.VolumeId, req.NodeId)

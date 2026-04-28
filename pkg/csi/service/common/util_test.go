@@ -27,18 +27,28 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	corev1 "k8s.io/api/core/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsvolumeoperationrequest "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 var (
@@ -644,48 +654,120 @@ func cbtTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interfac
 	return fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
 }
 
-func TestIsCBTEnabledForNamespace(t *testing.T) {
+// errDynamicClient is a minimal dynamic.Interface stub that always returns a
+// fixed error from List. Only the Resource chain is implemented; all other
+// methods panic to catch unexpected calls.
+type errDynamicClient struct{ err error }
+
+func (e *errDynamicClient) Resource(schema.GroupVersionResource) dynamic.NamespaceableResourceInterface {
+	return &errNamespaceableResource{err: e.err}
+}
+func (e *errDynamicClient) Tracker() k8stesting.ObjectTracker { panic("not implemented") }
+
+type errNamespaceableResource struct{ err error }
+
+func (r *errNamespaceableResource) Namespace(string) dynamic.ResourceInterface { return r }
+func (r *errNamespaceableResource) List(
+	_ context.Context, _ metav1.ListOptions,
+) (*unstructured.UnstructuredList, error) {
+	return nil, r.err
+}
+func (r *errNamespaceableResource) Create(
+	_ context.Context, _ *unstructured.Unstructured, _ metav1.CreateOptions, _ ...string,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Update(
+	_ context.Context, _ *unstructured.Unstructured, _ metav1.UpdateOptions, _ ...string,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) UpdateStatus(
+	_ context.Context, _ *unstructured.Unstructured, _ metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Delete(
+	_ context.Context, _ string, _ metav1.DeleteOptions, _ ...string,
+) error {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) DeleteCollection(
+	_ context.Context, _ metav1.DeleteOptions, _ metav1.ListOptions,
+) error {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Get(
+	_ context.Context, _ string, _ metav1.GetOptions, _ ...string,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Watch(
+	_ context.Context, _ metav1.ListOptions,
+) (watch.Interface, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Patch(
+	_ context.Context, _ string, _ types.PatchType, _ []byte, _ metav1.PatchOptions, _ ...string,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) Apply(
+	_ context.Context, _ string, _ *unstructured.Unstructured, _ metav1.ApplyOptions, _ ...string,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+func (r *errNamespaceableResource) ApplyStatus(
+	_ context.Context, _ string, _ *unstructured.Unstructured, _ metav1.ApplyOptions,
+) (*unstructured.Unstructured, error) {
+	panic("not implemented")
+}
+
+func TestCBTStateForNamespace(t *testing.T) {
 	ctx := context.Background()
 	ns := "test-ns"
 	enabled := true
 	disabled := false
 
+	t.Run("API unavailable (NoKindMatchError)", func(t *testing.T) {
+		noMatch := &apiMeta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "cbt.vsphere.vmware.com"}}
+		dyn := &errDynamicClient{err: noMatch}
+		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+		assert.NoError(t, err)
+		assert.False(t, configured)
+		assert.False(t, en)
+	})
+
 	t.Run("no CBTConfig objects", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t)
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
 		assert.NoError(t, err)
-		assert.False(t, ok)
+		assert.False(t, configured)
+		assert.False(t, en)
 	})
 
 	t.Run("status.enabled true", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
 		assert.NoError(t, err)
-		assert.True(t, ok)
+		assert.True(t, configured)
+		assert.True(t, en)
 	})
 
 	t.Run("status.enabled false", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
 		assert.NoError(t, err)
-		assert.False(t, ok)
+		assert.True(t, configured)
+		assert.False(t, en)
 	})
 
 	t.Run("status.enabled omitted", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, nil))
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
+		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
 		assert.NoError(t, err)
-		assert.False(t, ok)
-	})
-
-	t.Run("multiple CBTConfig one has enabled", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t,
-			cbtConfigUnstructured("a", ns, &disabled),
-			cbtConfigUnstructured("b", ns, &enabled),
-		)
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
-		assert.NoError(t, err)
-		assert.True(t, ok)
+		assert.False(t, configured)
+		assert.False(t, en)
 	})
 }
 
@@ -793,4 +875,190 @@ func TestIsFVSPersistentVolumeClaim(t *testing.T) {
 			}
 		})
 	}
+}
+
+// cbtFlagsMockVolumeManager is a minimal volume.Manager stub that satisfies only
+// the two methods exercised by SyncVolumeCBTState, letting tests inject errors
+// and observe which operation was invoked.
+type cbtFlagsMockVolumeManager struct {
+	setCalled   bool
+	clearCalled bool
+	setErr      error
+	clearErr    error
+}
+
+func (m *cbtFlagsMockVolumeManager) SetVolumeControlFlags(
+	_ context.Context, _ string, _ []string,
+) error {
+	m.setCalled = true
+	return m.setErr
+}
+
+func (m *cbtFlagsMockVolumeManager) ClearVolumeControlFlags(
+	_ context.Context, _ string, _ []string,
+) error {
+	m.clearCalled = true
+	return m.clearErr
+}
+
+// Remaining volume.Manager methods — not exercised by SyncVolumeCBTState.
+func (m *cbtFlagsMockVolumeManager) CreateVolume(context.Context,
+	*cnstypes.CnsVolumeCreateSpec, interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+	return nil, "", nil
+}
+func (m *cbtFlagsMockVolumeManager) AttachVolume(context.Context,
+	*cnsvsphere.VirtualMachine, string, bool) (string, string, error) {
+	return "", "", nil
+}
+func (m *cbtFlagsMockVolumeManager) DetachVolume(context.Context,
+	*cnsvsphere.VirtualMachine, string) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) DeleteVolume(context.Context, string, bool) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) UpdateVolumeMetadata(context.Context,
+	*cnstypes.CnsVolumeMetadataUpdateSpec) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) UpdateVolumeCrypto(context.Context,
+	*cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryVolumeInfo(context.Context,
+	[]cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryAllVolume(context.Context, cnstypes.CnsQueryFilter,
+	cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryVolumeAsync(context.Context, cnstypes.CnsQueryFilter,
+	*cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryVolume(context.Context,
+	cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) RelocateVolume(context.Context,
+	...cnstypes.BaseCnsVolumeRelocateSpec) (*object.Task, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) ExpandVolume(context.Context, string, int64,
+	interface{}) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) ResetManager(context.Context,
+	*cnsvsphere.VirtualCenter) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) ConfigureVolumeACLs(context.Context,
+	cnstypes.CnsVolumeACLConfigureSpec) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) RegisterDisk(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) RetrieveVStorageObject(context.Context,
+	string) (*vim25types.VStorageObject, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) ProtectVolumeFromVMDeletion(context.Context, string) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) CreateSnapshot(context.Context, string, string,
+	interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) DeleteSnapshot(context.Context, string, string,
+	interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) QuerySnapshots(context.Context,
+	cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) MonitorCreateVolumeTask(context.Context,
+	**cnsvolumeoperationrequest.VolumeOperationRequestDetails, *object.Task,
+	string, string) (*cnsvolume.CnsVolumeInfo, string, error) {
+	return nil, "", nil
+}
+func (m *cbtFlagsMockVolumeManager) GetOperationStore() cnsvolumeoperationrequest.VolumeOperationRequest {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) IsListViewReady() bool               { return true }
+func (m *cbtFlagsMockVolumeManager) SetListViewNotReady(context.Context) {}
+func (m *cbtFlagsMockVolumeManager) UnregisterVolume(context.Context,
+	string, bool) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) BatchAttachVolumes(context.Context,
+	*cnsvsphere.VirtualMachine, []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
+	return nil, "", nil
+}
+func (m *cbtFlagsMockVolumeManager) SyncVolume(context.Context,
+	[]cnstypes.CnsSyncVolumeSpec) (string, error) {
+	return "", nil
+}
+func (m *cbtFlagsMockVolumeManager) ReRegisterVolume(context.Context, string) error {
+	return nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryFCDAllocatedBlocks(context.Context,
+	string, string, uint64, uint32) ([]cnsvolume.AllocatedArea, uint64, error) {
+	return nil, 0, nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryFCDChangedBlocks(context.Context,
+	string, string, string, uint64, uint32) ([]cnsvolume.ChangedArea, uint64, error) {
+	return nil, 0, nil
+}
+func (m *cbtFlagsMockVolumeManager) GetFCDSnapshotChangeID(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func TestSyncVolumeCBTState(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	enabled := true
+	disabled := false
+
+	t.Run("CBT enabled calls Set for each volume", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
+		vm := &cbtFlagsMockVolumeManager{}
+		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1", "vol-2")
+		assert.True(t, vm.setCalled)
+		assert.False(t, vm.clearCalled)
+	})
+
+	t.Run("CBT disabled calls Clear for each volume", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
+		vm := &cbtFlagsMockVolumeManager{}
+		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1", "vol-2")
+		assert.False(t, vm.setCalled)
+		assert.True(t, vm.clearCalled)
+	})
+
+	t.Run("not configured skips flag change", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t) // no CBTConfig CR
+		vm := &cbtFlagsMockVolumeManager{}
+		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		assert.False(t, vm.setCalled)
+		assert.False(t, vm.clearCalled)
+	})
+
+	t.Run("Set error is swallowed after logging", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
+		vm := &cbtFlagsMockVolumeManager{setErr: errors.New("set failed")}
+		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		assert.True(t, vm.setCalled)
+		assert.False(t, vm.clearCalled)
+	})
+
+	t.Run("Clear error is swallowed after logging", func(t *testing.T) {
+		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
+		vm := &cbtFlagsMockVolumeManager{clearErr: errors.New("clear failed")}
+		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		assert.False(t, vm.setCalled)
+		assert.True(t, vm.clearCalled)
+	})
 }
