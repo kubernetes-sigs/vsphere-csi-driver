@@ -34,8 +34,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	k8sFake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -46,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsopv1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -2242,4 +2246,124 @@ func TestIsVmInSameNamespace_NotFound(t *testing.T) {
 	if found {
 		t.Fatalf("expected VM not to be found, got true")
 	}
+}
+
+// batchTrackingMockVolumeManager records CBT flag calls for setCBTFlagBeforeBatchAttach tests.
+type batchTrackingMockVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	setCalled   bool
+	clearCalled bool
+}
+
+func (m *batchTrackingMockVolumeManager) SetVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.setCalled = true
+	return nil
+}
+
+func (m *batchTrackingMockVolumeManager) ClearVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.clearCalled = true
+	return nil
+}
+
+func batchCbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   cbtconfigv1alpha1.GroupName,
+		Version: cbtconfigv1alpha1.Version,
+		Kind:    "CBTConfig",
+	})
+	u.SetName(name)
+	u.SetNamespace(namespace)
+	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
+	if statusEnabled != nil {
+		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
+	}
+	return u
+}
+
+func newBatchCBTTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+	t.Helper()
+	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		cbtGVR: "CBTConfigList",
+	}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+}
+
+// withCSIBackupAPIEnabled sets the package isCSIBackupAPIEnabled flag for tests that
+// exercise CBT paths (mirrors Add() when CSI_Backup_API FSS is on).
+func withCSIBackupAPIEnabled(t *testing.T) {
+	t.Helper()
+	prev := isCSIBackupAPIEnabled
+	isCSIBackupAPIEnabled = true
+	t.Cleanup(func() { isCSIBackupAPIEnabled = prev })
+}
+
+// TestSetCBTFlagBeforeBatchAttach_NoCBTConfig skips flag changes when
+// IsCBTEnabledForNamespace returns an error (no CBTConfig CRs in the namespace).
+func TestSetCBTFlagBeforeBatchAttach_NoCBTConfigSkipsFlagChange(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	mockVM := &batchTrackingMockVolumeManager{}
+	r := &Reconciler{
+		volumeManager:    mockVM,
+		cbtDynamicClient: newBatchCBTTestDynamicClient(t),
+	}
+	r.setCBTFlagBeforeBatchAttach(ctx, []string{"vol-1", "vol-2"}, "unknown-ns")
+
+	assert.False(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+func TestSetCBTFlagBeforeBatchAttach_CBTEnabled(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	enabled := true
+	dyn := newBatchCBTTestDynamicClient(t, batchCbtConfigUnstructured("default", "ns-cbt", &enabled))
+
+	mockVM := &batchTrackingMockVolumeManager{}
+	r := &Reconciler{
+		volumeManager:    mockVM,
+		cbtDynamicClient: dyn,
+	}
+	r.setCBTFlagBeforeBatchAttach(ctx, []string{"vol-a", "vol-b"}, "ns-cbt")
+
+	assert.True(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+func TestSetCBTFlagBeforeBatchAttach_CBTDisabled(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	disabled := false
+	dyn := newBatchCBTTestDynamicClient(t, batchCbtConfigUnstructured("default", "ns-off", &disabled))
+
+	mockVM := &batchTrackingMockVolumeManager{}
+	r := &Reconciler{
+		volumeManager:    mockVM,
+		cbtDynamicClient: dyn,
+	}
+	r.setCBTFlagBeforeBatchAttach(ctx, []string{"vol-x", "vol-y"}, "ns-off")
+
+	assert.False(t, mockVM.setCalled)
+	assert.True(t, mockVM.clearCalled)
+}
+
+func TestSetCBTFlagBeforeBatchAttach_DynamicClientNil(t *testing.T) {
+	ctx := context.Background()
+
+	mockVM := &batchTrackingMockVolumeManager{}
+	r := &Reconciler{
+		volumeManager:    mockVM,
+		cbtDynamicClient: nil,
+	}
+	r.setCBTFlagBeforeBatchAttach(ctx, []string{"vol-1", "vol-2"}, "any-ns")
+
+	assert.False(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
 }

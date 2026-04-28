@@ -92,6 +92,9 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 
 // IsFSSEnabled returns the FSS values for a given feature
 func (c *FakeK8SOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) bool {
+	if c.featureStatesLock == nil || c.featureStates == nil {
+		return false
+	}
 	var featureState bool
 	var err error
 	c.featureStatesLock.RLock()

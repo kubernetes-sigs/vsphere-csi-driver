@@ -32,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -72,6 +73,7 @@ var (
 	backOffDuration         map[k8stypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
 	isSharedDiskEnabled     bool
+	isCSIBackupAPIEnabled   bool
 )
 
 // Mockable function variables for testing
@@ -141,15 +143,26 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	// If the capability gets enabled at a later point, then container
 	// will be restarted and this value will be reinitialized.
 	isSharedDiskEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+	isCSIBackupAPIEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
+
+	var cbtDynClient dynamic.Interface
+	if isCSIBackupAPIEnabled {
+		dyn, err := dynamic.NewForConfig(restClientConfig)
+		if err != nil {
+			log.Errorf("Creating dynamic client for CBT lookup failed. Err: %v", err)
+			return err
+		}
+		cbtDynClient = dyn
+	}
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder, cbtDynClient))
 }
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
-	recorder record.EventRecorder) reconcile.Reconciler {
+	recorder record.EventRecorder, cbtDynamicClient dynamic.Interface) reconcile.Reconciler {
 	ctx, _ := logger.GetNewContextWithLogger()
 	return &ReconcileCnsNodeVMAttachment{
 		client:           mgr.GetClient(),
@@ -159,6 +172,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		vmOperatorClient: vmOperatorClient,
 		nodeManager:      cnsnode.GetManager(ctx),
 		recorder:         recorder,
+		cbtDynamicClient: cbtDynamicClient,
 	}
 }
 
@@ -198,6 +212,9 @@ type ReconcileCnsNodeVMAttachment struct {
 	vmOperatorClient client.Client
 	nodeManager      cnsnode.Manager
 	recorder         record.EventRecorder
+	// cbtDynamicClient is set when isCSIBackupAPIEnabled (CSI_Backup_API FSS on); used for
+	// namespace-scoped CBTConfig lookups before attach.
+	cbtDynamicClient dynamic.Interface
 }
 
 // Reconcile reads that state of the cluster for a CnsNodeVMAttachment object
@@ -410,6 +427,9 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			}
 
 			log.Debugf("instance after the patch: %s", instance)
+
+			r.setCBTFlagBeforeAttach(internalCtx, volumeID, instance.Namespace)
+
 			log.Infof("vSphere CSI driver is attaching volume: %q to nodevm: %+v for "+
 				"CnsNodeVmAttachment request with name: %q on namespace: %q",
 				volumeID, nodeVM, request.Name, request.Namespace)
@@ -1067,4 +1087,42 @@ func addCNSFinalizer(ctx context.Context, c client.Client,
 	}
 
 	return k8s.PatchFinalizers(ctx, c, instance, append(instance.Finalizers, cnsoptypes.CNSFinalizer))
+}
+
+// setCBTFlagBeforeAttach enables or disables CBT on the given volume according to
+// CBTConfig objects in the namespace when CSI_Backup_API is enabled, using a dynamic
+// client list (same semantics as provisioning).
+func (r *ReconcileCnsNodeVMAttachment) setCBTFlagBeforeAttach(ctx context.Context,
+	volumeID, namespace string) {
+	log := logger.GetLogger(ctx)
+
+	if !isCSIBackupAPIEnabled {
+		return
+	}
+	if r.cbtDynamicClient == nil {
+		return
+	}
+
+	log.Debugf("setting CBT flag for volume %s in namespace %s", volumeID, namespace)
+
+	cbtEnabled, err := common.IsCBTEnabledForNamespace(ctx, r.cbtDynamicClient, namespace)
+	if err != nil {
+		log.Debugf("failed to determine CBT state for namespace %s: %v", namespace, err)
+		return
+	}
+
+	if cbtEnabled {
+		if err := common.SetVolumeCbtFlagsUtil(ctx, r.volumeManager, volumeID); err != nil {
+			log.Warnf("failed to enable CBT for volume %s: %v", volumeID, err)
+			return
+		}
+		log.Infof("Successfully enabled CBT for volume %s in namespace %s", volumeID, namespace)
+		return
+	}
+
+	if err := common.ClearVolumeCbtFlagsUtil(ctx, r.volumeManager, volumeID); err != nil {
+		log.Warnf("failed to disable CBT for volume %s: %v", volumeID, err)
+		return
+	}
+	log.Infof("Successfully disabled CBT for volume %s in namespace %s", volumeID, namespace)
 }

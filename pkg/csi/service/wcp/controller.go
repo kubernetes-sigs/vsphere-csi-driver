@@ -1196,16 +1196,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
 			enableCbt, err := common.IsCBTEnabledForNamespace(ctx, c.dynamicClient, pvcNamespace)
 			if err != nil {
-				log.Warnf("failed to get enable CBT for namespace %s with error %+v", pvcNamespace, err)
+				log.Debugf("failed to get CBTConfig for namespace %s with error %+v", pvcNamespace, err)
 			} else if enableCbt {
-				err = common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeInfo.VolumeID.Id)
-				if err != nil {
+				if err := common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeInfo.VolumeID.Id); err != nil {
 					log.Warnf("failed to set CBT flags for volume %s with error %+v", volumeInfo.VolumeID.Id, err)
 				}
 			}
 		} else {
-			log.Warnf("failed to set CBT flag for volume %s due to missing PVC namespace from request parameters",
-				volumeInfo.VolumeID.Id)
+			log.Warnf("failed to get PVC namespace from request parameters for volume %s", volumeInfo.VolumeID.Id)
 		}
 	}
 
@@ -1996,6 +1994,34 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				"volumeAttachment %v already has the attached status as true. "+
 					"Assuming the attach volume is due to incorrect force sync Attach from CSI Attacher",
 				volumeAttachment)
+		}
+
+		isBlockRequest := !isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()})
+		if isCSIBackupAPIEnabled && isBlockRequest {
+			_, pvcNamespace, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(req.VolumeId)
+			// Won't return failure if any error occurs during CBT enablement.
+			if ok && pvcNamespace != "" {
+				nsEnableCbt, nsErr := common.IsCBTEnabledForNamespace(ctx, c.dynamicClient, pvcNamespace)
+				if nsErr == nil {
+					// SetVolumeCbtFlagsUtil and ClearVolumeCbtFlagsUtil are idempotent.
+					// So, it's safe to call them multiple times without querying the current state.
+					if nsEnableCbt {
+						setErr := common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, req.VolumeId)
+						if setErr != nil {
+							log.Warnf("failed to set CBT flags with error %+v for volume %s", setErr, req.VolumeId)
+						}
+					} else {
+						clearErr := common.ClearVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, req.VolumeId)
+						if clearErr != nil {
+							log.Warnf("failed to clear CBT flags with error %+v for volume %s", clearErr, req.VolumeId)
+						}
+					}
+				} else {
+					log.Debugf("failed to get CBTConfig for namespace %s with error %+v", pvcNamespace, nsErr)
+				}
+			} else {
+				log.Warnf("failed to get PVC namespace from request parameters for volume %s", req.VolumeId)
+			}
 		}
 
 		vmuuid, err := getPodVMUUID(ctx, req.VolumeId, req.NodeId)

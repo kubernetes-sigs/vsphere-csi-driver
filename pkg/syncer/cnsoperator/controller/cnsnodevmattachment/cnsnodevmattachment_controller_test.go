@@ -26,9 +26,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +41,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -732,4 +736,134 @@ func TestPatchObjectWithDeepCopy(t *testing.T) {
 		assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer)
 		assert.Contains(t, updatedPVC.Finalizers, "other-finalizer")
 	})
+}
+
+func cbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   cbtconfigv1alpha1.GroupName,
+		Version: cbtconfigv1alpha1.Version,
+		Kind:    "CBTConfig",
+	})
+	u.SetName(name)
+	u.SetNamespace(namespace)
+	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
+	if statusEnabled != nil {
+		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
+	}
+	return u
+}
+
+func newCBTTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+	t.Helper()
+	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		cbtGVR: "CBTConfigList",
+	}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+}
+
+// withCSIBackupAPIEnabled sets the package isCSIBackupAPIEnabled flag for tests that
+// exercise CBT paths (mirrors Add() when CSI_Backup_API FSS is on).
+func withCSIBackupAPIEnabled(t *testing.T) {
+	t.Helper()
+	prev := isCSIBackupAPIEnabled
+	isCSIBackupAPIEnabled = true
+	t.Cleanup(func() { isCSIBackupAPIEnabled = prev })
+}
+
+// TestSetCBTFlagBeforeAttach_NoCBTConfig skips flag changes when
+// IsCBTEnabledForNamespace returns an error (no CBTConfig CRs in the namespace).
+func TestSetCBTFlagBeforeAttach_NoCBTConfigSkipsFlagChange(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	mockVM := &trackingMockVolumeManager{}
+	r := &ReconcileCnsNodeVMAttachment{
+		volumeManager:    mockVM,
+		cbtDynamicClient: newCBTTestDynamicClient(t),
+	}
+
+	r.setCBTFlagBeforeAttach(ctx, "vol-1", "unknown-ns")
+
+	assert.False(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+// TestSetCBTFlagBeforeAttach_CBTEnabled verifies that when CBTConfig has status.enabled true,
+// SetVolumeControlFlags is called.
+func TestSetCBTFlagBeforeAttach_CBTEnabled(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	enabled := true
+	dyn := newCBTTestDynamicClient(t, cbtConfigUnstructured("default", "ns-cbt", &enabled))
+
+	mockVM := &trackingMockVolumeManager{}
+	r := &ReconcileCnsNodeVMAttachment{
+		volumeManager:    mockVM,
+		cbtDynamicClient: dyn,
+	}
+
+	r.setCBTFlagBeforeAttach(ctx, "vol-cbt-on", "ns-cbt")
+
+	assert.True(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+// TestSetCBTFlagBeforeAttach_CBTDisabled verifies that when CBTConfig has status.enabled false,
+// ClearVolumeControlFlags is called.
+func TestSetCBTFlagBeforeAttach_CBTDisabled(t *testing.T) {
+	ctx := context.Background()
+	withCSIBackupAPIEnabled(t)
+
+	disabled := false
+	dyn := newCBTTestDynamicClient(t, cbtConfigUnstructured("default", "ns-nocbt", &disabled))
+
+	mockVM := &trackingMockVolumeManager{}
+	r := &ReconcileCnsNodeVMAttachment{
+		volumeManager:    mockVM,
+		cbtDynamicClient: dyn,
+	}
+
+	r.setCBTFlagBeforeAttach(ctx, "vol-cbt-off", "ns-nocbt")
+
+	assert.False(t, mockVM.setCalled)
+	assert.True(t, mockVM.clearCalled)
+}
+
+// TestSetCBTFlagBeforeAttach_DynamicClientNil verifies that when CSI_Backup_API is off or the
+// dynamic client was not initialized, setCBTFlagBeforeAttach is a no-op.
+func TestSetCBTFlagBeforeAttach_DynamicClientNil(t *testing.T) {
+	ctx := context.Background()
+
+	mockVM := &trackingMockVolumeManager{}
+	r := &ReconcileCnsNodeVMAttachment{
+		volumeManager:    mockVM,
+		cbtDynamicClient: nil,
+	}
+
+	r.setCBTFlagBeforeAttach(ctx, "vol-cbt-on", "ns-cbt")
+
+	assert.False(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+// trackingMockVolumeManager wraps MockVolumeManager and records CBT flag calls.
+type trackingMockVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	setCalled   bool
+	clearCalled bool
+}
+
+func (m *trackingMockVolumeManager) SetVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.setCalled = true
+	return nil
+}
+
+func (m *trackingMockVolumeManager) ClearVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.clearCalled = true
+	return nil
 }
