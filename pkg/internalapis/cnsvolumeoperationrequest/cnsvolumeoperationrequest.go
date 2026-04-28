@@ -63,6 +63,14 @@ type VolumeOperationRequest interface {
 	// DeleteRequestDetails deletes the details of the operation on the volume
 	// that was persisted by the VolumeOperationRequest interface.
 	DeleteRequestDetails(ctx context.Context, name string) error
+	// HasPriorSuccessfulCreate checks the full LatestOperationDetails list
+	// of the CnsVolumeOperationRequest CR identified by name and returns
+	// true if any entry has TaskStatus == Success. This is used to guard
+	// against re-populating QuotaDetails.Reserved on retry paths (e.g.
+	// after CnsVolumeAlreadyExistsFault) that would otherwise cause
+	// StoragePolicyUsage.used to be incremented more than once for the
+	// same volume.
+	HasPriorSuccessfulCreate(ctx context.Context, name string) bool
 }
 
 // operationRequestStore implements the VolumeOperationsRequest interface.
@@ -379,6 +387,32 @@ func (or *operationRequestStore) DeleteRequestDetails(ctx context.Context, name 
 		}
 	}
 	return nil
+}
+
+// HasPriorSuccessfulCreate checks if the CnsVolumeOperationRequest CR
+// identified by name has any entry in LatestOperationDetails with
+// TaskStatus == Success. This is used as an idempotency guard in the
+// CreateVolume retry path: if a prior attempt already completed
+// successfully (and was thus already accounted for in
+// StoragePolicyUsage.used), we must not re-populate
+// QuotaDetails.Reserved on the retry to avoid double-counting.
+func (or *operationRequestStore) HasPriorSuccessfulCreate(ctx context.Context, name string) bool {
+	log := logger.GetLogger(ctx)
+	instanceKey := client.ObjectKey{Name: name, Namespace: csiNamespace}
+	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
+	if err := or.k8sclient.Get(ctx, instanceKey, instance); err != nil {
+		log.Debugf("HasPriorSuccessfulCreate: could not fetch CR %s/%s: %v",
+			instanceKey.Namespace, instanceKey.Name, err)
+		return false
+	}
+	for _, op := range instance.Status.LatestOperationDetails {
+		if op.TaskStatus == TaskInvocationStatusSuccess {
+			log.Infof("HasPriorSuccessfulCreate: found prior successful task %s in CR %s",
+				op.TaskID, name)
+			return true
+		}
+	}
+	return false
 }
 
 // cleanupStaleInstances cleans up CnsVolumeOperationRequest instances
