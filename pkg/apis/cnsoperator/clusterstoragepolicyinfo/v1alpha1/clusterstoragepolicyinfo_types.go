@@ -39,7 +39,7 @@ type EncryptionType string
 type ClusterStoragePolicyInfoStatus struct {
 	// StoragePolicyDeleted indicates whether the underlying storagepolicy is deleted or not on the VC.
 	// +optional
-	StoragePolicyDeleted bool `json:"storagePolicyDeleted,omitempty"`
+	StoragePolicyDeleted bool `json:"storagePolicyDeleted"`
 
 	// VolumeCapabilities describes the supported volume capabilities.
 	// +optional

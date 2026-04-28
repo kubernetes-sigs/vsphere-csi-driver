@@ -25,6 +25,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -51,6 +52,15 @@ type SpbmPolicySubProfile struct {
 type SpbmPolicyContent struct {
 	ID       string                 `json:"id,omitempty"`
 	Profiles []SpbmPolicySubProfile `json:"profiles"`
+}
+
+// ProfileDetail represents a storage profile with its basic information.
+type ProfileDetail struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	K8sCompliantName string `json:"k8sCompliantName,omitempty"`
+	Description      string `json:"description,omitempty"`
+	Category         string `json:"category,omitempty"`
 }
 
 // ConnectPbm creates a PBM client for the virtual center.
@@ -150,6 +160,82 @@ func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []str
 	profiles, err := vc.PbmClient.RetrieveContent(ctx, pbmPolicyIds)
 
 	return simplifyProfileStructs(ctx, profiles), err
+}
+
+// QueryAllProfileDetails queries all profiles of a specific category from vCenter SPBM.
+// This uses the queryProfileDetails API to get all profiles in the specified category.
+func (vc *VirtualCenter) QueryAllProfileDetails(ctx context.Context, profileCategory string,
+	fetchAllFields bool) ([]ProfileDetail, error) {
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return nil, err
+	}
+
+	// Call the queryProfileDetails API
+	req := pbmtypes.PbmQueryProfileDetails{
+		This:            vc.PbmClient.ServiceContent.ProfileManager,
+		ProfileCategory: profileCategory,
+		FetchAllFields:  fetchAllFields,
+	}
+
+	res, err := pbmmethods.PbmQueryProfileDetails(ctx, vc.PbmClient, &req)
+	if err != nil {
+		log.Errorf("failed to query profile details for category %s: %v", profileCategory, err)
+		return nil, err
+	}
+
+	// Convert response to our ProfileDetail structure
+	profiles := make([]ProfileDetail, 0)
+	if res.Returnval != nil {
+		for _, profileDetail := range res.Returnval {
+			if profileDetail.Profile != nil {
+				// Cast to PbmCapabilityProfile to access fields
+				if capProfile, ok := profileDetail.Profile.(*pbmtypes.PbmCapabilityProfile); ok {
+					profile := ProfileDetail{
+						ID:               capProfile.ProfileId.UniqueId,
+						Name:             capProfile.Name,
+						K8sCompliantName: capProfile.K8sCompliantName,
+						Description:      capProfile.Description,
+						Category:         capProfile.ProfileCategory,
+					}
+					profiles = append(profiles, profile)
+				} else {
+					log.Debugf("Failed to cast profile to PbmCapabilityProfile: %T", profileDetail.Profile)
+				}
+			}
+		}
+	}
+
+	log.Debugf("Found %d profiles for category %s", len(profiles), profileCategory)
+	return profiles, nil
+}
+
+// FindProfileByK8sCompliantName searches for a storage policy by its K8s compliant name.
+// This is more flexible than ProfileIDByName as it searches through all profiles.
+// Returns the matching profile, fault type, and error if not found.
+func (vc *VirtualCenter) FindProfileByK8sCompliantName(ctx context.Context,
+	k8sCompliantName string) (*ProfileDetail, string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Query all REQUIREMENT profiles (fetchAllFields=false for better performance)
+	profiles, err := vc.QueryAllProfileDetails(ctx, "REQUIREMENT", false)
+	if err != nil {
+		log.Errorf("failed to query profile details: %v", err)
+		return nil, fault.CSIInternalFault, err
+	}
+
+	// Search for profile with matching K8s compliant name
+	for _, profile := range profiles {
+		if profile.K8sCompliantName == k8sCompliantName {
+			log.Infof("Found storage policy with K8s compliant name %s: ID=%s, Name=%s",
+				k8sCompliantName, profile.ID, profile.Name)
+			return &profile, "", nil
+		}
+	}
+
+	return nil, fault.CSINotFoundFault, fmt.Errorf("storage policy with K8s compliant name %s not found", k8sCompliantName)
 }
 
 func simplifyProfileStructs(ctx context.Context, profiles []pbmtypes.BasePbmProfile) []SpbmPolicyContent {
