@@ -2396,7 +2396,7 @@ var _ = ginkgo.Describe("[csi-tkgs-ha] Tkgs-HA-SanityTests", func() {
 		20.Delete the POD's , PVC's and PV's
 	*/
 	ginkgo.It("[vks-tkgsha-exp-nonprod] Verify the behaviour when CSI syncer is deleted "+
-		"and check fullsync ", ginkgo.Label(p1, block, tkgsHA,
+		"and check fullsync", ginkgo.Label(p1, block, tkgsHA,
 		negative, vc80),
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
