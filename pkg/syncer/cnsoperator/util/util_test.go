@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -39,6 +40,17 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
+
+// newFakeDynamicClientForNetworkSettings returns a fake dynamic client that supports List/Get on
+// netoperator.vmware.com NetworkSettings (registers NetworkSettingsList for the fake tracker).
+func newFakeDynamicClientForNetworkSettings(objects ...runtime.Object) *fake.FakeDynamicClient {
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypes(networkSettingsGVR.GroupVersion())
+	gvrToListKind := map[schema.GroupVersionResource]string{
+		networkSettingsGVR: "NetworkSettingsList",
+	}
+	return fake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objects...)
+}
 
 func TestGetSnatIpFromNamespaceNetworkInfo(t *testing.T) {
 	ctx := context.Background()
@@ -423,6 +435,7 @@ func TestGetTKGVMIP_NetworkStatusNil(t *testing.T) {
 		vmNamespace,
 		vmName,
 		VDSNetworkProvider,
+		false,
 	)
 
 	if err == nil {
@@ -436,4 +449,150 @@ func TestGetTKGVMIP_NetworkStatusNil(t *testing.T) {
 	if !strings.Contains(err.Error(), "virtualMachineInstance.Status.Network is nil for VM") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+}
+
+func TestMapNetworkSettingsProviderToNetworkProvider(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"vsphere-distributed", VDSNetworkProvider, false},
+		{"NSX-TIER1", NSXTNetworkProvider, false},
+		{"vpc", VPCNetworkProvider, false},
+		{"unknown", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := mapNetworkSettingsProviderToNetworkProvider(tt.in)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetTKGVMIP_NetworkSettingsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	vmNamespace := "test-ns"
+	vmName := "test-vm"
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: vmNamespace},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "test-image",
+			ClassName: "test-class",
+			Network:   &vmoperatortypes.VirtualMachineNetworkSpec{},
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			Network: &vmoperatortypes.VirtualMachineNetworkStatus{
+				PrimaryIP4: "192.0.2.1",
+			},
+		},
+	}
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	vmOpClient := ctrlruntimefake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+	commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("orchestrator: %v", err)
+	}
+	dc := newFakeDynamicClientForNetworkSettings()
+
+	_, err = GetTKGVMIPFromNetworkSettings(ctx, vmOpClient, dc, vmNamespace, vmName)
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNetworkSettingsUnavailable))
+}
+
+func TestGetNetworkProviderFromNetworkSettings_MultipleCRs(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	a := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "netoperator.vmware.com/v1alpha1",
+			"kind":       "NetworkSettings",
+			"metadata": map[string]interface{}{
+				"name": "a", "namespace": ns,
+			},
+			"provider": networkSettingsProviderVsphereDistributed,
+		},
+	}
+	b := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "netoperator.vmware.com/v1alpha1",
+			"kind":       "NetworkSettings",
+			"metadata": map[string]interface{}{
+				"name": "b", "namespace": ns,
+			},
+			"provider": networkSettingsProviderVsphereDistributed,
+		},
+	}
+	dc := newFakeDynamicClientForNetworkSettings()
+	_, err := dc.Resource(networkSettingsGVR).Namespace(ns).Create(ctx, a, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	_, err = dc.Resource(networkSettingsGVR).Namespace(ns).Create(ctx, b, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	_, err = getNetworkProviderFromNetworkSettings(ctx, dc, ns)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expected exactly one NetworkSettings")
+}
+
+func TestGetTKGVMIP_PerNamespaceVDSUsesVMIP(t *testing.T) {
+	ctx := context.Background()
+	vmNamespace := "test-ns"
+	vmName := "test-vm"
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: vmNamespace},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "test-image",
+			ClassName: "test-class",
+			Network:   &vmoperatortypes.VirtualMachineNetworkSpec{},
+		},
+		Status: vmoperatortypes.VirtualMachineStatus{
+			Network: &vmoperatortypes.VirtualMachineNetworkStatus{
+				PrimaryIP4: "192.0.2.10",
+			},
+		},
+	}
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	vmOpClient := ctrlruntimefake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+	commonco.ContainerOrchestratorUtility, err = unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("orchestrator: %v", err)
+	}
+	ns := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "netoperator.vmware.com/v1alpha1",
+			"kind":       "NetworkSettings",
+			"metadata": map[string]interface{}{
+				"name":      "arbitrary-network-settings-name",
+				"namespace": vmNamespace,
+			},
+			"provider": networkSettingsProviderVsphereDistributed,
+		},
+	}
+	dc := newFakeDynamicClientForNetworkSettings()
+	_, err = dc.Resource(networkSettingsGVR).Namespace(vmNamespace).Create(ctx, ns, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create NetworkSettings: %v", err)
+	}
+
+	ip, err := GetTKGVMIPFromNetworkSettings(ctx, vmOpClient, dc, vmNamespace, vmName)
+	assert.NoError(t, err)
+	assert.Equal(t, "192.0.2.10", ip)
 }
