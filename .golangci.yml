@@ -1,15 +1,59 @@
+version: "2"
+
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
     - misspell
     - lll
+  exclusions:
+    rules:
+      # Exclude errcheck for Close, Unsetenv, Setenv, Remove calls
+      # These are commonly ignored in deferred cleanup operations
+      - linters:
+          - errcheck
+        text: "Error return value of .*(Close|Unsetenv|Setenv|Remove).*is not checked"
+      # Exclude QF1001 (could apply De Morgan's law) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1001"
+      # Exclude QF1002 (could use tagged switch) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1002"
+      # Exclude QF1003 (could use tagged switch) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1003"
+      # Exclude QF1004 (could use strings.ReplaceAll) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1004"
+      # Exclude QF1007 (could merge conditional assignment) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1007"
+      # Exclude QF1008 (could remove embedded field from selector) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1008"
+      # Exclude QF1010 (could convert argument to string) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1010"
+      # Exclude QF1011 (could omit type from declaration) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "QF1011"
+      # Exclude ST1023 (should omit type from declaration) - stylistic suggestion
+      - linters:
+          - staticcheck
+        text: "ST1023"
+
 linters-settings:
   lll:
     # max line length, lines longer will be reported. Default is 120.
