@@ -156,3 +156,9 @@ replace (
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.35.4
 	k8s.io/sample-controller => k8s.io/sample-controller v0.35.4
 )
+
+// The below fixes the "go list -m all" execution
+replace (
+	k8s.io/endpointslice => k8s.io/endpointslice v0.35.0
+	k8s.io/externaljwt => k8s.io/externaljwt v0.35.0
+)
