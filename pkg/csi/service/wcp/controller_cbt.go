@@ -19,18 +19,12 @@ package wcp
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
-	"github.com/vmware/govmomi/vim25/soap"
-	"github.com/vmware/govmomi/vim25/types"
-	"github.com/vmware/govmomi/vslm"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 
-	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -45,27 +39,6 @@ const (
 
 // GetMetadataAllocated returns the allocated blocks for a snapshot using FCD VSLM APIs.
 // This implementation uses pure Go through govmomi's VSLM package (no CGO/VDDK required).
-
-// For unit testing purposes
-var queryChangedDiskAreasFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-	volumeID types.ID, snapshotID types.ID, startingOffset int64, changeId string) (*types.DiskChangeInfo, error) {
-	vslmClient, err := vslm.NewClient(ctx, vcenter.Client.Client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create VSLM client: %v", err)
-	}
-	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
-	return globalObjectManager.QueryChangedDiskAreas(ctx, volumeID, snapshotID, startingOffset, changeId)
-}
-
-var retrieveSnapshotDetailsFunc = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-	volumeID types.ID, snapshotID types.ID) (*types.VStorageObjectSnapshotDetails, error) {
-	vslmClient, err := vslm.NewClient(ctx, vcenter.Client.Client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create VSLM client: %v", err)
-	}
-	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
-	return globalObjectManager.RetrieveSnapshotDetails(ctx, volumeID, snapshotID)
-}
 
 func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	server csi.SnapshotMetadata_GetMetadataAllocatedServer) error {
@@ -142,8 +115,7 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
-		// Query allocated blocks using FCD APIs
-		allocatedAreas, nextOffset, err := c.queryAllocatedBlocksFromFCD(
+		allocatedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDAllocatedBlocks(
 			ctx, volumeID, cnsSnapshotID, uint64(startingOffset), uint32(maxResults))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
@@ -280,9 +252,15 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
-		// Query changed blocks using FCD APIs
-		changedAreas, nextOffset, err := c.queryChangedAreasFromFCD(
-			ctx, volumeID, baseSnapshotID, targetCnsSnapshotID, uint64(startingOffset), uint32(maxResults))
+		baseChangeID, err := commonco.ContainerOrchestratorUtility.GetVolumeSnapshotChangeIDBySnapshotID(
+			ctx, baseSnapshotID)
+		if err != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to get base snapshot changeId from annotation: %v", err)
+		}
+
+		changedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDChangedBlocks(
+			ctx, volumeID, targetCnsSnapshotID, baseChangeID, uint64(startingOffset), uint32(maxResults))
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to query changed blocks: %v", err)
@@ -326,195 +304,9 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	return server.Send(resp)
 }
 
-// AllocatedArea represents an allocated area on disk
-type AllocatedArea struct {
-	Offset uint64
-	Length uint64
-}
-
-// ChangedArea represents a changed area between two snapshots
-type ChangedArea struct {
-	Offset uint64
-	Length uint64
-}
-
-// queryAllocatedBlocksFromFCD queries allocated blocks using FCD VSLM APIs.
-// It uses QueryChangedDiskAreas with changeId="*" to get all allocated blocks.
-func (c *controller) queryAllocatedBlocksFromFCD(ctx context.Context, volumeID, snapshotID string,
-	startingOffset uint64, maxResults uint32) ([]AllocatedArea, uint64, error) {
-
-	log := logger.GetLogger(ctx)
-	log.Debugf("queryAllocatedBlocksFromFCD: volume=%s snapshot=%s offset=%d maxResults=%d",
-		volumeID, snapshotID, startingOffset, maxResults)
-
-	// Get vCenter connection
-	vcenter, err := common.GetVCenter(ctx, c.manager)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get vCenter instance: %v", err)
-	}
-
-	// Convert IDs to VSLM format
-	vslmVolumeID := types.ID{Id: volumeID}
-	vslmSnapshotID := types.ID{Id: snapshotID}
-
-	// Use "*" as changeId to get all allocated blocks
-	changeId := "*"
-
-	// Query changed disk areas (all allocated blocks when changeId="*")
-	log.Debugf("Calling VSLM QueryChangedDiskAreas with changeId='*' for all allocated blocks")
-	diskChangeInfo, err := queryChangedDiskAreasFunc(
-		ctx,
-		vcenter,
-		vslmVolumeID,
-		vslmSnapshotID,
-		int64(startingOffset),
-		changeId,
-	)
-	if err != nil {
-		return nil, 0, translateVslmError(log, err)
-	}
-
-	// Convert to our result format
-	var allocatedAreas []AllocatedArea
-	nextOffset := startingOffset
-
-	for _, area := range diskChangeInfo.ChangedArea {
-		if uint32(len(allocatedAreas)) >= maxResults {
-			break
-		}
-
-		allocatedArea := AllocatedArea{
-			Offset: uint64(area.Start),
-			Length: uint64(area.Length),
-		}
-		allocatedAreas = append(allocatedAreas, allocatedArea)
-
-		// Track the end of this area
-		areaEnd := uint64(area.Start) + uint64(area.Length)
-		if areaEnd > nextOffset {
-			nextOffset = areaEnd
-		}
-	}
-
-	// If we got fewer results than requested, we're done (set nextOffset to 0)
-	if uint32(len(allocatedAreas)) < maxResults {
-		nextOffset = 0
-	}
-
-	log.Debugf("queryAllocatedBlocksFromFCD: returned %d allocated areas, next offset %d",
-		len(allocatedAreas), nextOffset)
-
-	return allocatedAreas, nextOffset, nil
-}
-
-// queryChangedAreasFromFCD queries changed blocks using FCD VSLM APIs.
-// It uses QueryChangedDiskAreas with a specific changeId to get blocks changed since the base snapshot.
-func (c *controller) queryChangedAreasFromFCD(ctx context.Context, volumeID, fullBaseSnapshotID,
-	targetSnapshotID string, startingOffset uint64, maxResults uint32) ([]ChangedArea, uint64, error) {
-
-	log := logger.GetLogger(ctx)
-	log.Debugf("queryChangedAreasFromFCD: volume=%s base=%s target=%s offset=%d maxResults=%d",
-		volumeID, fullBaseSnapshotID, targetSnapshotID, startingOffset, maxResults)
-
-	// Get vCenter connection
-	vcenter, err := common.GetVCenter(ctx, c.manager)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get vCenter instance: %v", err)
-	}
-
-	// Step 1: Get the changeId from the base snapshot
-	baseChangeId, err := commonco.ContainerOrchestratorUtility.GetVolumeSnapshotChangeIDBySnapshotID(
-		ctx, fullBaseSnapshotID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get base snapshot changeId from annotation: %v", err)
-	}
-
-	log.Debugf("Retrieved base snapshot changeId from annotation: %s", baseChangeId)
-
-	// Convert IDs to VSLM format
-	vslmVolumeID := types.ID{Id: volumeID}
-	vslmTargetSnapshotID := types.ID{Id: targetSnapshotID}
-
-	// Query changed disk areas
-	log.Debugf("Calling VSLM QueryChangedDiskAreas with base changeId for delta")
-	diskChangeInfo, err := queryChangedDiskAreasFunc(
-		ctx,
-		vcenter,
-		vslmVolumeID,
-		vslmTargetSnapshotID,
-		int64(startingOffset),
-		baseChangeId,
-	)
-	if err != nil {
-		return nil, 0, translateVslmError(log, err)
-	}
-
-	// Convert to our result format
-	var changedAreas []ChangedArea
-	nextOffset := startingOffset
-
-	for _, area := range diskChangeInfo.ChangedArea {
-		if uint32(len(changedAreas)) >= maxResults {
-			break
-		}
-
-		changedArea := ChangedArea{
-			Offset: uint64(area.Start),
-			Length: uint64(area.Length),
-		}
-		changedAreas = append(changedAreas, changedArea)
-
-		// Track the end of this area
-		areaEnd := uint64(area.Start) + uint64(area.Length)
-		if areaEnd > nextOffset {
-			nextOffset = areaEnd
-		}
-	}
-
-	// If we got fewer results than requested, we're done (set nextOffset to 0)
-	if uint32(len(changedAreas)) < maxResults {
-		nextOffset = 0
-	}
-
-	log.Debugf("queryChangedAreasFromFCD: returned %d changed areas, next offset %d",
-		len(changedAreas), nextOffset)
-
-	return changedAreas, nextOffset, nil
-}
-
-// getSnapshotChangeIdFromFCD retrieves the changeId from a snapshot using FCD VSLM APIs.
+// getSnapshotChangeIdFromFCD retrieves the changeId from a snapshot using FCD VSLM APIs via the volume manager.
 func (c *controller) getSnapshotChangeIdFromFCD(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	log := logger.GetLogger(ctx)
-
-	// Get vCenter connection
-	vcenter, err := common.GetVCenter(ctx, c.manager)
-	if err != nil {
-		return "", fmt.Errorf("failed to get vCenter instance: %v", err)
-	}
-
-	vslmVolumeID := types.ID{Id: volumeID}
-	vslmSnapshotID := types.ID{Id: snapshotID}
-
-	// Retrieve snapshot details
-	log.Debugf("Retrieving snapshot details for snapshot %s", snapshotID)
-	snapshotDetails, err := retrieveSnapshotDetailsFunc(
-		ctx,
-		vcenter,
-		vslmVolumeID,
-		vslmSnapshotID,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve snapshot details via VSLM API: %v", err)
-	}
-
-	// Extract changeId from snapshot
-	changeId := snapshotDetails.ChangedBlockTrackingId
-	if changeId == "" {
-		return "", fmt.Errorf("changeId is empty in snapshot %s (CBT may not be enabled)", snapshotID)
-	}
-
-	log.Debugf("Retrieved changeId %s for snapshot %s", changeId, snapshotID)
-	return changeId, nil
+	return c.manager.VolumeManager.GetFCDSnapshotChangeID(ctx, volumeID, snapshotID)
 }
 
 // validateGetMetadataAllocatedRequest validates the GetMetadataAllocated request
@@ -555,84 +347,4 @@ func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDe
 
 	log.Debugf("GetMetadataDelta request validation passed")
 	return nil
-}
-
-// translateVslmError maps VSLM and VADP error codes to standard CSI gRPC error codes
-func translateVslmError(log *zap.SugaredLogger, err error) error {
-	if err == nil {
-		return nil
-	}
-
-	errMsg := err.Error()
-
-	// Check if it's a SOAP fault from vCenter
-	if soap.IsSoapFault(err) {
-		fault := soap.ToSoapFault(err).VimFault()
-
-		switch f := fault.(type) {
-		case *types.FileFault:
-			msgID := ""
-			if len(f.FaultMessage) > 0 {
-				msgID = f.FaultMessage[0].Key
-			} else {
-				if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noTrack") {
-					msgID = "vim.hostd.vmsvc.cbt.noTrack"
-				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noEpoch") {
-					msgID = "vim.hostd.vmsvc.cbt.noEpoch"
-				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.cannotGetChanges") {
-					msgID = "vim.hostd.vmsvc.cbt.cannotGetChanges"
-				}
-			}
-
-			switch msgID {
-			case "vim.hostd.vmsvc.cbt.noTrack":
-				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"CBT disabled or not enabled. The caller should perform a full backup instead: %v", err)
-			case "vim.hostd.vmsvc.cbt.noEpoch":
-				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"Cannot get current epoch when changeId=*. The caller should perform a full backup instead: %v", err)
-			case "vim.hostd.vmsvc.cbt.cannotGetChanges":
-				if strings.Contains(strings.ToLower(errMsg), "corrupt") {
-					return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-						"ctk file corrupted. The caller should perform a full backup instead: %v", err)
-				}
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"changeID mismatch. The caller should correct the error and resubmit the call: %v", err)
-			default:
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"Internal errors such ctk disk open fails, FCD disk locked, disk missing, etc. "+
-						"CSI driver should retry the operation: %v", err)
-			}
-		case *types.SystemError:
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"Internal system error. CSI driver should retry the operation: %v", err)
-		case *types.InvalidArgument:
-			if f.InvalidProperty == "startOffset" || strings.Contains(errMsg, "startOffset") {
-				return logger.LogNewErrorCodef(log, codes.OutOfRange,
-					"start offset specified beyond volume size. The caller should specify a valid offset: %v", err)
-			}
-			if f.InvalidProperty == "snapshotId" || strings.Contains(errMsg, "snapshotId") {
-				return logger.LogNewErrorCodef(log, codes.NotFound,
-					"snapshot ID not found for FCD. The caller should re-check that these objects exist: %v", err)
-			}
-			if f.InvalidProperty == "changeId" || strings.Contains(errMsg, "changeId") {
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"invalid format for changeID. The caller should correct the error and resubmit the call: %v", err)
-			}
-			if f.InvalidProperty == "deviceKey" || strings.Contains(errMsg, "deviceKey") {
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"Device key doesn't exist, Disk has no backing, or Disk backing "+
-						"type doesn't support CBT. The caller should correct the "+
-						"error and resubmit the call: %v", err)
-			}
-			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"invalid argument %s: %v", f.InvalidProperty, err)
-		case *types.NotFound:
-			return logger.LogNewErrorCodef(log, codes.NotFound,
-				"FCD not found in VC inventory. The caller should re-check that these objects exist: %v", err)
-		}
-	}
-
-	// Default fallback
-	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
 }
