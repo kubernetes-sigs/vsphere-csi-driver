@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -57,11 +59,45 @@ var (
 	// Use localhost and port for metrics
 	metricsHost       = "0.0.0.0"
 	metricsPort int32 = 8383
+
+	// Global scheme for thread-safe initialization
+	globalScheme *runtime.Scheme
+	schemeOnce   sync.Once
 )
 
 type cnsOperatorInfo struct {
 	configInfo        *commonconfig.ConfigurationInfo
 	coCommonInterface commonco.COCommonInterface
+}
+
+// getGlobalScheme initializes and returns a thread-safe global scheme
+// with all required API types registered once during the application lifecycle.
+func getGlobalScheme(ctx context.Context) *runtime.Scheme {
+	log := logger.GetLogger(ctx)
+	schemeOnce.Do(func() {
+		log.Info("Initializing global scheme for CNS Operator")
+		globalScheme = runtime.NewScheme()
+		
+		// Add all schemes sequentially to avoid race conditions
+		if err := cnsoperatorv1alpha1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add cnsoperatorv1alpha1 to global scheme: %+v", err)
+		}
+		if err := csinodetopologyv1alpha1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add csinodetopologyv1alpha1 to global scheme: %+v", err)
+		}
+		if err := internalapis.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add internalapis to global scheme: %+v", err)
+		}
+		if err := wcpcapapis.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add wcpcapapis to global scheme: %+v", err)
+		}
+		if err := vmoperatortypes.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add vmoperatortypes to global scheme: %+v", err)
+		}
+		
+		log.Info("Global scheme initialization completed successfully")
+	})
+	return globalScheme
 }
 
 // InitCnsOperator initializes the Cns Operator.
@@ -299,9 +335,13 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		}
 	}
 
+	// Initialize the global scheme once before creating the manager
+	scheme := getGlobalScheme(ctx)
+	
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
 	mgr, err := manager.New(restConfig, manager.Options{
+		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
 		},
@@ -312,28 +352,6 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	}
 
 	log.Info("Registering Components for Cns Operator")
-
-	// Setup Scheme for all resources for external APIs.
-	if err := cnsoperatorv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
-		return err
-	}
-	if err = csinodetopologyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to add CSINodeTopology to scheme with error: %+v", err)
-		return err
-	}
-	if err = internalapis.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to add internalapis to scheme with error: %+v", err)
-		return err
-	}
-	if err := wcpcapapis.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to set the scheme for Cns operator. Err: %+v", err)
-		return err
-	}
-	if err := vmoperatortypes.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Errorf("failed to set the scheme for vm operator v1alpha5. Err: %+v", err)
-		return err
-	}
 
 	// Setup all Controllers.
 	if err := controller.AddToManager(mgr, clusterFlavor, cnsOperator.configInfo, volumeManager); err != nil {
