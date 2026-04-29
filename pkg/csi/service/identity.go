@@ -73,7 +73,7 @@ func (driver *vsphereCSIDriver) GetPluginCapabilities(
 	// The SnapshotMetadata service provides GetMetadataAllocated and GetMetadataDelta RPCs
 	// for efficient backup and restore operations (CSI spec v1.10.0+)
 	if commonco.ContainerOrchestratorUtility != nil &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CBT) {
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
 		caps = append(caps, &csi.PluginCapability{
 			Type: &csi.PluginCapability_Service_{
 				Service: &csi.PluginCapability_Service{
