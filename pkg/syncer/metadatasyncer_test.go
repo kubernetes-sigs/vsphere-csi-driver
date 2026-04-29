@@ -234,7 +234,7 @@ func (e *errorClient) List(ctx context.Context, list client.ObjectList, opts ...
 	return e.err
 }
 
-func TestCalculateVMServiceStoragePolicyUsageReservedForNamespace(t *testing.T) {
+func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 	ctx := context.Background()
 	namespace := "test-namespace"
 
@@ -742,24 +742,132 @@ func TestCalculateVMServiceStoragePolicyUsageReservedForNamespace(t *testing.T) 
 			}(),
 			expectError: false,
 		},
+		{
+			name: "Success with single StoragePolicyUsage for PodVM extension",
+			setupClient: func() client.Client {
+				scheme := runtime.NewScheme()
+				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
+
+				threeGi := resource.MustParse("3Gi")
+				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spu-podvm",
+						Namespace: namespace,
+					},
+					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+						StoragePolicyId:       "policy-podvm",
+						ResourceExtensionName: PodVMQuotaExtensionServiceName,
+					},
+					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+							Reserved: &threeGi,
+						},
+					},
+				}
+
+				return fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(spu).
+					Build()
+			},
+			expectedResult: func() map[string]*resource.Quantity {
+				threeGi := resource.MustParse("3Gi")
+				return map[string]*resource.Quantity{
+					"policy-podvm": resource.NewQuantity(threeGi.Value(), resource.BinarySI),
+				}
+			}(),
+			expectError: false,
+		},
+		{
+			name: "Success with multiple extensions including PodVM",
+			setupClient: func() client.Client {
+				scheme := runtime.NewScheme()
+				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
+
+				tenGi := resource.MustParse("10Gi")
+				fiveGi := resource.MustParse("5Gi")
+				threeGi := resource.MustParse("3Gi")
+				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spu-1",
+						Namespace: namespace,
+					},
+					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+						StoragePolicyId:       "policy-1",
+						ResourceExtensionName: VMExtensionServiceName,
+					},
+					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+							Reserved: &tenGi,
+						},
+					},
+				}
+				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spu-2",
+						Namespace: namespace,
+					},
+					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+						StoragePolicyId:       "policy-1",
+						ResourceExtensionName: VMSnapshotExtensionServiceName,
+					},
+					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+							Reserved: &fiveGi,
+						},
+					},
+				}
+				spu3 := &storagepolicyv1alpha2.StoragePolicyUsage{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "spu-3",
+						Namespace: namespace,
+					},
+					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+						StoragePolicyId:       "policy-1",
+						ResourceExtensionName: PodVMQuotaExtensionServiceName,
+					},
+					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+							Reserved: &threeGi,
+						},
+					},
+				}
+
+				return fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(spu1, spu2, spu3).
+					Build()
+			},
+			expectedResult: func() map[string]*resource.Quantity {
+				eighteenGi := resource.MustParse("18Gi")
+				return map[string]*resource.Quantity{
+					"policy-1": resource.NewQuantity(eighteenGi.Value(), resource.BinarySI),
+				}
+			}(),
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fakeClient := tt.setupClient()
-			result, err := calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx, fakeClient, namespace)
+			result, err := calculateExtensionResourceSPUReservedForNamespace(ctx, fakeClient,
+				namespace)
 
 			if tt.expectError {
 				if err == nil {
-					t.Errorf("calculateVMServiceStoragePolicyUsageReservedForNamespace() expected error but got nil")
+					t.Errorf(
+						"calculateExtensionResourceSPUReservedForNamespace() expected " +
+							"error but got nil")
 				}
 			} else {
 				if err != nil {
-					t.Errorf("calculateVMServiceStoragePolicyUsageReservedForNamespace() returned error: %v", err)
+					t.Errorf("calculateExtensionResourceSPUReservedForNamespace() "+
+						"returned error: %v", err)
 				}
 				if !quantitiesEqual(result, tt.expectedResult) {
-					t.Errorf("calculateVMServiceStoragePolicyUsageReservedForNamespace() result = %v; want %v",
-						result, tt.expectedResult)
+					t.Errorf("calculateExtensionResourceSPUReservedForNamespace() "+
+						"result = %v; want %v", result, tt.expectedResult)
 				}
 			}
 		})

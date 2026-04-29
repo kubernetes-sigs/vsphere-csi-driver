@@ -141,6 +141,7 @@ const (
 	SnapQuotaExtensionServiceName        = "snapshot.cns.vsphere.vmware.com"
 	VMExtensionServiceName               = "vmware-system-vmop-webhook-service"
 	VMSnapshotExtensionServiceName       = "snapshot-vmware-system-vmop-webhook-service"
+	PodVMQuotaExtensionServiceName       = "podvm.cns.vsphere.vmware.com"
 	scParamStoragePolicyID               = "storagePolicyID"
 	StorageQuotaPeriodicSyncInstanceName = "storage-quota-periodic-sync"
 	FileVolumePrefix                     = "file:"
@@ -1121,23 +1122,24 @@ func syncStorageQuotaReserved(ctx context.Context,
 		totalStoragePolicyReserved = make(map[string]*resource.Quantity)
 		hasValidData = false
 		log.Debugf("syncStorageQuotaReserved: processing storage quota sync for namespace %q", ns)
-		// calculate VM service's storagepolicyusage reserved values for given namespace
-		spuVmServiceReserved, err := calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx,
+		// calculate extension resource's storagepolicyusage reserved values for given namespace
+		// (includes VM, VM Snapshot, PodVM etc. extension resources)
+		spuExtensionReserved, err := calculateExtensionResourceSPUReservedForNamespace(ctx,
 			cnsOperatorClient, ns)
 		if err != nil {
-			log.Errorf("syncStorageQuotaReserved: error while calculating expected VmService StoragePolicyUsage"+
-				" reserved value, Error: %v", err)
+			log.Errorf("syncStorageQuotaReserved: error while calculating expected extension "+
+				"StoragePolicyUsage reserved value, Error: %v", err)
 			continue
 		}
-		if spuVmServiceReserved != nil {
-			if !validateReservedValues(spuVmServiceReserved) {
-				log.Errorf("syncStorageQuotaReserved: error while calculating expected VmService StoragePolicyUsage"+
-					" reserved value for namespace %s, Error: %v", ns,
+		if spuExtensionReserved != nil {
+			if !validateReservedValues(spuExtensionReserved) {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected extension "+
+					"StoragePolicyUsage reserved value for namespace %s, Error: %v", ns,
 					errors.New("expected reserved is negative value"))
 				continue
 			}
 			hasValidData = true
-			totalStoragePolicyReserved = mergeStoragePolicyReserved(spuVmServiceReserved, totalStoragePolicyReserved)
+			totalStoragePolicyReserved = mergeStoragePolicyReserved(spuExtensionReserved, totalStoragePolicyReserved)
 		}
 
 		// calculate pending and under expansion PVC's reserved values for given namespace
@@ -1228,13 +1230,13 @@ func mergeStoragePolicyReserved(storagePolicyReserved,
 	return totalStoragepolicyReserved
 }
 
-// calculateVMServiceStoragePolicyUsageReservedForNamespace calculate the expected
-// reserved for StoragePolicyUsage for VMService
-func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Context, cnsOperatorClient client.Client,
-	namespace string) (map[string]*resource.Quantity, error) {
+// calculateExtensionResourceSPUReservedForNamespace computes the expected reserved
+// values for StoragePolicyUsage (SPU) for extension-managed resources (VM, VM Snapshot, PodVM etc.)
+func calculateExtensionResourceSPUReservedForNamespace(ctx context.Context,
+	cnsOperatorClient client.Client, namespace string) (map[string]*resource.Quantity, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Fetching StoragePolicyUsage for namespace %q",
-		namespace)
+	log.Debugf("calculateExtensionResourceSPUReservedForNamespace: Fetching "+
+		"StoragePolicyUsage for namespace %q", namespace)
 	supList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
 	err := cnsOperatorClient.List(ctx, supList, &client.ListOptions{Namespace: namespace})
 	if err != nil {
@@ -1243,20 +1245,22 @@ func calculateVMServiceStoragePolicyUsageReservedForNamespace(ctx context.Contex
 	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
 	for _, storagePolicyUsage := range supList.Items {
 		if storagePolicyUsage.Spec.ResourceExtensionName == VMExtensionServiceName ||
-			storagePolicyUsage.Spec.ResourceExtensionName == VMSnapshotExtensionServiceName {
-			log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: Processing StoragePolicyUsage"+
-				" Name: %q, Namespace: %q", storagePolicyUsage.Name, storagePolicyUsage.Namespace)
+			storagePolicyUsage.Spec.ResourceExtensionName == VMSnapshotExtensionServiceName ||
+			storagePolicyUsage.Spec.ResourceExtensionName == PodVMQuotaExtensionServiceName {
+			log.Debugf("calculateExtensionResourceSPUReservedForNamespace: Processing "+
+				"StoragePolicyUsage Name: %q, Namespace: %q", storagePolicyUsage.Name,
+				storagePolicyUsage.Namespace)
 			if storagePolicyUsage.DeletionTimestamp != nil {
-				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace:"+
+				log.Debugf("calculateExtensionResourceSPUReservedForNamespace:"+
 					" StoragePolicyUsage is marked for deletion, ignoring Name: %q, Namespace: %q",
 					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
 			}
 			if storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage == nil ||
 				storagePolicyUsage.Status.ResourceTypeLevelQuotaUsage.Reserved == nil {
-				log.Debugf("calculateVMServiceStoragePolicyUsageReservedForNamespace: StoragePolicyUsage"+
-					" status not populated, continue processing other PVCs Name: %q, Namespace: %q",
-					storagePolicyUsage.Name, storagePolicyUsage.Namespace)
+				log.Debugf("calculateExtensionResourceSPUReservedForNamespace: "+
+					"StoragePolicyUsage status not populated, continue processing other resources "+
+					"Name: %q, Namespace: %q", storagePolicyUsage.Name, storagePolicyUsage.Namespace)
 				continue
 			}
 			if storagePolicyToReservedMap[storagePolicyUsage.Spec.StoragePolicyId] == nil {
