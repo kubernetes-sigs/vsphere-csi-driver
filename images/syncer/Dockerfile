@@ -58,6 +58,13 @@ ARG GIT_COMMIT
 # This label will be overridden from driver base image
 LABEL git_commit=$GIT_COMMIT
 
+# The legacy Photon repo host packages.vmware.com was retired on 2026-03-01.
+# Point any .repo files still referencing it at the current external mirror
+# (packages.broadcom.com). No-op on newer base images that are already correct.
+# Ref: https://vmw-confluence.broadcom.net/spaces/PHOTONOS/pages/2282198193
+RUN sed -i 's|https://packages\.vmware\.com/photon|https://packages.broadcom.com/photon|g' \
+      /etc/yum.repos.d/*.repo
+
 RUN tdnf -y upgrade
 
 COPY --from=builder /build/vsphere-syncer /bin/vsphere-syncer
