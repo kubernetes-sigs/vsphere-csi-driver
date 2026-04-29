@@ -61,7 +61,7 @@ func main() {
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
-			err := http.ListenAndServe(":9500", nil)
+			err := http.ListenAndServe("127.0.0.1:9500", nil)
 			if err != nil {
 				log.Fatalf("Unable to start profiling server: %s", err)
 			}
