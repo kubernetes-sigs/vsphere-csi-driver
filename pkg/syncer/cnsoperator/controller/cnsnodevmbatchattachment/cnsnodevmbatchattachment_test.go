@@ -834,7 +834,19 @@ func schemeForCnsBatchAttachTests() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = v1.AddToScheme(s)
 	_ = cnsopapis.AddToScheme(s)
+	_ = vmoperatortypes.AddToScheme(s)
 	return s
+}
+
+// vmForBatchAttachDetachTests is a minimal VirtualMachine matching setupTestCnsNodeVMBatchAttachment
+// name/namespace so getVolumesToDetachFromInstance can load the VM API object (required for detach safety).
+func vmForBatchAttachDetachTests() *vmoperatortypes.VirtualMachine {
+	return &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testCnsNodeVMBatchAttachmentName,
+			Namespace: testNamespace,
+		},
+	}
 }
 
 func TestRemovePvcProtectionFinalizersForTrackedPVCs_AllSucceed(t *testing.T) {
@@ -1044,6 +1056,9 @@ func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-1": {ControllerKey: 1000, UnitNumber: 1,
@@ -1056,7 +1071,7 @@ func TestGetVolumesToDetachFromInstanceWhenAVolumeIsRemoved(t *testing.T) {
 			SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-1"}, pvcsToDetach)
 }
@@ -1066,6 +1081,9 @@ func TestGetVolumesToDetachFromInstanceWhenNothingHasChanged(t *testing.T) {
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-2": {ControllerKey: 1001,
@@ -1076,7 +1094,7 @@ func TestGetVolumesToDetachFromInstanceWhenNothingHasChanged(t *testing.T) {
 			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{}, pvcsToDetach)
 }
@@ -1086,6 +1104,9 @@ func TestGetVolumesToDetachFromInstanceWhenControllerKeyIsChanged(t *testing.T) 
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-2": {ControllerKey: 1000,
@@ -1096,7 +1117,7 @@ func TestGetVolumesToDetachFromInstanceWhenControllerKeyIsChanged(t *testing.T) 
 			UnitNumber: 2, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
@@ -1106,6 +1127,9 @@ func TestGetVolumesToDetachFromInstanceWhenUnitNumberIsChanged(t *testing.T) {
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-2": {ControllerKey: 1000,
@@ -1116,7 +1140,7 @@ func TestGetVolumesToDetachFromInstanceWhenUnitNumberIsChanged(t *testing.T) {
 			UnitNumber: 4, SharingMode: "None", DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
@@ -1126,6 +1150,9 @@ func TestGetVolumesToDetachFromInstanceWhenSharingIsChanged(t *testing.T) {
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-2": {ControllerKey: 1000,
@@ -1137,7 +1164,7 @@ func TestGetVolumesToDetachFromInstanceWhenSharingIsChanged(t *testing.T) {
 			DiskMode: "persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
@@ -1147,6 +1174,9 @@ func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"with-used-by-annotation-2": {ControllerKey: 1000,
@@ -1158,7 +1188,7 @@ func TestGetVolumesToDetachFromInstanceWhenDiskModeIsChanged(t *testing.T) {
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-2"}, pvcsToDetach)
 }
@@ -1168,6 +1198,9 @@ func TestGetVolumesToDetachFromInstanceWhenUsedByAndPvcFinalizerIsMissing(t *tes
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"no-finalizer-no-usedby-1": {ControllerKey: 1000,
@@ -1179,7 +1212,7 @@ func TestGetVolumesToDetachFromInstanceWhenUsedByAndPvcFinalizerIsMissing(t *tes
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"no-finalizer-no-usedby-1": "no-finalizer-no-usedby-1"}, pvcsToDetach)
 }
@@ -1189,6 +1222,9 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyPvcFinalizerIsMissing(t *testing.
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"no-finalizer": {ControllerKey: 1000,
@@ -1200,7 +1236,7 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyPvcFinalizerIsMissing(t *testing.
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{"no-finalizer-1": "no-finalizer"}, pvcsToDetach)
 }
@@ -1210,6 +1246,9 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyUsedByIsMissingFinalizerIsPresent
 	instance := setupTestCnsNodeVMBatchAttachment()
 
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	// Setup fake vmOperatorClient
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).WithObjects(vmForBatchAttachDetachTests()).Build()
 
 	attachedFCDs := map[string]FCDBackingDetails{
 		"12345": {ControllerKey: 1000,
@@ -1221,9 +1260,29 @@ func TestGetVolumesToDetachFromInstanceWhenOnlyUsedByIsMissingFinalizerIsPresent
 			DiskMode: "independent_persistent"},
 	}
 
-	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, attachedFCDs, volumeIdsInSpec)
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]string{}, pvcsToDetach)
+}
+
+func TestGetVolumesToDetachFromInstance_VirtualMachineNotFound(t *testing.T) {
+	ctx := context.Background()
+	instance := setupTestCnsNodeVMBatchAttachment()
+
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+	s := schemeForCnsBatchAttachTests()
+	vmOperatorClient := fake.NewClientBuilder().WithScheme(s).Build()
+
+	attachedFCDs := map[string]FCDBackingDetails{
+		"with-used-by-annotation-1": {ControllerKey: 1000, UnitNumber: 1,
+			SharingMode: "None", DiskMode: "persistent"},
+	}
+	volumeIdsInSpec := map[string]FCDBackingDetails{}
+
+	pvcsToDetach, err := getVolumesToDetachFromInstance(ctx, &instance, vmOperatorClient, attachedFCDs, volumeIdsInSpec)
+	assert.NoError(t, err)
+	// No VM in API: safety check is skipped; volume not in spec -> PVC is eligible to detach.
+	assert.Equal(t, map[string]string{"with-used-by-annotation": "with-used-by-annotation-1"}, pvcsToDetach)
 }
 
 func TestGetVolumesToAttach(t *testing.T) {
@@ -2241,5 +2300,333 @@ func TestIsVmInSameNamespace_NotFound(t *testing.T) {
 
 	if found {
 		t.Fatalf("expected VM not to be found, got true")
+	}
+}
+
+func TestBuildVMSpecVolumeCache(t *testing.T) {
+	tests := []struct {
+		name     string
+		vm       *vmoperatortypes.VirtualMachine
+		expected map[string]bool
+	}{
+		{
+			name:     "nil VM returns empty cache",
+			vm:       nil,
+			expected: map[string]bool{},
+		},
+		{
+			name: "VM with no volumes returns empty cache",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-ns",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: []vmoperatortypes.VirtualMachineVolume{},
+				},
+			},
+			expected: map[string]bool{},
+		},
+		{
+			name: "VM with single PVC volume",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-ns",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: []vmoperatortypes.VirtualMachineVolume{
+						{
+							Name: "volume1",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-1",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]bool{
+				"pvc-1": true,
+			},
+		},
+		{
+			name: "VM with multiple PVC volumes",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-ns",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: []vmoperatortypes.VirtualMachineVolume{
+						{
+							Name: "volume1",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-1",
+									},
+								},
+							},
+						},
+						{
+							Name: "volume2",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-2",
+									},
+								},
+							},
+						},
+						{
+							Name: "volume3",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-3",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]bool{
+				"pvc-1": true,
+				"pvc-2": true,
+				"pvc-3": true,
+			},
+		},
+		{
+			name: "VM with mixed volume types (PVC and non-PVC)",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-ns",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: []vmoperatortypes.VirtualMachineVolume{
+						{
+							Name: "pvc-volume",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-1",
+									},
+								},
+							},
+						},
+						{
+							Name: "non-pvc-volume",
+							// No PersistentVolumeClaim field set, simulating other volume types
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{},
+						},
+						{
+							Name: "another-pvc-volume",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-2",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]bool{
+				"pvc-1": true,
+				"pvc-2": true,
+			},
+		},
+		{
+			name: "VM with duplicate PVC names (edge case)",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-ns",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: []vmoperatortypes.VirtualMachineVolume{
+						{
+							Name: "volume1",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-duplicate",
+									},
+								},
+							},
+						},
+						{
+							Name: "volume2",
+							VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+								PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+									PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+										ClaimName: "pvc-duplicate", // Same PVC name
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]bool{
+				"pvc-duplicate": true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildVMSpecVolumeCache(tt.vm)
+
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("buildVMSpecVolumeCache() = %v, expected %v", result, tt.expected)
+			}
+
+			// Additional validation: ensure all expected keys are present and have correct values
+			for expectedKey, expectedValue := range tt.expected {
+				if actualValue, exists := result[expectedKey]; !exists {
+					t.Errorf("Expected key %q not found in result", expectedKey)
+				} else if actualValue != expectedValue {
+					t.Errorf("Key %q: expected %v, got %v", expectedKey, expectedValue, actualValue)
+				}
+			}
+
+			// Ensure no extra keys are present
+			for actualKey := range result {
+				if _, exists := tt.expected[actualKey]; !exists {
+					t.Errorf("Unexpected key %q found in result", actualKey)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildVMSpecVolumeCache_Performance(t *testing.T) {
+	// Test with a large number of volumes to ensure performance is acceptable
+	const numVolumes = 1000
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-vm-large",
+			Namespace: "test-ns",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			Volumes: make([]vmoperatortypes.VirtualMachineVolume, numVolumes),
+		},
+	}
+
+	// Create volumes with unique PVC names
+	expected := make(map[string]bool, numVolumes)
+	for i := 0; i < numVolumes; i++ {
+		pvcName := fmt.Sprintf("pvc-%d", i)
+		vm.Spec.Volumes[i] = vmoperatortypes.VirtualMachineVolume{
+			Name: fmt.Sprintf("volume-%d", i),
+			VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+				PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+					PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+						ClaimName: pvcName,
+					},
+				},
+			},
+		}
+		expected[pvcName] = true
+	}
+
+	// Measure execution time
+	start := time.Now()
+	result := buildVMSpecVolumeCache(vm)
+	duration := time.Since(start)
+
+	// Verify correctness
+	if len(result) != numVolumes {
+		t.Errorf("Expected %d volumes in cache, got %d", numVolumes, len(result))
+	}
+
+	if !reflect.DeepEqual(result, expected) {
+		t.Error("Large volume cache does not match expected result")
+	}
+
+	// Performance should be reasonable - this is a very conservative check
+	maxDuration := time.Millisecond * 100
+	if duration > maxDuration {
+		t.Errorf("buildVMSpecVolumeCache took too long: %v (max: %v) for %d volumes",
+			duration, maxDuration, numVolumes)
+	}
+
+	t.Logf("buildVMSpecVolumeCache processed %d volumes in %v", numVolumes, duration)
+}
+
+// Test VM spec volume cache integration with safety checks
+func TestBuildVMSpecVolumeCache_Integration(t *testing.T) {
+	tests := []struct {
+		name            string
+		vmSpecPVCs      []string
+		cacheKey        string
+		expectedInCache bool
+	}{
+		{
+			name:            "PVC exists in cache",
+			vmSpecPVCs:      []string{"pvc-1", "pvc-2", "pvc-3"},
+			cacheKey:        "pvc-2",
+			expectedInCache: true,
+		},
+		{
+			name:            "PVC does not exist in cache",
+			vmSpecPVCs:      []string{"pvc-1", "pvc-3"},
+			cacheKey:        "pvc-2",
+			expectedInCache: false,
+		},
+		{
+			name:            "empty cache",
+			vmSpecPVCs:      []string{},
+			cacheKey:        "pvc-1",
+			expectedInCache: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup VM with specified PVCs in spec
+			vm := &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "default",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					Volumes: make([]vmoperatortypes.VirtualMachineVolume, len(tt.vmSpecPVCs)),
+				},
+			}
+
+			for i, pvcName := range tt.vmSpecPVCs {
+				vm.Spec.Volumes[i] = vmoperatortypes.VirtualMachineVolume{
+					Name: fmt.Sprintf("vol-%d", i),
+					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+							PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
+								ClaimName: pvcName,
+							},
+						},
+					},
+				}
+			}
+
+			// Build cache
+			cache := buildVMSpecVolumeCache(vm)
+
+			// Test cache lookup
+			found := cache[tt.cacheKey]
+			if tt.expectedInCache {
+				assert.True(t, found, "PVC %s should be found in cache", tt.cacheKey)
+			} else {
+				assert.False(t, found, "PVC %s should not be found in cache", tt.cacheKey)
+			}
+		})
 	}
 }
