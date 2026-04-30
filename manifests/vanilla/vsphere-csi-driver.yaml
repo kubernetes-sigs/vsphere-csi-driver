@@ -620,7 +620,7 @@ spec:
             - name: registration-dir
               mountPath: /registration
         - name: vsphere-csi-node
-          image: registry.k8s.io/csi-vsphere/driver:v3.5.1 
+          image: registry.k8s.io/csi-vsphere/driver:v3.5.1
           command:
             - "csi.exe"
           args:
