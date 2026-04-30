@@ -524,7 +524,12 @@ func GetCNSVolumeInfoPatch(ctx context.Context, CapacityInMb int64, volumeId str
 	return patch, nil
 }
 
-// IsCBTEnabledForNamespace reports whether any CBTConfig in the namespace has status.enabled true.
+// IsCBTEnabledForNamespace returns whether the first CBTConfig in the namespace has status.enabled
+// set to true. CBTConfig is a namespace singleton; only Items[0] is read after a successful list.
+//
+// Returns an error when listing or converting the list fails, when the list is empty, or when
+// that first CBTConfig has status.enabled unset (nil). On success, the boolean is the value
+// of status.enabled on that first object.
 func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, pvcNamespace string) (bool, error) {
 	log := logger.GetLogger(ctx)
 
@@ -533,8 +538,7 @@ func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, 
 	if err != nil {
 		// CRD may not be registered yet, or the API version may be absent from discovery.
 		if apiMeta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
-			log.Debugf("CBTConfig CR is not registered, assuming CBT disabled for namespace %s", pvcNamespace)
-			return false, nil
+			log.Debugf("CBTConfig API unavailable")
 		}
 		return false, fmt.Errorf("failed to list CBTConfig CRs in namespace %s: %w", pvcNamespace, err)
 	}
@@ -545,12 +549,19 @@ func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, 
 		return false, fmt.Errorf("failed to convert unstructured list to CBTConfigList: %w", err)
 	}
 
-	for _, item := range cbtConfigList.Items {
-		if item.Status.Enabled != nil && *item.Status.Enabled {
-			log.Debugf("CBT is enabled for namespace %s", pvcNamespace)
-			return true, nil
-		}
+	if len(cbtConfigList.Items) == 0 {
+		log.Debugf("No CBTConfig CRs found in namespace %s", pvcNamespace)
+		return false, fmt.Errorf("no CBTConfig CRs found in namespace %s", pvcNamespace)
 	}
 
-	return false, nil
+	// CBTConfig CR is implemented with namespace-scoped singleton pattern.
+	cbtConfig := cbtConfigList.Items[0]
+	if cbtConfig.Status.Enabled == nil {
+		log.Debugf("CBTConfig Status.Enabled is not set for namespace %s", pvcNamespace)
+		return false, fmt.Errorf("CBTConfig Status.Enabled is not set for namespace %s", pvcNamespace)
+	}
+
+	log.Debugf("CBT Enabled is set to %t for namespace %s", *cbtConfig.Status.Enabled, pvcNamespace)
+
+	return *cbtConfig.Status.Enabled, nil
 }

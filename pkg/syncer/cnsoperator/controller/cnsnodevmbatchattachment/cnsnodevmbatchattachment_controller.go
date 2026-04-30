@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"k8s.io/client-go/dynamic"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
@@ -72,7 +73,8 @@ var (
 	// Keys are strings representing namespace + PVC name.
 	// Values are individual sync.Mutex locks that need to be held
 	// to make updates to the PVC on the API server.
-	VolumeLock *sync.Map
+	VolumeLock            *sync.Map
+	isCSIBackupAPIEnabled bool
 )
 
 const (
@@ -138,25 +140,42 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, "cns.vmware.com")
 	if err != nil {
-		msg := fmt.Sprintf("Failed to initialize vmOperatorClient. Error: %+v", err)
+		msg := fmt.Sprintf("Failed to initialize cnsOperatorClient. Error: %+v", err)
 		log.Error(msg)
 		return err
 	}
 
+	// If the capability gets enabled at a later point, then container
+	// will be restarted and this value will be reinitialized.
+	isCSIBackupAPIEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
+
+	var cbtDynClient dynamic.Interface
+	if isCSIBackupAPIEnabled {
+		dyn, err := dynamic.NewForConfig(restClientConfig)
+		if err != nil {
+			log.Errorf("Creating dynamic client for CBT lookup failed. Err: %v", err)
+			return err
+		}
+		cbtDynClient = dyn
+	}
+
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, cnsOperatorClient, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, cnsOperatorClient,
+		recorder, cbtDynClient))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
 	cnsOperatorClient client.Client,
-	recorder record.EventRecorder) reconcile.Reconciler {
+	recorder record.EventRecorder, cbtDynamicClient dynamic.Interface) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
 		configInfo: *configInfo, volumeManager: volumeManager,
 		vmOperatorClient:  vmOperatorClient,
 		cnsOperatorClient: cnsOperatorClient,
-		recorder:          recorder, instanceLock: sync.Map{}}
+		recorder:          recorder,
+		cbtDynamicClient:  cbtDynamicClient,
+		instanceLock:      sync.Map{}}
 }
 
 // add adds this package's controller to the provided manager.
@@ -195,6 +214,9 @@ type Reconciler struct {
 	vmOperatorClient  client.Client
 	cnsOperatorClient client.Client
 	recorder          record.EventRecorder
+	// cbtDynamicClient is set when isCSIBackupAPIEnabled (CSI_Backup_API FSS on); used for
+	// namespace-scoped CBTConfig lookups before batch attach.
+	cbtDynamicClient dynamic.Interface
 	// instanceLock to ensure that for an instance we have only
 	// one reconciliation at a time.
 	instanceLock sync.Map
@@ -537,6 +559,14 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		return err
 	}
 
+	// Manage CBT for each volume before batch attach.
+	batchVolumeIDs := make([]string, 0, len(batchAttachRequest))
+	for _, req := range batchAttachRequest {
+		batchVolumeIDs = append(batchVolumeIDs, req.VolumeID)
+	}
+
+	r.setCBTFlagBeforeBatchAttach(ctx, batchVolumeIDs, instance.Namespace)
+
 	// Call CNS AttachVolume
 	batchAttachResult, faultType, attachErr := r.volumeManager.BatchAttachVolumes(ctx, vm, batchAttachRequest)
 	if attachErr != nil {
@@ -650,4 +680,43 @@ func (r *Reconciler) completeReconciliationWithError(ctx context.Context, instan
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, err.Error())
 	return reconcile.Result{RequeueAfter: timeout}, nil
 
+}
+
+// setCBTFlagBeforeBatchAttach adjusts CBT flags for each volume in the batch before
+// BatchAttachVolumes runs, using the same dynamic CBTConfig list as provisioning when
+// CSI_Backup_API is enabled.
+func (r *Reconciler) setCBTFlagBeforeBatchAttach(ctx context.Context,
+	volumeIDs []string, namespace string) {
+	log := logger.GetLogger(ctx)
+
+	if !isCSIBackupAPIEnabled {
+		return
+	}
+	if r.cbtDynamicClient == nil {
+		return
+	}
+
+	log.Debugf("setting CBT flag for volumes %s in namespace %s", volumeIDs, namespace)
+
+	cbtEnabled, err := common.IsCBTEnabledForNamespace(ctx, r.cbtDynamicClient, namespace)
+	if err != nil {
+		log.Debugf("failed to determine CBT state for namespace %s: %v", namespace, err)
+		return
+	}
+
+	for _, volumeID := range volumeIDs {
+		if cbtEnabled {
+			if err := common.SetVolumeCbtFlagsUtil(ctx, r.volumeManager, volumeID); err != nil {
+				log.Warnf("failed to enable CBT for volume %s: %v", volumeID, err)
+			} else {
+				log.Infof("Successfully enabled CBT for volume %s in namespace %s", volumeID, namespace)
+			}
+		} else {
+			if err := common.ClearVolumeCbtFlagsUtil(ctx, r.volumeManager, volumeID); err != nil {
+				log.Warnf("failed to disable CBT for volume %s: %v", volumeID, err)
+			} else {
+				log.Infof("Successfully disabled CBT for volume %s in namespace %s", volumeID, namespace)
+			}
+		}
+	}
 }

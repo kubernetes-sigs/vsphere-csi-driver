@@ -651,7 +651,8 @@ func TestIsCBTEnabledForNamespace(t *testing.T) {
 	t.Run("no CBTConfig objects", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t)
 		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no CBTConfig CRs found")
 		assert.False(t, ok)
 	})
 
@@ -672,17 +673,8 @@ func TestIsCBTEnabledForNamespace(t *testing.T) {
 	t.Run("status.enabled omitted", func(t *testing.T) {
 		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, nil))
 		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Status.Enabled is not set")
 		assert.False(t, ok)
-	})
-
-	t.Run("multiple CBTConfig one has enabled", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t,
-			cbtConfigUnstructured("a", ns, &disabled),
-			cbtConfigUnstructured("b", ns, &enabled),
-		)
-		ok, err := IsCBTEnabledForNamespace(ctx, dyn, ns)
-		assert.NoError(t, err)
-		assert.True(t, ok)
 	})
 }
