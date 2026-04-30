@@ -110,7 +110,7 @@ $(CSI_BIN): $(CSI_BIN_SRCS)
 	@touch $@
 
 $(CSI_BIN_WINDOWS): $(CSI_BIN_SRCS)
-	CGO_ENABLED=0 GOOS=windows GOARCH=$(GOARCH) go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
+	CGO_ENABLED=0 GOOS=windows GOARCH=$(GOARCH) GOEXPERIMENT= go build -ldflags '$(LDFLAGS_CSI)' -o $(CSI_BIN_WINDOWS) $<
 	@touch $@
 
 
