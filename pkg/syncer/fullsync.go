@@ -133,6 +133,29 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		return err
 	}
 
+	// Filter out PVs provisioned by the new vSAN FileVolumeService (FVS) on the supervisor.
+	// CNS is not the source of truth for these volumes and CNS QueryVolume will not return
+	// them, so we must skip pushing/creating/updating any volume metadata for them.
+	// See pkg/csi/service/wcp/fvs_filevolume.go for the provisioning workflow.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsVsanFileVolumeServiceEnabled {
+		filteredPVs := make([]*v1.PersistentVolume, 0, len(k8sPVs))
+		skipped := 0
+		for _, pv := range k8sPVs {
+			if isFVSPersistentVolume(pv) {
+				log.Debugf("FullSync for VC %s: skipping FVS-backed PV %q (volumeHandle=%q) for CNS metadata sync",
+					vc, pv.Name, pv.Spec.CSI.VolumeHandle)
+				skipped++
+				continue
+			}
+			filteredPVs = append(filteredPVs, pv)
+		}
+		if skipped > 0 {
+			log.Infof("FullSync for VC %s: filtered out %d FVS-backed PV(s) from CNS metadata reconciliation",
+				vc, skipped)
+		}
+		k8sPVs = filteredPVs
+	}
+
 	// k8sPVMap is useful for clean and quicker look up.
 	k8sPVMap := make(map[string]string)
 	// Instantiate volumeMigrationService when migration feature state is True.

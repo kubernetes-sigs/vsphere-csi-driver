@@ -301,6 +301,64 @@ func isValidvSphereVolume(ctx context.Context, pv *v1.PersistentVolume) bool {
 	return false
 }
 
+// isFVSPersistentVolume returns true when the supplied PV was provisioned by the new
+// vSAN FileVolumeService on the supervisor. Detection relies on the FVS volume-id
+// prefix carried in pv.Spec.CSI.VolumeHandle which is set by the supervisor controller
+// when routing through the FileVolume CR workflow. The volume-handle check is delegated
+// to the shared helper common.IsFVSVolumeHandle so the guest-cluster
+// ControllerPublish/Unpublish path and this metadata syncer agree on the predicate.
+//
+// This is the supervisor-side identification helper. Guest clusters cannot rely on the
+// volume handle (which is opaque to them) and use common.IsFVSStorageClassName instead.
+func isFVSPersistentVolume(pv *v1.PersistentVolume) bool {
+	if pv == nil || pv.Spec.CSI == nil {
+		return false
+	}
+	return common.IsFVSVolumeHandle(pv.Spec.CSI.VolumeHandle)
+}
+
+// isFVSPersistentVolumeClaim returns true if the PVC's storage class is one of the
+// FVS storage classes. Used by the guest cluster metadata syncer where only the
+// PVC/PV objects are available (no access to supervisor volume IDs). Storage-class
+// matching is delegated to the shared helper common.IsFVSStorageClassName.
+func isFVSPersistentVolumeClaim(pvc *v1.PersistentVolumeClaim) bool {
+	if pvc == nil || pvc.Spec.StorageClassName == nil {
+		return false
+	}
+	return common.IsFVSStorageClassName(*pvc.Spec.StorageClassName)
+}
+
+// shouldSkipFVSMetadataPush decides whether the metadata syncer / full-sync should
+// skip pushing volume metadata for the supplied PV in the supervisor cluster.
+// Returns true only when the VsanFileVolumeService capability is enabled AND the
+// PV carries the FVS volume-id prefix. Volumes provisioned via the legacy CNS path
+// continue to receive metadata updates as before.
+func shouldSkipFVSMetadataPushSupervisor(pv *v1.PersistentVolume) bool {
+	if !IsVsanFileVolumeServiceEnabled {
+		return false
+	}
+	return isFVSPersistentVolume(pv)
+}
+
+// shouldSkipFVSMetadataPushGuest decides whether the guest-cluster metadata syncer /
+// full-sync should skip pushing CnsVolumeMetadata for a PVC/PV pair. Returns true
+// only when the guest FVS gate IsVsanFileVolumeServiceEnabled is true (PVCSI FSS plus
+// supervisor capability, set at init) AND the PVC's storage class matches an FVS
+// storage class. The PV is checked as a fallback when the PVC reference is nil but
+// the PV carries the storage class name.
+func shouldSkipFVSMetadataPushGuest(pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) bool {
+	if !IsVsanFileVolumeServiceEnabled {
+		return false
+	}
+	if isFVSPersistentVolumeClaim(pvc) {
+		return true
+	}
+	if pv != nil && common.IsFVSStorageClassName(pv.Spec.StorageClassName) {
+		return true
+	}
+	return false
+}
+
 // IsFileVolume returns true for PVs that have accessMode as RWX or ROM
 // and volumeMode as FileSystem.
 func IsFileVolume(pv *v1.PersistentVolume) bool {

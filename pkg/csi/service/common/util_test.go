@@ -686,3 +686,46 @@ func TestIsCBTEnabledForNamespace(t *testing.T) {
 		assert.True(t, ok)
 	})
 }
+
+func TestIsFVSVolumeHandle(t *testing.T) {
+	tests := []struct {
+		name         string
+		volumeHandle string
+		want         bool
+	}{
+		{"empty handle", "", false},
+		{"legacy supervisor pvc name", "test-tkc-pvc-12345", false},
+		{"FCD volume id", "12345678-1234-1234-1234-123456789012", false},
+		{"legacy file: prefix", "file:abc-def", false},
+		{"FVS volume id", "fv:my-instance-ns:my-fv-name", true},
+		{"FVS prefix only", "fv:", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSVolumeHandle(tt.volumeHandle); got != tt.want {
+				t.Fatalf("IsFVSVolumeHandle(%q) = %v, want %v", tt.volumeHandle, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsFVSStorageClassName(t *testing.T) {
+	tests := []struct {
+		name             string
+		storageClassName string
+		want             bool
+	}{
+		{"empty", "", false},
+		{"unrelated sc", "wcpglobal-storage-profile", false},
+		{"legacy file sc", "file-storage-class", false},
+		{"FVS immediate", StorageClassVsanFileServicePolicy, true},
+		{"FVS late binding", StorageClassVsanFileServicePolicyLateBinding, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFVSStorageClassName(tt.storageClassName); got != tt.want {
+				t.Fatalf("IsFVSStorageClassName(%q) = %v, want %v", tt.storageClassName, got, tt.want)
+			}
+		})
+	}
+}
