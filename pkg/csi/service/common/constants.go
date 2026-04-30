@@ -357,6 +357,13 @@ const (
 	// on the VolumeSnapshot CR
 	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
 
+	// VolumeSnapshotChangeIDKey represents the annotation key that stores the
+	// vSphere change-id of the FCD snapshot on a VolumeSnapshot CR. In the paravirtual
+	// architecture the Supervisor populates this annotation on the Supervisor VolumeSnapshot
+	// during CreateSnapshot, and the guest pvCSI driver mirrors the same value onto the
+	// guest-cluster VolumeSnapshot so both clusters expose identical change-ids.
+	VolumeSnapshotChangeIDKey = "csi.vsphere.volume/change-id"
+
 	// SupervisorVolumeSnapshotAnnotationKey represents the annotation key on VolumeSnapshot CR
 	// in Supervisor cluster which is used to indicate that snapshot operation is initiated from
 	// Guest cluster.

@@ -140,9 +140,9 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer,
 		csi.RegisterControllerServer(s.server, cs)
 		log.Info("controller service registered")
 
-		// Register SnapshotMetadata service for controller mode if provided
+		// Register SnapshotMetadata service for controller mode if provided.
 		// This service provides GetMetadataAllocated and GetMetadataDelta RPCs
-		// for efficient backup and restore operations (CBT support)
+		// for efficient backup and restore operations (CBT support).
 		if sms != nil {
 			csi.RegisterSnapshotMetadataServer(s.server, sms)
 			log.Info("snapshot metadata service registered")

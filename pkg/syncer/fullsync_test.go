@@ -647,11 +647,6 @@ func (m *mockCOCommonForFullSync) AnnotateVolumeSnapshot(ctx context.Context, vo
 	return false, nil
 }
 
-func (m *mockCOCommonForFullSync) GetVolumeSnapshotChangeIDBySnapshotID(ctx context.Context,
-	snapshotID string) (string, error) {
-	return "mock-change-id", nil
-}
-
 func (m *mockCOCommonForFullSync) GetConfigMap(
 	ctx context.Context, name string, namespace string,
 ) (map[string]string, error) {

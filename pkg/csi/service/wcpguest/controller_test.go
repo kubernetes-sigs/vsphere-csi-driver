@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -38,7 +39,6 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"

@@ -16,6 +16,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/kubernetes-csi/csi-proxy/v2 v2.0.0-alpha.1
+	github.com/kubernetes-csi/external-snapshot-metadata v1.0.0
 	github.com/kubernetes-csi/external-snapshot-metadata/client v1.0.0
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
 	github.com/onsi/ginkgo/v2 v2.28.1
