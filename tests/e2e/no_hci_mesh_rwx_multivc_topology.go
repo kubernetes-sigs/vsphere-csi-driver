@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("[rwx-nohci-multivc-positive] RWX-Topology-NoHciMesh-Mul
 	*/
 
 	ginkgo.It("Multiple pods creation with single rwx pvcs created "+
-		"with storage policy available ", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
+		"with storage policy available", ginkgo.Label(p0, file, vanilla, multiVc, newTest, vc70), func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()

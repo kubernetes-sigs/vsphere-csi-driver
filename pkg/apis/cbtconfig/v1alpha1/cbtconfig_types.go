@@ -64,7 +64,3 @@ type CBTConfigList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CBTConfig `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&CBTConfig{}, &CBTConfigList{})
-}
