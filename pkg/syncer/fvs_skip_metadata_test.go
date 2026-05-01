@@ -92,20 +92,20 @@ func TestIsFVSPersistentVolume(t *testing.T) {
 
 func TestIsFVSPersistentVolumeClaim(t *testing.T) {
 	t.Run("nil pvc", func(t *testing.T) {
-		assert.False(t, isFVSPersistentVolumeClaim(nil))
+		assert.False(t, common.IsFVSPersistentVolumeClaim(nil))
 	})
 	t.Run("nil storage class", func(t *testing.T) {
-		assert.False(t, isFVSPersistentVolumeClaim(&v1.PersistentVolumeClaim{}))
+		assert.False(t, common.IsFVSPersistentVolumeClaim(&v1.PersistentVolumeClaim{}))
 	})
 	t.Run("non FVS storage class", func(t *testing.T) {
-		assert.False(t, isFVSPersistentVolumeClaim(makePVCWithSC("a", "ns", "vsan-default")))
+		assert.False(t, common.IsFVSPersistentVolumeClaim(makePVCWithSC("a", "ns", "vsan-default")))
 	})
 	t.Run("FVS storage class - immediate binding", func(t *testing.T) {
-		assert.True(t, isFVSPersistentVolumeClaim(
+		assert.True(t, common.IsFVSPersistentVolumeClaim(
 			makePVCWithSC("a", "ns", common.StorageClassVsanFileServicePolicy)))
 	})
 	t.Run("FVS storage class - late binding", func(t *testing.T) {
-		assert.True(t, isFVSPersistentVolumeClaim(
+		assert.True(t, common.IsFVSPersistentVolumeClaim(
 			makePVCWithSC("a", "ns", common.StorageClassVsanFileServicePolicyLateBinding)))
 	})
 }
