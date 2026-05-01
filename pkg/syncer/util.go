@@ -25,6 +25,7 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyusagev1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -915,6 +916,38 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
 	oldObj *storagepolicyusagev1alpha2.StoragePolicyUsage,
 	newObj *storagepolicyusagev1alpha2.StoragePolicyUsage) error {
+	log := logger.GetLogger(ctx)
+	patch, err := getPatchData(oldObj, newObj)
+	if err != nil {
+		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
+		return err
+	}
+	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
+	// Try to patch StoragePolicyUsage CR for allowedRetries times
+	allowedRetries := allowedRetriesToPatchStoragePolicyUsage
+	attempt := 0
+	for {
+		attempt++
+		err = cnsOperatorClient.Status().Patch(ctx, oldObj, rawPatch)
+		if err != nil && attempt >= allowedRetries {
+			log.Errorf("failed to patch StoragePolicyUsage instance %q on namespace %q, Error: %+v",
+				oldObj.Name, oldObj.Namespace, err)
+			return err
+		} else if err == nil {
+			log.Debugf("Successfully patched StoragePolicyUsage instance %q on namespace %q",
+				oldObj.Name, oldObj.Namespace)
+			return nil
+		}
+		log.Warnf("attempt %d, failed to patch StoragePolicyUsage instance %q on namespace %q with error %+v, "+
+			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// PatchStoragePolicyUsageV3 patches the StoragePolicyUsage CR based on old and new objects (v1alpha3)
+func PatchStoragePolicyUsageV3(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *storagepolicyusagev1alpha3.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) error {
 	log := logger.GetLogger(ctx)
 	patch, err := getPatchData(oldObj, newObj)
 	if err != nil {

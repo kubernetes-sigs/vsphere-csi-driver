@@ -35,6 +35,7 @@ import (
 	infrastoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	storagequotaperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
 )
 
@@ -44,11 +45,13 @@ const GroupName = "cns.vmware.com"
 // Version represents the version for cns operator apis
 const Version = "v1alpha1"
 const VersionV2 = "v1alpha2"
+const VersionV3 = "v1alpha3"
 
 var (
 	// SchemeGroupVersion is group version used to register these objects
 	SchemeGroupVersion   = schema.GroupVersion{Group: GroupName, Version: Version}
 	SchemeGroupVersionV2 = schema.GroupVersion{Group: GroupName, Version: VersionV2}
+	SchemeGroupVersionV3 = schema.GroupVersion{Group: GroupName, Version: VersionV3}
 	// CnsNodeVMAttachmentSingular is Singular of CnsNodeVmAttachment
 	CnsNodeVMAttachmentSingular = "cnsnodevmattachment"
 	// CnsNodeVMAttachmentPlural is plural of CnsNodeVmAttachment
@@ -188,6 +191,24 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	)
 
 	scheme.AddKnownTypes(
+		SchemeGroupVersionV3,
+		&storagepolicyv1alpha3.StoragePolicyUsage{},
+		&storagepolicyv1alpha3.StoragePolicyUsageList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersionV3,
+		&storagepolicyv1alpha3.StoragePolicyQuota{},
+		&storagepolicyv1alpha3.StoragePolicyQuotaList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersionV3,
+		&storagepolicyv1alpha3.StorageQuota{},
+		&storagepolicyv1alpha3.StorageQuotaList{},
+	)
+
+	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfo{},
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfoList{},
@@ -206,6 +227,11 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	metav1.AddToGroupVersion(
 		scheme,
 		SchemeGroupVersionV2,
+	)
+
+	metav1.AddToGroupVersion(
+		scheme,
+		SchemeGroupVersionV3,
 	)
 
 	return nil

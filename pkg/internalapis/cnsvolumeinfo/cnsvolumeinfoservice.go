@@ -76,6 +76,9 @@ type VolumeInfoService interface {
 
 	// PatchVolumeInfo patches the CNSVolumeInfo instance associated with volumeID in given parameters.
 	PatchVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte, retries int) error
+
+	// PatchVolumeInfoStatus patches the status of CNSVolumeInfo instance associated with volumeID.
+	PatchVolumeInfoStatus(ctx context.Context, volumeID string, patchBytes []byte, retries int) error
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -311,6 +314,34 @@ func (volumeInfo *volumeInfo) PatchVolumeInfo(ctx context.Context, volumeID stri
 		time.Sleep(100 * time.Millisecond)
 	}
 
+}
+
+// PatchVolumeInfoStatus patches the status of CNSVolumeInfo instance associated with volumeID.
+func (volumeInfo *volumeInfo) PatchVolumeInfoStatus(ctx context.Context, volumeID string, patchBytes []byte,
+	allowedRetries int) error {
+	log := logger.GetLogger(ctx)
+
+	volumeInfoInstance, err := volumeInfo.GetVolumeInfoForVolumeID(ctx, volumeID)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to fetch CnsVolumeInfo instance for volumeID: %q", volumeID)
+	}
+	attempt := 0
+	for {
+		attempt++
+		err := volumeInfo.k8sClient.Status().Patch(ctx, volumeInfoInstance, client.RawPatch(types.MergePatchType, patchBytes))
+		if err != nil && attempt >= allowedRetries {
+			log.Errorf("attempt: %d, failed to patch the status of cnsvolumeinfo %q namespace %q",
+				attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+			return err
+		} else if err == nil {
+			log.Infof("attempt: %d, Successfully patched the status of cnsvolumeinfo %q namespace %q",
+				attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+			return nil
+		}
+		log.Warnf("attempt %d, failed to patch status of cnsvolumeinfo %q namespace %q, will retry",
+			attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // getCnsVolumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."

@@ -129,6 +129,9 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeinfoes"]
     verbs: ["create", "get", "list", "watch", "delete", "patch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["cnsvolumeinfoes/status"]
+    verbs: ["patch"]
   - apiGroups: ["crd.nsx.vmware.com"]
     resources: ["networkinfos"]
     verbs: ["get", "watch", "list"]
@@ -164,6 +167,9 @@ rules:
     verbs: ["get", "list", "watch", "patch", "update"]
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates", "certificates/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["mobility-operator.vmware.com"]
+    resources: ["virtualmachineinframigrations", "volumemigrations"]
     verbs: ["get", "list", "watch"]
 ---
 kind: ClusterRoleBinding
