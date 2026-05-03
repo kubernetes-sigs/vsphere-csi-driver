@@ -1829,6 +1829,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			if useFVS {
 				return c.createFileVolumeViaFVS(ctx, req)
 			}
+			if isVsanFileServicePolicyStorageClass(scName) {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+					"invalid file volume provisioning request: reserved StorageClass %q requires FileVolumeService",
+					scName)
+			}
 			// Block file volume provisioning if FSS Workload_Domain_Isolation_Supported is enabled but
 			// 'fileVolumeActivated' field is set to false in vSphere config secret.
 			if isWorkloadDomainIsolationEnabled &&
