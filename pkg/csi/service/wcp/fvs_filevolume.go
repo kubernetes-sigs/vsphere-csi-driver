@@ -46,18 +46,23 @@ import (
 const (
 	fvsGroup   = "fvs.vcf.broadcom.com"
 	fvsVersion = "v1alpha1"
-	// fvsWaitStep is the poll interval while waiting for the FileVolume CR to reach Ready and populate
-	// status (FVS controllers reconcile asynchronously; we re-read on this cadence instead of hammering
-	// the API).
-	fvsWaitStep = 5 * time.Second
-	// fvsWaitMax is the maximum time to wait before failing CreateVolume so the CSI RPC does not block indefinitely
-	// if the FileVolume never becomes Ready or status fields stay empty.
-	fvsWaitMax = 5 * time.Minute
 	// AnnotationVPCNetworkConfig is set on supervisor namespaces; value is the VPCNetworkConfiguration CR name.
 	AnnotationVPCNetworkConfig = "nsx.vmware.com/vpc_network_config"
 	// NamespaceLabelFVSInstance marks FVS instance namespaces (supervisor namespaces that host FileVolume CRs).
 	// Expected label value is "true".
 	NamespaceLabelFVSInstance = "fvs_instance_namespace"
+)
+
+// fvsWaitStep / fvsWaitMax are exposed as package-level vars (not consts) so unit tests can dial them
+// down to keep poll loops fast.
+var (
+	// fvsWaitStep is the poll interval while waiting for the FileVolume CR to reach Ready and populate
+	// status, or to be GC'd after Delete (FVS controllers reconcile asynchronously; we re-read on this
+	// cadence instead of hammering the API).
+	fvsWaitStep = 5 * time.Second
+	// fvsWaitMax is the maximum time to wait before failing the CSI RPC so it does not block indefinitely
+	// if the FileVolume never becomes Ready (CreateVolume) or its finalizer never clears (DeleteVolume).
+	fvsWaitMax = 5 * time.Minute
 )
 
 var (
@@ -453,6 +458,79 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	resp.Volume.AccessibleTopology = topo
 
 	return resp, "", nil
+}
+
+// deleteFileVolumeViaFVS reclaims a file volume by deleting the FileVolume CR backing the supplied
+// CSI volume id minted by the FVS workflow (formatted as "fv:<instance-namespace>:<filevolume-name>",
+// see common.FVSVolumeIDPrefix). The FVS controllers reconcile the deletion asynchronously through
+// a finalizer that drives the underlying vDFS volume reclaim; this function issues the Delete and
+// waits until the FileVolume CR has been fully GC'd from the supervisor before returning success
+// so the CSI RPC contract (volume gone on success) holds.
+//
+// NotFound on the initial Delete is treated as idempotent success because the external-provisioner
+// can retry DeleteVolume after a previous attempt has already removed the CR.
+func (c *controller) deleteFileVolumeViaFVS(ctx context.Context, volumeID string) (
+	*csi.DeleteVolumeResponse, string, error) {
+	log := logger.GetLogger(ctx)
+
+	instanceNS, fvName, err := common.ParseFVSVolumeHandle(volumeID)
+	if err != nil {
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"%v", err)
+	}
+
+	// fileVolumeClient is initialized in controller.Init only when the FVS FSS is enabled. If we are
+	// asked to delete an FVS-prefixed volume id while the client is nil the FSS must have been
+	// disabled after the volume was provisioned; surface a clear error rather than NPE.
+	if c.fileVolumeClient == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"FileVolume client is not initialized; cannot delete FVS volume %q "+
+				"(supports_vsan_fileservice capability may be disabled on the supervisor)", volumeID)
+	}
+
+	fv := &fvv1alpha1.FileVolume{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: schema.GroupVersion{Group: fvsGroup, Version: fvsVersion}.String(),
+			Kind:       "FileVolume",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fvName,
+			Namespace: instanceNS,
+		},
+	}
+	log.Infof("DeleteVolume: deleting FileVolume %s/%s for CSI volume %q", instanceNS, fvName, volumeID)
+	if err := c.fileVolumeClient.Delete(ctx, fv); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("FileVolume %s/%s already deleted; treating CSI volume %q delete as idempotent success",
+				instanceNS, fvName, volumeID)
+			return &csi.DeleteVolumeResponse{}, "", nil
+		}
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to delete FileVolume %s/%s for CSI volume %q: %v",
+			instanceNS, fvName, volumeID, err)
+	}
+
+	// Wait for the FileVolume CR to be GC'd. The FVS controller runs a finalizer that performs the
+	// underlying vDFS volume reclaim before the CR is removed, so observing IsNotFound here is the
+	// signal that the volume is fully deleted on the supervisor side.
+	err = wait.PollUntilContextTimeout(ctx, fvsWaitStep, fvsWaitMax, true, func(ctx context.Context) (bool, error) {
+		cur := &fvv1alpha1.FileVolume{}
+		getErr := c.fileVolumeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, cur)
+		if apierrors.IsNotFound(getErr) {
+			return true, nil
+		}
+		if getErr != nil {
+			return false, getErr
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
+			"timeout or error waiting for FileVolume %s/%s to be deleted for CSI volume %q: %v",
+			instanceNS, fvName, volumeID, err)
+	}
+	log.Infof("DeleteVolume: FileVolume %s/%s removed; CSI volume %q deleted", instanceNS, fvName, volumeID)
+	return &csi.DeleteVolumeResponse{}, "", nil
 }
 
 // shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow.

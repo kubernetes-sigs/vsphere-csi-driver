@@ -711,6 +711,41 @@ func TestIsFVSVolumeHandle(t *testing.T) {
 	}
 }
 
+func TestParseFVSVolumeHandle(t *testing.T) {
+	tests := []struct {
+		name         string
+		volumeHandle string
+		wantNS       string
+		wantName     string
+		wantErr      bool
+	}{
+		{"empty handle", "", "", "", true},
+		{"missing prefix", "tenant-ns:fv-foo", "", "", true},
+		{"prefix only", "fv:", "", "", true},
+		{"missing name", "fv:tenant-ns:", "", "", true},
+		{"missing namespace", "fv::fv-foo", "", "", true},
+		{"missing separator", "fv:tenant-ns", "", "", true},
+		{"valid handle", "fv:tenant-ns:fv-foo", "tenant-ns", "fv-foo", false},
+		{"valid handle with colon in name preserves remaining colon",
+			"fv:tenant-ns:fv-foo:bar", "tenant-ns", "fv-foo:bar", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotNS, gotName, err := ParseFVSVolumeHandle(tt.volumeHandle)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseFVSVolumeHandle(%q) err = %v, wantErr = %v", tt.volumeHandle, err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if gotNS != tt.wantNS || gotName != tt.wantName {
+				t.Fatalf("ParseFVSVolumeHandle(%q) = (%q, %q), want (%q, %q)",
+					tt.volumeHandle, gotNS, gotName, tt.wantNS, tt.wantName)
+			}
+		})
+	}
+}
+
 func TestIsFVSStorageClassName(t *testing.T) {
 	tests := []struct {
 		name             string

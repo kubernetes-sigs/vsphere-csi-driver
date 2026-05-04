@@ -567,6 +567,25 @@ func IsFVSVolumeHandle(volumeHandle string) bool {
 	return strings.HasPrefix(volumeHandle, FVSVolumeIDPrefix)
 }
 
+// ParseFVSVolumeHandle parses a CSI volume handle minted by the FVS workflow
+// (formatted as "fv:<instance-namespace>:<filevolume-name>", see FVSVolumeIDPrefix)
+// and returns the FileVolume CR's namespace and name. Returns an error if the
+// volume handle does not carry the FVS prefix or is malformed (missing namespace
+// or name component).
+func ParseFVSVolumeHandle(volumeHandle string) (namespace, name string, err error) {
+	if !IsFVSVolumeHandle(volumeHandle) {
+		return "", "", fmt.Errorf("volume handle %q is not an FVS volume handle (missing %q prefix)",
+			volumeHandle, FVSVolumeIDPrefix)
+	}
+	rest := strings.TrimPrefix(volumeHandle, FVSVolumeIDPrefix)
+	parts := strings.SplitN(rest, ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("malformed FVS volume handle %q; expected %q<namespace>:<name>",
+			volumeHandle, FVSVolumeIDPrefix)
+	}
+	return parts[0], parts[1], nil
+}
+
 // IsFVSStorageClassName returns true if the supplied storage class name is one of
 // the vSAN file service storage classes that route provisioning through FVS on the
 // supervisor (StorageClassVsanFileServicePolicy or
