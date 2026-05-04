@@ -42,6 +42,8 @@ import (
 
 	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	fvv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume/v1alpha1"
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -55,6 +57,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	commonco.ContainerOrchestratorUtility = co
+	// Stub out ConnectVslmHook so wcp unit tests don't try to dial the
+	// govmomi simulator's /vslm/sdk endpoint (the simulator returns 404).
+	cnsvolume.ConnectVslmHook = func(ctx context.Context, vc *cnsvsphere.VirtualCenter) error { return nil }
 	m.Run()
 }
 
