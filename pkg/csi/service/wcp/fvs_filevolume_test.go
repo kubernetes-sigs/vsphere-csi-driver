@@ -445,6 +445,36 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 	})
 }
 
+func TestShouldDeleteFileVolumeViaFVS(t *testing.T) {
+	tests := []struct {
+		name       string
+		fssEnabled bool
+		volumeID   string
+		want       bool
+	}{
+		{"FSS off, non-FVS handle", false, "abc-block-vol", false},
+		{"FSS off, FVS handle", false, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", false},
+		{"FSS off, empty handle", false, "", false},
+		{"FSS on, non-FVS handle", true, "abc-block-vol", false},
+		{"FSS on, legacy file handle", true, "file:abcd-1234", false},
+		{"FSS on, empty handle", true, "", false},
+		{"FSS on, FVS prefix only", true, common.FVSVolumeIDPrefix, true},
+		{"FSS on, FVS handle", true, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldFSS := isVsanFileVolumeServiceFSSEnabled
+			defer func() { isVsanFileVolumeServiceFSSEnabled = oldFSS }()
+			isVsanFileVolumeServiceFSSEnabled = tt.fssEnabled
+
+			got := shouldDeleteFileVolumeViaFVS(tt.volumeID)
+			require.Equalf(t, tt.want, got,
+				"shouldDeleteFileVolumeViaFVS(%q) with FSS=%v: want %v, got %v",
+				tt.volumeID, tt.fssEnabled, tt.want, got)
+		})
+	}
+}
+
 // fvsTestScheme returns a runtime.Scheme with the FVS FileVolume types registered for use with
 // the controller-runtime fake client.
 func fvsTestScheme(t *testing.T) *runtime.Scheme {

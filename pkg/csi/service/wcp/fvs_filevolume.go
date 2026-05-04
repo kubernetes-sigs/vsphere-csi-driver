@@ -552,3 +552,18 @@ func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName s
 	}
 	return true, nil
 }
+
+// shouldDeleteFileVolumeViaFVS encapsulates routing to the FVS CR workflow on DeleteVolume,
+// mirroring shouldProvisionVsanFileVolumeViaFVS for CreateVolume. The FVS path is only taken
+// when the supports_vsan_fileservice capability (VsanFileVolumeService FSS) is enabled and
+// the supplied CSI volume id carries the FVS prefix ("fv:<instance-namespace>:<filevolume-name>",
+// see common.FVSVolumeIDPrefix); otherwise the caller should fall through to the legacy CNS
+// DeleteVolume path. Routing on the volume-id prefix (and not the storage class) is sufficient
+// here because by DeleteVolume time the volume already exists and its provenance is encoded in
+// the id minted by CreateVolume.
+func shouldDeleteFileVolumeViaFVS(volumeID string) bool {
+	if !isVsanFileVolumeServiceFSSEnabled {
+		return false
+	}
+	return common.IsFVSVolumeHandle(volumeID)
+}
