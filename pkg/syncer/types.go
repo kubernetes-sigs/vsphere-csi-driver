@@ -118,6 +118,10 @@ type metadataSyncInformer struct {
 	pvcLister          corelisters.PersistentVolumeClaimLister
 	podLister          corelisters.PodLister
 	coCommonInterface  commonco.COCommonInterface
+	// fileVolumeClient is a controller-runtime client for reading FileVolume CRs
+	// (fvs.vcf.broadcom.com/v1alpha1). Initialized only when IsVsanFileVolumeServiceEnabled
+	// is true; nil otherwise.
+	fileVolumeClient client.Client
 	// topologyVCMap maintains a cache of topology tags to the vCenter IP/FQDN which holds the tag.
 	// Example - {region1: {VC1: struct{}{}, VC2: struct{}{}},
 	//            zone1: {VC1: struct{}{}},

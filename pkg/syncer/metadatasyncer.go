@@ -56,6 +56,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
+	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -382,6 +383,21 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsPerNamespaceNetworkProviders) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.SupportsPerNamespaceNetworkProviders, "", "")
+		}
+		if IsVsanFileVolumeServiceEnabled {
+			fvsScheme := runtime.NewScheme()
+			if err = fvsapis.AddToScheme(fvsScheme); err != nil {
+				return logger.LogNewErrorf(log, "failed to add FileVolume API types to scheme: %v", err)
+			}
+			restConfig, cfgErr := config.GetConfig()
+			if cfgErr != nil {
+				return logger.LogNewErrorf(log, "failed to get Kubernetes config for FileVolume client: %v", cfgErr)
+			}
+			metadataSyncer.fileVolumeClient, err = client.New(restConfig, client.Options{Scheme: fvsScheme})
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to create FileVolume client: %v", err)
+			}
+			log.Info("Initialized FileVolume client for volume health")
 		}
 	}
 
