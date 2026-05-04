@@ -53,6 +53,10 @@ linters:
       - linters:
           - staticcheck
         text: "ST1023"
+      # Exclude lll for kubebuilder marker comments which must be on a single line
+      - linters:
+          - lll
+        source: "^// \\+kubebuilder:"
 
 linters-settings:
   lll:
