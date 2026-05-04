@@ -18,11 +18,14 @@ package wcp
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,7 +36,12 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
+	fvv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume/v1alpha1"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -435,4 +443,209 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 	})
+}
+
+func TestShouldDeleteFileVolumeViaFVS(t *testing.T) {
+	tests := []struct {
+		name       string
+		fssEnabled bool
+		volumeID   string
+		want       bool
+	}{
+		{"FSS off, non-FVS handle", false, "abc-block-vol", false},
+		{"FSS off, FVS handle", false, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", false},
+		{"FSS off, empty handle", false, "", false},
+		{"FSS on, non-FVS handle", true, "abc-block-vol", false},
+		{"FSS on, legacy file handle", true, "file:abcd-1234", false},
+		{"FSS on, empty handle", true, "", false},
+		{"FSS on, FVS prefix only", true, common.FVSVolumeIDPrefix, true},
+		{"FSS on, FVS handle", true, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldFSS := isVsanFileVolumeServiceFSSEnabled
+			defer func() { isVsanFileVolumeServiceFSSEnabled = oldFSS }()
+			isVsanFileVolumeServiceFSSEnabled = tt.fssEnabled
+
+			got := shouldDeleteFileVolumeViaFVS(tt.volumeID)
+			require.Equalf(t, tt.want, got,
+				"shouldDeleteFileVolumeViaFVS(%q) with FSS=%v: want %v, got %v",
+				tt.volumeID, tt.fssEnabled, tt.want, got)
+		})
+	}
+}
+
+// fvsTestScheme returns a runtime.Scheme with the FVS FileVolume types registered for use with
+// the controller-runtime fake client.
+func fvsTestScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	require.NoError(t, fvsapis.AddToScheme(s))
+	return s
+}
+
+// withFastFVSWait dials fvsWaitStep / fvsWaitMax down for tests that exercise the delete-poll loop
+// so a missed-NotFound iteration costs milliseconds, not seconds.
+func withFastFVSWait(t *testing.T) {
+	t.Helper()
+	prevStep, prevMax := fvsWaitStep, fvsWaitMax
+	fvsWaitStep = 5 * time.Millisecond
+	fvsWaitMax = 200 * time.Millisecond
+	t.Cleanup(func() { fvsWaitStep, fvsWaitMax = prevStep, prevMax })
+}
+
+func TestDeleteFileVolumeViaFVS_Success(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-success"
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			Build(),
+	}
+
+	resp, fault, err := c.deleteFileVolumeViaFVS(ctx, common.FVSVolumeIDPrefix+instanceNS+":"+fvName)
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.NotNil(t, resp)
+
+	cur := &fvv1alpha1.FileVolume{}
+	getErr := c.fileVolumeClient.Get(ctx,
+		ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, cur)
+	require.True(t, apierrors.IsNotFound(getErr),
+		"FileVolume %s/%s should be gone after deleteFileVolumeViaFVS, got err %v",
+		instanceNS, fvName, getErr)
+}
+
+func TestDeleteFileVolumeViaFVS_NotFoundIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			Build(),
+	}
+
+	resp, fault, err := c.deleteFileVolumeViaFVS(ctx,
+		common.FVSVolumeIDPrefix+"missing-ns:missing-fv")
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.NotNil(t, resp)
+}
+
+func TestDeleteFileVolumeViaFVS_InvalidVolumeID(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			Build(),
+	}
+
+	tests := []struct {
+		name     string
+		volumeID string
+	}{
+		{"missing FVS prefix", "tenant-ns:fv-foo"},
+		{"prefix only", common.FVSVolumeIDPrefix},
+		{"missing namespace", common.FVSVolumeIDPrefix + ":fv-foo"},
+		{"missing name", common.FVSVolumeIDPrefix + "tenant-ns:"},
+		{"missing separator after namespace", common.FVSVolumeIDPrefix + "tenant-ns"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, fault, err := c.deleteFileVolumeViaFVS(ctx, tt.volumeID)
+			require.Error(t, err)
+			require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+		})
+	}
+}
+
+func TestDeleteFileVolumeViaFVS_NilClient(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{}
+	_, fault, err := c.deleteFileVolumeViaFVS(ctx,
+		common.FVSVolumeIDPrefix+"any-ns:any-fv")
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "FileVolume client is not initialized")
+}
+
+func TestDeleteFileVolumeViaFVS_DeleteError(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-error"
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+	}
+	injectedErr := errors.New("api server temporarily unavailable")
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Delete: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.DeleteOption) error {
+					if _, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						return injectedErr
+					}
+					return w.Delete(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	_, fault, err := c.deleteFileVolumeViaFVS(ctx,
+		common.FVSVolumeIDPrefix+instanceNS+":"+fvName)
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "failed to delete FileVolume")
+}
+
+// TestDeleteFileVolumeViaFVS_StuckFinalizer simulates an FVS controller that has not yet drained
+// its finalizer: Delete returns success but Get keeps returning the CR. The CSI delete should fail
+// with DeadlineExceeded after fvsWaitMax expires (dialed down via withFastFVSWait).
+func TestDeleteFileVolumeViaFVS_StuckFinalizer(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-stuck"
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       fvName,
+			Namespace:  instanceNS,
+			Finalizers: []string{"fvs.vcf.broadcom.com/finalizer"},
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			Build(),
+	}
+
+	_, fault, err := c.deleteFileVolumeViaFVS(ctx,
+		common.FVSVolumeIDPrefix+instanceNS+":"+fvName)
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "timeout or error waiting for FileVolume")
 }

@@ -1890,6 +1890,15 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			cnsVolumeType = common.GetCnsVolumeType(ctx, req.VolumeId)
 			volumeType = convertCnsVolumeType(ctx, cnsVolumeType)
 		}
+		// FVS-backed file volumes carry the "fv:<instance-namespace>:<filevolume-name>" id and are
+		// reclaimed by deleting the FileVolume CR; the FVS controllers handle the underlying vDFS
+		// volume cleanup via finalizer. Skip the legacy CNS DeleteVolume path for these handles.
+		// shouldDeleteFileVolumeViaFVS gates this branch on the supports_vsan_fileservice
+		// capability (VsanFileVolumeService FSS), mirroring shouldProvisionVsanFileVolumeViaFVS on
+		// the CreateVolume path.
+		if shouldDeleteFileVolumeViaFVS(req.VolumeId) {
+			return c.deleteFileVolumeViaFVS(ctx, req.VolumeId)
+		}
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.BlockVolumeType &&
 			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot) {
