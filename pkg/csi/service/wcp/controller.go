@@ -2743,16 +2743,9 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 		volumeSnapshotName := req.Parameters[common.VolumeSnapshotNameKey]
 		annotations := map[string]string{common.VolumeSnapshotInfoKey: snapshotID}
-
-		// TODO: This code will be updated when we can retrieve change-id from CNS
-		// Retrieve change-id from FCD and add it to the annotations
-		changeId, err := c.getSnapshotChangeIdFromFCD(ctx, volumeID, cnsSnapshotInfo.SnapshotID)
-		if err != nil {
-			log.Warnf("Failed to retrieve changeId for snapshot %s: %v", snapshotID, err)
-		} else {
-			annotations[common.VolumeSnapshotChangeIDKey] = changeId
+		if cnsSnapshotInfo.ChangedBlockTrackingId != "" {
+			annotations[common.VolumeSnapshotChangeIDKey] = cnsSnapshotInfo.ChangedBlockTrackingId
 		}
-
 		log.Infof("Attempting to annotate volumesnapshot %s/%s with annotations %v",
 			volumeSnapshotNamespace, volumeSnapshotName, annotations)
 		annotated, err := commonco.ContainerOrchestratorUtility.AnnotateVolumeSnapshot(ctx, volumeSnapshotName,

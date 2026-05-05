@@ -230,8 +230,3 @@ func (m MockManager) QueryFCDChangedBlocks(ctx context.Context,
 	//TODO implement me
 	panic("implement me")
 }
-
-func (m MockManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	//TODO implement me
-	panic("implement me")
-}

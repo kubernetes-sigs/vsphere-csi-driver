@@ -152,11 +152,6 @@ func (m *mockVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
 	panic("implement me")
 }
 
-func (m *mockVolumeManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (m *mockVolumeManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {
 	//TODO implement me
 	panic("implement me")

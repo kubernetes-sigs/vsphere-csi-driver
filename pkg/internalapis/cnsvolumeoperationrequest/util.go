@@ -46,12 +46,13 @@ const (
 // VolumeOperationRequestInterface and the persisted details will be
 // returned by the interface on request by the caller via this structure.
 type VolumeOperationRequestDetails struct {
-	Name             string
-	VolumeID         string
-	SnapshotID       string
-	Capacity         int64
-	QuotaDetails     *QuotaDetails
-	OperationDetails *OperationDetails
+	Name                   string
+	VolumeID               string
+	SnapshotID             string
+	Capacity               int64
+	QuotaDetails           *QuotaDetails
+	OperationDetails       *OperationDetails
+	ChangedBlockTrackingId string
 }
 
 // QuotaDetails stores information required to interact with the custom
@@ -79,7 +80,7 @@ type OperationDetails struct {
 // VolumeOperationRequestDetails from the input parameters.
 func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capacity int64,
 	quotaDetails *QuotaDetails, taskInvocationTimestamp metav1.Time, taskID, vCenterServer, opID,
-	taskStatus, error string) *VolumeOperationRequestDetails {
+	taskStatus, error, changedBlockTrackingId string) *VolumeOperationRequestDetails {
 	return &VolumeOperationRequestDetails{
 		Name:         name,
 		VolumeID:     volumeID,
@@ -94,6 +95,7 @@ func CreateVolumeOperationRequestDetails(name, volumeID, snapshotID string, capa
 			TaskStatus:              taskStatus,
 			Error:                   error,
 		},
+		ChangedBlockTrackingId: changedBlockTrackingId,
 	}
 }
 

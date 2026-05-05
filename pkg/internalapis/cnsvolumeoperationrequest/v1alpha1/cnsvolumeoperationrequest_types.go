@@ -52,6 +52,9 @@ type CnsVolumeOperationRequestStatus struct {
 	// LatestOperationDetails stores the details of the latest operations performed
 	// on the volume. Should have a maximum of 10 entries.
 	LatestOperationDetails []OperationDetails `json:"latestOperationDetails,omitempty"`
+	// ChangedBlockTrackingId is the unique changed block tracking ID of the backend snapshot.
+	// Populated during successful CreateSnapshot calls.
+	ChangedBlockTrackingId string `json:"changedBlockTrackingId,omitempty"`
 }
 type QuotaDetails struct {
 	// Reserved keeps a track of the quantity that should be reserved in
