@@ -2929,6 +2929,16 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 			}
 
 		}
+		// FVS-backed file volumes carry the "fv:<instance-namespace>:<filevolume-name>" id
+		// (not considered for migrated volumes yet) and are resized by patching spec.size on the
+		// FileVolume CR; the FVS controllers reconcile the underlying vDFS volume and bump
+		// status.lastAppliedSize when the new size has landed. Skip the legacy CNS ExpandVolume
+		// path (and its block-volume validation) for these handles.
+		// shouldExpandFileVolumeViaFVS gates this branch on the supports_vsan_fileservice capability
+		// (VsanFileVolumeService FSS), mirroring shouldDeleteFileVolumeViaFVS on DeleteVolume.
+		if shouldExpandFileVolumeViaFVS(req.VolumeId) {
+			return c.expandFileVolumeViaFVS(ctx, req)
+		}
 		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 		if err != nil {
