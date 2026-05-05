@@ -117,6 +117,15 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 
+	// On Supervisor cluster, if CSI_Backup_API FSS is enabled, reconcile snapshot change-id annotations
+	// from CNS snapshot metadata. This ensures all supervisor snapshots have the change-id annotation
+	// which can then be mirrored to guest cluster snapshots.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+			setChangeIDAnnotationOnSupervisorSnapshots(ctx, metadataSyncer, vc)
+		}
+	}
+
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
 		if err != nil {
@@ -1906,4 +1915,248 @@ func cleanupUnusedPVCsAndSnapshotsFromGuestCluster(ctx context.Context) {
 				cnsoperatortypes.CNSVolumeFinalizer, false)
 		}
 	}
+}
+
+// getSnapshotsWithoutChangeIDAnnotation lists supervisor VolumeSnapshots, filters those needing change-id annotation,
+// and returns them grouped by volumeID for selective CNS querying.
+// This is separated to enable testability with sample k8s objects.
+func getSnapshotsWithoutChangeIDAnnotation(ctx context.Context, snapshotterClient versioned.Interface) (
+	snapshotMap map[string]*snapv1.VolumeSnapshot,
+	volumeSnapMap map[string]map[string]struct{},
+	err error,
+) {
+	log := logger.GetLogger(ctx)
+
+	snapshotMap = make(map[string]*snapv1.VolumeSnapshot)
+	volumeSnapMap = make(map[string]map[string]struct{})
+
+	// Use pagination to avoid loading all snapshots at once
+	const pageSize = 500
+	listOptions := metav1.ListOptions{
+		Limit: pageSize,
+	}
+
+	for {
+		// List VolumeSnapshots across all namespaces with pagination
+		vsList, err := snapshotterClient.SnapshotV1().VolumeSnapshots("").List(ctx, listOptions)
+		if err != nil {
+			log.Errorf(
+				"getSnapshotsWithoutChangeIDAnnotation: failed to list supervisor VolumeSnapshots. Error: %v",
+				err)
+			return nil, nil, err
+		}
+
+		if len(vsList.Items) == 0 {
+			log.Debugf("getSnapshotsWithoutChangeIDAnnotation: No VolumeSnapshots found in current page")
+			break
+		}
+
+		log.Debugf(
+			"getSnapshotsWithoutChangeIDAnnotation: Processing page with %d VolumeSnapshots",
+			len(vsList.Items))
+
+		// Process each snapshot in this page
+		for i := range vsList.Items {
+			vs := &vsList.Items[i]
+			if changeID, exists := vs.Annotations[common.VolumeSnapshotChangeIDKey]; exists && changeID != "" {
+				log.Debugf(
+					"getSnapshotsWithoutChangeIDAnnotation: VolumeSnapshot %q/%q already has change-id annotation",
+					vs.Namespace, vs.Name)
+				continue
+			}
+			if vs.Status == nil {
+				log.Debugf("getSnapshotsWithoutChangeIDAnnotation: VolumeSnapshot %q/%q has no status",
+					vs.Namespace, vs.Name)
+				continue
+			}
+			if vs.Status.ReadyToUse != nil && !*vs.Status.ReadyToUse {
+				log.Debugf(
+					"getSnapshotsWithoutChangeIDAnnotation: VolumeSnapshot %q/%q is not ready to use",
+					vs.Namespace, vs.Name)
+				continue
+			}
+			if vs.Status.BoundVolumeSnapshotContentName == nil ||
+				*vs.Status.BoundVolumeSnapshotContentName == "" {
+				log.Debugf(
+					"getSnapshotsWithoutChangeIDAnnotation: VolumeSnapshot %q/%q has no bound VSC",
+					vs.Namespace, vs.Name)
+				continue
+			}
+			vsc, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().Get(ctx,
+				*vs.Status.BoundVolumeSnapshotContentName, metav1.GetOptions{})
+			if err != nil {
+				log.Errorf(
+					"getSnapshotsWithoutChangeIDAnnotation: failed to get VolumeSnapshotContent for snapshot %q/%q. Error: %v",
+					vs.Namespace, vs.Name, err)
+				continue
+			}
+			if vsc.Status == nil || vsc.Status.SnapshotHandle == nil || *vsc.Status.SnapshotHandle == "" {
+				log.Debugf(
+					"getSnapshotsWithoutChangeIDAnnotation: VolumeSnapshotContent %q has no snapshot handle",
+					vsc.Name)
+				continue
+			}
+			volumeID, snapID, err := common.ParseCSISnapshotID(*vsc.Status.SnapshotHandle)
+			if err != nil {
+				log.Errorf(
+					"getSnapshotsWithoutChangeIDAnnotation: failed to parse snapshot handle %q. Error: %v",
+					*vsc.Status.SnapshotHandle, err)
+				continue
+			}
+			snapshotMap[snapID] = vs
+			if _, ok := volumeSnapMap[volumeID]; !ok {
+				volumeSnapMap[volumeID] = make(map[string]struct{})
+			}
+			volumeSnapMap[volumeID][snapID] = struct{}{}
+		}
+
+		// Check if there are more pages
+		if vsList.Continue == "" {
+			// No more pages
+			break
+		}
+		// Set continue token for next page
+		listOptions.Continue = vsList.Continue
+	}
+
+	if len(volumeSnapMap) == 0 {
+		log.Debugf("getSnapshotsWithoutChangeIDAnnotation: No snapshots need change-id annotation")
+	}
+
+	return snapshotMap, volumeSnapMap, nil
+}
+
+// annotateSnapshotsFromCNSResults processes CNS QuerySnapshots results and annotates matching VolumeSnapshots.
+// This is separated to enable testability with mock volumeManager and coCommonInterface.
+// It delegates pagination to utils.QuerySnapshotsUtil which handles cursor management internally.
+func annotateSnapshotsFromCNSResults(
+	ctx context.Context,
+	volumeID string,
+	wantedSnapIDs map[string]struct{},
+	snapshotMap map[string]*snapv1.VolumeSnapshot,
+	volumeManager volumes.Manager,
+	coCommonInterface commonco.COCommonInterface,
+) int {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("annotateSnapshotsFromCNSResults: Processing volume %q with %d snapshots needing annotation",
+		volumeID, len(wantedSnapIDs))
+
+	// Build CnsSnapshotQueryFilter for the volume.
+	// utils.QuerySnapshotsUtil handles cursor-based pagination internally.
+	snapshotQueryFilter := cnstypes.CnsSnapshotQueryFilter{
+		SnapshotQuerySpecs: []cnstypes.CnsSnapshotQuerySpec{
+			{
+				VolumeId: cnstypes.CnsVolumeId{Id: volumeID},
+			},
+		},
+	}
+
+	// Query CNS for all snapshots of this volume; util handles pagination.
+	queryEntries, _, err := utils.QuerySnapshotsUtil(ctx, volumeManager, snapshotQueryFilter, common.QuerySnapshotLimit)
+	if err != nil {
+		log.Warnf("annotateSnapshotsFromCNSResults: QuerySnapshots failed for volume %q. Error: %v",
+			volumeID, err)
+		return 0
+	}
+
+	annotatedCount := 0
+	// Reuse single annotation map to reduce allocation pressure in loop
+	annotations := make(map[string]string, 1)
+
+	for _, entry := range queryEntries {
+		if entry.Error != nil {
+			log.Debugf("annotateSnapshotsFromCNSResults: skipping entry with fault for volume %q: %+v",
+				volumeID, entry.Error.Fault)
+			continue
+		}
+		snapID := entry.Snapshot.SnapshotId.Id
+		// Only process snapshots that need change-id annotation
+		if _, want := wantedSnapIDs[snapID]; !want {
+			continue
+		}
+		changeID := entry.Snapshot.ChangedBlockTrackingId
+		if changeID == "" {
+			log.Debugf("annotateSnapshotsFromCNSResults: No change-id found for snapshot %q in volume %q",
+				snapID, volumeID)
+			continue
+		}
+
+		vs, ok := snapshotMap[snapID]
+		if !ok {
+			log.Debugf("annotateSnapshotsFromCNSResults: VolumeSnapshot not found for snapshot %q", snapID)
+			continue
+		}
+
+		// Annotate the VolumeSnapshot - reuse annotations map
+		annotations[common.VolumeSnapshotChangeIDKey] = changeID
+		annotated, annotErr := coCommonInterface.AnnotateVolumeSnapshot(ctx, vs.Name, vs.Namespace, annotations)
+		if annotErr != nil || !annotated {
+			log.Warnf(
+				"annotateSnapshotsFromCNSResults: Failed to annotate VolumeSnapshot %q/%q with change-id. Error: %v",
+				vs.Namespace, vs.Name, annotErr)
+			continue
+		}
+		log.Infof(
+			"annotateSnapshotsFromCNSResults: Successfully set change-id annotation on "+
+				"VolumeSnapshot %q/%q with value: %q",
+			vs.Namespace, vs.Name, changeID)
+		annotatedCount++
+	}
+
+	return annotatedCount
+}
+
+// setChangeIDAnnotationOnSupervisorSnapshots reconciles the VolumeSnapshotChangeIDKey annotation on supervisor
+// VolumeSnapshots by fetching change-id from CNS snapshots using QuerySnapshots call.
+// It:
+// 1. Lists all supervisor VolumeSnapshots across all namespaces
+// 2. Resolves volumeID/snapshotID from each VolumeSnapshot's bound VolumeSnapshotContent
+// 3. Groups snapshots needing annotation by volumeID (selective - only volumes we care about)
+// 4. Queries CNS sequentially, one volume at a time (CNS does not parallelize requests)
+// 5. For each CNS query result, immediately annotates matching VolumeSnapshots
+// This ensures supervisor snapshots have complete metadata that can be mirrored to guest cluster snapshots.
+func setChangeIDAnnotationOnSupervisorSnapshots(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("setChangeIDAnnotationOnSupervisorSnapshots: Start for VC: %s", vc)
+
+	// Create snapshotter client for supervisor cluster
+	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("setChangeIDAnnotationOnSupervisorSnapshots: failed to get snapshotterClient. Error: %v", err)
+		return
+	}
+
+	// Build groupings of snapshots needing annotation
+	snapshotMap, volumeSnapMap, err := getSnapshotsWithoutChangeIDAnnotation(ctx, snapshotterClient)
+	if err != nil {
+		return
+	}
+
+	if len(volumeSnapMap) == 0 {
+		log.Debugf("setChangeIDAnnotationOnSupervisorSnapshots: No supervisor VolumeSnapshots need change-id annotation")
+		return
+	}
+
+	log.Infof(
+		"setChangeIDAnnotationOnSupervisorSnapshots: Found %d VolumeSnapshots across %d volumes needing change-id annotation",
+		len(snapshotMap), len(volumeSnapMap))
+
+	// Get volume manager and common interface for CNS queries and annotations
+	volumeManager := metadataSyncer.volumeManager
+	coCommonInterface := metadataSyncer.coCommonInterface
+
+	// Process each volume sequentially. CNS does not parallelize requests, so we
+	// query one volume at a time and annotate snapshots as results arrive.
+	totalAnnotatedCount := 0
+	for volumeID, wantedSnapIDs := range volumeSnapMap {
+		annotatedCount := annotateSnapshotsFromCNSResults(
+			ctx, volumeID, wantedSnapIDs, snapshotMap, volumeManager, coCommonInterface)
+		totalAnnotatedCount += annotatedCount
+	}
+
+	log.Infof(
+		"setChangeIDAnnotationOnSupervisorSnapshots: Completed. Annotated %d VolumeSnapshots with change-id",
+		totalAnnotatedCount)
+	log.Debugf("setChangeIDAnnotationOnSupervisorSnapshots: End for VC: %s", vc)
 }
