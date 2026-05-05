@@ -17,13 +17,18 @@ limitations under the License.
 package clusterstoragepolicyinfo
 
 import (
+	"context"
 	"fmt"
 
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 // ownerReferenceKey returns OwnerReference key which is concatenated from the APIVersion, Kind and Name.
@@ -83,6 +88,51 @@ func volumeAttributesClassAPIAvailableFromRESTConfig(cfg *rest.Config) (bool, er
 		}
 	}
 	return false, nil
+}
+
+// generateOwnerReference returns an OwnerReference for the given client.Object.
+func generateOwnerReference(scheme *runtime.Scheme, owner client.Object) (metav1.OwnerReference, error) {
+	gvk, err := apiutil.GVKForObject(owner, scheme)
+	if err != nil {
+		return metav1.OwnerReference{}, err
+	}
+	controller := false
+	block := false
+	return metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               owner.GetName(),
+		UID:                owner.GetUID(),
+		Controller:         &controller,
+		BlockOwnerDeletion: &block,
+	}, nil
+}
+
+// buildOwnerReferences builds owner references for StorageClass and VolumeAttributesClass if they exist.
+func buildOwnerReferences(ctx context.Context, scheme *runtime.Scheme, name string,
+	sc *storagev1.StorageClass, vac *storagev1.VolumeAttributesClass) []metav1.OwnerReference {
+	log := logger.GetLogger(ctx)
+	ownerRefs := make([]metav1.OwnerReference, 0)
+
+	if sc != nil {
+		ownerRef, err := generateOwnerReference(scheme, sc)
+		if err != nil {
+			log.Errorf("Failed to generate ownerReference for StorageClass %q: %v", name, err)
+		} else {
+			ownerRefs = append(ownerRefs, ownerRef)
+		}
+	}
+
+	if vac != nil {
+		ownerRef, err := generateOwnerReference(scheme, vac)
+		if err != nil {
+			log.Errorf("Failed to generate ownerReference for VolumeAttributesClass %q: %v", name, err)
+		} else {
+			ownerRefs = append(ownerRefs, ownerRef)
+		}
+	}
+
+	return ownerRefs
 }
 
 // storageClassIsWaitForFirstConsumer indicates whether the StorageClass has a WaitForFirstConsumer volumeBindingMode.

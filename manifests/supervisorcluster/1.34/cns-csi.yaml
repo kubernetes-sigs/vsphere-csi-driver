@@ -525,6 +525,8 @@ spec:
               value: "20"
             - name: WORKER_THREADS_NODEVM_BATCH_ATTACH
               value: "20"
+            - name: WORKER_THREADS_CLUSTER_STORAGE_POLICY_INFO
+              value: "4"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT
