@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // CBTConfigSpec defines the desired state of CBTConfig
@@ -66,5 +67,9 @@ type CBTConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CBTConfig{}, &CBTConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &CBTConfig{}, &CBTConfigList{})
+		metav1.AddToGroupVersion(s, GroupVersion)
+		return nil
+	})
 }

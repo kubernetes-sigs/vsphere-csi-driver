@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // StoragePoolSpec defines the desired state of StoragePool
@@ -119,5 +120,9 @@ type StoragePoolList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&StoragePool{}, &StoragePoolList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &StoragePool{}, &StoragePoolList{})
+		metav1.AddToGroupVersion(s, SchemeGroupVersion)
+		return nil
+	})
 }
