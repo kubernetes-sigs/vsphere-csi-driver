@@ -113,9 +113,9 @@ func expandReqRWX(volumeID string, sizeBytes int64) *csi.ControllerExpandVolumeR
 }
 
 const (
-	fvsExpandPVC      = "sv-pvc-expand-1"
-	gi5               = 5 * common.GbInBytes
-	gi10              = 10 * common.GbInBytes
+	fvsExpandPVC = "sv-pvc-expand-1"
+	gi5          = 5 * common.GbInBytes
+	gi10         = 10 * common.GbInBytes
 )
 
 // ---- checkForSupervisorPVCCapacityReached -----------------------------------

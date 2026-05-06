@@ -145,12 +145,12 @@ type controller struct {
 	// supervisorRuntimeClient is a controller-runtime client for the supervisor cluster used for
 	// patch operations on supervisor PVCs. Lazily created from restClientConfig on first use;
 	// may be injected directly in unit tests via ctrlclientfake.
-	supervisorRuntimeClient     client.Client
-	vmWatcher                   *cache.ListWatch
-	supervisorNamespace         string
-	tanzukubernetesClusterUID   string
-	tanzukubernetesClusterName  string
-	guestClusterDist            string
+	supervisorRuntimeClient    client.Client
+	vmWatcher                  *cache.ListWatch
+	supervisorNamespace        string
+	tanzukubernetesClusterUID  string
+	tanzukubernetesClusterName string
+	guestClusterDist           string
 	csi.UnimplementedControllerServer
 	csi.UnimplementedSnapshotMetadataServer
 }
