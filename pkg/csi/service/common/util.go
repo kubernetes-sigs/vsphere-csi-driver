@@ -525,35 +525,101 @@ func GetCNSVolumeInfoPatch(ctx context.Context, CapacityInMb int64, volumeId str
 	return patch, nil
 }
 
-// IsCBTEnabledForNamespace reports whether any CBTConfig in the namespace has status.enabled true.
-func IsCBTEnabledForNamespace(ctx context.Context, dynClient dynamic.Interface, pvcNamespace string) (bool, error) {
+// CBTStateForNamespace reports the CBT state for the given namespace by
+// inspecting the first CBTConfig CR (namespace-scoped singleton).
+//
+// Return values:
+//   - enabled: true when the CBTConfig CR is configured and status.enabled is true.
+//   - configured: true when a CBTConfig CR exists in the namespace and its
+//     status.enabled field has been set by the operator, meaning the config is
+//     actively taking effect. False when no CR exists or the operator has not
+//     yet reconciled status.enabled (nil).
+//   - err: non-nil only when the API List call fails or the unstructured
+//     conversion fails. A missing CR or an unset status.enabled are not errors.
+func CBTStateForNamespace(
+	ctx context.Context,
+	dynClient dynamic.Interface,
+	pvcNamespace string,
+) (enabled bool, configured bool, err error) {
 	log := logger.GetLogger(ctx)
 
 	gvr := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
 	unstructuredList, err := dynClient.Resource(gvr).Namespace(pvcNamespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		// CRD may not be registered yet, or the API version may be absent from discovery.
+		// CRD not yet installed or API version absent from discovery — treat as not configured.
 		if apiMeta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
-			log.Debugf("CBTConfig CR is not registered, assuming CBT disabled for namespace %s", pvcNamespace)
-			return false, nil
+			log.Debugf("CBTConfig API unavailable in namespace %s, treating as not configured", pvcNamespace)
+			return false, false, nil
 		}
-		return false, fmt.Errorf("failed to list CBTConfig CRs in namespace %s: %w", pvcNamespace, err)
+		return false, false, fmt.Errorf("failed to list CBTConfig CRs in namespace %s: %w", pvcNamespace, err)
 	}
 
 	var cbtConfigList cbtconfigv1alpha1.CBTConfigList
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredList.UnstructuredContent(), &cbtConfigList)
-	if err != nil {
-		return false, fmt.Errorf("failed to convert unstructured list to CBTConfigList: %w", err)
+	if err = runtime.DefaultUnstructuredConverter.FromUnstructured(
+		unstructuredList.UnstructuredContent(), &cbtConfigList,
+	); err != nil {
+		return false, false, fmt.Errorf("failed to convert unstructured list to CBTConfigList: %w", err)
 	}
 
-	for _, item := range cbtConfigList.Items {
-		if item.Status.Enabled != nil && *item.Status.Enabled {
-			log.Debugf("CBT is enabled for namespace %s", pvcNamespace)
-			return true, nil
+	if len(cbtConfigList.Items) == 0 {
+		log.Debugf("No CBTConfig CRs found in namespace %s", pvcNamespace)
+		return false, false, nil
+	}
+
+	// CBTConfig CR is implemented with namespace-scoped singleton pattern.
+	cbtConfig := cbtConfigList.Items[0]
+	if cbtConfig.Status.Enabled == nil {
+		// CR exists but operator has not yet written status.enabled — not yet configured.
+		log.Debugf("CBTConfig Status.Enabled is not set for namespace %s", pvcNamespace)
+		return false, false, nil
+	}
+
+	log.Debugf("CBT enabled=%t (configured) for namespace %s", *cbtConfig.Status.Enabled, pvcNamespace)
+
+	return *cbtConfig.Status.Enabled, true, nil
+}
+
+// SyncVolumeCBTState resolves the CBT intent for pvcNamespace via CBTStateForNamespace
+// and applies the resulting enable/disable operation to every volume in volumeIDs.
+// Both SetVolumeControlFlags and ClearVolumeControlFlags are idempotent, so the
+// call is safe to repeat without querying current volume state.
+//
+// The function returns early (with debug logging) when the namespace has no
+// active CBTConfig. Outcomes per volume are logged at Warnf on failure and
+// Infof on success; callers do not need additional log lines around this call.
+func SyncVolumeCBTState(
+	ctx context.Context,
+	dynClient dynamic.Interface,
+	pvcNamespace string,
+	volumeManager cnsvolume.Manager,
+	volumeIDs ...string,
+) {
+	log := logger.GetLogger(ctx)
+
+	enabled, configured, err := CBTStateForNamespace(ctx, dynClient, pvcNamespace)
+	if err != nil {
+		log.Warnf("failed to get CBTConfig for namespace %s: %+v", pvcNamespace, err)
+		return
+	}
+	if !configured {
+		log.Debugf("CBTConfig not yet configured for namespace %s, skipping CBT flag change for volumes %v",
+			pvcNamespace, volumeIDs)
+		return
+	}
+
+	for _, volumeID := range volumeIDs {
+		var applyErr error
+		if enabled {
+			applyErr = SetVolumeCbtFlagsUtil(ctx, volumeManager, volumeID)
+		} else {
+			applyErr = ClearVolumeCbtFlagsUtil(ctx, volumeManager, volumeID)
+		}
+		if applyErr != nil {
+			log.Warnf("failed to set CBT %t for volume %s: %v", enabled, volumeID, applyErr)
+		} else {
+			log.Infof("Successfully set CBT %t for volume %s", enabled, volumeID)
 		}
 	}
-
-	return false, nil
 }
 
 // IsFVSVolumeHandle returns true if the supplied CSI volume handle was minted by
