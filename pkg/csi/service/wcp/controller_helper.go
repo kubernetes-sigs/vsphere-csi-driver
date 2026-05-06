@@ -819,7 +819,7 @@ func validateControllerExpandVolumeRequestInWcp(ctx context.Context, req *csi.Co
 
 	if isFileVolumeRequestInWcp(ctx, []*csi.VolumeCapability{volCaps}) {
 		return logger.LogNewErrorCode(log, codes.Unimplemented,
-			"volume expansion is not supported for legacy file service based volume type")
+			"volume expansion is only supported for block volume type")
 	}
 
 	return nil

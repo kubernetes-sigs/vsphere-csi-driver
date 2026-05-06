@@ -142,6 +142,10 @@ type controller struct {
 	restClientConfig            *rest.Config
 	vmOperatorClient            client.Client
 	cnsOperatorClient           client.Client
+	// supervisorRuntimeClient is a controller-runtime client for the supervisor cluster used for
+	// patch operations on supervisor PVCs. Lazily created from restClientConfig on first use;
+	// may be injected directly in unit tests via ctrlclientfake.
+	supervisorRuntimeClient     client.Client
 	vmWatcher                   *cache.ListWatch
 	supervisorNamespace         string
 	tanzukubernetesClusterUID   string
@@ -1469,11 +1473,37 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
-		// Only block volume expand is allowed. Update this when file volume expand is also supported.
-		volumeType = prometheus.PrometheusBlockVolumeType
 
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+		// Retrieve Supervisor PVC early so we can dispatch on volume type.
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+			ctx, volumeID, metav1.GetOptions{})
+		if err != nil {
+			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
+				volumeID, c.supervisorNamespace, err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+		}
+
+		// FVS-backed file volumes are expanded by patching the supervisor PVC and
+		// waiting for status.capacity to converge; the FVS controller drives the
+		// underlying NFS share resize. NodeExpansionRequired is false for NFS.
+		// unlike wcp, here we are checking if the volume is FVS-backed by checking the storage class name
+		if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return controllerExpandForFVSFileVolume(ctx, req, svPVC, c)
+		}
+
+		// Legacy CNS file volumes do not support expansion.
+		if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
+			return nil, csifault.CSIInvalidArgumentFault,
+				logger.LogNewErrorCode(log, codes.Unimplemented,
+					"volume expansion is only supported for block volume type")
+		}
+
+		volumeType = prometheus.PrometheusBlockVolumeType
 
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend) {
 			vmList, err := utils.ListVirtualMachines(ctx, c.vmOperatorClient, c.supervisorNamespace)
@@ -1493,16 +1523,6 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					}
 				}
 			}
-		}
-
-		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, volumeID, metav1.GetOptions{})
-		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				volumeID, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 
 		waitForSvPvcCondition := true

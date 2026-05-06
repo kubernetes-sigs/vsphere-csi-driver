@@ -570,6 +570,8 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
 			"capacity range with positive required_bytes is required to expand FVS volume %q", req.GetVolumeId())
 	}
+	// GetRequiredBytes returns the size in bytes; FVS accepts byte quantities at every layer
+	// (FileVolumeSpec.Size, VolumeAssignment Capacity, vDFS gRPC), so no MB rounding is needed
 	volSizeBytes := req.GetCapacityRange().GetRequiredBytes()
 	desired := resource.NewQuantity(volSizeBytes, resource.BinarySI)
 
