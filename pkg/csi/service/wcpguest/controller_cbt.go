@@ -120,7 +120,8 @@ func (c *controller) GetMetadataAllocated(
 					"failed to send allocated metadata to client: %v", err)
 			}
 		}
-
+		log.Infof("Successfully completed GetMetadataAllocated call to Supervisor for %s/%s (CSI handle=%s)",
+			svNamespace, svName, req.SnapshotId)
 		return nil
 	}
 
@@ -233,6 +234,9 @@ func (c *controller) GetMetadataDelta(
 					"failed to send delta metadata to client: %v", err)
 			}
 		}
+
+		log.Infof("Successfully completed GetMetadataDelta call to Supervisor:base=<change-id> target=%s/%s",
+			svNamespace, svTargetName)
 
 		return nil
 	}
