@@ -19,6 +19,7 @@ package clusterstoragepolicyinfo
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -139,4 +143,166 @@ func buildOwnerReferences(ctx context.Context, scheme *runtime.Scheme, name stri
 func storageClassIsWaitForFirstConsumer(sc *storagev1.StorageClass) bool {
 	return sc.VolumeBindingMode != nil &&
 		*sc.VolumeBindingMode == storagev1.VolumeBindingWaitForFirstConsumer
+}
+
+// checkVsanEncryption checks if a storage policy has vSAN encryption enabled
+// by examining policy rules for dataAtRestEncryption capability.
+func checkVsanEncryption(policyContent []cnsvsphere.SpbmPolicyContent) bool {
+	for _, policy := range policyContent {
+		for _, subProfile := range policy.Profiles {
+			for _, rule := range subProfile.Rules {
+				if rule.PropID == vsanEncryptionPropID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// hasVmEncryptionRule reports whether any rule in policyContent signals VM encryption:
+// namespace == vmwarevmcrypt and CapID == vmwarevmcrypt@ENCRYPTION.
+func hasVmEncryptionRule(policyContent []cnsvsphere.SpbmPolicyContent) bool {
+	for _, policy := range policyContent {
+		for _, subProfile := range policy.Profiles {
+			for _, rule := range subProfile.Rules {
+				if rule.Ns == vmEncryptionNs && rule.CapID == vmEncryptionCapID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// checkVmEncryption checks if a storage policy has VM encryption enabled.
+//
+// Two passes are performed:
+//  1. Direct: looks for vmwarevmcrypt@ENCRYPTION capability in the vmwarevmcrypt namespace.
+//  2. Indirect: if a rule with namespace com.vmware.storageprofile.dataservice is found,
+//     its CapID is used to fetch the referenced policy content, which is then re-checked
+//     for VM encryption.
+//
+// retrieveContent abstracts the PbmRetrieveContent call so the function is testable
+// without a live vCenter connection.
+func checkVmEncryption(ctx context.Context,
+	retrieveContent func(context.Context, []string) ([]cnsvsphere.SpbmPolicyContent, error),
+	policyContent []cnsvsphere.SpbmPolicyContent) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Direct check: VM encryption rule present in the policy itself.
+	if hasVmEncryptionRule(policyContent) {
+		return true, nil
+	}
+
+	// Indirect check: follow any data-service reference and repeat the lookup.
+	for _, policy := range policyContent {
+		for _, subProfile := range policy.Profiles {
+			for _, rule := range subProfile.Rules {
+				if rule.Ns != dataserviceNs || rule.CapID == "" {
+					continue
+				}
+				log.Infof("Checking referenced data service policy %q for VM encryption", rule.CapID)
+				refContent, err := retrieveContent(ctx, []string{rule.CapID})
+				if err != nil {
+					return false, fmt.Errorf(
+						"failed to retrieve referenced policy %q: %w", rule.CapID, err)
+				}
+				if hasVmEncryptionRule(refContent) {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+// extractIopsLimit searches the policy content for a vSAN IOPS limit rule and returns
+// its value. Returns (nil, nil) if no IOPS limit rule is present, or an error if the
+// rule value cannot be parsed as an integer.
+func extractIopsLimit(policyContent []cnsvsphere.SpbmPolicyContent) (*int64, error) {
+	for _, policy := range policyContent {
+		for _, subProfile := range policy.Profiles {
+			for _, rule := range subProfile.Rules {
+				if rule.Ns == vsanIopsLimitNs && rule.PropID == vsanIopsLimitPropID {
+					iops, err := strconv.ParseInt(rule.Value, 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse IOPS limit value %q: %w", rule.Value, err)
+					}
+					return &iops, nil
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// populatePerformanceCapabilities inspects the policy content for vSAN performance
+// attributes and populates the Performance status in the ClusterStoragePolicyInfo.
+// Returns an error if the IOPS limit value cannot be parsed.
+func populatePerformanceCapabilities(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, profileID string,
+	policyContent []cnsvsphere.SpbmPolicyContent) error {
+	log := logger.GetLogger(ctx)
+
+	iopsLimit, err := extractIopsLimit(policyContent)
+	if err != nil {
+		instance.Status.Performance = nil
+		return fmt.Errorf("storage policy %s has invalid IOPS limit: %w", profileID, err)
+	}
+	if iopsLimit == nil {
+		log.Infof("Storage policy %s has no IOPS limit", profileID)
+		instance.Status.Performance = nil
+		return nil
+	}
+
+	log.Infof("Storage policy %s has IOPS limit: %d", profileID, *iopsLimit)
+	instance.Status.Performance = &clusterspiv1alpha1.Performance{
+		IopsLimit: iopsLimit,
+	}
+	return nil
+}
+
+// populateEncryptionCapabilities analyzes the storage policy for all encryption
+// capabilities (vSAN and VM) and populates the encryption status in the
+// ClusterStoragePolicyInfo. Returns an error if the VM encryption check fails.
+func populateEncryptionCapabilities(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, profileID string,
+	vc *cnsvsphere.VirtualCenter,
+	policyContent []cnsvsphere.SpbmPolicyContent) error {
+	log := logger.GetLogger(ctx)
+
+	encryptionStatus := &clusterspiv1alpha1.Encryption{
+		SupportsEncryption: false,
+		EncryptionTypes:    []clusterspiv1alpha1.EncryptionType{},
+	}
+
+	hasVsanEncryption := checkVsanEncryption(policyContent)
+	if hasVsanEncryption {
+		encryptionStatus.SupportsEncryption = true
+		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes, "vsan-encryption")
+		log.Infof("Storage policy %s supports vSAN encryption", profileID)
+	} else {
+		log.Infof("Storage policy %s does not support vSAN encryption", profileID)
+	}
+
+	hasVmEncrypt, err := checkVmEncryption(ctx, vc.PbmRetrieveContent, policyContent)
+	if err != nil {
+		instance.Status.Encryption = encryptionStatus
+		return fmt.Errorf("failed to check VM encryption for profile %s: %w", profileID, err)
+	}
+	if hasVmEncrypt {
+		encryptionStatus.SupportsEncryption = true
+		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes, "vm-encryption")
+		log.Infof("Storage policy %s supports VM encryption", profileID)
+	}
+
+	if !hasVmEncrypt && !hasVsanEncryption {
+		instance.Status.Encryption = nil
+		log.Infof("Storage policy %s does not support any encryption", profileID)
+		return nil
+	}
+
+	instance.Status.Encryption = encryptionStatus
+	return nil
 }
