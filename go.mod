@@ -19,8 +19,8 @@ require (
 	github.com/kubernetes-csi/external-snapshot-metadata v1.0.0
 	github.com/kubernetes-csi/external-snapshot-metadata/client v1.0.0
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
-	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/ginkgo/v2 v2.28.3
+	github.com/onsi/gomega v1.40.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260423003402-51227659e236
@@ -40,8 +40,8 @@ require (
 	k8s.io/mount-utils v0.36.0
 	k8s.io/sample-controller v0.36.0
 	k8s.io/utils v0.0.0-20260319190234-28399d86e0b5
-	sigs.k8s.io/cluster-api v1.13.0
-	sigs.k8s.io/controller-runtime v0.23.3
+	sigs.k8s.io/cluster-api v1.13.1
+	sigs.k8s.io/controller-runtime v0.24.0
 )
 
 require (
@@ -155,5 +155,4 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.36.0
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.36.0
 	k8s.io/sample-controller => k8s.io/sample-controller v0.36.0
-	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.23.1-0.20260424122448-c8b4b9d61fbd
 )
