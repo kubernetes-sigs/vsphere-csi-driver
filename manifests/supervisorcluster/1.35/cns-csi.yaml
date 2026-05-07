@@ -785,6 +785,9 @@ rules:
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachines"]
     verbs: ["get", "list"]
+  - apiGroups: ["vmware.infrastructure.cluster.x-k8s.io"]
+    resources: ["vsphereclusters"]
+    verbs: ["get"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

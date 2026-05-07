@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package admissionhandler
 
 import (
@@ -5,11 +21,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 
@@ -21,7 +41,6 @@ import (
 
 const (
 	KubernetesServiceAccount = "system:serviceaccount:kube-system"
-	PvCsiServiceAccountregex = "^system:serviceaccount.*-pvcsi$"
 	KubernetesAdmin          = "kubernetes-admin"
 )
 
@@ -132,7 +151,7 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
-		log.Errorf("failed to list CnsFileAccessConfigList CRs from %s namesapace. Error: %+v",
+		log.Errorf("failed to list CnsFileAccessConfigList CRs from %s namespace. Error: %+v",
 			namespace, err)
 		return "", err
 	}
@@ -209,33 +228,153 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 // isUserAllowedForDeletion returns true if user is either a PVCSI service account or
 // K8s' namespace-cotnroller.
 func isUserAllowedForDeletion(username string) (bool, error) {
-	pvcCsiServiceAccountRegex, err := regexp.Compile(PvCsiServiceAccountregex)
-	if err != nil {
-		return false, err
-	}
-
 	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
 	if err != nil {
 		return false, err
 	}
 
+	// Check if user is a valid PVCSI service account using the new validation logic
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(username)
+	if err != nil {
+		return false, err
+	}
+	if isPvCSIServiceAccount {
+		return true, nil
+	}
+
 	// Allowed users are :
-	// 1. PVCSI service account
+	// 1. PVCSI service account (checked above using new validation logic)
 	// 2. K8s service account (like namespace-controller or generic-garbage-collector)
 	// 3. K8s admin
-	if pvcCsiServiceAccountRegex.MatchString(username) ||
-		kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
+	if kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
 		return true, nil
-
 	}
 
 	return false, nil
 }
 
 func validatePvCSIServiceAccount(username string) (bool, error) {
-	pvcCsiServiceAccountRegex, err := regexp.Compile(PvCsiServiceAccountregex)
-	if err != nil {
-		return false, err // fail open
+	ctx := context.TODO()
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Validating PvCSI service account: username=%s", username)
+
+	// Expected format: "system:serviceaccount:namespace:service-account-name"
+	// Parse the username to extract namespace and service account name
+	const prefix = "system:serviceaccount:"
+	if !strings.HasPrefix(username, prefix) {
+		log.Infof("Username doesn't have service account prefix, returning false")
+		return false, nil
 	}
-	return pvcCsiServiceAccountRegex.MatchString(username), nil
+
+	remaining := strings.TrimPrefix(username, prefix)
+	parts := strings.Split(remaining, ":")
+	log.Infof("Parsed service account parts: %v (count: %d)", parts, len(parts))
+
+	if len(parts) != 2 {
+		log.Infof("Invalid service account format - expected 2 parts, got %d, returning false", len(parts))
+		return false, nil
+	}
+
+	namespace := parts[0]
+	serviceAccountName := parts[1]
+	log.Infof("Extracted namespace=%s, serviceAccountName=%s", namespace, serviceAccountName)
+
+	// For any namespace, check if service account follows guest cluster PvCSI pattern
+	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
+	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
+		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
+		return validateProviderServiceAccount(ctx, namespace, serviceAccountName)
+	}
+
+	log.Infof("Service account doesn't match any PvCSI patterns, returning false")
+	return false, nil
+}
+
+// getVSphereClusterClient creates a Kubernetes client for VSphere cluster API operations using dynamic client
+func getVSphereClusterClient(ctx context.Context) (client.Client, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Use a dynamic client that can work with any API group/version
+	return client.New(config, client.Options{})
+}
+
+// validateProviderServiceAccount validates the service account name against all available clusters
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
+
+	// Extract expected vsphere cluster name from service account name
+	// serviceAccountName format: "{vsphere-cluster-name}-pvcsi"
+	if !strings.HasSuffix(serviceAccountName, "-pvcsi") {
+		log.Infof("Service account '%s' does not follow cluster pattern (missing -pvcsi suffix)", serviceAccountName)
+		return false, nil
+	}
+
+	clusterName := strings.TrimSuffix(serviceAccountName, "-pvcsi")
+	if clusterName == "" {
+		log.Warnf("Empty vsphere cluster name extracted from service account '%s'", serviceAccountName)
+		return false, nil
+	}
+
+	log.Infof("Extracted vsphere cluster name '%s' from service account '%s', searching in namespace '%s'",
+		clusterName, serviceAccountName, namespace)
+
+	// validate VSphereCluster resource exists
+	found, err := validateVSphereClusterResource(ctx, clusterName, namespace)
+	if err != nil {
+		log.Warnf("Failed to check VSphereCluster resource: %v", err)
+	}
+	if found {
+		log.Infof("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
+			clusterName, namespace, serviceAccountName)
+		return true, nil
+	}
+
+	log.Infof("VSphereCluster with name :'%s' not found in namespace '%s', So service account '%s' is not valid",
+		clusterName, namespace, serviceAccountName)
+	return false, nil
+}
+
+// validateVSphereClusterResource checks if a VSphereCluster resource exists using dynamic client
+func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	k8sClient, err := getVSphereClusterClient(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to create VSphere cluster API client: %w", err)
+	}
+
+	// Use unstructured object to work with the actual VSphereCluster API group/version deployed in the cluster
+	vsphereCluster := &unstructured.Unstructured{}
+	vsphereCluster.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "vmware.infrastructure.cluster.x-k8s.io",
+		Version: "v1beta2", // Use the version we saw in kubectl api-resources
+		Kind:    "VSphereCluster",
+	})
+
+	err = k8sClient.Get(ctx, client.ObjectKey{
+		Name:      clusterName,
+		Namespace: namespace,
+	}, vsphereCluster)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Infof("VSphereCluster '%s' not found in namespace '%s'", clusterName, namespace)
+			return false, nil
+		}
+
+		if errors.IsForbidden(err) {
+			log.Warnf("Access denied when checking VSphereCluster '%s' in namespace '%s'", clusterName, namespace)
+			return false, fmt.Errorf("insufficient permissions to validate VSphere cluster: %w", err)
+		}
+
+		return false, fmt.Errorf("failed to get VSphereCluster '%s' in namespace '%s': %w", clusterName, namespace, err)
+	}
+
+	log.Infof("Found VSphereCluster '%s' in namespace '%s'", clusterName, namespace)
+	return true, nil
 }
