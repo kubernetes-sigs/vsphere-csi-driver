@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -621,6 +622,423 @@ func TestDeleteFileVolumeViaFVS_DeleteError(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
 	require.Contains(t, err.Error(), "failed to delete FileVolume")
+}
+
+func TestShouldExpandFileVolumeViaFVS(t *testing.T) {
+	tests := []struct {
+		name       string
+		fssEnabled bool
+		volumeID   string
+		want       bool
+	}{
+		{"FSS off, non-FVS handle", false, "abc-block-vol", false},
+		{"FSS off, FVS handle", false, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", false},
+		{"FSS off, empty handle", false, "", false},
+		{"FSS on, non-FVS handle", true, "abc-block-vol", false},
+		{"FSS on, legacy file handle", true, "file:abcd-1234", false},
+		{"FSS on, empty handle", true, "", false},
+		{"FSS on, FVS prefix only", true, common.FVSVolumeIDPrefix, true},
+		{"FSS on, FVS handle", true, common.FVSVolumeIDPrefix + "tenant-ns:fv-foo", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldFSS := isVsanFileVolumeServiceFSSEnabled
+			defer func() { isVsanFileVolumeServiceFSSEnabled = oldFSS }()
+			isVsanFileVolumeServiceFSSEnabled = tt.fssEnabled
+
+			got := shouldExpandFileVolumeViaFVS(tt.volumeID)
+			require.Equalf(t, tt.want, got,
+				"shouldExpandFileVolumeViaFVS(%q) with FSS=%v: want %v, got %v",
+				tt.volumeID, tt.fssEnabled, tt.want, got)
+		})
+	}
+}
+
+// expandRequest builds a minimal ControllerExpandVolumeRequest for the supplied FVS volume id and
+// requested size in bytes.
+func expandRequest(volumeID string, sizeBytes int64) *csi.ControllerExpandVolumeRequest {
+	return &csi.ControllerExpandVolumeRequest{
+		VolumeId: volumeID,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: sizeBytes,
+		},
+	}
+}
+
+// TestExpandFileVolumeViaFVS_Success: FVS controller reflects the new spec.size into
+// status.lastAppliedSize on Update; CSI sees lastAppliedSize == desired and returns success with
+// NodeExpansionRequired=false.
+func TestExpandFileVolumeViaFVS_Success(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-success"
+		oldGiB     = int64(1)
+		newGiB     = int64(5)
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.UpdateOption) error {
+					if fv, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						// Simulate FVS controller reconciling spec->status in lockstep so the poll
+						// completes on the next iteration without flake.
+						fv.Status.LastAppliedSize = fv.Spec.Size
+						fv.Status.Phase = fvv1alpha1.FileVolumePhaseReady
+					}
+					return w.Update(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	desiredBytes := newGiB << 30
+	resp, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, desiredBytes))
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.NotNil(t, resp)
+	require.Equal(t, desiredBytes, resp.CapacityBytes)
+	require.False(t, resp.NodeExpansionRequired,
+		"FVS file volumes should never require node-side expansion (NFS server handles growth)")
+
+	cur := &fvv1alpha1.FileVolume{}
+	require.NoError(t, c.fileVolumeClient.Get(ctx,
+		ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, cur))
+	require.Equal(t, desiredBytes, cur.Spec.Size.Value(),
+		"FileVolume spec.size should have been bumped to the requested capacity")
+}
+
+// TestExpandFileVolumeViaFVS_Idempotent: spec.size is already at or above the requested size and
+// status has converged. CSI should not write to spec and should return success immediately.
+func TestExpandFileVolumeViaFVS_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-idem"
+		sizeGiB    = int64(3)
+	)
+	current := *resource.NewQuantity(sizeGiB<<30, resource.BinarySI)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec:       fvv1alpha1.FileVolumeSpec{Size: current},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: current,
+		},
+	}
+	updateCalls := 0
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.UpdateOption) error {
+					if _, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						updateCalls++
+					}
+					return w.Update(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	resp, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, sizeGiB<<30))
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.Equal(t, sizeGiB<<30, resp.CapacityBytes)
+	require.False(t, resp.NodeExpansionRequired)
+	require.Zero(t, updateCalls,
+		"idempotent expand on already-applied size must not write to FileVolume spec")
+}
+
+func TestExpandFileVolumeViaFVS_Shrink(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-shrink"
+		currentGiB = int64(5)
+		smallerGiB = int64(2)
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(currentGiB<<30, resource.BinarySI),
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: *resource.NewQuantity(currentGiB<<30, resource.BinarySI),
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			Build(),
+	}
+
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, smallerGiB<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+	require.Contains(t, err.Error(), "shrinking FVS file volume is not supported")
+}
+
+func TestExpandFileVolumeViaFVS_InvalidVolumeID(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			Build(),
+	}
+
+	tests := []struct {
+		name     string
+		volumeID string
+	}{
+		{"missing FVS prefix", "tenant-ns:fv-foo"},
+		{"prefix only", common.FVSVolumeIDPrefix},
+		{"missing namespace", common.FVSVolumeIDPrefix + ":fv-foo"},
+		{"missing name", common.FVSVolumeIDPrefix + "tenant-ns:"},
+		{"missing separator after namespace", common.FVSVolumeIDPrefix + "tenant-ns"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, fault, err := c.expandFileVolumeViaFVS(ctx, expandRequest(tt.volumeID, 1<<30))
+			require.Error(t, err)
+			require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+		})
+	}
+}
+
+func TestExpandFileVolumeViaFVS_NilClient(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{}
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+"any-ns:any-fv", 1<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "FileVolume client is not initialized")
+}
+
+func TestExpandFileVolumeViaFVS_MissingCapacityRange(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-no-cap"
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(1<<30, resource.BinarySI),
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			Build(),
+	}
+
+	tests := []struct {
+		name string
+		req  *csi.ControllerExpandVolumeRequest
+	}{
+		{"nil capacity range", &csi.ControllerExpandVolumeRequest{
+			VolumeId: common.FVSVolumeIDPrefix + instanceNS + ":" + fvName,
+		}},
+		{"zero required bytes", expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, 0)},
+		{"negative required bytes", expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, -1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, fault, err := c.expandFileVolumeViaFVS(ctx, tt.req)
+			require.Error(t, err)
+			require.Equal(t, csifault.CSIInvalidArgumentFault, fault)
+			require.Contains(t, err.Error(), "capacity range with positive required_bytes is required")
+		})
+	}
+}
+
+func TestExpandFileVolumeViaFVS_NotFound(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			Build(),
+	}
+
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+"missing-ns:missing-fv", 2<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSINotFoundFault, fault)
+}
+
+func TestExpandFileVolumeViaFVS_UpdateError(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-update-error"
+		oldGiB     = int64(1)
+		newGiB     = int64(5)
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+	}
+	injectedErr := errors.New("api server temporarily unavailable")
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.UpdateOption) error {
+					if _, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						return injectedErr
+					}
+					return w.Update(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, newGiB<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "failed to update spec.size on FileVolume")
+}
+
+// TestExpandFileVolumeViaFVS_StatusNeverApplies simulates an FVS controller that accepts the spec
+// update but never bumps status.lastAppliedSize: the CSI expand should fail with DeadlineExceeded
+// after fvsWaitMax expires (dialed down via withFastFVSWait).
+func TestExpandFileVolumeViaFVS_StatusNeverApplies(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-stuck-status"
+		oldGiB     = int64(1)
+		newGiB     = int64(5)
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.UpdateOption) error {
+					// Persist spec bump but explicitly do NOT bump status.lastAppliedSize, simulating
+					// a stuck FVS controller.
+					if fv, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						fv.Status.LastAppliedSize = *resource.NewQuantity(oldGiB<<30, resource.BinarySI)
+					}
+					return w.Update(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, newGiB<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "timeout or error waiting for FileVolume")
+}
+
+// TestExpandFileVolumeViaFVS_ErrorPhase: the FVS controller reports phase=Error mid-expansion;
+// CSI must surface a clear DeadlineExceeded with an error message naming the Error phase rather
+// than spinning until fvsWaitMax.
+func TestExpandFileVolumeViaFVS_ErrorPhase(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+
+	const (
+		instanceNS = "fvs-instance-ns"
+		fvName     = "fv-error-phase"
+		oldGiB     = int64(1)
+		newGiB     = int64(5)
+	)
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
+		Spec: fvv1alpha1.FileVolumeSpec{
+			Size: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:           fvv1alpha1.FileVolumePhaseReady,
+			LastAppliedSize: *resource.NewQuantity(oldGiB<<30, resource.BinarySI),
+		},
+	}
+	c := &controller{
+		fileVolumeClient: ctrlclientfake.NewClientBuilder().
+			WithScheme(fvsTestScheme(t)).
+			WithObjects(existing).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
+					opts ...ctrlclient.UpdateOption) error {
+					if fv, ok := obj.(*fvv1alpha1.FileVolume); ok {
+						fv.Status.Phase = fvv1alpha1.FileVolumePhaseError
+					}
+					return w.Update(ctx, obj, opts...)
+				},
+			}).
+			Build(),
+	}
+
+	_, fault, err := c.expandFileVolumeViaFVS(ctx,
+		expandRequest(common.FVSVolumeIDPrefix+instanceNS+":"+fvName, newGiB<<30))
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "Error phase")
 }
 
 // TestDeleteFileVolumeViaFVS_StuckFinalizer simulates an FVS controller that has not yet drained

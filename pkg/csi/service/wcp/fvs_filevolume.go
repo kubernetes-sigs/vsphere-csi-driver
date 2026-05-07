@@ -533,6 +533,116 @@ func (c *controller) deleteFileVolumeViaFVS(ctx context.Context, volumeID string
 	return &csi.DeleteVolumeResponse{}, "", nil
 }
 
+// expandFileVolumeViaFVS resizes a file volume by patching spec.size on the FileVolume CR backing
+// the supplied CSI volume id minted by the FVS workflow (formatted as "fv:<instance-namespace>:<filevolume-name>",
+// see common.FVSVolumeIDPrefix). The FVS controllers reconcile the resize asynchronously by driving
+// the underlying vDFS volume size and then bumping status.lastAppliedSize once the new size has been
+// applied; this function issues the spec.size update (when needed) and waits until status reflects
+// the requested size before returning success so the CSI external-resizer sees a consistent capacity.
+//
+// NodeExpansionRequired is always false for FVS file volumes: NFSv4.1 shares grow transparently on
+// the server side and kubelet does not run a node-side filesystem-grow step.
+//
+// Idempotency:
+//   - if spec.size is already >= the requested size, the spec is left untouched and we just wait for
+//     status.lastAppliedSize to catch up;
+//   - shrinking the volume is rejected (CSI requires expansion-only).
+func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, string, error) {
+	log := logger.GetLogger(ctx)
+
+	instanceNS, fvName, err := common.ParseFVSVolumeHandle(req.GetVolumeId())
+	if err != nil {
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"%v", err)
+	}
+
+	// fileVolumeClient is initialized in controller.Init only when the FVS FSS is enabled. If we are
+	// asked to expand an FVS-prefixed volume id while the client is nil the FSS must have been
+	// disabled after the volume was provisioned; surface a clear error rather than NPE.
+	if c.fileVolumeClient == nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"FileVolume client is not initialized; cannot expand FVS volume %q "+
+				"(supports_vsan_fileservice capability may be disabled on the supervisor)", req.GetVolumeId())
+	}
+
+	if req.GetCapacityRange() == nil || req.GetCapacityRange().GetRequiredBytes() <= 0 {
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"capacity range with positive required_bytes is required to expand FVS volume %q", req.GetVolumeId())
+	}
+	// GetRequiredBytes returns the size in bytes; FVS accepts byte quantities at every layer
+	// (FileVolumeSpec.Size, VolumeAssignment Capacity, vDFS gRPC), so no MB rounding is needed
+	volSizeBytes := req.GetCapacityRange().GetRequiredBytes()
+	desired := resource.NewQuantity(volSizeBytes, resource.BinarySI)
+
+	fv := &fvv1alpha1.FileVolume{}
+	if getErr := c.fileVolumeClient.Get(ctx,
+		ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, fv); getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			return nil, csifault.CSINotFoundFault, logger.LogNewErrorCodef(log, codes.NotFound,
+				"FileVolume %s/%s for CSI volume %q not found", instanceNS, fvName, req.GetVolumeId())
+		}
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get FileVolume %s/%s for CSI volume %q: %v",
+			instanceNS, fvName, req.GetVolumeId(), getErr)
+	}
+
+	// Patch spec.size only if the requested size is strictly greater than the current spec. CSI
+	// expansion is monotonic: shrinking is rejected; equal-size requests are no-ops on the spec.
+	cmp := desired.Cmp(fv.Spec.Size)
+	switch {
+	case cmp < 0:
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"shrinking FVS file volume is not supported: current spec.size %s > requested %s "+
+				"(FileVolume %s/%s, CSI volume %q)",
+			fv.Spec.Size.String(), desired.String(), instanceNS, fvName, req.GetVolumeId())
+	case cmp > 0:
+		log.Infof("ControllerExpandVolume: bumping FileVolume %s/%s spec.size from %s to %s for CSI volume %q",
+			instanceNS, fvName, fv.Spec.Size.String(), desired.String(), req.GetVolumeId())
+		fv.Spec.Size = *desired
+		if updateErr := c.fileVolumeClient.Update(ctx, fv); updateErr != nil {
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to update spec.size on FileVolume %s/%s for CSI volume %q: %v",
+				instanceNS, fvName, req.GetVolumeId(), updateErr)
+		}
+	default:
+		log.Infof("ControllerExpandVolume: FileVolume %s/%s spec.size already at %s; waiting for status to converge "+
+			"for CSI volume %q",
+			instanceNS, fvName, desired.String(), req.GetVolumeId())
+	}
+
+	// Wait for the FVS controller to apply the size: status.lastAppliedSize must reach (or exceed)
+	// the requested size and the FileVolume must not be in Error phase. Phase==Ready is preferred
+	// but not strictly required: lastAppliedSize is the authoritative signal that the resize has
+	// landed on the underlying vDFS volume.
+	cur := &fvv1alpha1.FileVolume{}
+	err = wait.PollUntilContextTimeout(ctx, fvsWaitStep, fvsWaitMax, true, func(ctx context.Context) (bool, error) {
+		if getErr := c.fileVolumeClient.Get(ctx,
+			ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, cur); getErr != nil {
+			return false, getErr
+		}
+		if strings.EqualFold(string(cur.Status.Phase), string(fvv1alpha1.FileVolumePhaseError)) {
+			return false, fmt.Errorf("FileVolume %s/%s entered Error phase during expansion", instanceNS, fvName)
+		}
+		if cur.Status.LastAppliedSize.Cmp(*desired) >= 0 {
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
+			"timeout or error waiting for FileVolume %s/%s expansion to %s to be applied for CSI volume %q: %v",
+			instanceNS, fvName, desired.String(), req.GetVolumeId(), err)
+	}
+
+	log.Infof("ControllerExpandVolume: FileVolume %s/%s expanded; status.lastAppliedSize=%s for CSI volume %q",
+		instanceNS, fvName, cur.Status.LastAppliedSize.String(), req.GetVolumeId())
+	return &csi.ControllerExpandVolumeResponse{
+		CapacityBytes:         volSizeBytes,
+		NodeExpansionRequired: false, //since this is a file volume, we don't need to expand the volume on the node side
+	}, "", nil
+}
+
 // shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow.
 func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName string) (bool, error) {
 	if !isVsanFileServicePolicyStorageClass(storageClassName) {
@@ -562,6 +672,18 @@ func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName s
 // here because by DeleteVolume time the volume already exists and its provenance is encoded in
 // the id minted by CreateVolume.
 func shouldDeleteFileVolumeViaFVS(volumeID string) bool {
+	if !isVsanFileVolumeServiceFSSEnabled {
+		return false
+	}
+	return common.IsFVSVolumeHandle(volumeID)
+}
+
+// shouldExpandFileVolumeViaFVS encapsulates routing to the FVS CR workflow on ControllerExpandVolume,
+// mirroring shouldDeleteFileVolumeViaFVS for DeleteVolume. The FVS path is only taken when the
+// supports_vsan_fileservice capability (VsanFileVolumeService FSS) is enabled and the supplied CSI
+// volume id carries the FVS prefix; otherwise the caller should fall through to the legacy CNS
+// ExpandVolume path
+func shouldExpandFileVolumeViaFVS(volumeID string) bool {
 	if !isVsanFileVolumeServiceFSSEnabled {
 		return false
 	}

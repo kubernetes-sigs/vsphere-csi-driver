@@ -225,8 +225,9 @@ func UseVslmAPIs(ctx context.Context, aboutInfo vim25types.AboutInfo) (bool, err
 }
 
 // ValidateControllerExpandVolumeRequest is the helper function to validate
-// ControllerExpandVolumeRequest for all block controllers.
-// Function returns error if validation fails otherwise returns nil.
+// ControllerExpandVolumeRequest. Function returns error if validation fails otherwise returns nil.
+// Callers are responsible for rejecting unsupported volume types (e.g. legacy CNS file volumes)
+// after dispatching on volume type, since FVS-backed file volumes do support expansion.
 func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.ControllerExpandVolumeRequest) error {
 	log := logger.GetLogger(ctx)
 	// Check for required parameters.
@@ -241,13 +242,6 @@ func ValidateControllerExpandVolumeRequest(ctx context.Context, req *csi.Control
 	volCaps := req.GetVolumeCapability()
 	if volCaps == nil {
 		return logger.LogNewErrorCode(log, codes.InvalidArgument, "volume capabilities is a required parameter")
-	}
-
-	// TODO: Remove this restriction when volume expansion is supported for
-	// File Volumes.
-	if IsFileVolumeRequest(ctx, []*csi.VolumeCapability{volCaps}) {
-		return logger.LogNewErrorCode(log, codes.Unimplemented,
-			"volume expansion is only supported for block volume type")
 	}
 
 	return nil
