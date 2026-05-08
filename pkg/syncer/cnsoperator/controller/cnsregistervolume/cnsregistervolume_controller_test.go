@@ -285,6 +285,13 @@ func (m *mockCOCommon) HandleLateEnablementOfCapability(ctx context.Context,
 	panic("implement me")
 }
 
+func (m *mockCOCommon) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
+	return true, nil
+}
+
+func (m *mockCOCommon) HandleLateInstallationOfDPOService(ctx context.Context) {
+}
+
 func (m *mockCOCommon) IsFSSEnabled(ctx context.Context, featureName string) bool {
 	return true
 }

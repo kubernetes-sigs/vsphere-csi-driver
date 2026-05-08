@@ -24,6 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -37,6 +38,9 @@ var Version string
 const (
 	// default interval for csi full sync, used unless overridden by user in csi-controller YAML
 	defaultFullSyncIntervalInMin = 30
+
+	// default interval for PVC label/CNS CBT flags reconciliation on Supervisor
+	defaultCBTSyncIntervalInMin = 30
 
 	// key for HealthStatus annotation on PVC
 	annVolumeHealth = "volumehealth.storage.kubernetes.io/health"
@@ -116,6 +120,7 @@ type metadataSyncInformer struct {
 	k8sInformerManager *k8s.InformerManager
 	pvLister           corelisters.PersistentVolumeLister
 	pvcLister          corelisters.PersistentVolumeClaimLister
+	vaLister           storagelistersv1.VolumeAttachmentLister
 	podLister          corelisters.PodLister
 	coCommonInterface  commonco.COCommonInterface
 	// fileVolumeClient is a controller-runtime client for reading FileVolume CRs

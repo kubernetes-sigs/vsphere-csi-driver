@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/admissionhandler"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/manager"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/dpoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8soperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
@@ -413,6 +414,34 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 
+		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Info("Cleaning up vc sessions Data Protection(DP) operator")
+						cleanupSessions(ctx, r)
+					}
+				}()
+				// The CSI_Backup_API feature relies on the Data Protection Operator service for CbtConfig CRD definition.
+				installed, err := commonco.ContainerOrchestratorUtility.IsDPOServiceInstalled(ctx)
+				if err != nil {
+					log.Errorf("Error checking Data Protection Operator service installation. Error: %+v", err)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(1)
+				}
+				if !installed {
+					commonco.ContainerOrchestratorUtility.HandleLateInstallationOfDPOService(ctx)
+					return
+				}
+				if err := startDpOperator(ctx, configInfo); err != nil {
+					log.Errorf("Error initializing Data Protection(DP) operator. Error: %+v", err)
+					utils.LogoutAllvCenterSessions(ctx)
+					os.Exit(1)
+				}
+			}()
+		}
+
 		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
@@ -438,6 +467,15 @@ func startK8sOperator(ctx context.Context,
 	clusterFlavor cnstypes.CnsClusterFlavor) error {
 
 	mgr, err := k8soperator.NewManager(ctx, clusterFlavor)
+	if err != nil {
+		return err
+	}
+
+	return mgr.Start(ctx)
+}
+
+func startDpOperator(ctx context.Context, configInfo *config.ConfigurationInfo) error {
+	mgr, err := dpoperator.NewManager(ctx, configInfo)
 	if err != nil {
 		return err
 	}
