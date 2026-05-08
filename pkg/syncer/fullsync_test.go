@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -45,8 +46,10 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	commonco "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	cnsvolumeoperationrequest "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -608,11 +611,13 @@ func (m *mockCOCommonForFullSync) ClearFakeAttached(ctx context.Context, volumeI
 
 func (m *mockCOCommonForFullSync) InitTopologyServiceInController(
 	ctx context.Context,
-) (commonco.ControllerTopologyService, error) {
+) (commoncotypes.ControllerTopologyService, error) {
 	return nil, nil
 }
 
-func (m *mockCOCommonForFullSync) InitTopologyServiceInNode(ctx context.Context) (commonco.NodeTopologyService, error) {
+func (m *mockCOCommonForFullSync) InitTopologyServiceInNode(
+	ctx context.Context,
+) (commoncotypes.NodeTopologyService, error) {
 	return nil, nil
 }
 
@@ -1295,4 +1300,242 @@ func TestSetFileShareAnnotationsOnPVC_ExistingAnnotations(t *testing.T) {
 	assert.Equal(t, "existing-value", pvc.Annotations["existing-annotation"])
 	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Empty(t, pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+}
+
+// fakeVolumeManager is a test-only mock of volumes.Manager. It embeds
+// unittestcommon.MockVolumeManager (which implements all interface methods) and
+// overrides QuerySnapshots to return user-defined results for testing.
+type fakeVolumeManager struct {
+	*unittestcommon.MockVolumeManager
+	querySnapshotsFunc func(ctx context.Context, filter cnstypes.CnsSnapshotQueryFilter) (
+		*cnstypes.CnsSnapshotQueryResult, error)
+}
+
+func (f *fakeVolumeManager) QuerySnapshots(ctx context.Context,
+	filter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+	if f.querySnapshotsFunc != nil {
+		return f.querySnapshotsFunc(ctx, filter)
+	}
+	return nil, nil
+}
+
+// testCOCommonInterface embeds the FakeK8SOrchestrator from unittestcommon (which already
+// implements all COCommonInterface methods) and overrides only AnnotateVolumeSnapshot
+// to make it customizable per test.
+type testCOCommonInterface struct {
+	commonco.COCommonInterface
+	annotateFunc func(context.Context, string, string, map[string]string) (bool, error)
+}
+
+func (m *testCOCommonInterface) AnnotateVolumeSnapshot(
+	ctx context.Context,
+	name, namespace string,
+	annotations map[string]string,
+) (bool, error) {
+	if m.annotateFunc != nil {
+		return m.annotateFunc(ctx, name, namespace, annotations)
+	}
+	return m.COCommonInterface.AnnotateVolumeSnapshot(ctx, name, namespace, annotations)
+}
+
+// newTestCOInterface creates a testCOCommonInterface using the FakeK8SOrchestrator as a base.
+func newTestCOInterface(t *testing.T,
+	annotateFunc func(context.Context, string, string, map[string]string) (bool, error),
+) *testCOCommonInterface {
+	t.Helper()
+	base, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("failed to create fake CO interface: %v", err)
+	}
+	return &testCOCommonInterface{
+		COCommonInterface: base,
+		annotateFunc:      annotateFunc,
+	}
+}
+
+// TestAnnotateSnapshotsFromCNSResults_SuccessfulAnnotation tests annotation with sample data
+func TestAnnotateSnapshotsFromCNSResults_SuccessfulAnnotation(t *testing.T) {
+	ctx := context.Background()
+
+	// Create sample VolumeSnapshot
+	vs := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-1",
+			Namespace:   "ns-1",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	snapshotMap := map[string]*snapv1.VolumeSnapshot{"snap-id-123": vs}
+	wantedSnapIDs := map[string]struct{}{"snap-id-123": {}}
+
+	// Mock volume manager that returns CNS results with change-id when QuerySnapshots is called
+	mockVM := &fakeVolumeManager{
+		MockVolumeManager: &unittestcommon.MockVolumeManager{},
+		querySnapshotsFunc: func(ctx context.Context,
+			filter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+			// Verify that the filter is for the correct volume
+			if len(filter.SnapshotQuerySpecs) > 0 {
+				assert.Equal(t, "vol-123", filter.SnapshotQuerySpecs[0].VolumeId.Id)
+			}
+			return &cnstypes.CnsSnapshotQueryResult{
+				Entries: []cnstypes.CnsSnapshotQueryResultEntry{
+					{
+						Snapshot: cnstypes.CnsSnapshot{
+							SnapshotId:             cnstypes.CnsSnapshotId{Id: "snap-id-123"},
+							ChangedBlockTrackingId: "change-id-abc-123",
+						},
+					},
+				},
+				// Set Offset == TotalRecords to signal end of pagination
+				Cursor: cnstypes.CnsCursor{Offset: 1, TotalRecords: 1},
+			}, nil
+		},
+	}
+
+	// Create a mock coCommonInterface
+	mockCOInterface := newTestCOInterface(t,
+		func(ctx context.Context, name, namespace string, annotations map[string]string) (bool, error) {
+			assert.Equal(t, "snap-1", name)
+			assert.Equal(t, "ns-1", namespace)
+			assert.Equal(t, "change-id-abc-123", annotations[common.VolumeSnapshotChangeIDKey])
+			return true, nil
+		})
+
+	count := annotateSnapshotsFromCNSResults(ctx, "vol-123", wantedSnapIDs, snapshotMap, mockVM, mockCOInterface)
+
+	assert.Equal(t, 1, count)
+}
+
+// TestAnnotateSnapshotsFromCNSResults_NoChangeID tests handling of snapshots without change-id
+func TestAnnotateSnapshotsFromCNSResults_NoChangeID(t *testing.T) {
+	ctx := context.Background()
+
+	vs := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-1",
+			Namespace:   "ns-1",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	snapshotMap := map[string]*snapv1.VolumeSnapshot{"snap-id-123": vs}
+	wantedSnapIDs := map[string]struct{}{"snap-id-123": {}}
+
+	// Mock volume manager that returns CNS results with empty change-id
+	mockVM := &fakeVolumeManager{
+		MockVolumeManager: &unittestcommon.MockVolumeManager{},
+		querySnapshotsFunc: func(ctx context.Context,
+			filter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+			return &cnstypes.CnsSnapshotQueryResult{
+				Entries: []cnstypes.CnsSnapshotQueryResultEntry{
+					{
+						Snapshot: cnstypes.CnsSnapshot{
+							SnapshotId:             cnstypes.CnsSnapshotId{Id: "snap-id-123"},
+							ChangedBlockTrackingId: "",
+						},
+					},
+				},
+				Cursor: cnstypes.CnsCursor{Offset: 1, TotalRecords: 1},
+			}, nil
+		},
+	}
+
+	mockCOInterface := newTestCOInterface(t, nil)
+
+	count := annotateSnapshotsFromCNSResults(ctx, "vol-123", wantedSnapIDs, snapshotMap, mockVM, mockCOInterface)
+
+	// Should not annotate since change-id is empty
+	assert.Equal(t, 0, count)
+}
+
+// TestAnnotateSnapshotsFromCNSResults_QueryError tests error handling on CNS query failure
+func TestAnnotateSnapshotsFromCNSResults_QueryError(t *testing.T) {
+	ctx := context.Background()
+
+	vs := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{Name: "snap-1", Namespace: "ns-1"},
+	}
+
+	snapshotMap := map[string]*snapv1.VolumeSnapshot{"snap-id-123": vs}
+	wantedSnapIDs := map[string]struct{}{"snap-id-123": {}}
+
+	// Mock volume manager that returns CNS query error
+	mockVM := &fakeVolumeManager{
+		MockVolumeManager: &unittestcommon.MockVolumeManager{},
+		querySnapshotsFunc: func(ctx context.Context,
+			filter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+			return nil, errors.New("CNS query failed")
+		},
+	}
+
+	mockCOInterface := newTestCOInterface(t, nil)
+
+	count := annotateSnapshotsFromCNSResults(ctx, "vol-123", wantedSnapIDs, snapshotMap, mockVM, mockCOInterface)
+
+	// Should not annotate on error
+	assert.Equal(t, 0, count)
+}
+
+// TestAnnotateSnapshotsFromCNSResults_AnnotationFailure tests handling of annotation failures
+func TestAnnotateSnapshotsFromCNSResults_AnnotationFailure(t *testing.T) {
+	ctx := context.Background()
+
+	vs := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{Name: "snap-1", Namespace: "ns-1"},
+	}
+
+	snapshotMap := map[string]*snapv1.VolumeSnapshot{"snap-id-123": vs}
+	wantedSnapIDs := map[string]struct{}{"snap-id-123": {}}
+
+	// Mock volume manager returning a snapshot with valid change-id
+	mockVM := &fakeVolumeManager{
+		MockVolumeManager: &unittestcommon.MockVolumeManager{},
+		querySnapshotsFunc: func(ctx context.Context,
+			filter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
+			return &cnstypes.CnsSnapshotQueryResult{
+				Entries: []cnstypes.CnsSnapshotQueryResultEntry{
+					{
+						Snapshot: cnstypes.CnsSnapshot{
+							SnapshotId:             cnstypes.CnsSnapshotId{Id: "snap-id-123"},
+							ChangedBlockTrackingId: "change-id-123",
+						},
+					},
+				},
+				Cursor: cnstypes.CnsCursor{Offset: 1, TotalRecords: 1},
+			}, nil
+		},
+	}
+
+	// Mock annotation failure
+	mockCOInterface := newTestCOInterface(t,
+		func(ctx context.Context, name, namespace string, annotations map[string]string) (bool, error) {
+			return false, errors.New("annotation failed")
+		})
+
+	count := annotateSnapshotsFromCNSResults(ctx, "vol-123", wantedSnapIDs, snapshotMap, mockVM, mockCOInterface)
+
+	// Should not count as annotated on failure
+	assert.Equal(t, 0, count)
+}
+
+// TestSetChangeIDAnnotationOnSupervisorSnapshots tests error handling when no snapshots exist
+func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a mock metadataSyncer with minimal required fields
+	mockMetadataSyncer := &metadataSyncInformer{
+		volumeManager:     nil, // Will be patched
+		coCommonInterface: nil, // Will be patched
+	}
+
+	// Patch NewSnapshotterClient to return error
+	patchSnapshotClient := gomonkey.ApplyFunc(k8s.NewSnapshotterClient, func(_ context.Context) (interface{}, error) {
+		return nil, errors.New("test error - no snapshots")
+	})
+	defer patchSnapshotClient.Reset()
+
+	// Call should handle error gracefully
+	setChangeIDAnnotationOnSupervisorSnapshots(ctx, mockMetadataSyncer, "test-vc")
+	// If we get here without panicking, test passes
 }
