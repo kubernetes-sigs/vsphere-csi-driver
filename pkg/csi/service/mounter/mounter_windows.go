@@ -34,7 +34,6 @@ import (
 	fsclient "github.com/kubernetes-csi/csi-proxy/v2/pkg/filesystem/hostapi"
 	systemApi "github.com/kubernetes-csi/csi-proxy/v2/pkg/system"
 	systemClient "github.com/kubernetes-csi/csi-proxy/v2/pkg/system/hostapi"
-	"github.com/kubernetes-csi/csi-proxy/v2/pkg/utils"
 	volume "github.com/kubernetes-csi/csi-proxy/v2/pkg/volume"
 	volumeclient "github.com/kubernetes-csi/csi-proxy/v2/pkg/volume/hostapi"
 	"golang.org/x/sys/windows"
@@ -301,8 +300,7 @@ func (mounter *csiProxyMounter) FormatAndMount(ctx context.Context, source strin
 		DiskNumber: uint32(diskNum),
 		IsOnline:   true,
 	}
-	err = SetDiskState(ctx, attachRequest)
-	if err != nil {
+	if _, err = mounter.DiskClient.SetDiskState(ctx, attachRequest); err != nil {
 		log.Errorf("failed to set disk state as online for disk: %d, err: %v", attachRequest.DiskNumber, err)
 		return err
 	}
@@ -403,7 +401,7 @@ func (mounter *csiProxyMounter) Unmount(target string) error {
 		DiskNumber: diskNumber,
 		IsOnline:   false,
 	}
-	if err = SetDiskState(mounter.Ctx, setDiskStateRequest); err != nil {
+	if _, err = mounter.DiskClient.SetDiskState(mounter.Ctx, setDiskStateRequest); err != nil {
 		return err
 	}
 	return nil
@@ -455,7 +453,7 @@ func (mounter *csiProxyMounter) ResizeVolume(ctx context.Context, devicePath str
 		DiskNumber: diskNumber,
 		IsOnline:   true,
 	}
-	if err = SetDiskState(ctx, setDiskStateRequest); err != nil {
+	if _, err = mounter.DiskClient.SetDiskState(ctx, setDiskStateRequest); err != nil {
 		log.Errorf("failed to set disk state as Online for disk: %d, err: %v", setDiskStateRequest.DiskNumber, err)
 		return err
 	}
@@ -578,15 +576,4 @@ func (mounter *csiProxyMounter) GetBIOSSerialNumber(ctx context.Context) (string
 		return "", err
 	}
 	return serialNoResponse.SerialNumber, err
-}
-
-// SetDiskState sets the offline/online state of a disk.
-func SetDiskState(ctx context.Context, attachReq *disk.SetDiskStateRequest) error {
-	cmd := fmt.Sprintf("Set-Disk -Number %d -IsReadOnly $false;Set-Disk -Number %d -IsOffline $%t",
-		attachReq.DiskNumber, attachReq.DiskNumber, !attachReq.IsOnline)
-	out, err := utils.RunPowershellCmd(cmd)
-	if err != nil {
-		return fmt.Errorf("error setting disk attach state. cmd: %s, output: %s, error: %v", cmd, string(out), err)
-	}
-	return nil
 }
