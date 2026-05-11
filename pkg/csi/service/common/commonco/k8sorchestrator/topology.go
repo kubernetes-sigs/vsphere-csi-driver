@@ -1800,3 +1800,56 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 	log.Infof("active clusters: %v for namespace: %q in requested zones: %v", activeClusters, targetNS, requestedZones)
 	return activeClusters, nil
 }
+
+// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+func (volTopology *wcpControllerVolumeTopology) GetAccessibleZonesForDatastore(ctx context.Context,
+	datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	var accessibleZones []string
+
+	log.Debugf("Finding accessible zones for datastore: %s", datastoreURL)
+
+	// Iterate through all zones in azClustersMap to find where this datastore is accessible
+	for az, clusters := range azClustersMap {
+		sharedDatastores, err := getSharedDatastoresInClusters(ctx, clusters, vc)
+		if err != nil {
+			log.Warnf("Failed to get shared datastores for zone %s: %v", az, err)
+			continue
+		}
+
+		// Check if the target datastore is among the shared datastores for this zone
+		for _, ds := range sharedDatastores {
+			if ds.Info.Url == datastoreURL {
+				accessibleZones = append(accessibleZones, az)
+				log.Debugf("Datastore %s is accessible from zone %s", datastoreURL, az)
+				break
+			}
+		}
+	}
+
+	if len(accessibleZones) == 0 {
+		log.Warnf("Datastore %s is not accessible from any zone", datastoreURL)
+	} else {
+		log.Infof("Datastore %s is accessible from zones: %v", datastoreURL, accessibleZones)
+	}
+
+	return accessibleZones, nil
+}
+
+// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+// This is a stub implementation for vanilla (controllerVolumeTopology) as zone mapping
+// is typically handled differently in vanilla clusters.
+func (volTopology *controllerVolumeTopology) GetAccessibleZonesForDatastore(ctx context.Context,
+	datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	
+	// In vanilla clusters, zone discovery works differently than WCP
+	// This is a placeholder implementation that should be enhanced based on
+	// how zones are configured in vanilla environments (typically through node labels)
+	
+	log.Debugf("GetAccessibleZonesForDatastore called for vanilla cluster with datastore: %s", datastoreURL)
+	log.Warnf("Zone discovery for datastores is not implemented for vanilla clusters")
+	
+	// Return empty zones as vanilla clusters may not have the same zone-datastore mapping
+	return []string{}, nil
+}

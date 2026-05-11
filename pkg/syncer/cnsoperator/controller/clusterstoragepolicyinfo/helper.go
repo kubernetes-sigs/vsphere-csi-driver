@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,8 @@ import (
 
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -305,4 +308,171 @@ func populateEncryptionCapabilities(ctx context.Context,
 
 	instance.Status.Encryption = encryptionStatus
 	return nil
+}
+
+// getStorageClassForPolicy returns the StorageClass that references the given storage policy ID.
+// Returns error if no StorageClass is found or if multiple StorageClasses reference the same policy.
+func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
+	profileID string) (*storagev1.StorageClass, error) {
+	log := logger.GetLogger(ctx)
+
+	// List all StorageClasses
+	scList := &storagev1.StorageClassList{}
+	err := k8sClient.List(ctx, scList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list StorageClasses: %w", err)
+	}
+
+	var matchingSCs []*storagev1.StorageClass
+	for i := range scList.Items {
+		sc := &scList.Items[i]
+		
+		// Skip WFFC StorageClasses
+		if storageClassIsWaitForFirstConsumer(sc) {
+			log.Debugf("Skipping StorageClass %q with WaitForFirstConsumer volume binding mode", sc.Name)
+			continue
+		}
+		
+		// Check if this StorageClass references our storage policy by policy ID
+		if sc.Parameters != nil {
+			for paramKey, paramValue := range sc.Parameters {
+				// Convert parameter key to lowercase for case-insensitive comparison
+				if strings.ToLower(paramKey) == "storagepolicyid" && paramValue == profileID {
+					matchingSCs = append(matchingSCs, sc)
+					break // Found match, no need to check other parameters
+				}
+			}
+		}
+	}
+
+	// Validate exactly one StorageClass found
+	switch len(matchingSCs) {
+	case 0:
+		return nil, fmt.Errorf("no StorageClass found referencing storage policy ID %q", profileID)
+	case 1:
+		log.Infof("Found StorageClass %q referencing storage policy ID %q", matchingSCs[0].Name, profileID)
+		return matchingSCs[0], nil
+	default:
+		var scNames []string
+		for _, sc := range matchingSCs {
+			scNames = append(scNames, sc.Name)
+		}
+		return nil, fmt.Errorf("multiple StorageClasses (%v) found referencing storage policy ID %q, expected exactly one",
+			scNames, profileID)
+	}
+}
+
+// isZonalTopologyPolicy checks if the StorageClass has zonal topology configured
+func isZonalTopologyPolicy(ctx context.Context, sc *storagev1.StorageClass) bool {
+	log := logger.GetLogger(ctx)
+
+	if sc.Parameters != nil {
+		if topologyType, exists := sc.Parameters[common.AttributeStorageTopologyType]; exists {
+			log.Debugf("StorageClass %q has topology type: %q", sc.Name, topologyType)
+			return strings.ToLower(topologyType) == "zonal"
+		}
+	}
+	return false
+}
+
+// getAccessibleZonesForPolicy determines which zones can access datastores compatible with the given storage policy
+func getAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
+	vc *cnsvsphere.VirtualCenter, profileID string) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// If topology manager is not available, fall back to basic implementation
+	if topologyMgr == nil {
+		log.Warnf("Topology manager not available, cannot determine accessible zones for policy")
+		return []string{}, nil
+	}
+
+	// Get all zones from the topology service
+	azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+	if len(azClustersMap) == 0 {
+		log.Warnf("No zones found in topology service")
+		return []string{}, nil
+	}
+
+	// Get all datastores compatible with the policy directly (single efficient PBM call)
+	compatibleHubs, err := vc.PbmQueryMatchingHub(ctx, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query compatible datastores for policy: %w", err)
+	}
+
+	if len(compatibleHubs) == 0 {
+		log.Warnf("No compatible datastores found for storage policy %s", profileID)
+		return []string{}, nil
+	}
+
+	// Build map of compatible datastore IDs for quick lookup
+	compatibleDSIDs := make(map[string]struct{})
+	for _, hub := range compatibleHubs {
+		compatibleDSIDs[hub.HubId] = struct{}{}
+	}
+
+	log.Infof("Found %d compatible datastores for policy %s", len(compatibleHubs), profileID)
+
+	// Cache for cluster datastore lookups to avoid redundant calls
+	clusterToDatastoresCache := make(map[string][]*cnsvsphere.DatastoreInfo)
+
+	accessibleZones := make(map[string]struct{})
+
+	// For each zone, check intersection with compatible datastores
+	for zone, clusters := range azClustersMap {
+		log.Debugf("Checking zone %s with clusters %v", zone, clusters)
+
+		zoneHasCompatibleDS := false
+
+		// Get datastores for this zone's clusters and check intersection
+		for _, clusterMoref := range clusters {
+			var clusterDSes []*cnsvsphere.DatastoreInfo
+			var err error
+
+			// Check cache first
+			if cachedDSes, exists := clusterToDatastoresCache[clusterMoref]; exists {
+				clusterDSes = cachedDSes
+				log.Debugf("Using cached datastores for cluster %s", clusterMoref)
+			} else {
+				// Cache miss - fetch from vCenter and cache the result
+				clusterDSes, _, err = cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref, false)
+				if err != nil {
+					log.Warnf("Failed to get datastores for cluster %s in zone %s: %v", clusterMoref, zone, err)
+					continue
+				}
+				clusterToDatastoresCache[clusterMoref] = clusterDSes
+				log.Debugf("Cached %d datastores for cluster %s", len(clusterDSes), clusterMoref)
+			}
+
+			// Check if any datastores in this cluster are in the compatible list
+			for _, ds := range clusterDSes {
+				if _, isCompatible := compatibleDSIDs[ds.Reference().Value]; isCompatible {
+					zoneHasCompatibleDS = true
+					break
+				}
+			}
+
+			if zoneHasCompatibleDS {
+				break // Found compatible datastore in this zone, no need to check more clusters
+			}
+		}
+
+		if zoneHasCompatibleDS {
+			accessibleZones[zone] = struct{}{}
+			log.Debugf("Zone %s has compatible datastores for policy %s", zone, profileID)
+		}
+	}
+
+	// Convert map to slice
+	var zones []string
+	for zone := range accessibleZones {
+		zones = append(zones, zone)
+	}
+
+	if len(zones) == 0 {
+		log.Warnf("No accessible zones found for storage policy %s", profileID)
+	} else {
+		log.Infof("Storage policy %s is accessible from zones: %v", profileID, zones)
+	}
+
+	return zones, nil
 }

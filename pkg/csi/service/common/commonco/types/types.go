@@ -112,6 +112,9 @@ type ControllerTopologyService interface {
 
 	// ZonesWithMultipleClustersExist returns true if zone has more than 1 cluster
 	ZonesWithMultipleClustersExist(ctx context.Context) bool
+
+	// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+	GetAccessibleZonesForDatastore(ctx context.Context, datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error)
 }
 
 // NodeTopologyService is an interface which exposes functionality related to

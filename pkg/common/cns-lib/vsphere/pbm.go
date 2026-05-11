@@ -142,6 +142,34 @@ func (vc *VirtualCenter) PbmCheckCompatibility(ctx context.Context,
 	return res.Returnval, nil
 }
 
+// PbmQueryMatchingHub gets all datastores that are compatible with the given storage policy.
+// This is more efficient than PbmCheckCompatibility as it directly queries compatible datastores
+// without needing to provide all datastores upfront.
+func (vc *VirtualCenter) PbmQueryMatchingHub(ctx context.Context, profileID string) ([]pbmtypes.PbmPlacementHub, error) {
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return nil, err
+	}
+
+	req := pbmtypes.PbmQueryMatchingHub{
+		This: vc.PbmClient.ServiceContent.PlacementSolver,
+		Profile: pbmtypes.PbmProfileId{
+			UniqueId: profileID,
+		},
+	}
+
+	res, err := pbmmethods.PbmQueryMatchingHub(ctx, vc.PbmClient, &req)
+	if err != nil {
+		log.Errorf("failed to query matching hubs for profile %s: %v", profileID, err)
+		return nil, err
+	}
+
+	log.Infof("Found %d compatible datastores for policy %s", len(res.Returnval), profileID)
+	return res.Returnval, nil
+}
+
 // PbmRetrieveContent fetches the policy content of all given policies from SPBM.
 func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []string) ([]SpbmPolicyContent, error) {
 
