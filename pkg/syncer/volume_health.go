@@ -26,6 +26,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	fvv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
@@ -37,17 +39,6 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 	log.Infof("csiGetVolumeHealthStatus: start")
-	querySelection := cnstypes.CnsQuerySelection{
-		Names: []string{
-			string(cnstypes.QuerySelectionNameTypeHealthStatus),
-		},
-	}
-	queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, metadataSyncer.volumeManager,
-		clusterIDforVolumeMetadata, querySelection)
-	if err != nil {
-		log.Errorf("csiGetVolumeHealthStatus: failed to QueryAllVolume with err=%+v", err.Error())
-		return
-	}
 
 	// Get K8s PVs in State "Bound".
 	k8sPVs, err := getBoundPVs(ctx, metadataSyncer)
@@ -59,6 +50,12 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 	// volumeHandleToPvcMap maps pv.Spec.CSI.VolumeHandle to the pvc object which
 	// bounded to the pv.
 	volumeHandleToPvcMap := make(volumeHandlePVCMap, len(k8sPVs))
+	// fvsVolumeHandleToPvcMap holds FVS-backed PVs separately when the FSS is enabled.
+	var fvsVolumeHandleToPvcMap volumeHandlePVCMap
+
+	if IsVsanFileVolumeServiceEnabled {
+		fvsVolumeHandleToPvcMap = make(volumeHandlePVCMap)
+	}
 
 	for _, pv := range k8sPVs {
 		if pv.Spec.ClaimRef != nil && pv.Status.Phase == v1.VolumeBound {
@@ -69,62 +66,153 @@ func csiGetVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface
 					pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name, err)
 				continue
 			}
-			volumeHandleToPvcMap[pv.Spec.CSI.VolumeHandle] = pvc
-			log.Debugf("csiGetVolumeHealthStatus: pvc %s/%s is backed by pv %s volumeHandle %s",
-				pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle)
+			if IsVsanFileVolumeServiceEnabled && common.IsFVSStorageClassName(pv.Spec.StorageClassName) {
+				fvsVolumeHandleToPvcMap[pv.Spec.CSI.VolumeHandle] = pvc
+				log.Debugf("csiGetVolumeHealthStatus: FVS pvc %s/%s is backed by pv %s volumeHandle %s",
+					pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle)
+			} else {
+				volumeHandleToPvcMap[pv.Spec.CSI.VolumeHandle] = pvc
+				log.Debugf("csiGetVolumeHealthStatus: pvc %s/%s is backed by pv %s volumeHandle %s",
+					pvc.Namespace, pvc.Name, pv.Name, pv.Spec.CSI.VolumeHandle)
+			}
 		}
-	}
-
-	// volumeIdToHealthStatusMap maps vol.VolumeId.Id to vol.HealthStatus.
-	volumeIdToHealthStatusMap := make(volumeIdHealthStatusMap, len(queryAllResult.Volumes))
-
-	for _, vol := range queryAllResult.Volumes {
-		volumeIdToHealthStatusMap[vol.VolumeId.Id] = vol.HealthStatus
 	}
 
 	accessibleVolumeCount := 0
 	inaccessibleVolumeCount := 0
-	for volID, pvc := range volumeHandleToPvcMap {
-		var volHealthStatusAnn string
-		if volHealthStatus, ok := volumeIdToHealthStatusMap[volID]; ok {
-			// Only update PVC health annotation if the HealthStatus of volume is
-			// not "unknown".
-			if volHealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
-				volHealthStatusAnn, err = common.ConvertVolumeHealthStatus(ctx, volID, volHealthStatus)
-				if err != nil {
-					log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q", volHealthStatus, volID)
-				}
-				updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
-			}
-		} else {
-			// Set volume health status as "Inaccessible" when PVC is not found in
-			// CNS. When a Datastore is removed from VC (like vSAN direct disk
-			// decommisson with noAction does), the CNS Volumes on that Datastore
-			// are eventually removed from CNS DB, but the PVCs still remain in
-			// the K8S cluster. We are making the design choice of reflecting the
-			// CNS cached status of health on the PVC's health annotation at any
-			// given point of time. The vDPp operators are advised to look at the
-			// health change timestamp and wait "long enough" (like an hour) before
-			// taking any corrective actions. So if the PVC health is getting
-			// updated every 5 mins, wait for an hour or so before taking any
-			// corrective actions. This is an acceptable level of eventual
-			// consistency.
-			volHealthStatusAnn = common.VolHealthStatusInaccessible
-			updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
+
+	// Process FVS-backed volumes by reading FileVolume CR conditions.
+	if IsVsanFileVolumeServiceEnabled && len(fvsVolumeHandleToPvcMap) > 0 {
+		fvsAccessible, fvsInaccessible := getFileVolumeHealthStatus(ctx, k8sclient,
+			metadataSyncer.fileVolumeClient, fvsVolumeHandleToPvcMap)
+		accessibleVolumeCount += fvsAccessible
+		inaccessibleVolumeCount += fvsInaccessible
+	}
+
+	// Process non-FVS volumes via CNS query (legacy path).
+	if len(volumeHandleToPvcMap) > 0 {
+		querySelection := cnstypes.CnsQuerySelection{
+			Names: []string{
+				string(cnstypes.QuerySelectionNameTypeHealthStatus),
+			},
 		}
-		switch volHealthStatusAnn {
-		case common.VolHealthStatusAccessible:
-			accessibleVolumeCount += 1
-		case common.VolHealthStatusInaccessible:
-			inaccessibleVolumeCount += 1
+		queryAllResult, err := utils.QueryAllVolumesForCluster(ctx, metadataSyncer.volumeManager,
+			clusterIDforVolumeMetadata, querySelection)
+		if err != nil {
+			log.Errorf("csiGetVolumeHealthStatus: failed to QueryAllVolume with err=%+v", err.Error())
+		} else {
+			volumeIdToHealthStatusMap := make(volumeIdHealthStatusMap, len(queryAllResult.Volumes))
+			for _, vol := range queryAllResult.Volumes {
+				volumeIdToHealthStatusMap[vol.VolumeId.Id] = vol.HealthStatus
+			}
+
+			for volID, pvc := range volumeHandleToPvcMap {
+				var volHealthStatusAnn string
+				if volHealthStatus, ok := volumeIdToHealthStatusMap[volID]; ok {
+					if volHealthStatus != string(pbmtypes.PbmHealthStatusForEntityUnknown) {
+						volHealthStatusAnn, err = common.ConvertVolumeHealthStatus(ctx, volID, volHealthStatus)
+						if err != nil {
+							log.Errorf("csiGetVolumeHealthStatus: invalid health status %q for volume %q",
+								volHealthStatus, volID)
+						}
+						updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
+					}
+				} else {
+					// Set volume health status as "Inaccessible" when PVC is not found in
+					// CNS. When a Datastore is removed from VC (like vSAN direct disk
+					// decommisson with noAction does), the CNS Volumes on that Datastore
+					// are eventually removed from CNS DB, but the PVCs still remain in
+					// the K8S cluster. We are making the design choice of reflecting the
+					// CNS cached status of health on the PVC's health annotation at any
+					// given point of time. The vDPp operators are advised to look at the
+					// health change timestamp and wait "long enough" (like an hour) before
+					// taking any corrective actions. So if the PVC health is getting
+					// updated every 5 mins, wait for an hour or so before taking any
+					// corrective actions. This is an acceptable level of eventual
+					// consistency.
+					volHealthStatusAnn = common.VolHealthStatusInaccessible
+					updateVolumeHealthStatus(ctx, k8sclient, pvc, volHealthStatusAnn)
+				}
+				switch volHealthStatusAnn {
+				case common.VolHealthStatusAccessible:
+					accessibleVolumeCount++
+				case common.VolHealthStatusInaccessible:
+					inaccessibleVolumeCount++
+				}
+			}
 		}
 	}
+
 	prometheus.VolumeHealthGaugeVec.WithLabelValues(
 		prometheus.PrometheusAccessibleVolumes).Set(float64(accessibleVolumeCount))
 	prometheus.VolumeHealthGaugeVec.WithLabelValues(
 		prometheus.PrometheusInaccessibleVolumes).Set(float64(inaccessibleVolumeCount))
 
-	log.Infof("GetVolumeHealthStatus: end")
+	log.Infof("csiGetVolumeHealthStatus: end")
+}
+
+// getFileVolumeHealthStatus derives volume health from FileVolume CR conditions
+// for FVS-backed PVCs. A volume is "accessible" only when both BackendReady and
+// ExportReady conditions are True; any other state (False, absent, or still
+// provisioning) is "inaccessible".
+// Returns the count of accessible and inaccessible volumes processed.
+func getFileVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface,
+	fvClient ctrlclient.Client, fvsVolumes volumeHandlePVCMap) (int, int) {
+	log := logger.GetLogger(ctx)
+	accessibleCount := 0
+	inaccessibleCount := 0
+
+	for volHandle, pvc := range fvsVolumes {
+		instanceNS, fvName, err := common.ParseFVSVolumeHandle(volHandle)
+		if err != nil {
+			log.Errorf("getFileVolumeHealthStatus: %v, marking pvc %s/%s inaccessible",
+				err, pvc.Namespace, pvc.Name)
+			updateVolumeHealthStatus(ctx, k8sclient, pvc, common.VolHealthStatusInaccessible)
+			inaccessibleCount++
+			continue
+		}
+
+		fv := &fvv1alpha1.FileVolume{}
+		if err := fvClient.Get(ctx, ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, fv); err != nil {
+			log.Errorf("getFileVolumeHealthStatus: failed to get FileVolume %s/%s for pvc %s/%s: %v",
+				instanceNS, fvName, pvc.Namespace, pvc.Name, err)
+			updateVolumeHealthStatus(ctx, k8sclient, pvc, common.VolHealthStatusInaccessible)
+			inaccessibleCount++
+			continue
+		}
+
+		healthStatus := deriveHealthFromFileVolumeConditions(fv.Status.Conditions)
+		log.Infof("getFileVolumeHealthStatus: FileVolume %s/%s health=%s for pvc %s/%s",
+			instanceNS, fvName, healthStatus, pvc.Namespace, pvc.Name)
+		updateVolumeHealthStatus(ctx, k8sclient, pvc, healthStatus)
+
+		switch healthStatus {
+		case common.VolHealthStatusAccessible:
+			accessibleCount++
+		case common.VolHealthStatusInaccessible:
+			inaccessibleCount++
+		}
+	}
+	return accessibleCount, inaccessibleCount
+}
+
+// deriveHealthFromFileVolumeConditions examines the FileVolume CR conditions and
+// returns "accessible" only when both BackendReady and ExportReady are True.
+func deriveHealthFromFileVolumeConditions(conditions []metav1.Condition) string {
+	backendReady := false
+	exportReady := false
+	for _, c := range conditions {
+		if c.Type == common.FileVolumeConditionBackendReady && c.Status == metav1.ConditionTrue {
+			backendReady = true
+		}
+		if c.Type == common.FileVolumeConditionExportReady && c.Status == metav1.ConditionTrue {
+			exportReady = true
+		}
+	}
+	if backendReady && exportReady {
+		return common.VolHealthStatusAccessible
+	}
+	return common.VolHealthStatusInaccessible
 }
 
 func updateVolumeHealthStatus(ctx context.Context, k8sclient clientset.Interface,

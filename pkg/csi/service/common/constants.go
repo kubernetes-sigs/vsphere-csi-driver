@@ -304,6 +304,14 @@ const (
 	// VolHealthStatusInaccessible is volume health status for inaccessible volume.
 	VolHealthStatusInaccessible = "inaccessible"
 
+	// FileVolumeConditionBackendReady is the condition type on a FileVolume CR
+	// indicating that the VDFS backend volume is created and accessible.
+	FileVolumeConditionBackendReady = "BackendReady"
+
+	// FileVolumeConditionExportReady is the condition type on a FileVolume CR
+	// indicating that the NFS export is configured and active.
+	FileVolumeConditionExportReady = "ExportReady"
+
 	// AnnIgnoreInaccessiblePV is annotation key on volume claim to indicate
 	// if inaccessible PV can be fake attached.
 	AnnIgnoreInaccessiblePV = "pv.attach.kubernetes.io/ignore-if-inaccessible"
