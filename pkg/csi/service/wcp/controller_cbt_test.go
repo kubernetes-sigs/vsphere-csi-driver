@@ -728,38 +728,3 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 	runVSLMErrorPropagationCase(t, "NotFound_FCD",
 		&types.NotFound{}, "", true, codes.NotFound)
 }
-
-// TestGetSnapshotChangeIdFromFCD tests the function that retrieves change ID
-func TestGetSnapshotChangeIdFromFCD(t *testing.T) {
-	ct := getControllerTest(t)
-
-	origHook := cnsvolume.RetrieveSnapshotDetailsHook
-	defer func() { cnsvolume.RetrieveSnapshotDetailsHook = origHook }()
-
-	cnsvolume.RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID) (*types.VStorageObjectSnapshotDetails, error) {
-		return &types.VStorageObjectSnapshotDetails{
-			ChangedBlockTrackingId: "mock-change-id-from-fcd",
-		}, nil
-	}
-
-	changeId, err := ct.controller.getSnapshotChangeIdFromFCD(ctx, testVolumeName, "snapshot-123")
-	if err != nil {
-		t.Errorf("Expected success, got error: %v", err)
-	}
-	if changeId != "mock-change-id-from-fcd" {
-		t.Errorf("Expected mock-change-id-from-fcd, got: %s", changeId)
-	}
-
-	cnsvolume.RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID) (*types.VStorageObjectSnapshotDetails, error) {
-		return &types.VStorageObjectSnapshotDetails{
-			ChangedBlockTrackingId: "", // empty
-		}, nil
-	}
-
-	_, err = ct.controller.getSnapshotChangeIdFromFCD(ctx, testVolumeName, "snapshot-123")
-	if err == nil {
-		t.Errorf("Expected error for empty change ID, got nil")
-	}
-}

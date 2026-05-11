@@ -867,11 +867,6 @@ func (m *mockVolumeManagerForFullSync) QueryFCDChangedBlocks(ctx context.Context
 	return nil, 0, nil
 }
 
-func (m *mockVolumeManagerForFullSync) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (
-	string, error) {
-	return "", nil
-}
-
 func (m *mockVolumeManagerForFullSync) ConfigureVolumeACLs(
 	ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec,
 ) error {

@@ -174,8 +174,6 @@ type Manager interface {
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
 	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
 		maxResults uint32) ([]ChangedArea, uint64, error)
-	// GetFCDSnapshotChangeID returns the CBT change ID from an FCD snapshot (VSLM RetrieveSnapshotDetails).
-	GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -191,6 +189,7 @@ type CnsSnapshotInfo struct {
 	SnapshotDescription                 string
 	AggregatedSnapshotCapacityInMb      int64
 	SnapshotLatestOperationCompleteTime time.Time
+	ChangedBlockTrackingId              string
 }
 
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
@@ -454,7 +453,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 					(*volumeOperationDetails).QuotaDetails,
 					(*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
 					vCenterServerForVolumeOperationCR, (*volumeOperationDetails).OperationDetails.TaskID,
-					taskInvocationStatusSuccess, "")
+					taskInvocationStatusSuccess, "", "")
 				log.Debugf("Found volume %s with id %s", volNameFromInputSpec, volumeID)
 				return &CnsVolumeInfo{
 					DatastoreURL: "",
@@ -468,7 +467,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 			*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 				(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 				task.Reference().Value, vCenterServerForVolumeOperationCR,
-				(*volumeOperationDetails).OperationDetails.TaskID, taskInvocationStatusError, err.Error())
+				(*volumeOperationDetails).OperationDetails.TaskID, taskInvocationStatusError, err.Error(), "")
 
 			return nil, ExtractFaultTypeFromErr(ctx, err), err
 		}
@@ -482,7 +481,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 		*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 			(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, vCenterServerForVolumeOperationCR,
-			(*volumeOperationDetails).OperationDetails.TaskID, taskInvocationStatusError, err.Error())
+			(*volumeOperationDetails).OperationDetails.TaskID, taskInvocationStatusError, err.Error(), "")
 
 		return nil, ExtractFaultTypeFromErr(ctx, err), err
 	}
@@ -517,7 +516,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 				*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
 					(*volumeOperationDetails).QuotaDetails,
 					(*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-					vCenterServerForVolumeOperationCR, taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+					vCenterServerForVolumeOperationCR, taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 				return resp, faultType, err
 			}
 		}
@@ -527,7 +526,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 			*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 				(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 				task.Reference().Value, vCenterServerForVolumeOperationCR, taskInfo.ActivationId,
-				taskInvocationStatusError, err.Error())
+				taskInvocationStatusError, err.Error(), "")
 			return nil, faultType, err
 		}
 	}
@@ -538,12 +537,12 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 		*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 			(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, vCenterServerForVolumeOperationCR, taskInfo.ActivationId,
-			taskInvocationStatusError, err.Error())
+			taskInvocationStatusError, err.Error(), "")
 	} else {
 		*volumeOperationDetails = createRequestDetails(volNameFromInputSpec, resp.VolumeID.Id, "", 0,
 			(*volumeOperationDetails).QuotaDetails, (*volumeOperationDetails).OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, vCenterServerForVolumeOperationCR, taskInfo.ActivationId,
-			taskInvocationStatusSuccess, "")
+			taskInvocationStatusSuccess, "", "")
 	}
 	return resp, faultType, err
 }
@@ -674,7 +673,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 		// In both cases, invoke CNS CreateVolume again.
 		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 			quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
-			taskInvocationStatusInProgress, "")
+			taskInvocationStatusInProgress, "", "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			// Don't return if CreateVolume details can't be stored.
@@ -685,7 +684,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 			log.Errorf("failed to create volume with error: %v", finalErr)
 			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 				quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
-				vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error())
+				vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error(), "")
 			faultType = ExtractFaultTypeFromErr(ctx, finalErr)
 			return nil, faultType, finalErr
 		}
@@ -693,7 +692,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 			// Persist task details only for dynamically provisioned volumes.
 			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 				quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
-				taskInvocationStatusInProgress, "")
+				taskInvocationStatusInProgress, "", "")
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 			if err != nil {
 				// Don't return if CreateVolume details can't be stored.
@@ -808,7 +807,7 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 	}()
 	volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 		quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
-		taskInvocationStatusInProgress, "")
+		taskInvocationStatusInProgress, "", "")
 	err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 	if err != nil {
 		// Don't return if CreateVolume details can't be stored.
@@ -819,7 +818,7 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 		log.Errorf("failed to create volume with error: %v", finalErr)
 		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 			quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
-			vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error())
+			vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error(), "")
 		faultType = ExtractFaultTypeFromErr(ctx, finalErr)
 		return nil, faultType, finalErr
 	}
@@ -827,7 +826,7 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 		// Persist task details only for dynamically provisioned volumes.
 		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
 			quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
-			taskInvocationStatusInProgress, "")
+			taskInvocationStatusInProgress, "", "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			// Don't return if CreateVolume details can't be stored.
@@ -1563,7 +1562,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		}
 	case apierrors.IsNotFound(err):
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
-			metav1.Now(), "", "", "", taskInvocationStatusInProgress, "")
+			metav1.Now(), "", "", "", taskInvocationStatusInProgress, "", "")
 	default:
 		return csifault.CSIInternalFault, err
 	}
@@ -1599,7 +1598,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			if cnsvsphere.IsNotFoundError(err) {
 				log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-					nil, metav1.Now(), "", "", "", taskInvocationStatusSuccess, "")
+					nil, metav1.Now(), "", "", "", taskInvocationStatusSuccess, "", "")
 				err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 				if err != nil {
 					log.Warnf("failed to store DeleteVolume details with error: %v", err)
@@ -1608,7 +1607,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			}
 			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-				nil, metav1.Now(), "", "", "", taskInvocationStatusError, err.Error())
+				nil, metav1.Now(), "", "", "", taskInvocationStatusError, err.Error(), "")
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 			if err != nil {
 				log.Warnf("failed to store DeleteVolume details with error: %v", err)
@@ -1617,7 +1616,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 			nil, metav1.Now(), task.Reference().Value, "",
-			"", taskInvocationStatusInProgress, "")
+			"", taskInvocationStatusInProgress, "", "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			log.Warnf("failed to store DeleteVolume details with error: %v", err)
@@ -1637,7 +1636,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				// Mark the volumeOperationRequest as an error if the corresponding VC task is missing/NotFound.
 				msg := fmt.Sprintf("DeleteVolume task %s not found in vCenter.", task.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
-					nil, metav1.Now(), task.Reference().Value, "", "", taskInvocationStatusError, msg)
+					nil, metav1.Now(), task.Reference().Value, "", "", taskInvocationStatusError, msg, "")
 				return faultType, logger.LogNewError(log, msg)
 			}
 		} else {
@@ -1675,7 +1674,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 					"fault: CnsNotRegisteredFault, opID: %q", volumeID, taskInfo.ActivationId)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg)
+					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg, "")
 				return faultType, logger.LogNewError(log, msg)
 			}
 			log.Infof("observed CnsNotRegisteredFault while deleting volume: %q. Attempting to re-register volume", volumeID)
@@ -1684,7 +1683,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				msg := fmt.Sprintf("failed to re-register volume %q: %v", volumeID, err)
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg)
+					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg, "")
 				return faultType, logger.LogNewErrorf(log, "failed to re-register volume %q: %v", volumeID, err)
 			}
 			log.Infof("Successfully re-registered volume %q. Retrying deleteVolumeWithImprovedIdempotency", volumeID)
@@ -1703,14 +1702,14 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 			nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-			task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg)
+			task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError, msg, "")
 		return faultType, logger.LogNewError(log, msg)
 	}
 	log.Infof("DeleteVolume: Volume deleted successfully. volumeID: %q, opId: %q",
 		volumeID, taskInfo.ActivationId)
 	volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 		nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 	return "", nil
 }
 
@@ -2128,7 +2127,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		// - The previous ExtendVolume task failed.
 		// In both cases, invoke CNS ExtendVolume.
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", size,
-			quotaInfo, metav1.Now(), "", "", "", taskInvocationStatusInProgress, "")
+			quotaInfo, metav1.Now(), "", "", "", taskInvocationStatusInProgress, "", "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			log.Warnf("failed to store ExpandVolume details with error: %v", err)
@@ -2154,11 +2153,11 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 			log.Errorf("CNS ExtendVolume failed from the vCenter %q with finalErr: %v",
 				m.virtualCenter.Config.Host, finalErr)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", size, quotaInfo,
-				metav1.Now(), "", "", "", taskInvocationStatusError, finalErr.Error())
+				metav1.Now(), "", "", "", taskInvocationStatusError, finalErr.Error(), "")
 			return faultType, finalErr
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", size, quotaInfo,
-			metav1.Now(), task.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+			metav1.Now(), task.Reference().Value, "", "", taskInvocationStatusInProgress, "", "")
 		err = m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			log.Warnf("failed to store ExpandVolume details with error: %v", err)
@@ -2179,7 +2178,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				volumeOperationDetails = createRequestDetails(instanceName, "", "",
 					volumeOperationDetails.Capacity, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value, "",
-					volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "")
+					volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "", "")
 				return "", nil
 			}
 		}
@@ -2192,7 +2191,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails = createRequestDetails(instanceName, "", "",
 			volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, "", volumeOperationDetails.OperationDetails.TaskID,
-			taskInvocationStatusError, finalErr.Error())
+			taskInvocationStatusError, finalErr.Error(), "")
 		return ExtractFaultTypeFromErr(ctx, finalErr), finalErr
 	}
 
@@ -2225,7 +2224,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 					volumeOperationDetails.Capacity, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError,
-					volumeOperationRes.Fault.LocalizedMessage)
+					volumeOperationRes.Fault.LocalizedMessage, "")
 				return faultType, logger.LogNewErrorf(log, "failed to extend volume after re-registration. "+
 					"volumeID: %q, fault: CnsNotRegisteredFault, opID: %q", volumeID, taskInfo.ActivationId)
 			}
@@ -2237,7 +2236,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				volumeOperationDetails = createRequestDetails(instanceName, "", "",
 					volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 					task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError,
-					fmt.Sprintf("failed to re-register volume: %v", err))
+					fmt.Sprintf("failed to re-register volume: %v", err), "")
 				return faultType, logger.LogNewErrorf(log, "failed to re-register volume %q: %v", volumeID, err)
 			}
 			log.Infof("Successfully re-registered volume %q. Retrying expandVolumeWithImprovedIdempotency", volumeID)
@@ -2254,7 +2253,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 				volumeOperationDetails = createRequestDetails(instanceName, "", "",
 					volumeOperationDetails.Capacity, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value,
-					"", volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "")
+					"", volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusSuccess, "", "")
 				return "", nil
 			}
 		}
@@ -2262,7 +2261,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails = createRequestDetails(instanceName, "", "",
 			volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 			task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusError,
-			volumeOperationRes.Fault.LocalizedMessage)
+			volumeOperationRes.Fault.LocalizedMessage, "")
 		return faultType, logger.LogNewErrorf(log, "failed to extend volume: %q, fault: %q, opID: %q",
 			volumeID, spew.Sdump(volumeOperationRes.Fault), taskInfo.ActivationId)
 	}
@@ -2271,7 +2270,7 @@ func (m *defaultManager) expandVolumeWithImprovedIdempotency(ctx context.Context
 		volumeOperationDetails.Capacity, volumeID, taskInfo.ActivationId)
 	volumeOperationDetails = createRequestDetails(instanceName, "", "",
 		volumeOperationDetails.Capacity, quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "")
+		task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 	if volumeOperationDetails.Capacity >= size {
 		return "", nil
 	}
@@ -2760,9 +2759,10 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					instanceName, volumeOperationDetails.SnapshotID, volumeOperationDetails.VolumeID,
 					volumeOperationDetails.OperationDetails.OpID)
 				cnsSnapshotInfo := &CnsSnapshotInfo{
-					SnapshotID:          volumeOperationDetails.SnapshotID,
-					SourceVolumeID:      volumeOperationDetails.VolumeID,
-					SnapshotDescription: volumeOperationDetails.Name,
+					SnapshotID:             volumeOperationDetails.SnapshotID,
+					SourceVolumeID:         volumeOperationDetails.VolumeID,
+					SnapshotDescription:    volumeOperationDetails.Name,
+					ChangedBlockTrackingId: volumeOperationDetails.ChangedBlockTrackingId,
 				}
 				if volumeOperationDetails.QuotaDetails != nil {
 					if volumeOperationDetails.QuotaDetails.AggregatedSnapshotSize != nil {
@@ -2801,7 +2801,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			// Instance doesn't exist. This is likely the first attempt to create the snapshot.
 			volumeOperationDetails = createRequestDetails(
 				instanceName, volumeID, "", 0, quotaInfo, metav1.Now(), "", "", "",
-				taskInvocationStatusInProgress, "")
+				taskInvocationStatusInProgress, "", "")
 		default:
 			return nil, err
 		}
@@ -2838,7 +2838,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
-					taskInvocationStatusError, err.Error())
+					taskInvocationStatusError, err.Error(), "")
 			}
 			return nil, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 		}
@@ -2847,7 +2847,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			// Persist the volume operation details.
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-				createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+				createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "", "")
 			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 				// Don't return if CreateSnapshot details can't be stored.
 				log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -2887,6 +2887,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					SourceVolumeID:                      volumeID,
 					SnapshotDescription:                 snapshotName,
 					SnapshotLatestOperationCompleteTime: queriedCnsSnapshot.CreateTime,
+					ChangedBlockTrackingId:              queriedCnsSnapshot.ChangedBlockTrackingId,
 				}
 				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					log.Infof("get aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
@@ -2910,7 +2911,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					instanceName, volumeID, queriedCnsSnapshot.SnapshotId.Id, 0, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 					createSnapshotsTask.Reference().Value, "",
-					"", taskInvocationStatusSuccess, "")
+					"", taskInvocationStatusSuccess, "", queriedCnsSnapshot.ChangedBlockTrackingId)
 				log.Warnf("Using create snapshot timestamp %q instead of create snapshot task"+
 					" completion time for snapshot %q and volumeID %q",
 					queriedCnsSnapshot.CreateTime, volumeOperationDetails.SnapshotID, volumeID)
@@ -2920,7 +2921,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					"Marking task %s as failed.", snapshotName, volumeID, createSnapshotsTask.Reference().Value)
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-					createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusError, errMsg)
+					createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusError, errMsg, "")
 				return nil, logger.LogNewError(log, errMsg)
 			}
 		}
@@ -2956,7 +2957,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, nil,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg, "")
 			}
 			return nil, logger.LogNewError(log, errMsg)
 		}
@@ -2974,12 +2975,12 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				snapshotId := createSnapshotsOperationRes.Fault.Fault.(*cnstypes.CnsSnapshotCreatedFault).SnapshotId.Id
 				volumeOperationDetails = createRequestDetails(instanceName, volumeID, snapshotId, 0, nil,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusPartiallyFailed, errMsg)
+					"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusPartiallyFailed, errMsg, "")
 				return nil, logger.LogNewError(log, errMsg)
 			}
 			volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, nil,
 				volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-				"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+				"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg, "")
 		} else {
 			// Remove the task details from map when the current task fails
 			_, ok := snapshotTaskMap[instanceName]
@@ -3005,6 +3006,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
 		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
 		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
+		ChangedBlockTrackingId:              snapshotCreateResult.Snapshot.ChangedBlockTrackingId,
 	}
 	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
@@ -3022,11 +3024,12 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		volumeOperationDetails = createRequestDetails(
 			instanceName, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID, 0, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-			"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
+			"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "", cnsSnapshotInfo.ChangedBlockTrackingId)
 	}
 
-	log.Infof("CreateSnapshot: Snapshot created successfully. VolumeID: %q, SnapshotID: %q, "+
+	log.Infof("CreateSnapshot: Snapshot created successfully. VolumeID: %q, SnapshotID: %q, changedBlockTrackingId: %q, "+
 		"SnapshotCreateTime: %q, opId: %q", cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID,
+		cnsSnapshotInfo.ChangedBlockTrackingId,
 		cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotsTaskInfo.ActivationId)
 
 	return cnsSnapshotInfo, nil
@@ -3108,7 +3111,7 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 	}()
 	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 		metav1.Now(),
-		"", "", "", taskInvocationStatusInProgress, "")
+		"", "", "", taskInvocationStatusInProgress, "", "")
 	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 		// Don't return if CreateSnapshot details can't be stored.
 		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -3117,14 +3120,14 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 	if err != nil {
 		volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
-			taskInvocationStatusError, err.Error())
+			taskInvocationStatusError, err.Error(), "")
 		faultType := ExtractFaultTypeFromErr(ctx, err)
 		return nil, faultType, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 	}
 	// Persist the volume operation details.
 	volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
-		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+		createSnapshotsTask.Reference().Value, "", "", taskInvocationStatusInProgress, "", "")
 	if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 		// Don't return if CreateSnapshot details can't be stored.
 		log.Warnf("failed to store CreateSnapshot details with error: %v", err)
@@ -3142,7 +3145,7 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		}
 		volumeOperationDetails = createRequestDetails(instanceName, volumeID, "", 0, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "", "", "",
-			taskInvocationStatusError, err.Error())
+			taskInvocationStatusError, err.Error(), "")
 		return nil, faultType, logger.LogNewErrorf(log, "Failed to get taskInfo for CreateSnapshots task "+
 			"from vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 	}
@@ -3180,6 +3183,7 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 		SourceVolumeID:                      snapshotCreateResult.Snapshot.VolumeId.Id,
 		SnapshotDescription:                 snapshotCreateResult.Snapshot.Description,
 		SnapshotLatestOperationCompleteTime: *createSnapshotsTaskInfo.CompleteTime,
+		ChangedBlockTrackingId:              snapshotCreateResult.Snapshot.ChangedBlockTrackingId,
 	}
 	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
@@ -3196,11 +3200,13 @@ func (m *defaultManager) createSnapshotWithTransaction(ctx context.Context, volu
 	volumeOperationDetails = createRequestDetails(
 		instanceName, cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID, 0, quotaInfo,
 		volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, createSnapshotsTask.Reference().Value,
-		"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
+		"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "", cnsSnapshotInfo.ChangedBlockTrackingId)
 
 	log.Infof("CreateSnapshot: Snapshot created successfully. VolumeID: %q, SnapshotID: %q, "+
-		"SnapshotCreateTime: %q, opId: %q", cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID,
-		cnsSnapshotInfo.SnapshotLatestOperationCompleteTime, createSnapshotsTaskInfo.ActivationId)
+		"changedBlockTrackingId: %q, SnapshotCreateTime: %q, opId: %q",
+		cnsSnapshotInfo.SourceVolumeID, cnsSnapshotInfo.SnapshotID,
+		cnsSnapshotInfo.ChangedBlockTrackingId, cnsSnapshotInfo.SnapshotLatestOperationCompleteTime,
+		createSnapshotsTaskInfo.ActivationId)
 
 	return cnsSnapshotInfo, "", nil
 }
@@ -3346,7 +3352,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			}
 		case apierrors.IsNotFound(err):
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil, metav1.Now(),
-				"", "", "", taskInvocationStatusInProgress, "")
+				"", "", "", taskInvocationStatusInProgress, "", "")
 		default:
 			return nil, err
 		}
@@ -3395,7 +3401,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 
 				if m.idempotencyHandlingEnabled {
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, quotaInfo,
-						metav1.Now(), "", "", "", taskInvocationStatusSuccess, "")
+						metav1.Now(), "", "", "", taskInvocationStatusSuccess, "", "")
 					if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 						log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 					}
@@ -3406,7 +3412,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 					nil, metav1.Now(), "", "", "", taskInvocationStatusError,
-					err.Error())
+					err.Error(), "")
 				if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 					log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 				}
@@ -3416,7 +3422,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		}
 		if m.idempotencyHandlingEnabled {
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
-				metav1.Now(), deleteSnapshotTask.Reference().Value, "", "", taskInvocationStatusInProgress, "")
+				metav1.Now(), deleteSnapshotTask.Reference().Value, "", "", taskInvocationStatusInProgress, "", "")
 			if err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails); err != nil {
 				log.Warnf("failed to store DeleteSnapshot operation details with error: %v", err)
 			}
@@ -3458,7 +3464,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, quotaInfo,
 						volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
 						deleteSnapshotTask.Reference().Value, "", volumeOperationDetails.OperationDetails.OpID,
-						taskInvocationStatusSuccess, "")
+						taskInvocationStatusSuccess, "", "")
 				}
 				log.Infof("DeleteSnapshot: Snapshot %q on volume %q is confirmed to be deleted successfully",
 					snapshotID, volumeID)
@@ -3468,7 +3474,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value, "",
-			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error())
+			volumeOperationDetails.OperationDetails.TaskID, taskInvocationStatusError, err.Error(), "")
 
 		return nil, logger.LogNewErrorf(log, "Failed to get taskInfo for DeleteSnapshots task from vCenter %q with err: %v",
 			m.virtualCenter.Config.Host, err)
@@ -3507,7 +3513,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
-					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg, "")
 			}
 			return nil, logger.LogNewError(log, errMsg)
 		}
@@ -3536,7 +3542,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if m.idempotencyHandlingEnabled {
 				volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
 					volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value,
-					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg)
+					"", deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg, "")
 			}
 
 			return nil, logger.LogNewError(log, errMsg)
@@ -3561,7 +3567,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 		// create the volumeOperationDetails object for persistence
 		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, quotaInfo,
 			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, deleteSnapshotTask.Reference().Value, "",
-			deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "")
+			deleteSnapshotsTaskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 	}
 	log.Infof("DeleteSnapshot: Snapshot %q on volume %q is deleted successfully. opId: %q", snapshotID,
 		volumeID, deleteSnapshotsTaskInfo.ActivationId)
@@ -4316,31 +4322,6 @@ func (m *defaultManager) connectVirtualCenter(ctx context.Context) (*cnsvsphere.
 		return nil, err
 	}
 	return m.virtualCenter, nil
-}
-
-// GetFCDSnapshotChangeID returns ChangedBlockTrackingId from FCD snapshot details (VSLM).
-func (m *defaultManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	log := logger.GetLogger(ctx)
-	log.Debugf("GetFCDSnapshotChangeID: volume=%s snapshot=%s", volumeID, snapshotID)
-
-	vcenter, err := m.connectVirtualCenter(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get vCenter from volume manager: %v", err)
-	}
-
-	snapshotDetails, err := RetrieveSnapshotDetailsHook(ctx, vcenter,
-		vim25types.ID{Id: volumeID}, vim25types.ID{Id: snapshotID})
-	if err != nil {
-		return "", fmt.Errorf("failed to retrieve snapshot details via VSLM API: %v", err)
-	}
-
-	changeID := snapshotDetails.ChangedBlockTrackingId
-	if changeID == "" {
-		return "", fmt.Errorf("changeId is empty in snapshot %s (CBT may not be enabled)", snapshotID)
-	}
-
-	log.Debugf("Retrieved changeId %s for snapshot %s", changeID, snapshotID)
-	return changeID, nil
 }
 
 // QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas with changeId "*".

@@ -665,3 +665,111 @@ func TestStoreRequestDetails_RealWorkflowTransitions(t *testing.T) {
 		}
 	})
 }
+
+// TestStoreAndRetrieveChangedBlockTrackingId tests that the ChangedBlockTrackingId field
+// is properly stored and retrieved for snapshot operations
+func TestStoreAndRetrieveChangedBlockTrackingId(t *testing.T) {
+	store, ctx := setupTestEnvironment(t, false)
+
+	t.Run("ChangedBlockTrackingId is persisted and retrieved", func(t *testing.T) {
+		instanceName := "snapshot-with-cbt"
+		volumeID := "volume-cbt-123"
+		snapshotID := "snapshot-cbt-456"
+		changedBlockTrackingId := "cbt-id-789"
+		quotaDetails := createTestQuotaDetails(1024 * 1024 * 1024) // 1GB
+
+		// Create operation details with ChangedBlockTrackingId
+		operationDetails := &VolumeOperationRequestDetails{
+			Name:                   instanceName,
+			VolumeID:               volumeID,
+			SnapshotID:             snapshotID,
+			ChangedBlockTrackingId: changedBlockTrackingId,
+			QuotaDetails:           quotaDetails,
+			OperationDetails: &OperationDetails{
+				TaskInvocationTimestamp: metav1.Now(),
+				TaskID:                  "task-cbt-123",
+				TaskStatus:              TaskInvocationStatusSuccess,
+				Error:                   "",
+			},
+		}
+
+		// Store the details
+		err := store.StoreRequestDetails(ctx, operationDetails)
+		if err != nil {
+			t.Errorf("Failed to store operation details: %v", err)
+			return
+		}
+
+		// Retrieve the details
+		retrievedDetails, err := store.GetRequestDetails(ctx, instanceName)
+		if err != nil {
+			t.Errorf("Failed to retrieve operation details: %v", err)
+			return
+		}
+
+		if retrievedDetails == nil {
+			t.Error("Retrieved details should not be nil")
+			return
+		}
+
+		// Verify ChangedBlockTrackingId is correctly persisted and retrieved
+		if retrievedDetails.ChangedBlockTrackingId != changedBlockTrackingId {
+			t.Errorf("Expected ChangedBlockTrackingId %s, got %s",
+				changedBlockTrackingId, retrievedDetails.ChangedBlockTrackingId)
+		}
+
+		// Also verify other fields are still correct
+		if retrievedDetails.VolumeID != volumeID {
+			t.Errorf("Expected VolumeID %s, got %s", volumeID, retrievedDetails.VolumeID)
+		}
+		if retrievedDetails.SnapshotID != snapshotID {
+			t.Errorf("Expected SnapshotID %s, got %s", snapshotID, retrievedDetails.SnapshotID)
+		}
+	})
+
+	t.Run("empty ChangedBlockTrackingId is preserved", func(t *testing.T) {
+		instanceName := "snapshot-no-cbt"
+		volumeID := "volume-no-cbt-123"
+		snapshotID := "snapshot-no-cbt-456"
+		quotaDetails := createTestQuotaDetails(512 * 1024 * 1024) // 512MB
+
+		// Create operation details without ChangedBlockTrackingId (empty string)
+		operationDetails := &VolumeOperationRequestDetails{
+			Name:                   instanceName,
+			VolumeID:               volumeID,
+			SnapshotID:             snapshotID,
+			ChangedBlockTrackingId: "", // Empty is valid for non-CBT snapshots
+			QuotaDetails:           quotaDetails,
+			OperationDetails: &OperationDetails{
+				TaskInvocationTimestamp: metav1.Now(),
+				TaskID:                  "task-no-cbt-123",
+				TaskStatus:              TaskInvocationStatusSuccess,
+				Error:                   "",
+			},
+		}
+
+		// Store the details
+		err := store.StoreRequestDetails(ctx, operationDetails)
+		if err != nil {
+			t.Errorf("Failed to store operation details: %v", err)
+			return
+		}
+
+		// Retrieve the details
+		retrievedDetails, err := store.GetRequestDetails(ctx, instanceName)
+		if err != nil {
+			t.Errorf("Failed to retrieve operation details: %v", err)
+			return
+		}
+
+		if retrievedDetails == nil {
+			t.Error("Retrieved details should not be nil")
+			return
+		}
+
+		// Verify empty ChangedBlockTrackingId is preserved
+		if retrievedDetails.ChangedBlockTrackingId != "" {
+			t.Errorf("Expected empty ChangedBlockTrackingId, got %s", retrievedDetails.ChangedBlockTrackingId)
+		}
+	})
+}

@@ -744,47 +744,6 @@ func TestConnectVirtualCenter(t *testing.T) {
 	assert.Same(t, mOK.virtualCenter, vc)
 }
 
-func TestGetFCDSnapshotChangeID(t *testing.T) {
-	ctx := context.Background()
-	ctx = logger.NewContextWithLogger(ctx)
-
-	orig := RetrieveSnapshotDetailsHook
-	defer func() { RetrieveSnapshotDetailsHook = orig }()
-
-	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
-
-	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
-		assert.Equal(t, "vol-1", volumeID.Id)
-		assert.Equal(t, "snap-1", snapshotID.Id)
-		return &vim25types.VStorageObjectSnapshotDetails{ChangedBlockTrackingId: "cid-99"}, nil
-	}
-	id, err := m.GetFCDSnapshotChangeID(ctx, "vol-1", "snap-1")
-	assert.NoError(t, err)
-	assert.Equal(t, "cid-99", id)
-
-	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
-		return nil, fmt.Errorf("vslm failed")
-	}
-	_, err = m.GetFCDSnapshotChangeID(ctx, "v", "s")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to retrieve snapshot details")
-
-	RetrieveSnapshotDetailsHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID vim25types.ID, snapshotID vim25types.ID) (*vim25types.VStorageObjectSnapshotDetails, error) {
-		return &vim25types.VStorageObjectSnapshotDetails{ChangedBlockTrackingId: ""}, nil
-	}
-	_, err = m.GetFCDSnapshotChangeID(ctx, "v", "snap-empty")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "changeId is empty")
-
-	mBad := &defaultManager{virtualCenter: nil}
-	_, err = mBad.GetFCDSnapshotChangeID(ctx, "v", "s")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get vCenter from volume manager")
-}
-
 func TestQueryFCDAllocatedBlocks(t *testing.T) {
 	ctx := context.Background()
 	ctx = logger.NewContextWithLogger(ctx)

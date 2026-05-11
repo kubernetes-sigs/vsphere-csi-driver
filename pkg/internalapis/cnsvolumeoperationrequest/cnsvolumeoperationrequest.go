@@ -188,7 +188,7 @@ func (or *operationRequestStore) GetRequestDetails(
 	return CreateVolumeOperationRequestDetails(instance.Spec.Name, instance.Status.VolumeID, instance.Status.SnapshotID,
 			instance.Status.Capacity, quotaDetails, operationDetailsToReturn.TaskInvocationTimestamp,
 			operationDetailsToReturn.TaskID, operationDetailsToReturn.VCenterServer, operationDetailsToReturn.OpID,
-			operationDetailsToReturn.TaskStatus, operationDetailsToReturn.Error),
+			operationDetailsToReturn.TaskStatus, operationDetailsToReturn.Error, instance.Status.ChangedBlockTrackingId),
 		nil
 }
 
@@ -224,10 +224,11 @@ func (or *operationRequestStore) StoreRequestDetails(
 					Name: instanceKey.Name,
 				},
 				Status: cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequestStatus{
-					VolumeID:              operationToStore.VolumeID,
-					SnapshotID:            operationToStore.SnapshotID,
-					Capacity:              operationToStore.Capacity,
-					FirstOperationDetails: *operationDetailsToStore,
+					VolumeID:               operationToStore.VolumeID,
+					SnapshotID:             operationToStore.SnapshotID,
+					Capacity:               operationToStore.Capacity,
+					ChangedBlockTrackingId: operationToStore.ChangedBlockTrackingId,
+					FirstOperationDetails:  *operationDetailsToStore,
 					LatestOperationDetails: []cnsvolumeoprequestv1alpha1.OperationDetails{
 						*operationDetailsToStore,
 					},
@@ -299,10 +300,11 @@ func (or *operationRequestStore) StoreRequestDetails(
 		}
 	}
 
-	// Modify VolumeID, SnapshotID and Capacity
+	// Modify VolumeID, SnapshotID, Capacity, and ChangedBlockTrackingId
 	updatedInstance.Status.VolumeID = operationToStore.VolumeID
 	updatedInstance.Status.SnapshotID = operationToStore.SnapshotID
 	updatedInstance.Status.Capacity = operationToStore.Capacity
+	updatedInstance.Status.ChangedBlockTrackingId = operationToStore.ChangedBlockTrackingId
 	if isPodVMOnStretchSupervisorFSSEnabled && operationToStore.QuotaDetails != nil {
 		updatedInstance.Status.StorageQuotaDetails = &cnsvolumeoprequestv1alpha1.QuotaDetails{
 			Reserved:                            operationToStore.QuotaDetails.Reserved,

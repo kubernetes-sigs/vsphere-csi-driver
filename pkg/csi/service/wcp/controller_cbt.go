@@ -323,11 +323,6 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	return server.Send(resp)
 }
 
-// getSnapshotChangeIdFromFCD retrieves the changeId from a snapshot using FCD VSLM APIs via the volume manager.
-func (c *controller) getSnapshotChangeIdFromFCD(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	return c.manager.VolumeManager.GetFCDSnapshotChangeID(ctx, volumeID, snapshotID)
-}
-
 // validateGetMetadataAllocatedRequest validates the GetMetadataAllocated request
 func validateGetMetadataAllocatedRequest(ctx context.Context, req *csi.GetMetadataAllocatedRequest) error {
 	log := logger.GetLogger(ctx)

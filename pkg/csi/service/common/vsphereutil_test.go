@@ -92,9 +92,6 @@ func (m *mockVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
 	[]cnsvolume.ChangedArea, uint64, error) {
 	return nil, 0, nil
 }
-func (m *mockVolumeManager) GetFCDSnapshotChangeID(ctx context.Context, volumeID, snapshotID string) (string, error) {
-	return "", nil
-}
 func (m *mockVolumeManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {
 	return nil
 }

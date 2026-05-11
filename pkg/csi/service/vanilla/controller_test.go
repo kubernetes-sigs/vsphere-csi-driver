@@ -2316,7 +2316,7 @@ func TestDeleteBlockVolumeSnapshotWithManagedObjectNotFound(t *testing.T) {
 	instanceName := "deletesnapshot-" + volID + "-" + snapshotID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
 		instanceName, "", "", 0, nil, metav1.Now(),
-		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "", "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 
 	// logger.SetLoggerLevel(logger.DevelopmentLogLevel) // enable debug level log
@@ -2447,7 +2447,7 @@ func TestCreateSnapshotWithManagedObjectNotFound(t *testing.T) {
 	instanceName := snapshotName + "-" + volID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
 		instanceName, volID, "", 0, nil, metav1.Now(),
-		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "")
+		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusInProgress, "", "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 	// Attempt to create snapshot again, but the task-id is non-existent.
 	// Since the snapshot already exists, no error is expected.
@@ -2576,7 +2576,7 @@ func TestCreateSnapshotWithCnsSnapshotCreatedFault(t *testing.T) {
 	instanceName := snapshotName + "-" + volID
 	operationInstance := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
 		instanceName, volID, snapID, 0, nil, metav1.Now(),
-		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusPartiallyFailed, "")
+		taskID, "", "", cnsvolumeoperationrequest.TaskInvocationStatusPartiallyFailed, "", "")
 	_ = ct.operationStore.StoreRequestDetails(ctx, operationInstance)
 
 	// Attempt to create snapshot again.
