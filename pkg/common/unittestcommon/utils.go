@@ -345,6 +345,13 @@ func (cntrlTopology *mockControllerVolumeTopology) GetTopologyInfoFromNodes(ctx 
 	return nil, logger.LogNewError(log, "GetTopologyInfoFromNodes is not yet implemented.")
 }
 
+// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+func (cntrlTopology *mockControllerVolumeTopology) GetAccessibleZonesForDatastore(ctx context.Context,
+	datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error) {
+	log := logger.GetLogger(ctx)
+	return nil, logger.LogNewError(log, "GetAccessibleZonesForDatastore is not yet implemented.")
+}
+
 // InitTopologyServiceInController returns a singleton implementation of the
 // commoncotypes.ControllerTopologyService interface for the FakeK8SOrchestrator.
 func (c *FakeK8SOrchestrator) InitTopologyServiceInController(ctx context.Context) (
