@@ -46,6 +46,11 @@ import (
 const (
 	fvsGroup   = "fvs.vcf.broadcom.com"
 	fvsVersion = "v1alpha1"
+	// fvsServiceReadyConditionType is the condition type on a FileVolumeService CR that aggregates
+	// the readiness of its underlying components (ProtocolService, VolumeManager, Telegraf). The
+	// service is considered usable for creating FileVolume CRs only when this condition has
+	// status "True" and the top-level status.healthState is "Ready".
+	fvsServiceReadyConditionType = "Service-Ready"
 	// AnnotationVPCNetworkConfig is set on supervisor namespaces; value is the VPCNetworkConfiguration CR name.
 	AnnotationVPCNetworkConfig = "nsx.vmware.com/vpc_network_config"
 	// NamespaceLabelFVSInstance marks FVS instance namespaces (supervisor namespaces that host FileVolume CRs).
@@ -223,9 +228,14 @@ func (c *controller) listFVSCandidateInstanceNamespaces(ctx context.Context, pvc
 }
 
 // instanceNamespaceHasReadyFileVolumeService returns nil if the namespace has at least one
-// FileVolumeService (fvs.vcf.broadcom.com/v1alpha1) whose status.healthState is Ready (case-insensitive).
-// Otherwise it returns an error describing a missing list, no CRs, or no healthy service.
+// FileVolumeService (fvs.vcf.broadcom.com/v1alpha1) that satisfies BOTH:
+//   - status.healthState == "Ready" (case-insensitive)
+//   - a status.conditions[] entry with type "Service-Ready" and status "True" (case-insensitive)
+//
+// FileVolumeService instances that fail either check are logged and skipped; an aggregate error is
+// returned only when no instance in the namespace qualifies (or the namespace has none).
 func (c *controller) instanceNamespaceHasReadyFileVolumeService(ctx context.Context, instanceNS string) error {
+	log := logger.GetLogger(ctx)
 	list, err := c.dynamicClient.Resource(fvsFileVolumeServiceGVR).Namespace(instanceNS).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
@@ -235,12 +245,44 @@ func (c *controller) instanceNamespaceHasReadyFileVolumeService(ctx context.Cont
 	}
 	for _, item := range list.Items {
 		obj := item.Object
-		if hs, found, _ := unstructured.NestedString(obj, "status", "healthState"); found &&
-			strings.EqualFold(hs, "Ready") {
-			return nil
+		name := item.GetName()
+
+		hs, hsFound, _ := unstructured.NestedString(obj, "status", "healthState")
+		if !hsFound || !strings.EqualFold(hs, "Ready") {
+			log.Infof("skipping FileVolumeService %s/%s: healthState=%q (want Ready)",
+				instanceNS, name, hs)
+			continue
+		}
+		if !fileVolumeServiceHasServiceReadyCondition(obj) {
+			log.Infof("skipping FileVolumeService %s/%s: missing %q condition with status=True",
+				instanceNS, name, fvsServiceReadyConditionType)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("no FileVolumeService in namespace %q has healthState=Ready and "+
+		"%q condition with status=True", instanceNS, fvsServiceReadyConditionType)
+}
+
+// fileVolumeServiceHasServiceReadyCondition reports whether the unstructured FileVolumeService object
+// has a status.conditions[] entry of type "Service-Ready" with status "True" (case-insensitive).
+func fileVolumeServiceHasServiceReadyCondition(obj map[string]interface{}) bool {
+	conds, found, err := unstructured.NestedSlice(obj, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, c := range conds {
+		cm, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _, _ := unstructured.NestedString(cm, "type")
+		s, _, _ := unstructured.NestedString(cm, "status")
+		if strings.EqualFold(t, fvsServiceReadyConditionType) && strings.EqualFold(s, "True") {
+			return true
 		}
 	}
-	return fmt.Errorf("no healthy FileVolumeService in namespace %q", instanceNS)
+	return false
 }
 
 // namespaceHasAnyRequestedZone reports whether the supervisor namespace is associated with at least one
@@ -352,10 +394,15 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 			log.Infof("reusing existing FileVolume %s/%s for PVC %s/%s", ns, fvName, pvcNamespace, pvcName)
 			break
 		}
-		if !apierrors.IsNotFound(getErr) {
+		if apierrors.IsNotFound(getErr) {
 			log.Warnf("could not get FileVolume %q in namespace %q (will try next candidate): %v",
 				fvName, ns, getErr)
 			continue
+		} else {
+			// If unable to get the FileVolume due to an unexpected error, return an internal fault.
+			// This helps leaving behing orphaned FileVolume CRs in the namespace.
+			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to check for existing FileVolume %q in namespace %q: error :%v", fvName, ns, getErr)
 		}
 	}
 
@@ -645,6 +692,9 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 
 // shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow.
 func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName string) (bool, error) {
+	if !isVsanFileVolumeServiceFSSEnabled {
+		return false, nil
+	}
 	if !isVsanFileServicePolicyStorageClass(storageClassName) {
 		return false, nil
 	}
@@ -656,9 +706,6 @@ func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName s
 		return false, status.Errorf(codes.FailedPrecondition,
 			"storage class %q requires NSX_VPC network provider (current network provider: %q)",
 			storageClassName, np)
-	}
-	if !isVsanFileVolumeServiceFSSEnabled {
-		return false, nil
 	}
 	return true, nil
 }

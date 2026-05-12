@@ -38,7 +38,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
@@ -323,45 +323,76 @@ func TestListFVSCandidateInstanceNamespaces(t *testing.T) {
 	require.Error(t, err)
 }
 
+// fvsObj builds an unstructured FileVolumeService CR for tests with the given healthState and
+// optional Service-Ready condition status (pass "" to omit the condition entirely).
+func fvsObj(name, namespace, healthState, serviceReadyStatus string) *unstructured.Unstructured {
+	status := map[string]interface{}{
+		"healthState": healthState,
+	}
+	if serviceReadyStatus != "" {
+		status["conditions"] = []interface{}{
+			map[string]interface{}{
+				"type":   fvsServiceReadyConditionType,
+				"status": serviceReadyStatus,
+			},
+		}
+	}
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "fvs.vcf.broadcom.com/v1alpha1",
+			"kind":       "FileVolumeService",
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"status": status,
+		},
+	}
+}
+
 func TestInstanceNamespaceHasReadyFileVolumeService(t *testing.T) {
 	ctx := context.Background()
-	fvs := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "fvs.vcf.broadcom.com/v1alpha1",
-			"kind":       "FileVolumeService",
-			"metadata": map[string]interface{}{
-				"name":      "fvs1",
-				"namespace": "ns1",
-			},
-			"status": map[string]interface{}{
-				"healthState": "Ready",
-			},
-		},
-	}
-	dyn := newTestDynamicClient(t, fvs)
-	c := &controller{dynamicClient: dyn}
-	require.NoError(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns1"))
 
-	notReady := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "fvs.vcf.broadcom.com/v1alpha1",
-			"kind":       "FileVolumeService",
-			"metadata": map[string]interface{}{
-				"name":      "fvs2",
-				"namespace": "ns2",
-			},
-			"status": map[string]interface{}{
-				"healthState": "NotReady",
-			},
-		},
-	}
-	dyn2 := newTestDynamicClient(t, notReady)
-	c2 := &controller{dynamicClient: dyn2}
-	require.Error(t, c2.instanceNamespaceHasReadyFileVolumeService(ctx, "ns2"))
+	t.Run("healthState Ready and Service-Ready True", func(t *testing.T) {
+		dyn := newTestDynamicClient(t, fvsObj("fvs1", "ns1", "Ready", "True"))
+		c := &controller{dynamicClient: dyn}
+		require.NoError(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns1"))
+	})
 
-	dynEmpty := newTestDynamicClient(t)
-	c3 := &controller{dynamicClient: dynEmpty}
-	require.Error(t, c3.instanceNamespaceHasReadyFileVolumeService(ctx, "empty"))
+	t.Run("healthState NotReady is rejected", func(t *testing.T) {
+		dyn := newTestDynamicClient(t, fvsObj("fvs2", "ns2", "NotReady", "True"))
+		c := &controller{dynamicClient: dyn}
+		require.Error(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns2"))
+	})
+
+	t.Run("healthState Ready but no Service-Ready condition is rejected", func(t *testing.T) {
+		dyn := newTestDynamicClient(t, fvsObj("fvs3", "ns3", "Ready", ""))
+		c := &controller{dynamicClient: dyn}
+		err := c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns3")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Service-Ready")
+	})
+
+	t.Run("healthState Ready but Service-Ready=False is rejected", func(t *testing.T) {
+		dyn := newTestDynamicClient(t, fvsObj("fvs4", "ns4", "Ready", "False"))
+		c := &controller{dynamicClient: dyn}
+		require.Error(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns4"))
+	})
+
+	t.Run("skips unhealthy item and finds qualifying one", func(t *testing.T) {
+		dyn := newTestDynamicClient(t,
+			fvsObj("bad", "ns5", "NotReady", "False"),
+			fvsObj("good", "ns5", "Ready", "True"),
+		)
+		c := &controller{dynamicClient: dyn}
+		require.NoError(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "ns5"))
+	})
+
+	t.Run("empty namespace returns error", func(t *testing.T) {
+		dyn := newTestDynamicClient(t)
+		c := &controller{dynamicClient: dyn}
+		require.Error(t, c.instanceNamespaceHasReadyFileVolumeService(ctx, "empty"))
+	})
 }
 
 func TestCreateFileVolumeViaFVS_ValidationAndPVC(t *testing.T) {
@@ -418,6 +449,9 @@ func TestShouldProvisionVsanFileVolumeViaFVS(t *testing.T) {
 		cnsoperatorutil.GetNetworkProviderFunc = func(ctx context.Context) (string, error) {
 			return "NSX_T", nil
 		}
+		oldFSS := isVsanFileVolumeServiceFSSEnabled
+		defer func() { isVsanFileVolumeServiceFSSEnabled = oldFSS }()
+		isVsanFileVolumeServiceFSSEnabled = true
 		_, err := shouldProvisionVsanFileVolumeViaFVS(ctx, common.StorageClassVsanFileServicePolicy)
 		require.Error(t, err)
 	})
@@ -481,9 +515,9 @@ func TestShouldDeleteFileVolumeViaFVS(t *testing.T) {
 	}
 }
 
-// fvsTestScheme returns a runtime.Scheme with the FVS FileVolume types registered for use with
-// the controller-runtime fake client.
-func fvsTestScheme(t *testing.T) *runtime.Scheme {
+// newFileVolumeSchemeForTest returns a runtime.Scheme with the FVS FileVolume types registered so
+// the controller-runtime fake client can serialize FileVolume objects.
+func newFileVolumeSchemeForTest(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	require.NoError(t, fvsapis.AddToScheme(s))
@@ -512,8 +546,8 @@ func TestDeleteFileVolumeViaFVS_Success(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: fvName, Namespace: instanceNS},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			Build(),
 	}
@@ -536,8 +570,8 @@ func TestDeleteFileVolumeViaFVS_NotFoundIsIdempotent(t *testing.T) {
 	withFastFVSWait(t)
 
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			Build(),
 	}
 
@@ -553,8 +587,8 @@ func TestDeleteFileVolumeViaFVS_InvalidVolumeID(t *testing.T) {
 	withFastFVSWait(t)
 
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			Build(),
 	}
 
@@ -602,8 +636,8 @@ func TestDeleteFileVolumeViaFVS_DeleteError(t *testing.T) {
 	}
 	injectedErr := errors.New("api server temporarily unavailable")
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Delete: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -689,8 +723,8 @@ func TestExpandFileVolumeViaFVS_Success(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -746,8 +780,8 @@ func TestExpandFileVolumeViaFVS_Idempotent(t *testing.T) {
 	}
 	updateCalls := 0
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -792,8 +826,8 @@ func TestExpandFileVolumeViaFVS_Shrink(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			Build(),
 	}
@@ -810,8 +844,8 @@ func TestExpandFileVolumeViaFVS_InvalidVolumeID(t *testing.T) {
 	withFastFVSWait(t)
 
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			Build(),
 	}
 
@@ -861,8 +895,8 @@ func TestExpandFileVolumeViaFVS_MissingCapacityRange(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			Build(),
 	}
@@ -892,8 +926,8 @@ func TestExpandFileVolumeViaFVS_NotFound(t *testing.T) {
 	withFastFVSWait(t)
 
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			Build(),
 	}
 
@@ -925,8 +959,8 @@ func TestExpandFileVolumeViaFVS_UpdateError(t *testing.T) {
 	}
 	injectedErr := errors.New("api server temporarily unavailable")
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -971,8 +1005,8 @@ func TestExpandFileVolumeViaFVS_StatusNeverApplies(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -1019,8 +1053,8 @@ func TestExpandFileVolumeViaFVS_ErrorPhase(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Update: func(ctx context.Context, w ctrlclient.WithWatch, obj ctrlclient.Object,
@@ -1060,8 +1094,8 @@ func TestDeleteFileVolumeViaFVS_StuckFinalizer(t *testing.T) {
 		},
 	}
 	c := &controller{
-		fileVolumeClient: ctrlclientfake.NewClientBuilder().
-			WithScheme(fvsTestScheme(t)).
+		fileVolumeClient: ctrlfake.NewClientBuilder().
+			WithScheme(newFileVolumeSchemeForTest(t)).
 			WithObjects(existing).
 			Build(),
 	}
@@ -1071,4 +1105,111 @@ func TestDeleteFileVolumeViaFVS_StuckFinalizer(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
 	require.Contains(t, err.Error(), "timeout or error waiting for FileVolume")
+}
+
+// TestCreateFileVolumeViaFVS_ExistingFVGetError verifies that when the candidate FileVolume Get
+// returns a non-NotFound error, createFileVolumeViaFVS returns CSIInternalFault rather than
+// silently moving on, which would risk creating a duplicate FileVolume CR (orphan risk).
+func TestCreateFileVolumeViaFVS_ExistingFVGetError(t *testing.T) {
+	ctx := context.Background()
+	consumerAnn := "pvc-ns-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	instAnn := "inst-ns-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	sameVPCPath := "/orgs/default/projects/default/vpcs/same-vpc"
+
+	k8s := k8sfake.NewClientset(
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pvc-ns",
+				Annotations: map[string]string{
+					AnnotationVPCNetworkConfig: consumerAnn,
+				},
+			},
+		},
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "inst-ns",
+				Labels: map[string]string{
+					NamespaceLabelFVSInstance: "true",
+				},
+				Annotations: map[string]string{
+					AnnotationVPCNetworkConfig: instAnn,
+				},
+			},
+		},
+	)
+	dyn := newTestDynamicClient(t,
+		testVPCNetworkConfigurationCR(consumerAnn, sameVPCPath),
+		testVPCNetworkConfigurationCR(instAnn, sameVPCPath),
+	)
+
+	origZones := fvsZonesForNamespace
+	defer func() { fvsZonesForNamespace = origZones }()
+	fvsZonesForNamespace = func(ns string) map[string]struct{} {
+		if ns == "pvc-ns" || ns == "inst-ns" {
+			return map[string]struct{}{"zone-a": {}}
+		}
+		return nil
+	}
+
+	scheme := newFileVolumeSchemeForTest(t)
+	base := ctrlfake.NewClientBuilder().WithScheme(scheme).Build()
+	injectedErr := errors.New("simulated transient API error")
+	fvClient := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, _ ctrlclient.WithWatch, _ ctrlclient.ObjectKey,
+			_ ctrlclient.Object, _ ...ctrlclient.GetOption) error {
+			return injectedErr
+		},
+	})
+
+	c := &controller{
+		k8sClient:        k8s,
+		dynamicClient:    dyn,
+		namespaceLister:  testNamespaceLister(t, k8s),
+		fileVolumeClient: fvClient,
+	}
+
+	req := &csi.CreateVolumeRequest{
+		Name: "pvc-cccccccc-cccc-cccc-cccc-cccccccccccc",
+		Parameters: map[string]string{
+			common.AttributePvcNamespace: "pvc-ns",
+			common.AttributePvcName:      "my-pvc",
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Preferred: []*csi.Topology{{Segments: map[string]string{v1.LabelTopologyZone: "zone-a"}}},
+		},
+	}
+
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	require.Nil(t, resp)
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "failed to check for existing FileVolume")
+}
+
+// TestReservedFVSStorageClassGuard documents the invariant the new CreateVolume guard relies on:
+// the reserved vSAN file-service storage classes are recognised by isVsanFileServicePolicyStorageClass,
+// and when the FVS FSS is disabled, shouldProvisionVsanFileVolumeViaFVS returns useFVS=false. The
+// conjunction of these two booleans is what the guard at controller.go uses to reject requests for
+// the reserved StorageClass when FVS routing is unavailable.
+func TestReservedFVSStorageClassGuard(t *testing.T) {
+	ctx := context.Background()
+
+	require.True(t, isVsanFileServicePolicyStorageClass(common.StorageClassVsanFileServicePolicy))
+	require.True(t, isVsanFileServicePolicyStorageClass(common.StorageClassVsanFileServicePolicyLateBinding))
+	require.False(t, isVsanFileServicePolicyStorageClass("ordinary-sc"))
+
+	oldFSS := isVsanFileVolumeServiceFSSEnabled
+	defer func() { isVsanFileVolumeServiceFSSEnabled = oldFSS }()
+	isVsanFileVolumeServiceFSSEnabled = false
+
+	for _, sc := range []string{
+		common.StorageClassVsanFileServicePolicy,
+		common.StorageClassVsanFileServicePolicyLateBinding,
+	} {
+		useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, sc)
+		require.NoError(t, err, "sc=%s", sc)
+		require.False(t, useFVS, "sc=%s: with FSS disabled the guard must reject by hitting the reserved-SC branch", sc)
+		require.True(t, isVsanFileServicePolicyStorageClass(sc),
+			"sc=%s: reserved-SC predicate must remain true so the guard rejects rather than falling through", sc)
+	}
 }
