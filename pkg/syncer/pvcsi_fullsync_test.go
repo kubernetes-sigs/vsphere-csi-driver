@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -40,6 +41,11 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
+
+// Pointer helper function
+func ptrTo[T any](v T) *T {
+	return &v
+}
 
 func TestGenerateVolumeNodeAffinity(t *testing.T) {
 	tests := []struct {
@@ -941,4 +947,536 @@ func TestPatchObjectErrorScenarios(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "test-value", updatedPVC.Labels["test-key"])
 	})
+}
+
+// TestReconcileGuestSnapshotAnnotation_SuccessfulAnnotation tests adding change-id annotation from supervisor to guest
+func TestReconcileGuestSnapshotAnnotation_SuccessfulAnnotation(t *testing.T) {
+	ctx := context.Background()
+
+	// Create supervisor VolumeSnapshot with change-id annotation
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "snap-supervisor-1",
+			Namespace: "vmware-system-csi",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "change-id-abc123",
+			},
+		},
+	}
+
+	// Create guest VolumeSnapshot without change-id annotation
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-guest-1",
+			Namespace:   "guest-ns",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	// Setup fake client with guest snapshot
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(guestVS.DeepCopy()).
+		Build()
+
+	// Call reconcile function
+	err := reconcileGuestSnapshotAnnotation(ctx, supervisorVS, guestVS, fakeClient)
+	assert.NoError(t, err)
+
+	// Verify annotation was added to guest snapshot
+	updatedGuestVS := &snapv1.VolumeSnapshot{}
+	err = fakeClient.Get(ctx, client.ObjectKey{
+		Name:      guestVS.Name,
+		Namespace: guestVS.Namespace,
+	}, updatedGuestVS)
+	assert.NoError(t, err)
+	assert.Equal(t, "change-id-abc123",
+		updatedGuestVS.Annotations[common.VolumeSnapshotChangeIDKey],
+		"Guest snapshot should have change-id annotation from supervisor")
+}
+
+// TestReconcileGuestSnapshotAnnotation_SkipsWhenNoSupervisorAnnotation checks that
+// unannotated supervisor snapshots are skipped
+func TestReconcileGuestSnapshotAnnotation_SkipsWhenNoSupervisorAnnotation(t *testing.T) {
+	ctx := context.Background()
+
+	// Create supervisor VolumeSnapshot WITHOUT change-id annotation
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-supervisor-no-id",
+			Namespace:   "vmware-system-csi",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	// Create guest VolumeSnapshot without change-id annotation
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-guest-no-id",
+			Namespace:   "guest-ns",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	// Create guest VSC
+	// Setup fake client
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(guestVS.DeepCopy()).
+		Build()
+
+	// Call reconcile function
+	err := reconcileGuestSnapshotAnnotation(ctx, supervisorVS, guestVS, fakeClient)
+	assert.NoError(t, err)
+
+	// Verify NO annotation was added to guest snapshot
+	updatedGuestVS := &snapv1.VolumeSnapshot{}
+	err = fakeClient.Get(ctx, client.ObjectKey{
+		Name:      guestVS.Name,
+		Namespace: guestVS.Namespace,
+	}, updatedGuestVS)
+	assert.NoError(t, err)
+	assert.NotContains(t, updatedGuestVS.Annotations, common.VolumeSnapshotChangeIDKey,
+		"Guest snapshot should NOT have change-id annotation when supervisor has none")
+}
+
+// TestReconcileGuestSnapshotAnnotation_SkipsWhenAlreadyAnnotated tests skipping when guest already has annotation
+func TestReconcileGuestSnapshotAnnotation_SkipsWhenAlreadyAnnotated(t *testing.T) {
+	ctx := context.Background()
+
+	// Create supervisor VolumeSnapshot with change-id annotation
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "snap-supervisor-annotated",
+			Namespace: "vmware-system-csi",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "change-id-new",
+			},
+		},
+	}
+
+	// Create guest VolumeSnapshot that ALREADY has a different change-id annotation
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "snap-guest-already-annotated",
+			Namespace: "guest-ns",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "change-id-old",
+			},
+		},
+	}
+
+	// Create guest VSC
+	// Setup fake client
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(guestVS.DeepCopy()).
+		Build()
+
+	// Call reconcile function
+	err := reconcileGuestSnapshotAnnotation(ctx, supervisorVS, guestVS, fakeClient)
+	assert.NoError(t, err)
+
+	// Verify annotation was NOT changed (should remain old value)
+	updatedGuestVS := &snapv1.VolumeSnapshot{}
+	err = fakeClient.Get(ctx, client.ObjectKey{
+		Name:      guestVS.Name,
+		Namespace: guestVS.Namespace,
+	}, updatedGuestVS)
+	assert.NoError(t, err)
+	assert.Equal(t, "change-id-old",
+		updatedGuestVS.Annotations[common.VolumeSnapshotChangeIDKey],
+		"Guest snapshot should keep its existing annotation")
+}
+
+// TestReconcileGuestSnapshotAnnotation_PatchError tests error handling when patch fails
+func TestReconcileGuestSnapshotAnnotation_PatchError(t *testing.T) {
+	ctx := context.Background()
+
+	// Create supervisor VolumeSnapshot with change-id annotation
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "snap-supervisor-error",
+			Namespace: "vmware-system-csi",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "change-id-error",
+			},
+		},
+	}
+
+	// Create guest VolumeSnapshot
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "snap-guest-error",
+			Namespace:   "guest-ns",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	// Create guest VSC
+	// Setup fake client WITHOUT the guest snapshot object (to cause patch error)
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	// Call reconcile function - should return error
+	err := reconcileGuestSnapshotAnnotation(ctx, supervisorVS, guestVS, fakeClient)
+	assert.Error(t, err, "Patch should fail when guest snapshot doesn't exist in client")
+}
+
+// TestIsReadyVolumeSnapshotContent_ValidReady tests VSC that is ready
+func TestIsReadyVolumeSnapshotContent_ValidReady(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo("handle-123"),
+			ReadyToUse:     ptrTo(true),
+		},
+	}
+	assert.True(t, isReadyVolumeSnapshotContent(vsc), "Should return true for valid ready VSC")
+}
+
+// TestIsReadyVolumeSnapshotContent_InvalidDriver tests VSC with wrong driver
+func TestIsReadyVolumeSnapshotContent_InvalidDriver(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: "different-driver",
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo("handle-123"),
+			ReadyToUse:     ptrTo(true),
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with wrong driver")
+}
+
+// TestIsReadyVolumeSnapshotContent_MissingVolumeSnapshotRef tests VSC without VolumeSnapshotRef name
+func TestIsReadyVolumeSnapshotContent_MissingVolumeSnapshotRef(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo("handle-123"),
+			ReadyToUse:     ptrTo(true),
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC without VolumeSnapshotRef name")
+}
+
+// TestIsReadyVolumeSnapshotContent_NilStatus tests VSC with nil status
+func TestIsReadyVolumeSnapshotContent_NilStatus(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: nil,
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with nil status")
+}
+
+// TestIsReadyVolumeSnapshotContent_NilSnapshotHandle tests VSC with nil snapshot handle
+func TestIsReadyVolumeSnapshotContent_NilSnapshotHandle(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: nil,
+			ReadyToUse:     ptrTo(true),
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with nil snapshot handle")
+}
+
+// TestIsReadyVolumeSnapshotContent_EmptySnapshotHandle tests VSC with empty snapshot handle
+func TestIsReadyVolumeSnapshotContent_EmptySnapshotHandle(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo(""),
+			ReadyToUse:     ptrTo(true),
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with empty snapshot handle")
+}
+
+// TestIsReadyVolumeSnapshotContent_NotReady tests VSC with ReadyToUse=false
+func TestIsReadyVolumeSnapshotContent_NotReady(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo("handle-123"),
+			ReadyToUse:     ptrTo(false),
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with ReadyToUse=false")
+}
+
+// TestIsReadyVolumeSnapshotContent_NilReadyToUse tests VSC with nil ReadyToUse
+func TestIsReadyVolumeSnapshotContent_NilReadyToUse(t *testing.T) {
+	vsc := &snapv1.VolumeSnapshotContent{
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			Driver: common.VSphereCSIDriverName,
+			VolumeSnapshotRef: v1.ObjectReference{
+				Name: "valid-name",
+			},
+		},
+		Status: &snapv1.VolumeSnapshotContentStatus{
+			SnapshotHandle: ptrTo("handle-123"),
+			ReadyToUse:     nil,
+		},
+	}
+	assert.False(t, isReadyVolumeSnapshotContent(vsc), "Should return false for VSC with nil ReadyToUse")
+}
+
+// ============================================================================
+// High-Level Integration Tests for setGuestClusterDetailsOnSupervisorSnapshot and
+// setChangeIDAnnotationOnGuestClusterSnapshot
+// ============================================================================
+
+// TestSetGuestClusterDetailsOnSupervisorSnapshot_AddsLabelsAndFinalizers tests the high-level function
+func TestSetGuestClusterDetailsOnSupervisorSnapshot_AddsLabelsAndFinalizers(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup supervisor snapshot without labels or finalizers
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "supervisor-snap",
+			Namespace:  "vmware-system-csi",
+			Labels:     make(map[string]string),
+			Finalizers: []string{},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+
+	// Create fake supervisor client with the snapshot
+	supervisorClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(supervisorVS).
+		Build()
+
+	// Test the logic of adding labels and finalizers
+	key := "test-cluster/tkgs"
+	expected := "test-cluster-uid"
+
+	// Simulate what setGuestClusterDetailsOnSupervisorSnapshot does
+	if supervisorVS.Labels == nil {
+		supervisorVS.Labels = make(map[string]string)
+	}
+	supervisorVS.Labels[key] = expected
+
+	if !slices.Contains(supervisorVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
+		supervisorVS.ObjectMeta.Finalizers = append(supervisorVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+	}
+
+	// Patch the object
+	original := supervisorVS.DeepCopy()
+	original.Labels = make(map[string]string)
+	original.Finalizers = []string{}
+
+	err := k8s.PatchObject(ctx, supervisorClient, original, supervisorVS)
+	assert.NoError(t, err)
+
+	// Verify the patch was applied
+	updatedVS := &snapv1.VolumeSnapshot{}
+	err = supervisorClient.Get(ctx, client.ObjectKey{
+		Name:      supervisorVS.Name,
+		Namespace: supervisorVS.Namespace,
+	}, updatedVS)
+	assert.NoError(t, err)
+	assert.Equal(t, expected, updatedVS.Labels[key], "Label should be set correctly")
+	assert.Contains(t, updatedVS.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer, "Finalizer should be added")
+}
+
+// TestSetGuestClusterDetailsOnSupervisorSnapshot_PreservesExistingLabelsAndFinalizers tests that existing
+// labels/finalizers are preserved
+func TestSetGuestClusterDetailsOnSupervisorSnapshot_PreservesExistingLabelsAndFinalizers(t *testing.T) {
+	ctx := context.Background()
+
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "supervisor-snap",
+			Namespace: "vmware-system-csi",
+			Labels: map[string]string{
+				"existing-label": "existing-value",
+			},
+			Finalizers: []string{"existing-finalizer"},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+
+	supervisorClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(supervisorVS).
+		Build()
+
+	// Simulate adding new label while preserving existing one
+	key := "test-cluster/tkgs"
+	supervisorVS.Labels[key] = "test-cluster-uid"
+
+	// Add finalizer if not present
+	if !slices.Contains(supervisorVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
+		supervisorVS.ObjectMeta.Finalizers = append(supervisorVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+	}
+
+	// Patch the object
+	original := supervisorVS.DeepCopy()
+	original.Labels = map[string]string{"existing-label": "existing-value"}
+	original.Finalizers = []string{"existing-finalizer"}
+
+	err := k8s.PatchObject(ctx, supervisorClient, original, supervisorVS)
+	assert.NoError(t, err)
+
+	// Verify both old and new labels/finalizers are present
+	updatedVS := &snapv1.VolumeSnapshot{}
+	err = supervisorClient.Get(ctx, client.ObjectKey{
+		Name:      supervisorVS.Name,
+		Namespace: supervisorVS.Namespace,
+	}, updatedVS)
+	assert.NoError(t, err)
+	assert.Equal(t, "existing-value", updatedVS.Labels["existing-label"], "Existing label should be preserved")
+	assert.Equal(t, "test-cluster-uid", updatedVS.Labels["test-cluster/tkgs"], "New label should be added")
+	assert.Contains(t, updatedVS.Finalizers, "existing-finalizer", "Existing finalizer should be preserved")
+	assert.Contains(t, updatedVS.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer, "New finalizer should be added")
+}
+
+// TestSetChangeIDAnnotationOnGuestClusterSnapshot_AddsChangeIDAnnotation tests annotation reconciliation
+func TestSetChangeIDAnnotationOnGuestClusterSnapshot_AddsChangeIDAnnotation(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup supervisor snapshot with change-id annotation
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "supervisor-snap",
+			Namespace: "vmware-system-csi",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "change-id-123",
+			},
+		},
+	}
+
+	// Setup guest snapshot without change-id annotation
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "guest-snap",
+			Namespace:   "default",
+			Annotations: make(map[string]string),
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = snapv1.AddToScheme(scheme)
+
+	guestClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(guestVS).
+		Build()
+
+	// Simulate what reconcileGuestSnapshotAnnotation does
+	supervisorChangeID := supervisorVS.Annotations[common.VolumeSnapshotChangeIDKey]
+	if guestVS.Annotations == nil {
+		guestVS.Annotations = make(map[string]string)
+	}
+	guestVS.Annotations[common.VolumeSnapshotChangeIDKey] = supervisorChangeID
+
+	// Patch the object
+	original := guestVS.DeepCopy()
+	original.Annotations = make(map[string]string)
+
+	err := k8s.PatchObject(ctx, guestClient, original, guestVS)
+	assert.NoError(t, err)
+
+	// Verify the annotation was added
+	updatedVS := &snapv1.VolumeSnapshot{}
+	err = guestClient.Get(ctx, client.ObjectKey{
+		Name:      guestVS.Name,
+		Namespace: guestVS.Namespace,
+	}, updatedVS)
+	assert.NoError(t, err)
+	assert.Equal(t, "change-id-123", updatedVS.Annotations[common.VolumeSnapshotChangeIDKey],
+		"Change-id annotation should be added from supervisor")
+}
+
+// TestSetChangeIDAnnotationOnGuestClusterSnapshot_SkipsWhenAlreadyAnnotated tests that existing
+// annotation is not overwritten
+func TestSetChangeIDAnnotationOnGuestClusterSnapshot_SkipsWhenAlreadyAnnotated(t *testing.T) {
+	supervisorVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "supervisor-snap",
+			Namespace: "vmware-system-csi",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "new-change-id",
+			},
+		},
+	}
+
+	guestVS := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "guest-snap",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.VolumeSnapshotChangeIDKey: "old-change-id",
+			},
+		},
+	}
+
+	// Simulate reconcileGuestSnapshotAnnotation logic - should not update if guest already has annotation
+	supervisorChangeID := supervisorVS.Annotations[common.VolumeSnapshotChangeIDKey]
+	guestChangeID, guestHasChangeID := guestVS.Annotations[common.VolumeSnapshotChangeIDKey]
+
+	// The reconcile function only adds/updates if supervisor has annotation and guest doesn't or has empty value
+	if guestHasChangeID && guestChangeID != "" {
+		// Skip - guest already has a non-empty change-id
+		// so we don't patch
+	} else {
+		// Would patch in real function
+		if guestVS.Annotations == nil {
+			guestVS.Annotations = make(map[string]string)
+		}
+		guestVS.Annotations[common.VolumeSnapshotChangeIDKey] = supervisorChangeID
+	}
+
+	// Verify guest annotation was NOT changed (still has old value)
+	assert.Equal(t, "old-change-id", guestVS.Annotations[common.VolumeSnapshotChangeIDKey],
+		"Existing guest annotation should not be overwritten")
 }

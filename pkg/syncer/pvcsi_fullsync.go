@@ -26,12 +26,14 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -170,16 +172,22 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	// on the Supervisor PVC, which is requested from TKC Cluster
 	err = setGuestClusterDetailsOnSupervisorPVC(ctx, metadataSyncer, supervisorNamespace)
 	if err != nil {
-		log.Errorf("FullSync: Failed to set Guest Cluster data on SupervisorPVC. Err: %v", err)
-		return err
+		log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorPVC. Err: %v", err)
 	}
 	// Set csi.vsphere-volume labels and CNS finalizer on the Supervisor VolumeSnapshot which is
 	// requested from TKC Cluster, if SVPVCSnapshotProtectionFinalizer FSS enabled
 	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
 		if err != nil {
-			log.Errorf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
-			return err
+			log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
+		}
+	}
+	// Add change-id annotation on guest cluster VolumeSnapshots from corresponding supervisor VolumeSnapshots,
+	// if it is not present yet and CSI_Backup_API FSS is enabled.
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API_FSS) {
+		err = setChangeIDAnnotationOnGuestClusterSnapshot(ctx, metadataSyncer, supervisorNamespace)
+		if err != nil {
+			log.Warnf("FullSync: Failed to set change-id annotation on guest cluster snapshot. Err: %v", err)
 		}
 	}
 	log.Infof("FullSync: End")
@@ -559,91 +567,268 @@ func compareCnsVolumeMetadatas(guestObject *cnsvolumemetadatav1alpha1.CnsVolumeM
 	return true
 }
 
+// isReadyVolumeSnapshotContent checks if a VolumeSnapshotContent is ready to be processed.
+// It validates that:
+// - Driver is VSphereCSIDriver
+// - VolumeSnapshotRef.Name is not empty
+// - Status is populated and SnapshotHandle is set and not empty
+// - ReadyToUse flag is true
+func isReadyVolumeSnapshotContent(vsc *snapv1.VolumeSnapshotContent) bool {
+	if vsc.Spec.Driver != common.VSphereCSIDriverName {
+		return false
+	}
+	if vsc.Spec.VolumeSnapshotRef.Name == "" {
+		return false
+	}
+	if vsc.Status == nil || vsc.Status.SnapshotHandle == nil || *vsc.Status.SnapshotHandle == "" {
+		return false
+	}
+	return vsc.Status.ReadyToUse != nil && *vsc.Status.ReadyToUse
+}
+
+// getGuestAndSupervisorSnapshotClients creates snapshotter clients for both the guest cluster
+// and the supervisor cluster, returning the supervisor's REST config alongside so callers can
+// reuse it (e.g. to build a controller-runtime client against the supervisor).
+func getGuestAndSupervisorSnapshotClients(ctx context.Context, metadataSyncer *metadataSyncInformer) (
+	snapshotterClientSet.Interface, snapshotterClientSet.Interface, *restclient.Config, error) {
+	log := logger.GetLogger(ctx)
+	guestClient, err := k8s.NewSnapshotterClient(ctx)
+	if err != nil {
+		log.Errorf("failed to create guest snapshotter client. Error: %v", err)
+		return nil, nil, nil, err
+	}
+	supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+	supervisorClient, err := k8s.NewSupervisorSnapshotClient(ctx, supervisorRestConfig)
+	if err != nil {
+		log.Errorf("failed to create supervisor snapshotter client. Error: %v", err)
+		return nil, nil, nil, err
+	}
+	return guestClient, supervisorClient, supervisorRestConfig, nil
+}
+
+// vscProcessFunc is a function that processes a single VSC with its supervisor snapshot.
+type vscProcessFunc func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent,
+	supervisorVS *snapv1.VolumeSnapshot) error
+
+// processVSCsFromGuestCluster iterates through VolumeSnapshotContents from the guest cluster with pagination,
+// validates each one, retrieves the corresponding supervisor VolumeSnapshot, and invokes
+// a processor function for each valid pair. This consolidates the common pagination and
+// retrieval logic between snapshot synchronization operations.
+func processVSCsFromGuestCluster(ctx context.Context, guestSnapshotterClient snapshotterClientSet.Interface,
+	supervisorSnapshotterClient snapshotterClientSet.Interface, supervisorNamespace string,
+	processFunc vscProcessFunc) error {
+	log := logger.GetLogger(ctx)
+
+	const pageSize = 500
+	listOptions := metav1.ListOptions{Limit: pageSize}
+	for {
+		vscList, err := guestSnapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, listOptions)
+		if err != nil {
+			log.Errorf("processVSCsFromGuestCluster: failed to list guest VolumeSnapshotContents. Error: %v", err)
+			return err
+		}
+		if len(vscList.Items) == 0 {
+			log.Debugf("processVSCsFromGuestCluster: No more VolumeSnapshotContents in current page")
+			break
+		}
+		log.Debugf("processVSCsFromGuestCluster: Processing page with %d VolumeSnapshotContents", len(vscList.Items))
+
+		if err := processVolumeSnapshotContents(ctx, vscList.Items, supervisorSnapshotterClient, supervisorNamespace,
+			processFunc); err != nil {
+			return err
+		}
+
+		if vscList.Continue == "" {
+			break
+		}
+		listOptions.Continue = vscList.Continue
+	}
+	return nil
+}
+
+// processVolumeSnapshotContents processes a single batch of VSCs.
+func processVolumeSnapshotContents(ctx context.Context, vscItems []snapv1.VolumeSnapshotContent,
+	supervisorSnapshotterClient snapshotterClientSet.Interface, supervisorNamespace string,
+	processFunc vscProcessFunc) error {
+	log := logger.GetLogger(ctx)
+	for _, vsc := range vscItems {
+		if !isReadyVolumeSnapshotContent(&vsc) {
+			continue
+		}
+		supervisorVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
+			Get(ctx, *vsc.Status.SnapshotHandle, metav1.GetOptions{})
+		if err != nil {
+			log.Debugf("processVolumeSnapshotContents: supervisor VolumeSnapshot %q not found for VSC %q. Error: %v",
+				*vsc.Status.SnapshotHandle, vsc.Name, err)
+			continue
+		}
+		if err := processFunc(ctx, &vsc, supervisorVS); err != nil {
+			log.Debugf("processVolumeSnapshotContents: processor failed for VSC %q. Error: %v", vsc.Name, err)
+			// Continue processing other VSCs even if one fails
+			continue
+		}
+	}
+	return nil
+}
+
+// newRuntimeClientWithSnapshotScheme builds a controller-runtime client for the given REST config
+// with the VolumeSnapshot v1 scheme registered, which is required for patching VolumeSnapshot
+// and VolumeSnapshotContent objects.
+func newRuntimeClientWithSnapshotScheme(restConfig *restclient.Config) (client.Client, error) {
+	scheme := runtime.NewScheme()
+	if err := snapv1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add VolumeSnapshot scheme: %w", err)
+	}
+	return client.New(restConfig, client.Options{Scheme: scheme})
+}
+
 func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyncer *metadataSyncInformer,
 	supervisorNamespace string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Fullsync: Querying guest cluster API server for all VSC objects.")
-	// Create snaphotter client for guest cluster
-	snapshotterClient, err := k8s.NewSnapshotterClient(ctx)
+	snapshotterClient, supervisorSnapshotterClient, supervisorRestConfig, err :=
+		getGuestAndSupervisorSnapshotClients(ctx, metadataSyncer)
 	if err != nil {
-		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to get snapshotterClient with error: %v", err)
+		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to create snapshotter clients. Error: %v", err)
 		return err
 	}
-	vscList, err := snapshotterClient.SnapshotV1().VolumeSnapshotContents().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to list VolumeSnapshot with"+
-			" error: %v in namespace", err)
-		return err
-	}
-	// Create snaphotter client for supervisor cluster
-	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-	supervisorSnapshotterClient, err := k8s.NewSupervisorSnapshotClient(ctx, restClientConfig)
-	if err != nil {
-		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to create supervisorSnapshotterClient. "+
-			"Error: %+v", err)
-		return err
-	}
-	for _, vsc := range vscList.Items {
-		if (vsc.Spec.VolumeSnapshotRef.Name != "") &&
-			(vsc.Status != nil && vsc.Status.ReadyToUse != nil && *vsc.Status.ReadyToUse) {
-			svVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
-				Get(ctx, *vsc.Status.SnapshotHandle, metav1.GetOptions{})
+
+	// Define the processor for supervisor snapshots
+	processFunc := func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent, svVS *snapv1.VolumeSnapshot) error {
+		// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
+		tkcLabelPresent := true
+		key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+			metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+		if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+			if svVS.Labels == nil {
+				svVS.Labels = make(map[string]string)
+			}
+			svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+			tkcLabelPresent = false
+		}
+		// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present already,
+		// to prevent accidental deletion from supervisor cluster
+		cnsFinalizerPresent := slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+		if !cnsFinalizerPresent || !tkcLabelPresent {
+			original := svVS.DeepCopy()
+			if !cnsFinalizerPresent {
+				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+			}
+
+			supervisorRuntimeClient, err := newRuntimeClientWithSnapshotScheme(supervisorRestConfig)
 			if err != nil {
-				msg := fmt.Sprintf("setGuestClusterDetailsOnSupervisorSnapshot: failed to retrieve supervisor"+
-					" Snapshot %q in %q namespace. Error: %+v", *vsc.Status.SnapshotHandle, supervisorNamespace,
-					err)
-				log.Error(msg)
-				continue
+				return fmt.Errorf("failed to create controller-runtime client for supervisor cluster. Error: %w", err)
 			}
-			// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
-			tkcLabelPresent := true
-			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-			if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
-				if svVS.Labels == nil {
-					svVS.Labels = make(map[string]string)
-				}
-				svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-				tkcLabelPresent = false
-			}
-			// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present already,
-			// to prevent accidental deletion from supervisor cluster
-			cnsFinalizerPresent := slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-			if !cnsFinalizerPresent || !tkcLabelPresent {
-				original := svVS.DeepCopy()
-				if !cnsFinalizerPresent {
-					svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-				}
 
-				// Create controller-runtime client for supervisor cluster with VolumeSnapshot scheme
-				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
-
-				// Create scheme with VolumeSnapshot support
-				scheme := runtime.NewScheme()
-				if err := snapv1.AddToScheme(scheme); err != nil {
-					msg := fmt.Sprintf("failed to add VolumeSnapshot scheme: %+v", err)
-					log.Error(msg)
-					continue
-				}
-
-				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{Scheme: scheme})
-				if err != nil {
-					msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
-					log.Error(msg)
-					continue
-				}
-
-				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS)
-				if err != nil {
-					msg := fmt.Sprintf("failed to patch supervisor Snapshot: %q with guest cluster labels "+
-						"in %q namespace. Error: %+v", *vsc.Status.SnapshotHandle, supervisorNamespace, err)
-					log.Error(msg)
-					continue
-				}
+			err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS)
+			if err != nil {
+				return fmt.Errorf("failed to patch supervisor Snapshot %q with guest cluster labels in %q namespace. Error: %w",
+					*vsc.Status.SnapshotHandle, supervisorNamespace, err)
 			}
 		}
+		return nil
 	}
+
+	return processVSCsFromGuestCluster(ctx, snapshotterClient, supervisorSnapshotterClient, supervisorNamespace,
+		processFunc)
+}
+
+// reconcileGuestSnapshotAnnotation reconciles the change-id annotation between supervisor and guest snapshots
+func reconcileGuestSnapshotAnnotation(
+	ctx context.Context,
+	supervisorVS *snapv1.VolumeSnapshot,
+	guestVS *snapv1.VolumeSnapshot,
+	guestRuntimeClient client.Client) error {
+
+	log := logger.GetLogger(ctx)
+
+	// Reconcile VolumeSnapshotChangeIDKey annotation only
+	supervisorChangeID, supervisorHasChangeID := supervisorVS.Annotations[common.VolumeSnapshotChangeIDKey]
+	guestChangeID, guestHasChangeID := guestVS.Annotations[common.VolumeSnapshotChangeIDKey]
+
+	// Add change-id annotation only if:
+	// 1. Supervisor cluster has the annotation but guest cluster doesn't
+	// 2. Supervisor cluster has a non-empty value but guest cluster has an empty value
+	if supervisorHasChangeID && supervisorChangeID != "" && (!guestHasChangeID || guestChangeID == "") {
+		log.Infof(
+			"reconcileGuestSnapshotAnnotation: Guest VolumeSnapshot %q/%q "+
+				"missing annotation %q (supervisor has value: %q)",
+			guestVS.Namespace, guestVS.Name, common.VolumeSnapshotChangeIDKey, supervisorChangeID)
+
+		// Patch the guest VolumeSnapshot with the change-id annotation
+		original := guestVS.DeepCopy()
+		if guestVS.Annotations == nil {
+			guestVS.Annotations = make(map[string]string)
+		}
+		guestVS.Annotations[common.VolumeSnapshotChangeIDKey] = supervisorChangeID
+
+		err := k8s.PatchObject(ctx, guestRuntimeClient, original, guestVS)
+		if err != nil {
+			log.Warnf(
+				"reconcileGuestSnapshotAnnotation: failed to patch guest VolumeSnapshot %q/%q "+
+					"with annotation %q=%q. Error: %v",
+				guestVS.Namespace, guestVS.Name,
+				common.VolumeSnapshotChangeIDKey, supervisorChangeID, err)
+			return err
+		}
+		log.Infof(
+			"reconcileGuestSnapshotAnnotation: Successfully patched guest VolumeSnapshot %q/%q "+
+				"with annotation %q=%q",
+			guestVS.Namespace, guestVS.Name,
+			common.VolumeSnapshotChangeIDKey, supervisorChangeID)
+		return nil
+	}
+	return nil
+}
+
+// setChangeIDAnnotationOnGuestClusterSnapshot reconciles the VolumeSnapshotChangeIDKey annotation on guest cluster
+// VolumeSnapshots from corresponding supervisor VolumeSnapshots if it is not present yet.
+// This handles the case where the change-id annotation on the supervisor is available later after
+// the initial CreateSnapshot call, or when annotation attempt failed on the guest side during
+// the initial snapshot creation but succeeded on the supervisor side.
+func setChangeIDAnnotationOnGuestClusterSnapshot(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("Fullsync: setChangeIDAnnotationOnGuestClusterSnapshot called")
+	guestSnapshotterClient, supervisorSnapshotterClient, _, err :=
+		getGuestAndSupervisorSnapshotClients(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("setChangeIDAnnotationOnGuestClusterSnapshot: failed to create snapshotter clients. Error: %v", err)
+		return err
+	}
+	guestRestConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("setChangeIDAnnotationOnGuestClusterSnapshot: failed to get guest rest config. Error: %v", err)
+		return err
+	}
+	guestRuntimeClient, err := newRuntimeClientWithSnapshotScheme(guestRestConfig)
+	if err != nil {
+		log.Errorf("setChangeIDAnnotationOnGuestClusterSnapshot: failed to create guest controller-runtime client. Error: %v",
+			err)
+		return err
+	}
+
+	// Define the processor for guest snapshots
+	processFunc := func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent,
+		supervisorVS *snapv1.VolumeSnapshot) error {
+		// Get the guest VolumeSnapshot referenced by the VSC
+		guestVS, err := guestSnapshotterClient.SnapshotV1().
+			VolumeSnapshots(vsc.Spec.VolumeSnapshotRef.Namespace).
+			Get(ctx, vsc.Spec.VolumeSnapshotRef.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("guest VolumeSnapshot %q/%q not found referenced by VSC %q. Error: %w",
+				vsc.Spec.VolumeSnapshotRef.Namespace, vsc.Spec.VolumeSnapshotRef.Name, vsc.Name, err)
+		}
+		// Reconcile the annotation
+		return reconcileGuestSnapshotAnnotation(ctx, supervisorVS, guestVS, guestRuntimeClient)
+	}
+
+	if err := processVSCsFromGuestCluster(ctx, guestSnapshotterClient, supervisorSnapshotterClient, supervisorNamespace,
+		processFunc); err != nil {
+		return err
+	}
+
+	log.Infof("setChangeIDAnnotationOnGuestClusterSnapshot: Completed. Annotated VolumeSnapshots with change-id")
 	return nil
 }
