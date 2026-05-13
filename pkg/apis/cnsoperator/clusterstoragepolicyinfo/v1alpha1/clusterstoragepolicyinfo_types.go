@@ -29,7 +29,7 @@ type EncryptionType string
 type ClusterStoragePolicyInfoStatus struct {
 	// StoragePolicyDeleted indicates whether the underlying storagepolicy is deleted or not on the VC.
 	// +optional
-	StoragePolicyDeleted bool `json:"storagePolicyDeleted,omitempty"`
+	StoragePolicyDeleted bool `json:"storagePolicyDeleted"`
 
 	// Performance describes performance characteristics (vSAN only).
 	// +optional
@@ -49,11 +49,11 @@ type ClusterStoragePolicyInfoStatus struct {
 type Encryption struct {
 	// SupportsEncryption indicates whether the storage policy supports encryption.
 	// +optional
-	SupportsEncryption bool `json:"supportsEncryption,omitempty"`
+	SupportsEncryption bool `json:"supportsEncryption"`
 
 	// EncryptionTypes indicates the types of encryption.
 	// +optional
-	EncryptionTypes []EncryptionType `json:"encryptionTypes,omitempty"`
+	EncryptionTypes []EncryptionType `json:"encryptionTypes"`
 }
 
 // Performance describes performance characteristics (vSAN only).

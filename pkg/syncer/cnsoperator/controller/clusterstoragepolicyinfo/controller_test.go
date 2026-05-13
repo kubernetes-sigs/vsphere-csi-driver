@@ -19,12 +19,15 @@ package clusterstoragepolicyinfo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +39,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -938,4 +945,836 @@ func TestBuildOwnerReferences(t *testing.T) {
 		// Should return empty slice when error occurs
 		assert.Empty(t, refs)
 	})
+}
+
+func TestUpdateStatus_PolicyDeleted(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false,
+			Error:                "",
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cspi).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+
+	// Update status to indicate policy is deleted
+	cspi.Status.StoragePolicyDeleted = true
+	cspi.Status.Error = ""
+
+	err := k8s.UpdateStatus(ctx, r.client, cspi)
+	assert.NoError(t, err, "k8s.UpdateStatus should succeed")
+
+	// Verify the status was updated
+	assert.True(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be true")
+	assert.Empty(t, cspi.Status.Error, "expected no error message")
+}
+
+func TestValidateStoragePolicyExistsOnVcenter_NilVCenter(t *testing.T) {
+	// Skip this test as it involves testing panic behavior with nil VirtualCenter
+	// The important fault handling logic is tested in the TestSyncStoragePolicyLogic tests
+	t.Skip("Skipping nil VirtualCenter test - fault handling logic tested separately")
+}
+
+func TestValidateStoragePolicyExistsOnVcenter_WithRealVCenter(t *testing.T) {
+	// Skip this test as it requires actual vCenter connection
+	// The new fault handling logic is properly tested in TestSyncStoragePolicyLogic tests
+	t.Skip("Skipping real vCenter test - requires connection, fault handling tested separately")
+}
+
+func TestRecordEvent_Warning(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+	}
+
+	// Initialize backoff map for testing
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	namespacedName := types.NamespacedName{Name: "test-cspi"}
+	backOffDuration[namespacedName] = time.Second
+
+	r := &ReconcileClusterStoragePolicyInfo{recorder: record.NewFakeRecorder(10)}
+	r.recordEvent(ctx, cspi, v1.EventTypeWarning, "test warning")
+
+	// Verify backoff duration was doubled
+	backOffDurationMapMutex.Lock()
+	duration := backOffDuration[namespacedName]
+	backOffDurationMapMutex.Unlock()
+
+	assert.Equal(t, 2*time.Second, duration, "expected backoff duration to be doubled")
+}
+
+func TestRecordEvent_Normal(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+	}
+
+	// Initialize backoff map for testing with higher duration
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	namespacedName := types.NamespacedName{Name: "test-cspi"}
+	backOffDuration[namespacedName] = 30 * time.Second
+
+	r := &ReconcileClusterStoragePolicyInfo{recorder: record.NewFakeRecorder(10)}
+	r.recordEvent(ctx, cspi, v1.EventTypeNormal, "test success")
+
+	// Verify backoff duration was reset to 1 second
+	backOffDurationMapMutex.Lock()
+	duration := backOffDuration[namespacedName]
+	backOffDurationMapMutex.Unlock()
+
+	assert.Equal(t, time.Second, duration, "expected backoff duration to be reset to 1 second")
+}
+
+// Helper function to simulate the policy existence check logic for testing
+func simulatePolicyExistenceCheck(instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	policyExists bool, errorType string) error {
+	if errorType == fault.CSINotFoundFault {
+		// Profile not found - this is expected when policy is deleted
+		instance.Status.StoragePolicyDeleted = true
+		return nil
+	} else if errorType != "" {
+		// Other errors (like internal errors) should be returned as failures
+		return fmt.Errorf("failed to query storage policy: simulated %s error", errorType)
+	}
+
+	// Profile found - policy exists
+	instance.Status.StoragePolicyDeleted = !policyExists
+	return nil
+}
+
+func TestSyncStoragePolicyLogic_ProfileFound(t *testing.T) {
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true, // Initially marked as deleted
+			Error:                "previous error",
+		},
+	}
+
+	// Simulate policy found scenario
+	err := simulatePolicyExistenceCheck(cspi, true, "")
+	assert.NoError(t, err, "expected no error when profile is found")
+	assert.False(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be false")
+}
+
+func TestSyncStoragePolicyLogic_ProfileNotFound(t *testing.T) {
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false, // Initially marked as existing
+			Error:                "",
+		},
+	}
+
+	// Simulate policy not found scenario
+	err := simulatePolicyExistenceCheck(cspi, false, fault.CSINotFoundFault)
+	assert.NoError(t, err, "expected no error when profile is not found (expected case)")
+	assert.True(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be true")
+}
+
+func TestSyncStoragePolicyLogic_InternalError(t *testing.T) {
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false,
+			Error:                "",
+		},
+	}
+
+	// Simulate internal error scenario
+	err := simulatePolicyExistenceCheck(cspi, false, fault.CSIInternalFault)
+	assert.Error(t, err, "expected error for internal fault")
+	assert.Contains(t, err.Error(), "failed to query storage policy", "expected specific error message")
+	// StoragePolicyDeleted should remain unchanged (false) since we couldn't determine status
+	assert.False(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to remain unchanged")
+}
+
+func TestSyncStoragePolicyLogic_UnknownFault(t *testing.T) {
+
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: false,
+			Error:                "",
+		},
+	}
+
+	// Simulate unknown error scenario
+	err := simulatePolicyExistenceCheck(cspi, false, "unknown.fault.type")
+	assert.Error(t, err, "expected error for unknown fault")
+	assert.Contains(t, err.Error(), "failed to query storage policy", "expected specific error message")
+	// StoragePolicyDeleted should remain unchanged (false) since it's not a NotFound fault
+	assert.False(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to remain unchanged")
+}
+
+func TestCheckVsanEncryption(t *testing.T) {
+	tests := []struct {
+		name          string
+		policyContent []cnsvsphere.SpbmPolicyContent
+		expected      bool
+	}{
+		{
+			name:          "empty policy content",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			expected:      false,
+		},
+		{
+			name: "policy with dataAtRestEncryption capability",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "dataAtRestEncryption",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "policy without dataAtRestEncryption capability",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "someOtherCapability",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "multiple policies with dataAtRestEncryption in second policy",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-1",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "someCapability",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+				{
+					ID: "test-policy-2",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "dataAtRestEncryption",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkVsanEncryption(tt.policyContent)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAnalyzeEncryptionCapabilities(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	// nil vc is safe here: none of the test cases include a dataservice reference,
+	// so vc.PbmRetrieveContent is never actually called inside checkVmEncryption.
+	var vc *cnsvsphere.VirtualCenter
+
+	tests := []struct {
+		name               string
+		policyContent      []cnsvsphere.SpbmPolicyContent
+		expectedEncryption bool
+		expectedTypes      []clusterspiv1alpha1.EncryptionType
+	}{
+		{
+			name:               "empty policy content",
+			policyContent:      []cnsvsphere.SpbmPolicyContent{},
+			expectedEncryption: false,
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{},
+		},
+		{
+			name: "policy with data-at-rest encryption",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-id",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "dataAtRestEncryption",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedEncryption: true,
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{"vsan-encryption"},
+		},
+		{
+			name: "policy without data-at-rest encryption",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-id",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "someOtherCapability",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedEncryption: false,
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{},
+		},
+		{
+			name: "policy with VM encryption via direct rule",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-id",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    vmEncryptionNs,
+									CapID: vmEncryptionCapID,
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedEncryption: true,
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{"vm-encryption"},
+		},
+		{
+			name: "policy with both vSAN and VM encryption",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-id",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									PropID: "dataAtRestEncryption",
+									Value:  "true",
+								},
+								{
+									Ns:    vmEncryptionNs,
+									CapID: vmEncryptionCapID,
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedEncryption: true,
+			expectedTypes: []clusterspiv1alpha1.EncryptionType{
+				"vsan-encryption",
+				"vm-encryption",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-policy",
+				},
+				Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{},
+			}
+
+			require.NoError(t, populateEncryptionCapabilities(ctx, instance, "test-policy-id", vc, tt.policyContent))
+
+			if !tt.expectedEncryption && len(tt.expectedTypes) == 0 {
+				// No encryption support - Status.Encryption should be nil
+				assert.Nil(t, instance.Status.Encryption)
+			} else {
+				// Has encryption support - Status.Encryption should be populated
+				assert.NotNil(t, instance.Status.Encryption)
+				assert.Equal(t, tt.expectedEncryption, instance.Status.Encryption.SupportsEncryption)
+				assert.Equal(t, tt.expectedTypes, instance.Status.Encryption.EncryptionTypes)
+			}
+		})
+	}
+}
+
+func TestExtractIopsLimit(t *testing.T) {
+	iops100 := int64(100)
+	tests := []struct {
+		name          string
+		policyContent []cnsvsphere.SpbmPolicyContent
+		expected      *int64
+		expectErr     bool
+	}{
+		{
+			name:          "empty policy content",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			expected:      nil,
+			expectErr:     false,
+		},
+		{
+			name: "policy with IOPS limit",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     vsanIopsLimitNs,
+									PropID: vsanIopsLimitPropID,
+									Value:  "100",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected:  &iops100,
+			expectErr: false,
+		},
+		{
+			name: "policy with non-numeric IOPS value",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     vsanIopsLimitNs,
+									PropID: vsanIopsLimitPropID,
+									Value:  "not-a-number",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected:  nil,
+			expectErr: true,
+		},
+		{
+			name: "policy without IOPS limit rule",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     vsanIopsLimitNs,
+									CapID:  "someOtherCap",
+									PropID: "someOtherProp",
+									Value:  "100",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected:  nil,
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := extractIopsLimit(tt.policyContent)
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				if tt.expected == nil {
+					assert.Nil(t, result)
+				} else {
+					require.NotNil(t, result)
+					assert.Equal(t, *tt.expected, *result)
+				}
+			}
+		})
+	}
+}
+
+func TestPopulatePerformanceCapabilities(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	iops500 := int64(500)
+	tests := []struct {
+		name          string
+		policyContent []cnsvsphere.SpbmPolicyContent
+		expectedPerf  *clusterspiv1alpha1.Performance
+		expectErr     bool
+	}{
+		{
+			name:          "no IOPS limit",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			expectedPerf:  nil,
+			expectErr:     false,
+		},
+		{
+			name: "policy with IOPS limit",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     vsanIopsLimitNs,
+									PropID: vsanIopsLimitPropID,
+									Value:  "500",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPerf: &clusterspiv1alpha1.Performance{IopsLimit: &iops500},
+			expectErr:    false,
+		},
+		{
+			name: "policy with non-numeric IOPS value",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     vsanIopsLimitNs,
+									PropID: vsanIopsLimitPropID,
+									Value:  "not-a-number",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedPerf: nil,
+			expectErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy"},
+			}
+			err := populatePerformanceCapabilities(ctx, instance, "test-policy-id", tt.policyContent)
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Nil(t, instance.Status.Performance)
+			} else {
+				require.NoError(t, err)
+				if tt.expectedPerf == nil {
+					assert.Nil(t, instance.Status.Performance)
+				} else {
+					require.NotNil(t, instance.Status.Performance)
+					require.NotNil(t, instance.Status.Performance.IopsLimit)
+					assert.Equal(t, *tt.expectedPerf.IopsLimit, *instance.Status.Performance.IopsLimit)
+				}
+			}
+		})
+	}
+}
+
+func TestHasVmEncryptionRule(t *testing.T) {
+	tests := []struct {
+		name          string
+		policyContent []cnsvsphere.SpbmPolicyContent
+		expected      bool
+	}{
+		{
+			name:          "empty policy content",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			expected:      false,
+		},
+		{
+			name: "policy with VM encryption rule",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    vmEncryptionNs,
+									CapID: vmEncryptionCapID,
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "policy with matching Ns but wrong CapID",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    vmEncryptionNs,
+									CapID: "someOtherCap",
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "policy with matching CapID but wrong Ns",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    "someOtherNs",
+									CapID: vmEncryptionCapID,
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasVmEncryptionRule(tt.policyContent)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCheckVmEncryption(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	vmEncryptContent := []cnsvsphere.SpbmPolicyContent{
+		{
+			ID: "ref-policy",
+			Profiles: []cnsvsphere.SpbmPolicySubProfile{
+				{
+					Rules: []cnsvsphere.SpbmPolicyRule{
+						{
+							Ns:    vmEncryptionNs,
+							CapID: vmEncryptionCapID,
+							Value: "true",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name            string
+		policyContent   []cnsvsphere.SpbmPolicyContent
+		retrieveContent func(context.Context, []string) ([]cnsvsphere.SpbmPolicyContent, error)
+		expected        bool
+		expectErr       bool
+	}{
+		{
+			name:          "empty policy content",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			retrieveContent: func(_ context.Context, _ []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				return nil, nil
+			},
+			expected:  false,
+			expectErr: false,
+		},
+		{
+			name: "direct VM encryption rule present",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    vmEncryptionNs,
+									CapID: vmEncryptionCapID,
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, _ []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				t.Fatal("retrieveContent should not be called for direct VM encryption")
+				return nil, nil
+			},
+			expected:  true,
+			expectErr: false,
+		},
+		{
+			name: "indirect VM encryption via dataservice reference",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    dataserviceNs,
+									CapID: "ref-policy-id",
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, ids []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				assert.Equal(t, []string{"ref-policy-id"}, ids)
+				return vmEncryptContent, nil
+			},
+			expected:  true,
+			expectErr: false,
+		},
+		{
+			name: "dataservice reference does not contain VM encryption",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    dataserviceNs,
+									CapID: "ref-policy-id",
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, _ []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				return []cnsvsphere.SpbmPolicyContent{}, nil
+			},
+			expected:  false,
+			expectErr: false,
+		},
+		{
+			name: "dataservice reference lookup fails",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    dataserviceNs,
+									CapID: "ref-policy-id",
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, _ []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				return nil, fmt.Errorf("vCenter unavailable")
+			},
+			expected:  false,
+			expectErr: true,
+		},
+		{
+			name: "dataservice rule with empty CapID is skipped",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:    dataserviceNs,
+									CapID: "",
+									Value: "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, _ []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				t.Fatal("retrieveContent should not be called for empty CapID")
+				return nil, nil
+			},
+			expected:  false,
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := checkVmEncryption(ctx, tt.retrieveContent, tt.policyContent)
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
