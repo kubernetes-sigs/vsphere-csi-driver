@@ -32,6 +32,7 @@ import (
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	infrastoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	storagequotaperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
@@ -82,6 +83,10 @@ var (
 	CnsVirtualMachineSnapshotPlural = "vitualmachinesnapshots"
 	// ClusterStoragePolicyInfoPlural is plural of ClusterStoragePolicyInfo
 	ClusterStoragePolicyInfoPlural = "clusterstoragepolicyinfos"
+	// InfraStoragePolicyInfoSingular is Singular of InfraStoragePolicyInfo
+	InfraStoragePolicyInfoSingular = "infrastoragepolicyinfo"
+	// InfraStoragePolicyInfoPlural is plural of InfraStoragePolicyInfo
+	InfraStoragePolicyInfoPlural = "infrastoragepolicyinfos"
 )
 
 var (
@@ -180,6 +185,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersionV2,
 		&storagepolicyv1alpha2.StoragePolicyReservation{},
 		&storagepolicyv1alpha2.StoragePolicyReservationList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfo{},
+		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfoList{},
 	)
 
 	scheme.AddKnownTypes(
