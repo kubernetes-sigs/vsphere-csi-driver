@@ -1,4 +1,4 @@
-<!-- markdownlint-disable MD034 -->
+<!-- markdownlint-disable MD034 --->
 # Container Storage Interface (CSI) driver for vSphere
 
 The vSphere CSI Driver is a Kubernetes plugin that allows persistent storage for containerized workloads running on vSphere infrastructure. It enables dynamic provisioning of storage volumes and provides features like snapshots, cloning, and dynamic expansion of volumes. The vSphere CSI Driver replaces the [in-tree vSphere volume plugin]( https://kubernetes.io/docs/concepts/storage/volumes/#vspherevolume) and offers integration with vSphere with better scale and performance.
