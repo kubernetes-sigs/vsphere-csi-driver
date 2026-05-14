@@ -155,19 +155,30 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 				if defaultDatastore == nil {
 					defaultDatastore = getDefaultDatastore(ctx)
 				}
+				// Retain-policy + PV.Delete means the CNS volume's K8s PV is now
+				// missing. Per the cns-health-initiative change in
+				// pkg/syncer/fullsync.go, full-sync no longer unregisters such
+				// volumes; it labels them pv_missing=true and leaves them in
+				// CNS for VI-admin remediation. To keep this cleanup hermetic
+				// (no leaked FCDs across tests), we drive the unregister and
+				// FCD removal explicitly via cnsDeleteVolume.
 				if pv.Spec.CSI != nil {
+					err = e2eVSphere.cnsDeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, true)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
-					err = e2eVSphere.deleteFCD(ctx, pv.Spec.CSI.VolumeHandle, defaultDatastore.Reference())
-					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					// FCD already removed by cnsDeleteVolume(deleteDisk=true);
+					// defensive sweep tolerates not-found.
+					_ = e2eVSphere.deleteFCD(ctx, pv.Spec.CSI.VolumeHandle, defaultDatastore.Reference())
 				} else {
 					if kcmMigEnabled {
 						found, crd := getCnsVSphereVolumeMigrationCrd(ctx, pv.Spec.VsphereVolume.VolumePath)
 						gomega.Expect(found).To(gomega.BeTrue())
+						err = e2eVSphere.cnsDeleteVolume(ctx, crd.Spec.VolumeID, true)
+						gomega.Expect(err).NotTo(gomega.HaveOccurred())
 						err = e2eVSphere.waitForCNSVolumeToBeDeleted(crd.Spec.VolumeID)
 						gomega.Expect(err).NotTo(gomega.HaveOccurred())
-						err = e2eVSphere.deleteFCD(ctx, crd.Spec.VolumeID, defaultDatastore.Reference())
-						gomega.Expect(err).NotTo(gomega.HaveOccurred())
+						_ = e2eVSphere.deleteFCD(ctx, crd.Spec.VolumeID, defaultDatastore.Reference())
 					}
 					err = deleteVmdk(ctx, esxHost, pv.Spec.VsphereVolume.VolumePath)
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -269,15 +280,17 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 	// 9. Sleep double the Full Sync interval.
 	// 10. Verify PVC name is removed from CNS entry for PV1.
 	// 11. Verify CNS entry for PVC1 is removed.
-	// 12. Delete PV1 and vmdk1.
+	// 12. Delete PV1 and vmdk1 (use cnsDeleteVolume; PV1 absent from K8s
+	//     would otherwise be labeled pv_missing=true by full-sync per the
+	//     cns-health-initiative change, not unregistered).
 	// 13. Verify CNS entry for PV1 is removed.
 	// 14. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
 	// 15. Delete the SC1.
 	// 16. Disable CSIMigration and CSIMigrationvSphere feature gates on
 	//     kube-controller-manager (& restart).
 	//
-	// Verify volume entries are deleted in CNS when PVC and PC with reclaim
-	// policy Retain are deleted in K8s (when CNS was down).
+	// Verify behavior in CNS when PVC and PV with reclaim policy Retain are
+	// deleted in K8s (when CNS was down).
 	// Steps:
 	// 1. Enable CSIMigration and CSIMigrationvSphere feature gates on
 	//    kube-controller-manager (& restart).
@@ -289,9 +302,11 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 	// 7. Delete PVC1.
 	// 8. Delete PV1.
 	// 9. Start vsan-health on VC.
-	// 10. Sleep double the Full Sync interval.
-	// 11. Verify CNS entry for PVC1 and PV1 is removed.
-	// 12. Delete vmdk1.
+	// 10. Sleep 2x Full Sync interval (to span the pv_missing grace period).
+	// 11. Verify CNS volume for PV1 is labeled pv_missing=true (NOT removed —
+	//     cns-health-initiative replaced the unregister flow with labeling).
+	// 12. Explicitly cnsDeleteVolume(deleteDisk=true) to clean up; full-sync
+	//     no longer GCs orphaned volumes.
 	// 13. Verify cnsvspherevolumemigrations crds are removed for PVC1 and PV1.
 	// 14. Delete the SC1.
 	// 15. Disable CSIMigration and CSIMigrationvSphere feature gates on
@@ -532,6 +547,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 			vcpPvcsPostMig[5].Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Capture the FCD of the Retain PV we're about to delete. With the
+		// cns-health-initiative change, this volume will be labeled
+		// pv_missing=true by full-sync rather than unregistered, so we track
+		// it separately from the deletion-via-controller bucket.
+		retainPVVPath := vcpPvsPostMig[6].Spec.VsphereVolume.VolumePath
+		foundRetainCRD, retainPVCRD := getCnsVSphereVolumeMigrationCrd(ctx, retainPVVPath)
+		gomega.Expect(foundRetainCRD).To(gomega.BeTrue())
+		pvMissingFcdID := retainPVCRD.Spec.VolumeID
+
 		ginkgo.By("Delete one PV with Retain policy for which PVC was also deleted above")
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, vcpPvsPostMig[6].Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -546,10 +570,15 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
 		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+		// Wait long enough to span the pv_missing grace period (the first
+		// missed full-sync cycle only records the volume; the second cycle
+		// applies the label). The deletion-via-controller path needs only
+		// one full-sync interval, but we wait for the longer envelope.
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds (2x fullSyncWaitTime) to span the pv_missing grace period",
+			2*fullSyncWaitTime))
+		time.Sleep(time.Duration(2*fullSyncWaitTime) * time.Second)
 
-		ginkgo.By("Verify the deleted PVCs and PVs are no longer present in CNS cache")
+		ginkgo.By("Verify the PVCs (deleted via controller path with ReclaimPolicy=Delete) are no longer in CNS")
 		for _, crd := range crdsToVerifyDeletion {
 			err = waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx, crd)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -558,6 +587,29 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration full sync tests", gi
 			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
+
+		// The Retain PV deleted directly (vcpPvsPostMig[6]) hits the
+		// missing-PV path. Per the cns-health-initiative change in
+		// pkg/syncer/fullsync.go this is now labeled pv_missing=true rather
+		// than unregistered. Verify the new contract and then explicitly
+		// clean up since fullsync no longer GCs the volume.
+		ginkgo.By(fmt.Sprintf("Verify Retain PV's CNS volume %s is labeled pv_missing=true", pvMissingFcdID))
+		err = e2eVSphere.waitForPVMissingLabel(ctx, pvMissingFcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		queryRes, err := e2eVSphere.queryCNSVolumeWithResult(pvMissingFcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryRes.Volumes).To(gomega.HaveLen(1),
+			"Retain PV's CNS volume must remain registered after missing-PV labeling")
+
+		ginkgo.By(fmt.Sprintf("Explicitly deleting CNS volume %s (deleteDisk=true) since fullsync "+
+			"no longer unregisters volumes with missing PVs", pvMissingFcdID))
+		err = e2eVSphere.cnsDeleteVolume(ctx, pvMissingFcdID, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pvMissingFcdID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = waitForCnsVSphereVolumeMigrationCrdToBeDeleted(ctx, retainPVCRD)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		_, err = fpv.WaitForPVClaimBoundPhase(ctx, client, []*v1.PersistentVolumeClaim{pvc2}, framework.ClaimProvisionTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

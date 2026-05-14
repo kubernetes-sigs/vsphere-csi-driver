@@ -41,7 +41,10 @@ import (
 // Test 1) Verify CNS volume is created after full sync when pv entry is present.
 // Test 2) Verify labels are created in CNS after updating pvc and/or pv with
 //         new labels.
-// Test 3) Verify CNS volume is deleted after full sync when pv entry is delete.
+// Test 3) Verify CNS volume is labeled pv_missing=true after full sync when
+//         the corresponding K8s PV is deleted (cns-health-initiative change).
+//         NOTE: This scenario is not implemented in this file; see
+//         fullsync_test_for_block_volume.go for the implemented variant.
 //
 // Cleanup
 // - Delete PVC and StorageClass and verify volume is deleted from CNS.
