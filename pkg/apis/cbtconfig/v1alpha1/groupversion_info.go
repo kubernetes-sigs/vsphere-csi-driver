@@ -14,35 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the cnsdp v1alpha1 API group
+// Package v1alpha1 contains API Schema definitions for the cnsdp v1alpha1 API group.
 // +kubebuilder:object:generate=true
 // +groupName=cnsdp.vmware.com
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-const (
-	// GroupName is the API group for CBTConfig resources.
-	GroupName = "cnsdp.vmware.com"
-
-	// Version is the API version for CBTConfig resources.
-	Version = "v1alpha1"
-
-	// CBTConfigResource is the plural resource name for CBTConfig,
-	// used when constructing GroupVersionResource for dynamic clients.
-	CBTConfigResource = "cbtconfigs"
-)
-
 var (
-	// GroupVersion is group version used to register these objects
-	GroupVersion = schema.GroupVersion{Group: GroupName, Version: Version}
-
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &runtime.SchemeBuilder{}
-
-	// AddToScheme adds the types in this group-version to the given scheme.
-	AddToScheme = SchemeBuilder.AddToScheme
+	// GroupVersion is group version used to register these objects.
+	GroupVersion = schema.GroupVersion{Group: "cnsdp.vmware.com", Version: "v1alpha1"}
 )

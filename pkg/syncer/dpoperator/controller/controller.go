@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -27,8 +28,10 @@ import (
 // AddToManagerFunc registers a single DP operator controller with mgr. The PV / PVC /
 // VolumeAttachment listers come from the singleton InformerManager (shared with the metadata
 // syncer and k8sorchestrator) so child controllers do not start their own copies of those
-// informers via the controller-runtime cache.
-type AddToManagerFunc func(mgr manager.Manager, volumeManager volume.Manager,
+// informers via the controller-runtime cache. kubeClient is shared across all controllers
+// registered under one manager so there is no second apiserver connection.
+type AddToManagerFunc func(mgr manager.Manager, kubeClient clientset.Interface,
+	volumeManager volume.Manager,
 	pvLister corelisters.PersistentVolumeLister,
 	pvcLister corelisters.PersistentVolumeClaimLister,
 	vaLister storagelistersv1.VolumeAttachmentLister) error
@@ -39,12 +42,13 @@ type AddToManagerFunc func(mgr manager.Manager, volumeManager volume.Manager,
 var AddToManagerFuncs []AddToManagerFunc
 
 // AddToManager adds all Controllers to the Manager.
-func AddToManager(mgr manager.Manager, volumeManager volume.Manager,
+func AddToManager(mgr manager.Manager, kubeClient clientset.Interface,
+	volumeManager volume.Manager,
 	pvLister corelisters.PersistentVolumeLister,
 	pvcLister corelisters.PersistentVolumeClaimLister,
 	vaLister storagelistersv1.VolumeAttachmentLister) error {
 	for _, f := range AddToManagerFuncs {
-		if err := f(mgr, volumeManager, pvLister, pvcLister, vaLister); err != nil {
+		if err := f(mgr, kubeClient, volumeManager, pvLister, pvcLister, vaLister); err != nil {
 			return err
 		}
 	}

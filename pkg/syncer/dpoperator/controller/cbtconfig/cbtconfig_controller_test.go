@@ -31,6 +31,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clientset "k8s.io/client-go/kubernetes"
+	fakekube "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
@@ -42,6 +44,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
 
 // fakeVolumeManager records SetVolumeControlFlags / ClearVolumeControlFlags calls and returns
@@ -60,6 +63,9 @@ type fakeVolumeManager struct {
 	queryErr    error
 	// queryFn, if set, takes precedence over queryResult/queryErr.
 	queryFn func(filter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
+	// syncCalls records each volume ID phase 4's SyncVolume() invocation targeted.
+	syncCalls []string
+	syncErr   error
 }
 
 func (f *fakeVolumeManager) SetVolumeControlFlags(_ context.Context, volumeID string,
@@ -86,6 +92,16 @@ func (f *fakeVolumeManager) QueryAllVolume(_ context.Context, filter cnstypes.Cn
 		return f.queryFn(filter)
 	}
 	return f.queryResult, f.queryErr
+}
+
+func (f *fakeVolumeManager) SyncVolume(_ context.Context,
+	specs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range specs {
+		f.syncCalls = append(f.syncCalls, s.VolumeId.Id)
+	}
+	return "", f.syncErr
 }
 
 func (f *fakeVolumeManager) setCallsCopy() []string {
@@ -168,10 +184,10 @@ func newVolumeAttachmentForPV(name, pvName string) *storagev1.VolumeAttachment {
 	}
 }
 
-func newCBTConfig(namespace, name string, statusEnabled *bool) *cbtconfigv1alpha1.CBTConfig {
+func newCBTConfig(namespace, name string, statusState *cbtconfigv1alpha1.CBTState) *cbtconfigv1alpha1.CBTConfig {
 	return &cbtconfigv1alpha1.CBTConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Status:     cbtconfigv1alpha1.CBTConfigStatus{Enabled: statusEnabled},
+		Status:     &cbtconfigv1alpha1.CBTConfigStatus{State: statusState},
 	}
 }
 
@@ -182,7 +198,7 @@ func cnsVolumeWithCBT(id string, status cnstypes.CnsVolumeCBTStatus) cnstypes.Cn
 	}
 }
 
-func boolPtr(b bool) *bool { return &b }
+func statePtr(s cbtconfigv1alpha1.CBTState) *cbtconfigv1alpha1.CBTState { return &s }
 
 // newTestListers builds in-memory PV / PVC / VolumeAttachment listers seeded with the given objects.
 func newTestListers(t *testing.T, objs ...client.Object) (corelisters.PersistentVolumeLister,
@@ -211,47 +227,57 @@ func newTestListers(t *testing.T, objs ...client.Object) (corelisters.Persistent
 
 // newTestReconciler builds a *ReconcileCBTConfig directly (bypassing newReconciler) so tests
 // don't have to satisfy the controller-runtime manager.Manager interface.
-func newTestReconciler(c client.Client, vm cnsvolume.Manager,
+func newTestReconciler(c client.Client, kubeClient clientset.Interface, vm cnsvolume.Manager,
 	pvLister corelisters.PersistentVolumeLister,
 	pvcLister corelisters.PersistentVolumeClaimLister,
 	vaLister storagelistersv1.VolumeAttachmentLister) *ReconcileCBTConfig {
 	return &ReconcileCBTConfig{
-		client:        c,
-		scheme:        c.Scheme(),
-		volumeManager: vm,
-		pvLister:      pvLister,
-		pvcLister:     pvcLister,
-		vaLister:      vaLister,
+		client:    c,
+		scheme:    c.Scheme(),
+		cbtSyncer: syncer.NewCBTSyncer(kubeClient, vm, pvLister, pvcLister, vaLister),
 	}
 }
 
-// newSeededReconciler builds a reconciler whose r.client and listers are seeded with the same objs.
+// newSeededReconciler builds a reconciler whose r.client, kubeClient, and listers are
+// seeded with the same objs. PVCs are added to the fake clientset so CBT label patches
+// succeed; non-PVC objects are filtered out.
 func newSeededReconciler(t *testing.T, vm cnsvolume.Manager,
 	objs ...client.Object) (*ReconcileCBTConfig, client.Client) {
 	t.Helper()
 	c := newTestClientBuilder(t).WithObjects(objs...).Build()
 	pvLister, pvcLister, vaLister := newTestListers(t, objs...)
-	return newTestReconciler(c, vm, pvLister, pvcLister, vaLister), c
+	pvcObjs := make([]runtime.Object, 0, len(objs))
+	for _, o := range objs {
+		if pvc, ok := o.(*v1.PersistentVolumeClaim); ok {
+			pvcObjs = append(pvcObjs, pvc)
+		}
+	}
+	kube := fakekube.NewSimpleClientset(pvcObjs...)
+	return newTestReconciler(c, kube, vm, pvLister, pvcLister, vaLister), c
 }
 
 func TestCbtStatusState(t *testing.T) {
 	tests := []struct {
 		name           string
-		status         cbtconfigv1alpha1.CBTConfigStatus
-		wantEnabled    bool
+		status         *cbtconfigv1alpha1.CBTConfigStatus
+		wantActive     bool
 		wantConfigured bool
 	}{
-		{name: "EnabledNil", status: cbtconfigv1alpha1.CBTConfigStatus{Enabled: nil},
-			wantEnabled: false, wantConfigured: false},
-		{name: "EnabledFalse", status: cbtconfigv1alpha1.CBTConfigStatus{Enabled: boolPtr(false)},
-			wantEnabled: false, wantConfigured: true},
-		{name: "EnabledTrue", status: cbtconfigv1alpha1.CBTConfigStatus{Enabled: boolPtr(true)},
-			wantEnabled: true, wantConfigured: true},
+		{name: "StatusNil", status: nil,
+			wantActive: false, wantConfigured: false},
+		{name: "StateNil", status: &cbtconfigv1alpha1.CBTConfigStatus{State: nil},
+			wantActive: false, wantConfigured: false},
+		{name: "StateInactive", status: &cbtconfigv1alpha1.CBTConfigStatus{
+			State: statePtr(cbtconfigv1alpha1.CBTStateInactive)},
+			wantActive: false, wantConfigured: true},
+		{name: "StateActive", status: &cbtconfigv1alpha1.CBTConfigStatus{
+			State: statePtr(cbtconfigv1alpha1.CBTStateActive)},
+			wantActive: true, wantConfigured: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enabled, configured := cbtStatusState(tt.status)
-			assert.Equal(t, tt.wantEnabled, enabled, "enabled")
+			active, configured := cbtStatusState(tt.status)
+			assert.Equal(t, tt.wantActive, active, "active")
 			assert.Equal(t, tt.wantConfigured, configured, "configured")
 		})
 	}
@@ -290,14 +316,14 @@ func neverHasCalls(t *testing.T, fn func() []string, msg string) {
 func TestReconcile(t *testing.T) {
 	ctx, _ := logger.GetNewContextWithLogger()
 
-	disabledQueryResult := func(volumeIDs ...string) *cnstypes.CnsQueryResult {
+	inactiveQueryResult := func(volumeIDs ...string) *cnstypes.CnsQueryResult {
 		vols := make([]cnstypes.CnsVolume, 0, len(volumeIDs))
 		for _, id := range volumeIDs {
 			vols = append(vols, cnsVolumeWithCBT(id, cnstypes.CnsVolumeCBTStatusDisabled))
 		}
 		return &cnstypes.CnsQueryResult{Volumes: vols}
 	}
-	enabledQueryResult := func(volumeIDs ...string) *cnstypes.CnsQueryResult {
+	activeQueryResult := func(volumeIDs ...string) *cnstypes.CnsQueryResult {
 		vols := make([]cnstypes.CnsVolume, 0, len(volumeIDs))
 		for _, id := range volumeIDs {
 			vols = append(vols, cnsVolumeWithCBT(id, cnstypes.CnsVolumeCBTStatusEnabled))
@@ -316,7 +342,7 @@ func TestReconcile(t *testing.T) {
 
 	t.Run("CBTConfigBeingDeletedIsNoop", func(t *testing.T) {
 		now := metav1.Now()
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		cbt.DeletionTimestamp = &now
 		cbt.Finalizers = []string{"keep-me"}
 		vm := &fakeVolumeManager{}
@@ -330,15 +356,15 @@ func TestReconcile(t *testing.T) {
 		assert.Empty(t, vm.clearCallsCopy())
 	})
 
-	t.Run("EnableAppliesSetToUnattachedBlockPVCsOnly", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+	t.Run("ActiveAppliesSetToUnattachedBlockPVCsOnly", func(t *testing.T) {
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		pvAttached := newCBTBlockPV("pv-attached", "vol-attached")
 		pvUnattached := newCBTBlockPV("pv-unattached", "vol-unattached")
 		pvcAttached := newPVC("ns", "pvc-attached", "pv-attached", nil, nil)
 		pvcUnattached := newPVC("ns", "pvc-unattached", "pv-unattached", nil, nil)
 		va := newVolumeAttachmentForPV("va-1", "pv-attached")
 
-		vm := &fakeVolumeManager{queryResult: disabledQueryResult("vol-unattached")}
+		vm := &fakeVolumeManager{queryResult: inactiveQueryResult("vol-unattached")}
 		r, _ := newSeededReconciler(t, vm, cbt, pvAttached, pvUnattached,
 			pvcAttached, pvcUnattached, va)
 
@@ -349,15 +375,15 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, reconcile.Result{}, res)
 		eventuallyEqual(t, vm.setCallsCopy, []string{"vol-unattached"},
 			"background goroutine must call Set on the unattached volume only")
-		neverHasCalls(t, vm.clearCallsCopy, "Clear must not be called on enable")
+		neverHasCalls(t, vm.clearCallsCopy, "Clear must not be called on active")
 	})
 
-	t.Run("DisableClearsCBTOnPreviouslyEnabledUnattachedPVCs", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(false))
+	t.Run("InactiveClearsCBTOnPreviouslyActiveUnattachedPVCs", func(t *testing.T) {
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateInactive))
 		pv := newCBTBlockPV("pv-1", "vol-1")
 		pvc := newPVC("ns", "pvc-1", "pv-1", map[string]string{"cbt": "true"}, nil)
 
-		vm := &fakeVolumeManager{queryResult: enabledQueryResult("vol-1")}
+		vm := &fakeVolumeManager{queryResult: activeQueryResult("vol-1")}
 		r, _ := newSeededReconciler(t, vm, cbt, pv, pvc)
 
 		res, err := r.Reconcile(ctx, reconcile.Request{
@@ -366,19 +392,19 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, res)
 		eventuallyEqual(t, vm.clearCallsCopy, []string{"vol-1"},
-			"background goroutine must call Clear when disabling CBT")
-		neverHasCalls(t, vm.setCallsCopy, "Set must not be called on disable")
+			"background goroutine must call Clear when setting to inactive")
+		neverHasCalls(t, vm.setCallsCopy, "Set must not be called on inactive")
 	})
 
-	t.Run("EnableSkipsNonBoundPVCs", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+	t.Run("ActiveSkipsNonBoundPVCs", func(t *testing.T) {
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		pvBound := newCBTBlockPV("pv-bound", "vol-bound")
 		pvLost := newCBTBlockPV("pv-lost", "vol-lost")
 		pvcBound := newPVC("ns", "pvc-bound", "pv-bound", nil, nil)
 		pvcPending := newPVCWithPhase("ns", "pvc-pending", "", v1.ClaimPending)
 		pvcLost := newPVCWithPhase("ns", "pvc-lost", "pv-lost", v1.ClaimLost)
 
-		vm := &fakeVolumeManager{queryResult: disabledQueryResult("vol-bound")}
+		vm := &fakeVolumeManager{queryResult: inactiveQueryResult("vol-bound")}
 		r, _ := newSeededReconciler(t, vm, cbt, pvBound, pvLost, pvcBound, pvcPending, pvcLost)
 
 		res, err := r.Reconcile(ctx, reconcile.Request{
@@ -387,11 +413,11 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, res)
 		eventuallyEqual(t, vm.setCallsCopy, []string{"vol-bound"},
-			"only the Bound PVC's volume should have CBT enabled")
+			"only the Bound PVC's volume should have CBT active")
 	})
 
-	t.Run("EnableSkipsPVCsAlreadyInTargetCBTState", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+	t.Run("ActiveSkipsPVCsAlreadyInTargetCBTState", func(t *testing.T) {
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		pv := newCBTBlockPV("pv-1", "vol-1")
 		pvc := newPVC("ns", "pvc-1", "pv-1", map[string]string{"cbt": "true"}, nil)
 		vm := &fakeVolumeManager{queryResult: &cnstypes.CnsQueryResult{}}
@@ -402,8 +428,8 @@ func TestReconcile(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{}, res)
-		neverHasCalls(t, vm.setCallsCopy, "Set must not be called when CBT already enabled")
-		neverHasCalls(t, vm.clearCallsCopy, "Clear must not be called on enable")
+		neverHasCalls(t, vm.setCallsCopy, "Set must not be called when CBT already active")
+		neverHasCalls(t, vm.clearCallsCopy, "Clear must not be called on active")
 	})
 
 	// Phase 2 (CNS query) failures used to bubble back through ReconcileCBTForNamespace and
@@ -411,7 +437,7 @@ func TestReconcile(t *testing.T) {
 	// query failures are logged and absorbed by the goroutine — re-convergence happens via
 	// the periodic sync. The controller's only requeue trigger is "queue full".
 	t.Run("QueryErrorIsAbsorbedByBackgroundGoroutine", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		pv := newCBTBlockPV("pv-1", "vol-1")
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolumeManager{queryErr: errors.New("cns boom")}
@@ -427,7 +453,7 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("VolumeOpFailureIsLogged", func(t *testing.T) {
-		cbt := newCBTConfig("ns", "cbt", boolPtr(true))
+		cbt := newCBTConfig("ns", "cbt", statePtr(cbtconfigv1alpha1.CBTStateActive))
 		pv := newCBTBlockPV("pv-1", "vol-1")
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolumeManager{

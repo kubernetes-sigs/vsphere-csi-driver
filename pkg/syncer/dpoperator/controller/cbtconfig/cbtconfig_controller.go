@@ -22,6 +22,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,40 +47,38 @@ const (
 
 // cbtStatusState decodes the CBT intent from a CBTConfigStatus.
 //
-// enabled carries the resolved enable/disable intent; it is only meaningful
+// active carries the resolved active/inactive intent; it is only meaningful
 // when configured is true.
-// configured is true when the operator has written status.enabled (non-nil);
-// both true and false values are actionable. configured is false when the
+// configured is true when the operator has written status.state (non-nil);
+// both Active and Inactive values are actionable. configured is false when the
 // operator has not yet reconciled the field, and the caller should skip acting.
-func cbtStatusState(st cbtconfigv1alpha1.CBTConfigStatus) (enabled, configured bool) {
-	if st.Enabled == nil {
+func cbtStatusState(st *cbtconfigv1alpha1.CBTConfigStatus) (active, configured bool) {
+	if st == nil || st.State == nil {
 		return false, false
 	}
-	return *st.Enabled, true
+	return *st.State == cbtconfigv1alpha1.CBTStateActive, true
 }
 
 // Add creates a new CBTConfig controller and adds it to the Manager.
 // pvLister, pvcLister and vaLister come from the singleton InformerManager shared with the
 // metadata syncer and k8sorchestrator, so no second copy of those informers is started here.
-func Add(mgr manager.Manager, volumeManager volume.Manager,
+// kubeClient is the shared clientset used by the CBT label-sync phase.
+func Add(mgr manager.Manager, kubeClient clientset.Interface, volumeManager volume.Manager,
 	pvLister corelisters.PersistentVolumeLister,
 	pvcLister corelisters.PersistentVolumeClaimLister,
 	vaLister storagelistersv1.VolumeAttachmentLister) error {
-	rec := newReconciler(mgr, volumeManager, pvLister, pvcLister, vaLister)
+	rec := newReconciler(mgr, kubeClient, volumeManager, pvLister, pvcLister, vaLister)
 	return add(mgr, rec)
 }
 
-func newReconciler(mgr manager.Manager, volumeManager volume.Manager,
+func newReconciler(mgr manager.Manager, kubeClient clientset.Interface, volumeManager volume.Manager,
 	pvLister corelisters.PersistentVolumeLister,
 	pvcLister corelisters.PersistentVolumeClaimLister,
 	vaLister storagelistersv1.VolumeAttachmentLister) *ReconcileCBTConfig {
 	return &ReconcileCBTConfig{
-		client:        mgr.GetClient(),
-		scheme:        mgr.GetScheme(),
-		volumeManager: volumeManager,
-		pvLister:      pvLister,
-		pvcLister:     pvcLister,
-		vaLister:      vaLister,
+		client:    mgr.GetClient(),
+		scheme:    mgr.GetScheme(),
+		cbtSyncer: syncer.NewCBTSyncer(kubeClient, volumeManager, pvLister, pvcLister, vaLister),
 	}
 }
 
@@ -93,19 +92,19 @@ func add(mgr manager.Manager, r *ReconcileCBTConfig) error {
 	}
 
 	pred := predicate.TypedFuncs[*cbtconfigv1alpha1.CBTConfig]{
-		// Reconcile whenever the operator has written status.enabled (non-nil).
-		// A disabled (false) value is also actionable — it means CBT must be cleared.
+		// Reconcile whenever the operator has written status.state (non-nil).
+		// An Inactive value is also actionable — it means CBT must be cleared.
 		CreateFunc: func(e event.TypedCreateEvent[*cbtconfigv1alpha1.CBTConfig]) bool {
 			_, configured := cbtStatusState(e.Object.Status)
 			return configured
 		},
-		// Enqueue only when the effective enable/disable intent changes — either
-		// status.enabled transitions from nil to set, or its boolean value flips.
+		// Enqueue only when the effective active/inactive intent changes — either
+		// status.state transitions from nil to set, or its value flips.
 		// This avoids reconciling on every unrelated status or metadata update.
 		UpdateFunc: func(e event.TypedUpdateEvent[*cbtconfigv1alpha1.CBTConfig]) bool {
-			oldEnabled, oldConfigured := cbtStatusState(e.ObjectOld.Status)
-			newEnabled, newConfigured := cbtStatusState(e.ObjectNew.Status)
-			return oldConfigured != newConfigured || oldEnabled != newEnabled
+			oldActive, oldConfigured := cbtStatusState(e.ObjectOld.Status)
+			newActive, newConfigured := cbtStatusState(e.ObjectNew.Status)
+			return oldConfigured != newConfigured || oldActive != newActive
 		},
 		DeleteFunc: func(e event.TypedDeleteEvent[*cbtconfigv1alpha1.CBTConfig]) bool {
 			return false
@@ -127,12 +126,8 @@ func add(mgr manager.Manager, r *ReconcileCBTConfig) error {
 type ReconcileCBTConfig struct {
 	client client.Client
 	scheme *runtime.Scheme
-	// pvLister, pvcLister and vaLister are backed by the singleton InformerManager; reads
-	// come from in-process informer caches without an apiserver round-trip per reconcile.
-	pvLister      corelisters.PersistentVolumeLister
-	pvcLister     corelisters.PersistentVolumeClaimLister
-	vaLister      storagelistersv1.VolumeAttachmentLister
-	volumeManager volume.Manager
+	// cbtSyncer holds the Kubernetes and CNS dependencies for the CBT reconcile pipeline.
+	cbtSyncer *syncer.CBTSyncer
 }
 
 var _ reconcile.Reconciler = &ReconcileCBTConfig{}
@@ -141,7 +136,7 @@ var _ reconcile.Reconciler = &ReconcileCBTConfig{}
 func (r *ReconcileCBTConfig) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Debugf("Received Reconcile for CBTConfig request: %q", request.NamespacedName)
+	log.Infof("Received Reconcile for CBTConfig request: %q", request.NamespacedName)
 
 	instance := &cbtconfigv1alpha1.CBTConfig{}
 	err := r.client.Get(ctx, request.NamespacedName, instance)
@@ -159,17 +154,15 @@ func (r *ReconcileCBTConfig) Reconcile(ctx context.Context, request reconcile.Re
 		return reconcile.Result{}, nil
 	}
 
-	enable, configured := cbtStatusState(instance.Status)
+	active, configured := cbtStatusState(instance.Status)
 	if !configured {
-		log.Debugf("CBTConfig %q status.enabled not yet set; skipping reconcile", request.NamespacedName)
+		log.Debugf("CBTConfig %q status.state not yet set; skipping reconcile", request.NamespacedName)
 		return reconcile.Result{}, nil
 	}
-	if err := syncer.ReconcileCBTForNamespace(ctx, r.volumeManager,
-		r.pvLister, r.pvcLister, r.vaLister,
-		instance.Namespace, enable); err != nil {
+	if err := r.cbtSyncer.ReconcileCBTForNamespace(ctx, instance.Namespace, active); err != nil {
 		log.Errorf("CBTConfig reconcile failed for namespace %q: %+v", instance.Namespace, err)
 		return reconcile.Result{RequeueAfter: reconcileErrorRequeueAfter}, nil
 	}
-	log.Debugf("Successfully reconciled CBTConfig %q (enable=%t)", request.NamespacedName, enable)
+	log.Infof("Successfully reconciled CBTConfig %q (active=%t)", request.NamespacedName, active)
 	return reconcile.Result{}, nil
 }

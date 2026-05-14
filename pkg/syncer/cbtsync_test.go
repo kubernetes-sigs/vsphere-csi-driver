@@ -30,6 +30,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientset "k8s.io/client-go/kubernetes"
+	fakekube "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
@@ -57,6 +60,10 @@ type fakeVolMgr struct {
 	// queryFn, if set, takes precedence over queryResult/queryErr; lets a test produce
 	// a per-batch response to assert batching behavior.
 	queryFn func(filter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
+	// syncCalls records each volume ID targeted by SyncVolume in phase 4, in order.
+	// syncErr, if set, is returned from every SyncVolume call.
+	syncCalls []string
+	syncErr   error
 }
 
 func (f *fakeVolMgr) SetVolumeControlFlags(_ context.Context, volumeID string, _ []string) error {
@@ -82,6 +89,24 @@ func (f *fakeVolMgr) QueryAllVolume(_ context.Context, filter cnstypes.CnsQueryF
 		return f.queryFn(filter)
 	}
 	return f.queryResult, f.queryErr
+}
+
+func (f *fakeVolMgr) SyncVolume(_ context.Context,
+	specs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range specs {
+		f.syncCalls = append(f.syncCalls, s.VolumeId.Id)
+	}
+	return "", f.syncErr
+}
+
+func (f *fakeVolMgr) syncCallsCopy() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, len(f.syncCalls))
+	copy(out, f.syncCalls)
+	return out
 }
 
 func (f *fakeVolMgr) setCallsCopy() []string {
@@ -168,6 +193,14 @@ func cnsVolumeWithCBT(id string, status cnstypes.CnsVolumeCBTStatus) cnstypes.Cn
 		VolumeId:             cnstypes.CnsVolumeId{Id: id},
 		ChangedBlockTracking: status,
 	}
+}
+
+// newFakeKubeClient returns an empty fake clientset suitable for tests that drive
+// CBTSyncer methods but don't assert on label patches. Phase 4 patch calls against an
+// empty client return NotFound, which it logs and swallows (best-effort), so this still
+// exercises the rest of the pipeline cleanly.
+func newFakeKubeClient(objs ...runtime.Object) clientset.Interface {
+	return fakekube.NewSimpleClientset(objs...)
 }
 
 // newTestListers builds in-memory PV / PVC / VolumeAttachment listers seeded with the given
@@ -350,7 +383,8 @@ func TestBuildPVCCandidates(t *testing.T) {
 
 	t.Run("EmptyNamespaceReturnsEmpty", func(t *testing.T) {
 		pvLister, pvcLister, vaLister := newTestListers(t)
-		got, err := buildPVCCandidates(ctx, pvLister, pvcLister, vaLister, "ns")
+		s := &CBTSyncer{pvLister: pvLister, pvcLister: pvcLister, vaLister: vaLister}
+		got, err := s.buildPVCCandidates(ctx, "ns")
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -360,7 +394,8 @@ func TestBuildPVCCandidates(t *testing.T) {
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		va := newVolumeAttachmentForPV("va-1", "pv-1")
 		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc, va)
-		got, err := buildPVCCandidates(ctx, pvLister, pvcLister, vaLister, "ns")
+		s := &CBTSyncer{pvLister: pvLister, pvcLister: pvcLister, vaLister: vaLister}
+		got, err := s.buildPVCCandidates(ctx, "ns")
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -369,7 +404,8 @@ func TestBuildPVCCandidates(t *testing.T) {
 		pv := newCBTBlockPV("pv-1", "vol-1")
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
-		got, err := buildPVCCandidates(ctx, pvLister, pvcLister, vaLister, "ns")
+		s := &CBTSyncer{pvLister: pvLister, pvcLister: pvcLister, vaLister: vaLister}
+		got, err := s.buildPVCCandidates(ctx, "ns")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "vol-1", got[0].volumeID)
@@ -380,7 +416,8 @@ func TestBuildPVCCandidates(t *testing.T) {
 		pvcBound := newPVC("ns", "pvc-bound", "pv-bound", nil, nil)
 		pvcPending := newPVCWithPhase("ns", "pvc-pending", "", v1.ClaimPending)
 		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvcBound, pvcPending)
-		got, err := buildPVCCandidates(ctx, pvLister, pvcLister, vaLister, "ns")
+		s := &CBTSyncer{pvLister: pvLister, pvcLister: pvcLister, vaLister: vaLister}
+		got, err := s.buildPVCCandidates(ctx, "ns")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "vol-bound", got[0].volumeID)
@@ -399,7 +436,8 @@ func TestBuildPVCCandidates(t *testing.T) {
 
 		pvLister, pvcLister, vaLister := newTestListers(t, pvGood, pvFile, pvAttached,
 			pvcGood, pvcFile, pvcAttached, va)
-		got, err := buildPVCCandidates(ctx, pvLister, pvcLister, vaLister, "ns")
+		s := &CBTSyncer{pvLister: pvLister, pvcLister: pvcLister, vaLister: vaLister}
+		got, err := s.buildPVCCandidates(ctx, "ns")
 		require.NoError(t, err)
 		require.Len(t, got, 1, "only pvcGood should survive all filters")
 		assert.Equal(t, "vol-good", got[0].volumeID)
@@ -410,7 +448,8 @@ func TestFilterCandidatesByCBTState(t *testing.T) {
 	ctx, _ := logger.GetNewContextWithLogger()
 
 	t.Run("EmptyInputReturnsEmpty", func(t *testing.T) {
-		got, err := filterCandidatesByCBTState(ctx, &fakeVolMgr{}, "ns", nil, true)
+		s := &CBTSyncer{volManager: &fakeVolMgr{}}
+		got, err := s.filterCandidatesByCBTState(ctx, "ns", nil, true)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
@@ -419,7 +458,8 @@ func TestFilterCandidatesByCBTState(t *testing.T) {
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolMgr{queryErr: errors.New("cns unavailable")}
 		in := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		got, err := filterCandidatesByCBTState(ctx, vm, "ns", in, true)
+		s := &CBTSyncer{volManager: vm}
+		got, err := s.filterCandidatesByCBTState(ctx, "ns", in, true)
 		require.Error(t, err, "query failure must be surfaced so the caller can requeue")
 		assert.Nil(t, got)
 	})
@@ -428,7 +468,8 @@ func TestFilterCandidatesByCBTState(t *testing.T) {
 		vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{}}
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		in := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		got, err := filterCandidatesByCBTState(ctx, vm, "ns", in, true)
+		s := &CBTSyncer{volManager: vm}
+		got, err := s.filterCandidatesByCBTState(ctx, "ns", in, true)
 		require.NoError(t, err)
 		assert.Empty(t, got, "volume already in target state must be filtered out")
 	})
@@ -441,7 +482,8 @@ func TestFilterCandidatesByCBTState(t *testing.T) {
 		}
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		in := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		got, err := filterCandidatesByCBTState(ctx, vm, "ns", in, true)
+		s := &CBTSyncer{volManager: vm}
+		got, err := s.filterCandidatesByCBTState(ctx, "ns", in, true)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "vol-1", got[0].volumeID)
@@ -545,8 +587,10 @@ func TestPeriodicSkipsActiveReconcile(t *testing.T) {
 
 	vm := &fakeVolMgr{}
 	pvLister, pvcLister, vaLister := newTestListers(t)
+	kube := newFakeKubeClient()
 
-	err := syncCBTForNamespace(ctx, vm, pvLister, pvcLister, vaLister, ns, true)
+	s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+	err := s.syncCBTForNamespace(ctx, ns, true)
 	require.NoError(t, err)
 	assert.Empty(t, vm.setCallsCopy(), "periodic sync must not call Set when reconcile is active")
 	assert.Empty(t, vm.clearCallsCopy(), "periodic sync must not call Clear when reconcile is active")
@@ -573,8 +617,10 @@ func TestReconcileCancelsInFlightWork(t *testing.T) {
 	pvc := newPVC(ns, "pvc-1", "pv-1", nil, nil)
 	vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{}}
 	pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+	kube := newFakeKubeClient(pvc)
 
-	require.NoError(t, ReconcileCBTForNamespace(ctx, vm, pvLister, pvcLister, vaLister, ns, true))
+	s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+	require.NoError(t, s.ReconcileCBTForNamespace(ctx, ns, true))
 
 	assert.ErrorIs(t, fakeCtx.Err(), context.Canceled,
 		"ReconcileCBTForNamespace must cancel the in-flight CBT work context")
@@ -603,8 +649,10 @@ func TestReconcileClearsStateAfterCompletion(t *testing.T) {
 	pvc := newPVC(ns, "pvc-1", "pv-1", nil, nil)
 	vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{}}
 	pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+	kube := newFakeKubeClient(pvc)
 
-	require.NoError(t, ReconcileCBTForNamespace(ctx, vm, pvLister, pvcLister, vaLister, ns, true))
+	s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+	require.NoError(t, s.ReconcileCBTForNamespace(ctx, ns, true))
 
 	assert.Eventually(t, func() bool {
 		cbtWorkMu.Lock()
@@ -635,7 +683,9 @@ func TestReconcileQueueFullReturnsError(t *testing.T) {
 
 	vm := &fakeVolMgr{}
 	pvLister, pvcLister, vaLister := newTestListers(t)
-	err := ReconcileCBTForNamespace(ctx, vm, pvLister, pvcLister, vaLister, "queue-full-ns", true)
+	kube := newFakeKubeClient()
+	s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+	err := s.ReconcileCBTForNamespace(ctx, "queue-full-ns", true)
 	require.Error(t, err, "queue-full reconcile must return error so the controller requeues")
 	assert.Contains(t, err.Error(), "queue is full")
 	assert.Empty(t, vm.setCallsCopy(),
@@ -647,7 +697,8 @@ func TestApplyCnsCbtFlags(t *testing.T) {
 
 	t.Run("EmptyCandidatesIsNoop", func(t *testing.T) {
 		vm := &fakeVolMgr{}
-		err := applyCnsCbtFlags(ctx, vm, "ns", nil, true)
+		s := &CBTSyncer{volManager: vm}
+		err := s.applyCnsCbtFlags(ctx, "ns", nil, true)
 		require.NoError(t, err)
 		assert.Empty(t, vm.setCallsCopy())
 		assert.Empty(t, vm.clearCallsCopy())
@@ -657,7 +708,8 @@ func TestApplyCnsCbtFlags(t *testing.T) {
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolMgr{}
 		candidates := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		err := applyCnsCbtFlags(ctx, vm, "ns", candidates, true)
+		s := &CBTSyncer{volManager: vm}
+		err := s.applyCnsCbtFlags(ctx, "ns", candidates, true)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"vol-1"}, vm.setCallsCopy())
 		assert.Empty(t, vm.clearCallsCopy())
@@ -667,7 +719,8 @@ func TestApplyCnsCbtFlags(t *testing.T) {
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolMgr{}
 		candidates := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		err := applyCnsCbtFlags(ctx, vm, "ns", candidates, false)
+		s := &CBTSyncer{volManager: vm}
+		err := s.applyCnsCbtFlags(ctx, "ns", candidates, false)
 		require.NoError(t, err)
 		assert.Empty(t, vm.setCallsCopy())
 		assert.Equal(t, []string{"vol-1"}, vm.clearCallsCopy())
@@ -677,8 +730,317 @@ func TestApplyCnsCbtFlags(t *testing.T) {
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		vm := &fakeVolMgr{setErr: errors.New("cns set failed")}
 		candidates := []pvcWithVolume{{pvc: pvc, volumeID: "vol-1"}}
-		err := applyCnsCbtFlags(ctx, vm, "ns", candidates, true)
+		s := &CBTSyncer{volManager: vm}
+		err := s.applyCnsCbtFlags(ctx, "ns", candidates, true)
 		require.NoError(t, err, "per-volume errors are best-effort and must not be returned")
 		assert.Equal(t, []string{"vol-1"}, vm.setCallsCopy())
+	})
+}
+
+// withCbtLabel returns a copy of pvc whose Labels include cns.vmware.com/cbt-active="true".
+func withCbtLabel(pvc *v1.PersistentVolumeClaim) *v1.PersistentVolumeClaim {
+	out := pvc.DeepCopy()
+	if out.Labels == nil {
+		out.Labels = map[string]string{}
+	}
+	out.Labels[isCBTActiveLabel] = isCBTActiveLabelVal
+	return out
+}
+
+// readPVCLabel returns the live cns.vmware.com/cbt-active label value on the named PVC.
+func readPVCLabel(t *testing.T, kube clientset.Interface, ns, name string) (string, bool) {
+	t.Helper()
+	pvc, err := kube.CoreV1().PersistentVolumeClaims(ns).Get(
+		context.Background(), name, metav1.GetOptions{})
+	require.NoError(t, err)
+	v, ok := pvc.Labels[isCBTActiveLabel]
+	return v, ok
+}
+
+func TestBuildAllBlockPVCs(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+
+	t.Run("EmptyNamespaceReturnsEmpty", func(t *testing.T) {
+		pvLister, pvcLister, _ := newTestListers(t)
+		got, err := buildAllBlockPVCs(ctx, pvLister, pvcLister, "ns")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("AttachedPVCStillIncluded", func(t *testing.T) {
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
+		va := newVolumeAttachmentForPV("va-1", "pv-1")
+		pvLister, pvcLister, _ := newTestListers(t, pv, pvc, va)
+		got, err := buildAllBlockPVCs(ctx, pvLister, pvcLister, "ns")
+		require.NoError(t, err)
+		require.Len(t, got, 1, "phase 4 must NOT filter attached PVCs")
+		assert.Equal(t, "vol-1", got[0].volumeID)
+	})
+
+	t.Run("LabelPresenceRecorded", func(t *testing.T) {
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := withCbtLabel(newPVC("ns", "pvc-1", "pv-1", nil, nil))
+		pvLister, pvcLister, _ := newTestListers(t, pv, pvc)
+		got, err := buildAllBlockPVCs(ctx, pvLister, pvcLister, "ns")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.True(t, got[0].hasLabel, "hasLabel must reflect the existing CBT label")
+	})
+
+	t.Run("NonBoundPVCsSkipped", func(t *testing.T) {
+		pv := newCBTBlockPV("pv-bound", "vol-bound")
+		pvcBound := newPVC("ns", "pvc-bound", "pv-bound", nil, nil)
+		pvcPending := newPVCWithPhase("ns", "pvc-pending", "", v1.ClaimPending)
+		pvLister, pvcLister, _ := newTestListers(t, pv, pvcBound, pvcPending)
+		got, err := buildAllBlockPVCs(ctx, pvLister, pvcLister, "ns")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "vol-bound", got[0].volumeID)
+	})
+
+	t.Run("NonBlockPVsSkipped", func(t *testing.T) {
+		pvBlock := newCBTBlockPV("pv-block", "vol-block")
+		pvFile := newCBTBlockPV("pv-file", "vol-file")
+		pvFile.Spec.CSI.VolumeAttributes[common.AttributeDiskType] = "vSphere CNS File Volume"
+		pvcBlock := newPVC("ns", "pvc-block", "pv-block", nil, nil)
+		pvcFile := newPVC("ns", "pvc-file", "pv-file", nil, nil)
+		pvLister, pvcLister, _ := newTestListers(t, pvBlock, pvFile, pvcBlock, pvcFile)
+		got, err := buildAllBlockPVCs(ctx, pvLister, pvcLister, "ns")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "vol-block", got[0].volumeID)
+	})
+}
+
+func TestQueryVolumesByCBTState(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+
+	t.Run("FilterStatePassedThrough", func(t *testing.T) {
+		vm := &fakeVolMgr{
+			queryFn: func(filter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+				assert.Equal(t, cnstypes.CnsVolumeCBTStatusEnabled, filter.ChangedBlockTracking)
+				return &cnstypes.CnsQueryResult{
+					Volumes: []cnstypes.CnsVolume{cnsVolumeWithCBT("vol-1", cnstypes.CnsVolumeCBTStatusEnabled)},
+				}, nil
+			},
+		}
+		got, err := queryVolumesByCBTState(ctx, vm, []string{"vol-1"}, cnstypes.CnsVolumeCBTStatusEnabled)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]struct{}{"vol-1": {}}, got)
+	})
+
+	t.Run("FlipWrapperKeepsBackwardsCompat", func(t *testing.T) {
+		// queryVolumesNeedingFlip(active=true) must still map to a Disabled filter.
+		vm := &fakeVolMgr{
+			queryFn: func(filter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+				assert.Equal(t, cnstypes.CnsVolumeCBTStatusDisabled, filter.ChangedBlockTracking)
+				return &cnstypes.CnsQueryResult{}, nil
+			},
+		}
+		_, err := queryVolumesNeedingFlip(ctx, vm, []string{"vol-1"}, true)
+		require.NoError(t, err)
+	})
+}
+
+func TestSyncPvcCBTLabel(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+
+	t.Run("NoBlockPVCsIsNoop", func(t *testing.T) {
+		pvLister, pvcLister, vaLister := newTestListers(t)
+		vm := &fakeVolMgr{}
+		kube := newFakeKubeClient()
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err)
+		assert.Empty(t, vm.queryBatchSizesCopy(),
+			"no PVCs means no CNS query and no SyncVolume calls")
+		assert.Empty(t, vm.syncCallsCopy())
+	})
+
+	t.Run("AllLabelsAlreadyInSyncIsNoop", func(t *testing.T) {
+		// Two PVCs, target active=true: both CNS-Enabled, both carry the label.
+		// hasLabel==isActive==active for every volume -> zero mismatches, zero
+		// unreconciled -> no SyncVolume, no label patches.
+		pvEnabled := newCBTBlockPV("pv-enabled", "vol-enabled")
+		pvDisabled := newCBTBlockPV("pv-disabled", "vol-disabled")
+		pvcEnabled := withCbtLabel(newPVC("ns", "pvc-enabled", "pv-enabled", nil, nil))
+		pvcDisabled := withCbtLabel(newPVC("ns", "pvc-disabled", "pv-disabled", nil, nil))
+
+		vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{
+			Volumes: []cnstypes.CnsVolume{
+				cnsVolumeWithCBT("vol-enabled", cnstypes.CnsVolumeCBTStatusEnabled),
+				cnsVolumeWithCBT("vol-disabled", cnstypes.CnsVolumeCBTStatusEnabled),
+			},
+		}}
+		pvLister, pvcLister, vaLister := newTestListers(t, pvEnabled, pvDisabled, pvcEnabled, pvcDisabled)
+		kube := newFakeKubeClient(pvcEnabled, pvcDisabled)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err)
+		assert.Empty(t, vm.syncCallsCopy(),
+			"converged cluster must not trigger SyncVolume")
+
+		v, ok := readPVCLabel(t, kube, "ns", "pvc-enabled")
+		assert.True(t, ok)
+		assert.Equal(t, isCBTActiveLabelVal, v, "existing label must be untouched")
+
+		v, ok = readPVCLabel(t, kube, "ns", "pvc-disabled")
+		assert.True(t, ok)
+		assert.Equal(t, isCBTActiveLabelVal, v, "existing label must be untouched")
+	})
+
+	t.Run("AddsLabelWhenVolumeIsActive", func(t *testing.T) {
+		// CNS reports vol-1 Enabled (returned by the Enabled query), PVC has no label.
+		// hasLabel=false, isActive=true -> mismatch; isActive==active -> no SyncVolume
+		// -> label is added.
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
+		vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{
+			Volumes: []cnstypes.CnsVolume{cnsVolumeWithCBT("vol-1", cnstypes.CnsVolumeCBTStatusEnabled)},
+		}}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient(pvc)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err)
+		assert.Empty(t, vm.syncCallsCopy(),
+			"label-only mismatch (CNS already matches target) must not trigger SyncVolume")
+
+		v, ok := readPVCLabel(t, kube, "ns", "pvc-1")
+		assert.True(t, ok)
+		assert.Equal(t, isCBTActiveLabelVal, v)
+	})
+
+	t.Run("RemovesLabelWhenVolumeIsInactive", func(t *testing.T) {
+		// CNS reports vol-1 Disabled (not in the Enabled query result), PVC has the label.
+		// hasLabel=true, isActive=false -> mismatch; isActive==inactive target -> no
+		// SyncVolume -> label is removed.
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := withCbtLabel(newPVC("ns", "pvc-1", "pv-1", nil, nil))
+		// Empty Enabled result: vol-1 absent => isActive=false.
+		vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{}}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient(pvc)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", false)
+		require.NoError(t, err)
+		assert.Empty(t, vm.syncCallsCopy())
+
+		_, ok := readPVCLabel(t, kube, "ns", "pvc-1")
+		assert.False(t, ok, "label must be removed when CNS reports CBT disabled")
+	})
+
+	t.Run("SyncVolumeCalledForUnconvergedCnsState", func(t *testing.T) {
+		// CBTConfig target = active=true. PVC carries the cns.vmware.com/cbt-active label
+		// but CNS still reports vol-1 Disabled (drift from a recent CBT flip).
+		// Phase 4: hasLabel=true, isActive=false -> mismatch; isActive!=target -> unconverged
+		// -> SyncVolume(vol-1) invoked; re-query reports Enabled, isActive flips to true
+		// and now matches hasLabel -> no Patch -> label stays "true".
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := withCbtLabel(newPVC("ns", "pvc-1", "pv-1", nil, nil))
+
+		var nthCall int
+		vm := &fakeVolMgr{
+			queryFn: func(filter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+				nthCall++
+				// Both queries always use the Enabled filter.
+				assert.Equal(t, cnstypes.CnsVolumeCBTStatusEnabled, filter.ChangedBlockTracking)
+				switch nthCall {
+				case 1:
+					// Initial query: CNS not yet converged, vol-1 absent => isActive=false.
+					return &cnstypes.CnsQueryResult{}, nil
+				case 2:
+					// Re-query after SyncVolume: vol-1 now Enabled => isActive=true.
+					return &cnstypes.CnsQueryResult{
+						Volumes: []cnstypes.CnsVolume{cnsVolumeWithCBT("vol-1",
+							cnstypes.CnsVolumeCBTStatusEnabled)},
+					}, nil
+				default:
+					t.Fatalf("unexpected QueryAllVolume call #%d", nthCall)
+					return nil, nil
+				}
+			},
+		}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient(pvc)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"vol-1"}, vm.syncCallsCopy(),
+			"unconverged CNS state must trigger SyncVolume")
+
+		v, ok := readPVCLabel(t, kube, "ns", "pvc-1")
+		assert.True(t, ok, "label must remain after post-sync re-query confirms isActive=true")
+		assert.Equal(t, isCBTActiveLabelVal, v)
+	})
+
+	t.Run("SyncVolumeFailureFallsBackToStaleStateForLabel", func(t *testing.T) {
+		// CBTConfig target=active=true, PVC has label, CNS reports Disabled (vol-1 absent
+		// from the Enabled query). SyncVolume fails so refreshUnconvergedCNSState keeps
+		// the original isActive=false and label is removed based on stale state.
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := withCbtLabel(newPVC("ns", "pvc-1", "pv-1", nil, nil))
+		// Empty Enabled result: vol-1 absent => isActive=false.
+		vm := &fakeVolMgr{
+			queryResult: &cnstypes.CnsQueryResult{},
+			syncErr:     errors.New("cns sync down"),
+		}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient(pvc)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"vol-1"}, vm.syncCallsCopy(),
+			"SyncVolume must still be attempted even when CNS returns an error")
+
+		_, ok := readPVCLabel(t, kube, "ns", "pvc-1")
+		assert.False(t, ok, "with SyncVolume failed, phase 4 labels based on the pre-sync read")
+	})
+
+	t.Run("Phase4aQueryErrorReturnsError", func(t *testing.T) {
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
+		vm := &fakeVolMgr{queryErr: errors.New("cns down")}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient(pvc)
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.Error(t, err, "phase 4 CNS query failure must be returned so the caller can requeue")
+	})
+
+	t.Run("PatchFailureIsLoggedAndSkipped", func(t *testing.T) {
+		// PVC is in the lister but NOT in the fake clientset, so Patch returns NotFound.
+		// Phase 4c must log and continue, returning nil from syncPvcCBTLabel.
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
+		vm := &fakeVolMgr{queryResult: &cnstypes.CnsQueryResult{}}
+		pvLister, pvcLister, vaLister := newTestListers(t, pv, pvc)
+		kube := newFakeKubeClient() // intentionally empty.
+
+		s := NewCBTSyncer(kube, vm, pvLister, pvcLister, vaLister)
+		err := s.syncPvcCBTLabel(ctx, "ns", true)
+		require.NoError(t, err, "per-PVC patch failures must be swallowed")
+	})
+}
+
+func TestBuildCBTLabelPatch(t *testing.T) {
+	t.Run("ActiveSetsLabelToTrue", func(t *testing.T) {
+		b, err := buildCBTLabelPatch(true)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"metadata":{"labels":{"cns.vmware.com/cbt-active":"true"}}}`, string(b))
+	})
+
+	t.Run("InactiveDeletesLabelViaNull", func(t *testing.T) {
+		b, err := buildCBTLabelPatch(false)
+		require.NoError(t, err)
+		// JSON merge patch (RFC 7396) deletes a key by setting it to null.
+		assert.JSONEq(t, `{"metadata":{"labels":{"cns.vmware.com/cbt-active":null}}}`, string(b))
 	})
 }
