@@ -595,6 +595,110 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types
 	return nil
 }
 
+// cnsDeleteVolume invokes the CNS DeleteVolume API directly (bypassing the
+// CSI driver) and waits for the task to complete.
+//
+// This is used by tests whose volume cleanup historically relied on full-sync
+// to unregister CNS volumes for missing/orphaned PVs. The cns-health-initiative
+// change (syncer/fullsync: replace missing-PV unregister with pv_missing
+// labeling) means full-sync no longer GCs such volumes; tests must now drive
+// CNS-side cleanup explicitly.
+//
+// When deleteDisk is true, the underlying FCD is also deleted; when false,
+// only the CNS metadata is removed (the FCD remains and can be reclaimed by
+// a subsequent vs.deleteFCD call).
+func (vs *vSphere) cnsDeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error {
+	req := cnstypes.CnsDeleteVolume{
+		This:       cnsVolumeManagerInstance,
+		VolumeIds:  []cnstypes.CnsVolumeId{{Id: volumeID}},
+		DeleteDisk: deleteDisk,
+	}
+	res, err := cnsmethods.CnsDeleteVolume(ctx, vs.CnsClient.Client, &req)
+	if err != nil {
+		return err
+	}
+	task := object.NewTask(vs.Client.Client, res.Returnval)
+	taskInfo, err := cns.GetTaskInfo(ctx, task)
+	if err != nil {
+		return err
+	}
+	_, err = cns.GetTaskResult(ctx, taskInfo)
+	return err
+}
+
+// waitForPVMissingLabel polls QueryCNSVolumeWithResult and returns nil once
+// the CNS volume identified by volumeID has the `pv_missing=true` label
+// applied to at least one PV-type CnsKubernetesEntityMetadata, indicating
+// that fullsync has observed the K8s PV as missing across the grace period.
+//
+// Times out after pollTimeout. Use this in place of waitForCNSVolumeToBeDeleted
+// for tests whose original intent was to verify the (now-removed) missing-PV
+// unregister path.
+func (vs *vSphere) waitForPVMissingLabel(ctx context.Context, volumeID string) error {
+	const pvMissingLabelKey = "pv_missing"
+	const pvMissingLabelValue = "true"
+	waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			result, err := vs.queryCNSVolumeWithResult(volumeID)
+			if err != nil {
+				return false, err
+			}
+			if len(result.Volumes) == 0 {
+				// Volume vanished from CNS; this is not the contract we are
+				// asserting and almost certainly means a different cleanup
+				// path got there first. Surface as failure so the caller can
+				// react.
+				return false, fmt.Errorf("volume %s no longer exists in CNS while waiting for pv_missing label", volumeID)
+			}
+			for _, baseEm := range result.Volumes[0].Metadata.EntityMetadata {
+				em, ok := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+				if !ok {
+					continue
+				}
+				if em.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+					continue
+				}
+				for _, kv := range em.Labels {
+					if kv.Key == pvMissingLabelKey && kv.Value == pvMissingLabelValue {
+						return true, nil
+					}
+				}
+			}
+			return false, nil
+		})
+	return waitErr
+}
+
+// hasPVMissingLabel returns true if the most recent CNS query result for
+// volumeID shows pv_missing=true on a PV-type entity. Unlike
+// waitForPVMissingLabel it does not poll; useful for negative assertions.
+func (vs *vSphere) hasPVMissingLabel(volumeID string) (bool, error) {
+	const pvMissingLabelKey = "pv_missing"
+	const pvMissingLabelValue = "true"
+	result, err := vs.queryCNSVolumeWithResult(volumeID)
+	if err != nil {
+		return false, err
+	}
+	if len(result.Volumes) == 0 {
+		return false, nil
+	}
+	for _, baseEm := range result.Volumes[0].Metadata.EntityMetadata {
+		em, ok := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok {
+			continue
+		}
+		if em.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		for _, kv := range em.Labels {
+			if kv.Key == pvMissingLabelKey && kv.Value == pvMissingLabelValue {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // relocateFCD relocates an FCD disk
 func (vs *vSphere) relocateFCD(ctx context.Context, fcdID string,
 	dsRefSrc vim25types.ManagedObjectReference, dsRefDest vim25types.ManagedObjectReference) error {

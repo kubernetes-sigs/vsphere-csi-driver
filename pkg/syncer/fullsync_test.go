@@ -1746,4 +1746,263 @@ func TestReconcilePVCWorkloadTypeAnnotations(t *testing.T) {
 			}
 		})
 	}
+// pvMissingTestSetup configures the package-level state required by
+// getMissingPVVolumeUpdateSpecs: the per-VC cnsDeletionMap entry (grace
+// tracker) and clusterIDforVolumeMetadata. It returns a metadataSyncInformer
+// carrying a mockCOCommonForFullSync so the function's PVC-namespace cache
+// lookup returns false (i.e. "no cached PVC"), matching the production code
+// path we want to exercise.
+func pvMissingTestSetup(t *testing.T, vc, clusterID string) *metadataSyncInformer {
+	t.Helper()
+	cnsDeletionMap = map[string]map[string]bool{vc: {}}
+	clusterIDforVolumeMetadata = clusterID
+	return &metadataSyncInformer{
+		coCommonInterface: &mockCOCommonForFullSync{},
+	}
+}
+
+// makeCNSVolume builds a CnsVolume with optional PV-type entity metadata.
+func makeCNSVolume(id, name, clusterID string, pvEntities ...*cnstypes.CnsKubernetesEntityMetadata) cnstypes.CnsVolume {
+	var ems []cnstypes.BaseCnsEntityMetadata
+	for _, em := range pvEntities {
+		ems = append(ems, em)
+	}
+	return cnstypes.CnsVolume{
+		VolumeId: cnstypes.CnsVolumeId{Id: id},
+		Name:     name,
+		Metadata: cnstypes.CnsVolumeMetadata{EntityMetadata: ems},
+	}
+}
+
+// hasPVMissingTrueLabel returns true if any PV-type entity in the spec carries
+// pv_missing=true (Delete=false).
+func hasPVMissingTrueLabel(spec cnstypes.CnsVolumeMetadataUpdateSpec) bool {
+	for _, baseEm := range spec.Metadata.EntityMetadata {
+		em, ok := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok || em.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) || em.Delete {
+			continue
+		}
+		for _, kv := range em.Labels {
+			if kv.Key == "pv_missing" && kv.Value == "true" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_GracePeriod verifies that on the first
+// full-sync cycle where a CNS volume has no matching K8s PV, the volume is
+// only recorded in the grace tracker (cnsDeletionMap) and NO update spec is
+// produced. On the second cycle, an update spec with pv_missing=true is
+// generated.
+func TestGetMissingPVVolumeUpdateSpecs_GracePeriod(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	pvEntity := &cnstypes.CnsKubernetesEntityMetadata{
+		CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+			EntityName: "pv-orphan",
+			ClusterID:  clusterID,
+		},
+		EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+	}
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID, pvEntity)
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	// Cycle 1: empty k8sPVMap. Expect 0 update specs (grace recorded).
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+	assert.Len(t, specs, 0)
+	assert.True(t, cnsDeletionMap[vc]["vol-1"],
+		"volume should be in grace tracker after cycle 1")
+
+	// Cycle 2: still missing → expect 1 spec with pv_missing=true.
+	specs, count, err = getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count)
+	assert.Len(t, specs, 1)
+	assert.Equal(t, "vol-1", specs[0].VolumeId.Id)
+	assert.True(t, hasPVMissingTrueLabel(specs[0]),
+		"pv_missing=true label should be present on PV-type entity")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_PVExists verifies that volumes whose PV
+// IS present in K8s are not touched and not added to the grace tracker.
+func TestGetMissingPVVolumeUpdateSpecs_PVExists(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	vol := makeCNSVolume("vol-1", "pv-good", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-good",
+				ClusterID:  clusterID,
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	k8sPVMap := map[string]string{"vol-1": ""}
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		k8sPVMap, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+	assert.Len(t, specs, 0)
+	assert.False(t, cnsDeletionMap[vc]["vol-1"],
+		"volume with present PV should not be in grace tracker")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_PreservesExistingLabels verifies that the
+// pv_missing label is appended on top of any pre-existing labels on the PV-
+// type entity, rather than replacing them.
+func TestGetMissingPVVolumeUpdateSpecs_PreservesExistingLabels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+				Labels: []types.KeyValue{
+					{Key: "app", Value: "nginx"},
+					{Key: "tier", Value: "frontend"},
+				},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	// Pre-seed the grace tracker to short-circuit the cycle-1 deferral.
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, _, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Len(t, specs, 1)
+
+	labels := map[string]string{}
+	for _, baseEm := range specs[0].Metadata.EntityMetadata {
+		em := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		for _, kv := range em.Labels {
+			labels[kv.Key] = kv.Value
+		}
+	}
+	assert.Equal(t, "true", labels["pv_missing"], "pv_missing label must be set")
+	assert.Equal(t, "nginx", labels["app"], "pre-existing app label must be preserved")
+	assert.Equal(t, "frontend", labels["tier"], "pre-existing tier label must be preserved")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled verifies idempotency: a
+// volume that is already labeled pv_missing=true on its PV entity does not
+// produce a second update spec, even after the grace period is satisfied.
+func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+				Labels: []types.KeyValue{
+					{Key: "pv_missing", Value: "true"},
+				},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	// Pre-seed grace tracker so we skip straight to the labeling decision.
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count, "should not re-label an already-labeled volume")
+	assert.Len(t, specs, 0)
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_SynthesizesPVEntity verifies that volumes
+// with no in-cluster PV-type entity still get labeled via a synthetic PV
+// entity derived from CnsVolume.Name (legacy volumes whose CNS metadata
+// never carried a PV entry).
+func TestGetMissingPVVolumeUpdateSpecs_SynthesizesPVEntity(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	// Note: no entityMetadata at all.
+	vol := makeCNSVolume("vol-1", "legacy-pv-name", clusterID)
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, _, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Len(t, specs, 1)
+	assert.True(t, hasPVMissingTrueLabel(specs[0]))
+	// The synthesized entity must reuse vol.Name as the EntityName so the
+	// label is attached to a stable key.
+	found := false
+	for _, baseEm := range specs[0].Metadata.EntityMetadata {
+		em := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		if em.EntityName == "legacy-pv-name" &&
+			em.EntityType == string(cnstypes.CnsKubernetesEntityTypePV) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "synthesized PV entity must use vol.Name as EntityName")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_ForeignClusterIgnored verifies that
+// PV-type entity metadata that belongs to a different K8s cluster (different
+// ClusterID) is left alone — we do not relabel volumes co-owned by another
+// cluster's PVs.
+func TestGetMissingPVVolumeUpdateSpecs_ForeignClusterIgnored(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	// Vol has a PV entity for a DIFFERENT cluster.
+	vol := makeCNSVolume("vol-1", "", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-on-other-cluster",
+				ClusterID:  "some-other-cluster",
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	// vol.Name is empty AND there's no in-cluster PV entity → nothing to label.
+	assert.Equal(t, 0, count)
+	assert.Len(t, specs, 0)
 }

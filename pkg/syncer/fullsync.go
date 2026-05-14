@@ -457,19 +457,32 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	createSpecArray, updateSpecArray := fullSyncGetVolumeSpecs(ctx, vcenter.Client.Version, k8sPVs,
 		volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap,
 		containerCluster, migrationFeatureStateForFullSync, vc)
-	volToBeDeleted, err := getVolumesToBeDeleted(ctx, queryAllResult.Volumes, k8sPVMap, metadataSyncer,
-		migrationFeatureStateForFullSync, vc)
+
+	// Per the cns-health-initiative design (docs/mermaid/cns-health-initiative/
+	// 03-syncer-no-unregister.mmd), CNS volumes whose matching K8s PV cannot
+	// be found are no longer unregistered (the legacy fullSyncDeleteVolumes
+	// flow that issued DeleteVolume(deleteDisk=false) has been removed).
+	// Instead we label them with `pv_missing=true` on their existing PV-type
+	// CnsKubernetesEntityMetadata, after a two-cycle grace period to absorb
+	// transient races between PV deletion and full-sync execution.
+	missingPVUpdateSpecs, missingPVCount, err := getMissingPVVolumeUpdateSpecs(ctx, queryAllResult.Volumes,
+		k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync, containerCluster, vc)
 	if err != nil {
-		log.Errorf("FullSync for VC %s: failed to get list of volumes to be deleted with err %+v", vc, err)
+		log.Errorf("FullSync for VC %s: failed to compute pv_missing update specs with err %+v", vc, err)
 		return err
+	}
+	prometheus.CnsVolumePVMissingGaugeVec.WithLabelValues(vc).Set(float64(missingPVCount))
+	if len(missingPVUpdateSpecs) > 0 {
+		log.Infof("FullSync for VC %s: applying pv_missing label to %d volume(s)",
+			vc, len(missingPVUpdateSpecs))
+		updateSpecArray = append(updateSpecArray, missingPVUpdateSpecs...)
 	}
 
 	wg := sync.WaitGroup{}
-	wg.Add(3)
+	wg.Add(2)
 	// Perform operations.
 	go fullSyncCreateVolumes(ctx, createSpecArray, metadataSyncer, &wg, migrationFeatureStateForFullSync, volManager, vc)
 	go fullSyncUpdateVolumes(ctx, updateSpecArray, metadataSyncer, &wg, volManager, vc)
-	go fullSyncDeleteVolumes(ctx, volToBeDeleted, metadataSyncer, &wg, migrationFeatureStateForFullSync, volManager, vc)
 	wg.Wait()
 
 	cleanupCnsMaps(k8sPVMap, vc)
@@ -1114,112 +1127,6 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 
 }
 
-// fullSyncDeleteVolumes deletes volumes with given array of volumeId.
-// Before deleting a volume, all current K8s volumes are retrieved.
-// If the volume is successfully deleted, it is removed from cnsDeletionMap.
-func fullSyncDeleteVolumes(ctx context.Context, volumeIDDeleteArray []cnstypes.CnsVolumeId,
-	metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup,
-	migrationFeatureStateForFullSync bool, volManager volumes.Manager, vc string) {
-	defer wg.Done()
-	log := logger.GetLogger(ctx)
-	deleteDisk := false
-	currentK8sPVMap := make(map[string]bool)
-	volumeOperationsLock[vc].Lock()
-	defer volumeOperationsLock[vc].Unlock()
-	// Get all K8s PVs.
-	currentK8sPV, err := getPVsInBoundAvailableOrReleasedForVc(ctx, metadataSyncer, vc)
-	if err != nil {
-		log.Errorf("FullSync for VC %s: fullSyncDeleteVolumes failed to get PVs from kubernetes. Err: %v", vc, err)
-		return
-	}
-
-	// Create map for easy lookup.
-	for _, pv := range currentK8sPV {
-		if pv.Spec.CSI != nil {
-			currentK8sPVMap[pv.Spec.CSI.VolumeHandle] = true
-		} else if migrationFeatureStateForFullSync && pv.Spec.VsphereVolume != nil {
-			migrationVolumeSpec := &migration.VolumeSpec{
-				VolumePath:        pv.Spec.VsphereVolume.VolumePath,
-				StoragePolicyName: pv.Spec.VsphereVolume.StoragePolicyName}
-			volumeHandle, err := volumeMigrationService.GetVolumeID(ctx, migrationVolumeSpec, true)
-			if err != nil {
-				log.Errorf("FullSync for VC %s: Failed to get VolumeID from volumeMigrationService for spec: %v. Err: %+v",
-					vc, migrationVolumeSpec, err)
-				return
-			}
-			currentK8sPVMap[volumeHandle] = true
-		}
-	}
-	var queryVolumeIds []cnstypes.CnsVolumeId
-	for _, volID := range volumeIDDeleteArray {
-		// Delete volume if not present in currentK8sPVMap.
-		if _, existsInK8s := currentK8sPVMap[volID.Id]; !existsInK8s {
-			queryVolumeIds = append(queryVolumeIds, cnstypes.CnsVolumeId{Id: volID.Id})
-		}
-	}
-	// This check is needed to prevent querying all CNS volumes when
-	// queryFilter.VolumeIds does not have any volumes. volumes in the
-	// queryFilter.VolumeIds should be one which is not present in the k8s,
-	// but needs to be verified that it is not in use by any other k8s cluster.
-	if len(queryVolumeIds) == 0 {
-		log.Infof("FullSync for VC %s: fullSyncDeleteVolumes could not find any volume "+
-			"which is not present in k8s and needs to be checked for volume deletion.", vc)
-		return
-	}
-	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds, "", volManager, metadataSyncer)
-	if err != nil {
-		log.Errorf("FullSync for VC %s: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", vc, err)
-		return
-	}
-	// Verify if Volume is not in use by any other Cluster before removing CNS tag
-	for _, queryResult := range allQueryResults {
-		for _, volume := range queryResult.Volumes {
-			inUsebyOtherK8SCluster := false
-			for _, metadata := range volume.Metadata.EntityMetadata {
-				if metadata.(*cnstypes.CnsKubernetesEntityMetadata).ClusterID != clusterIDforVolumeMetadata {
-					inUsebyOtherK8SCluster = true
-					log.Debugf("FullSync for VC %s: fullSyncDeleteVolumes: Volume: %q is "+
-						"in use by other cluster.", vc, volume.VolumeId.Id)
-					break
-				}
-			}
-			if !inUsebyOtherK8SCluster {
-				log.Infof("FullSync for VC %s: fullSyncDeleteVolumes: Calling DeleteVolume for volume %v with delete disk %v",
-					vc, volume.VolumeId.Id, deleteDisk)
-				_, err := volManager.DeleteVolume(ctx, volume.VolumeId.Id, deleteDisk)
-				if err != nil {
-					log.Warnf("FullSync for VC %s: fullSyncDeleteVolumes: Failed to delete volume %s with error %+v",
-						vc, volume.VolumeId.Id, err)
-					continue
-				}
-
-				if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-					// Delete CNSVolumeInfo CR for the volume ID.
-					err = volumeInfoService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
-					if err != nil {
-						log.Errorf("failed to remove volumeID %q for vCenter %q from CNSVolumeInfo CR. Error: %+v",
-							volume.VolumeId.Id, vc, err)
-					}
-				}
-
-				if migrationFeatureStateForFullSync {
-					err = volumeMigrationService.DeleteVolumeInfo(ctx, volume.VolumeId.Id)
-					// For non-migrated volumes DeleteVolumeInfo will not return
-					// error. So, the volume id will be deleted from cnsDeletionMap.
-					if err != nil {
-						log.Warnf("FullSync for VC %s: fullSyncDeleteVolumes: Failed to delete volume mapping CR for %s. Err: %+v",
-							vc, volume.VolumeId.Id, err)
-						continue
-					}
-				}
-			}
-			// Delete volume from cnsDeletionMap which is successfully deleted from
-			// CNS.
-			delete(cnsDeletionMap[vc], volume.VolumeId.Id)
-		}
-	}
-}
-
 // fullSyncUpdateVolumes update metadata for volumes with given array of
 // createSpec.
 func fullSyncUpdateVolumes(ctx context.Context, updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec,
@@ -1535,14 +1442,40 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 	return createSpecArray, updateSpecArray
 }
 
-// getVolumesToBeDeleted return list of volumeIds that need to be deleted.
-// A volumeId is added to this list only if it was present in cnsDeletionMap
-// across two cycles of full sync.
-func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume, k8sPVMap map[string]string,
-	metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool,
-	vc string) ([]cnstypes.CnsVolumeId, error) {
+// getMissingPVVolumeUpdateSpecs scans the CNS volume list for volumes whose
+// corresponding Kubernetes PV cannot be found in k8sPVMap and returns the set
+// of CnsVolumeMetadataUpdateSpec needed to set the `pv_missing=true` label on
+// the existing PV-type CnsKubernetesEntityMetadata of each such volume.
+//
+// A two-cycle grace period is observed: a volume only becomes a candidate for
+// labeling on the second consecutive full-sync where its PV is absent. The
+// per-vCenter cnsDeletionMap (kept under its legacy name to avoid touching
+// unrelated state) is reused as the grace tracker — entries are added on the
+// first miss and act as the "seen before" flag on the second miss.
+//
+// Volumes are skipped if:
+//   - the PVC for the volume is still cached (transient race),
+//   - the volume is an in-use inline-migrated volume (when CSI migration is on),
+//   - the volume's PV-type entity is already labeled `pv_missing=true`,
+//   - the volume has no PV-type entity scoped to this cluster (legacy/foreign).
+//
+// This function replaces the legacy getVolumesToBeDeleted + fullSyncDeleteVolumes
+// pair, which used to call DeleteVolume(deleteDisk=false) to unregister the
+// CNS volume — stranding the underlying FCD invisibly. With the new flow the
+// volume stays registered and remains visible in the vCenter Container Volumes
+// view so a VI admin can inspect and remediate, while observability is exposed
+// through the prometheus.CnsVolumePVMissingGaugeVec metric.
+//
+// The returned count is the number of volumes for which an UpdateSpec was
+// generated and corresponds to what the caller should publish to the
+// pv_missing gauge for this VC.
+func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume,
+	k8sPVMap map[string]string, metadataSyncer *metadataSyncInformer,
+	migrationFeatureStateForFullSync bool, containerCluster cnstypes.CnsContainerCluster,
+	vc string) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
 	log := logger.GetLogger(ctx)
-	var volToBeDeleted []cnstypes.CnsVolumeId
+	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
+
 	// inlineVolumeMap holds the volume path information for migrated volumes
 	// which are used by Pods.
 	inlineVolumeMap := make(map[string]string)
@@ -1551,44 +1484,131 @@ func getVolumesToBeDeleted(ctx context.Context, cnsVolumeList []cnstypes.CnsVolu
 		inlineVolumeMap, err = fullSyncGetInlineMigratedVolumesInfo(ctx, metadataSyncer, migrationFeatureStateForFullSync)
 		if err != nil {
 			log.Errorf("FullSync for VC %s: Failed to get inline migrated volumes. Err: %v", vc, err)
-			return volToBeDeleted, err
+			return nil, 0, err
 		}
 	}
+
 	for _, vol := range cnsVolumeList {
-		if _, existsInK8s := k8sPVMap[vol.VolumeId.Id]; !existsInK8s {
-			if _, existsInCnsDeletionMap := cnsDeletionMap[vc][vol.VolumeId.Id]; existsInCnsDeletionMap {
-				// Volume does not exist in K8s across two fullsync cycles, because
-				// it was present in cnsDeletionMap across two full sync cycles.
-				// Add it to delete list.
-				log.Debugf("FullSync for VC %s: Volume with id %s added to delete list", vc, vol.VolumeId.Id)
-				volToBeDeleted = append(volToBeDeleted, vol.VolumeId)
-			} else {
-				if nsNameStr, ok := metadataSyncer.coCommonInterface.GetPVCNamespacedNameByUID(vol.VolumeId.Id); ok {
-					log.Infof(
-						"Skipping volume %q during full sync: corresponding PVC found in cache at %s, not adding to deletion map",
-						vol.VolumeId.Id,
-						nsNameStr,
-					)
-					continue
-				}
-				// Add to cnsDeletionMap.
-				if migrationFeatureStateForFullSync {
-					// If migration is ON, verify if the volume is present in inlineVolumeMap.
-					if _, existsInInlineVolumeMap := inlineVolumeMap[vol.VolumeId.Id]; !existsInInlineVolumeMap {
-						log.Infof("FullSync for VC %s: Volume with id %q added to cnsDeletionMap", vc, vol.VolumeId.Id)
-						cnsDeletionMap[vc][vol.VolumeId.Id] = true
-					} else {
-						log.Debugf("FullSync for VC %s: Inline migrated volume with id %s is in use. Skipping for deletion",
-							vc, vol.VolumeId.Id)
-					}
-				} else {
-					log.Debugf("FullSync for VC %s: Volume with id %s added to cnsDeletionMap", vc, vol.VolumeId.Id)
-					cnsDeletionMap[vc][vol.VolumeId.Id] = true
-				}
+		if _, existsInK8s := k8sPVMap[vol.VolumeId.Id]; existsInK8s {
+			continue
+		}
+
+		// PVC is still cached: the PV likely has not surfaced in the lister
+		// yet. Defer to the next full-sync cycle rather than racing the API
+		// server's eventual-consistency.
+		if nsNameStr, ok := metadataSyncer.coCommonInterface.GetPVCNamespacedNameByUID(vol.VolumeId.Id); ok {
+			log.Infof(
+				"FullSync for VC %s: Skipping pv_missing labeling for volume %q: PVC found in cache at %s",
+				vc, vol.VolumeId.Id, nsNameStr,
+			)
+			continue
+		}
+
+		// Migrated inline-volumes that are still referenced by a running Pod
+		// must not be labeled as PV-missing; the in-tree volume path is the
+		// authoritative reference, not a PV object.
+		if migrationFeatureStateForFullSync {
+			if _, inUse := inlineVolumeMap[vol.VolumeId.Id]; inUse {
+				log.Debugf("FullSync for VC %s: Skipping pv_missing labeling for in-use inline-migrated volume %q",
+					vc, vol.VolumeId.Id)
+				continue
 			}
 		}
+
+		// Grace period: first time we observe the volume without its PV we
+		// only record it; only on the next cycle do we act on it.
+		if _, seenBefore := cnsDeletionMap[vc][vol.VolumeId.Id]; !seenBefore {
+			cnsDeletionMap[vc][vol.VolumeId.Id] = true
+			log.Infof("FullSync for VC %s: Volume %q has no matching K8s PV; "+
+				"deferring pv_missing label to next cycle (grace period)",
+				vc, vol.VolumeId.Id)
+			continue
+		}
+
+		updateSpec, ok := buildPVMissingUpdateSpec(ctx, vol, containerCluster, vc)
+		if !ok {
+			// Either the volume has no in-cluster PV-type entity or it is
+			// already labeled. Keep it in the grace tracker so subsequent
+			// cycles continue to no-op cheaply.
+			continue
+		}
+		updateSpecArray = append(updateSpecArray, updateSpec)
 	}
-	return volToBeDeleted, nil
+	return updateSpecArray, len(updateSpecArray), nil
+}
+
+// buildPVMissingUpdateSpec returns an UpdateSpec that sets pv_missing=true on
+// the CNS volume's PV-type CnsKubernetesEntityMetadata, preserving any
+// pre-existing labels on those entries.
+//
+// If the volume has one or more in-cluster PV-type entities, each is reissued
+// with the pv_missing label appended.
+//
+// If no in-cluster PV-type entity is present (legacy volumes, or volumes
+// whose CNS metadata never carried a PV entity), a synthetic PV-type entity
+// is generated using the CNS volume's `Name` as the entity name so the label
+// has somewhere to live. Volumes that lack a usable name AND have no
+// in-cluster PV entity are skipped — there is no safe key to attach the
+// label under.
+//
+// Returns (spec, false) if there is nothing to update (every PV entity is
+// already labeled, or no candidate entity could be synthesized).
+func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
+	containerCluster cnstypes.CnsContainerCluster, vc string) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
+	log := logger.GetLogger(ctx)
+	var entityMetadata []cnstypes.BaseCnsEntityMetadata
+	foundInClusterPV := false
+	for _, em := range vol.Metadata.EntityMetadata {
+		k8sEm, ok := em.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok {
+			continue
+		}
+		if k8sEm.ClusterID != clusterIDforVolumeMetadata {
+			// Entity belongs to a different K8s cluster — leave it alone.
+			continue
+		}
+		if k8sEm.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		foundInClusterPV = true
+		labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		if labels[prometheus.PrometheusPVMissingLabelKey] == prometheus.PrometheusPVMissingLabelValue {
+			// Already labeled in CNS; nothing to do for this entity.
+			continue
+		}
+		labels[prometheus.PrometheusPVMissingLabelKey] = prometheus.PrometheusPVMissingLabelValue
+		entityMetadata = append(entityMetadata,
+			cnsvsphere.GetCnsKubernetesEntityMetaData(k8sEm.EntityName, labels, false,
+				k8sEm.EntityType, k8sEm.Namespace, k8sEm.ClusterID, k8sEm.ReferredEntity))
+	}
+
+	if !foundInClusterPV && vol.Name != "" {
+		// Synthesize a PV-type entity so the pv_missing label has a home on
+		// volumes whose CNS metadata never carried a PV entry.
+		labels := map[string]string{
+			prometheus.PrometheusPVMissingLabelKey: prometheus.PrometheusPVMissingLabelValue,
+		}
+		entityMetadata = append(entityMetadata,
+			cnsvsphere.GetCnsKubernetesEntityMetaData(vol.Name, labels, false,
+				string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil))
+	}
+
+	if len(entityMetadata) == 0 {
+		return cnstypes.CnsVolumeMetadataUpdateSpec{}, false
+	}
+	log.Infof("FullSync for VC %s: Adding pv_missing label to volume %q "+
+		"(no matching K8s PV after grace period)", vc, vol.VolumeId.Id)
+	return cnstypes.CnsVolumeMetadataUpdateSpec{
+		VolumeId: cnstypes.CnsVolumeId{Id: vol.VolumeId.Id},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        entityMetadata,
+		},
+	}, true
 }
 
 // buildPVCMapPodMap build two maps to help find
@@ -1686,11 +1706,18 @@ func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataLis
 }
 
 // cleanupCnsMaps performs cleanup on cnsCreationMap and cnsDeletionMap.
-// Removes volume entries from cnsCreationMap that do not exist in K8s
-// and volume entries from cnsDeletionMap that exist in K8s.
-// An entry could have been added to cnsCreationMap (or cnsDeletionMap),
-// because full sync was triggered in between the delete (or create)
-// operation of a volume.
+//
+//   - cnsCreationMap: tracks volumes seen in K8s but not yet in CNS. Entries
+//     whose volume is no longer in K8s are removed (the create candidacy
+//     lapsed before the second cycle could act).
+//   - cnsDeletionMap: now serves as the pv_missing grace tracker (see
+//     getMissingPVVolumeUpdateSpecs). Entries whose volume reappeared in K8s
+//     are removed so the volume is no longer considered "PV missing" and the
+//     grace period resets for any future absence.
+//
+// The map names are retained for historical/test compatibility; their meaning
+// for cnsDeletionMap has shifted from "to be deleted" to "missing PV, awaiting
+// label".
 func cleanupCnsMaps(k8sPVs map[string]string, vc string) {
 	// Cleanup cnsCreationMap.
 	cnsCreationMapForVc := cnsCreationMap[vc]
@@ -1699,11 +1726,11 @@ func cleanupCnsMaps(k8sPVs map[string]string, vc string) {
 			delete(cnsCreationMap[vc], volID)
 		}
 	}
-	// Cleanup cnsDeletionMap.
+	// Cleanup cnsDeletionMap (pv_missing grace tracker).
 	cnsDeletionMapForVc := cnsDeletionMap[vc]
 	for volID := range cnsDeletionMapForVc {
 		if _, existsInK8s := k8sPVs[volID]; existsInK8s {
-			// Delete volume from cnsDeletionMap which is present in kubernetes.
+			// PV reappeared — clear the grace flag.
 			delete(cnsDeletionMap[vc], volID)
 		}
 	}

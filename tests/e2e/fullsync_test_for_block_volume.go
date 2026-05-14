@@ -48,9 +48,14 @@ import (
 //         present.
 // Test 2) Verify labels are created in CNS after updating pvc and/or pv with
 //         new labels.
-// Test 3) Verify CNS volume is deleted after full sync when pv entry is delete.
+// Test 3) Verify CNS volume is labeled pv_missing=true after full sync when
+//         the corresponding K8s PV is deleted (cns-health-initiative change:
+//         volumes are no longer unregistered from CNS when their PV goes
+//         missing — they are labeled instead so VI admins can remediate).
 //
-// Cleanup: Delete PVC and StorageClass and verify volume is deleted from CNS.
+// Cleanup: Delete PVC and StorageClass. Volumes whose K8s PV is missing must
+// be explicitly cleaned up via cnsDeleteVolume(deleteDisk=true); they are no
+// longer auto-removed by full-sync.
 
 var _ bool = ginkgo.Describe("full-sync-test", func() {
 	f := framework.NewDefaultFramework("e2e-full-sync-test")
@@ -206,14 +211,20 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Static PV deletion no longer triggers CNS unregister via full-sync
+		// (cns-health-initiative). Drive the cleanup explicitly so the test
+		// is hermetic and the FCD is not leaked.
+		ginkgo.By(fmt.Sprintf("Explicitly deleting CNS volume %s (deleteDisk=true)", fcdID))
+		err = e2eVSphere.cnsDeleteVolume(ctx, fcdID, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
+		ginkgo.By(fmt.Sprintf("Sweeping FCD: %s (tolerating not-found)", fcdID))
+		_ = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
 			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
@@ -306,98 +317,126 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 
 	})
 
+	// Per the cns-health-initiative change (see pkg/syncer/fullsync.go),
+	// full-sync no longer unregisters CNS volumes whose K8s PV has been
+	// deleted; it labels them pv_missing=true on the existing PV-type
+	// CnsKubernetesEntityMetadata after a two-cycle grace period. This test
+	// verifies the new contract.
 	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-wcp][csi-supervisor]"+
 		"[csi-block-vanilla][csi-block-vanilla-serialized] Verify CNS "+
-		"volume is deleted after full sync when pv entry is delete", ginkgo.Label(p0, block, vanilla, wcp, core,
-		vc70), func() {
-		ginkgo.By("Invoking test to verify CNS volume creation")
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		var sc *storagev1.StorageClass
-		var pvc *v1.PersistentVolumeClaim
-		var err error
-		// Decide which test setup is available to run.
-		if vanillaCluster {
-			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
-		} else if supervisorCluster {
-			ginkgo.By("CNS_TEST: Running for WCP setup")
-			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
-			scParameters[scParamStoragePolicyID] = profileID
-			restClientConfig := getRestConfigClient()
-			setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
-			sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
-				scParameters, "", nil, "", true, "", storagePolicyName)
-		}
-
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer func() {
-			if !supervisorCluster {
-				err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		"volume is labeled pv_missing=true after full sync when pv entry is deleted",
+		ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
+			ginkgo.By("Invoking test to verify CNS volume creation")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var sc *storagev1.StorageClass
+			var pvc *v1.PersistentVolumeClaim
+			var err error
+			// Decide which test setup is available to run.
+			if vanillaCluster {
+				ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+				sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil, nil, "", nil, "", false, "")
+			} else if supervisorCluster {
+				ginkgo.By("CNS_TEST: Running for WCP setup")
+				profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyName)
+				scParameters[scParamStoragePolicyID] = profileID
+				restClientConfig := getRestConfigClient()
+				setStoragePolicyQuota(ctx, restClientConfig, storagePolicyName, namespace, rqLimit)
+				sc, pvc, err = createPVCAndStorageClass(ctx, client, namespace, nil,
+					scParameters, "", nil, "", true, "", storagePolicyName)
 			}
-		}()
 
-		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
-		pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
-			[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
-		pv := pvs[0]
-		fcdID = pv.Spec.CSI.VolumeHandle
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer func() {
+				if !supervisorCluster {
+					err := client.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				}
+			}()
 
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(fcdID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(len(queryResult.Volumes) > 0)
+			ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*v1.PersistentVolumeClaim{pvc}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+			pv := pvs[0]
+			fcdID = pv.Spec.CSI.VolumeHandle
 
-		if len(queryResult.Volumes) > 0 {
-			// Find datastore from the retrieved datastoreURL.
-			finder := find.NewFinder(e2eVSphere.Client.Client, false)
+			queryResult, err := e2eVSphere.queryCNSVolumeWithResult(fcdID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(len(queryResult.Volumes) > 0)
 
-			for _, dc := range datacenters {
-				datacenter, err = finder.Datacenter(ctx, dc)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				finder.SetDatacenter(datacenter)
-				datastore, err = getDatastoreByURL(ctx, queryResult.Volumes[0].DatastoreUrl, datacenter)
-				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				if datastore != nil {
-					break
+			if len(queryResult.Volumes) > 0 {
+				// Find datastore from the retrieved datastoreURL.
+				finder := find.NewFinder(e2eVSphere.Client.Client, false)
+
+				for _, dc := range datacenters {
+					datacenter, err = finder.Datacenter(ctx, dc)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					finder.SetDatacenter(datacenter)
+					datastore, err = getDatastoreByURL(ctx, queryResult.Volumes[0].DatastoreUrl, datacenter)
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					if datastore != nil {
+						break
+					}
 				}
 			}
-		}
-		gomega.Expect(datastore).NotTo(gomega.BeNil())
-		ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
-		isVsanHealthServiceStopped = true
-		err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
-			vsanHealthServiceWaitTime))
-		time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
+			gomega.Expect(datastore).NotTo(gomega.BeNil())
+			ginkgo.By(fmt.Sprintln("Stopping vsan-health on the vCenter host"))
+			isVsanHealthServiceStopped = true
+			err = invokeVCenterServiceControl(ctx, stopOperation, vsanhealthServiceName, vcAddress)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow vsan-health to completely shutdown",
+				vsanHealthServiceWaitTime))
+			time.Sleep(time.Duration(vsanHealthServiceWaitTime) * time.Second)
 
-		ginkgo.By(fmt.Sprintf("Deleting PVC %s in namespace %s", pvc.Name, namespace))
-		err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Deleting PVC %s in namespace %s", pvc.Name, namespace))
+			err = client.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
-		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Deleting the PV %s", pv.Name))
+			err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
-		startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
+			ginkgo.By(fmt.Sprintln("Starting vsan-health on the vCenter host"))
+			startVCServiceWait4VPs(ctx, vcAddress, vsanhealthServiceName, &isVsanHealthServiceStopped)
 
-		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full sync finish", fullSyncWaitTime))
-		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
+			// Wait long enough to clear the full-sync grace period (the first
+			// missed cycle only records the volume in the tracker; the second
+			// cycle applies the label). 2x fullSyncWaitTime is the documented
+			// envelope for the grace window across all clusters.
+			ginkgo.By(fmt.Sprintf("Sleeping for %v seconds (2x fullSyncWaitTime) to span the pv_missing grace period",
+				2*fullSyncWaitTime))
+			time.Sleep(time.Duration(2*fullSyncWaitTime) * time.Second)
 
-		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			ginkgo.By(fmt.Sprintf("Waiting for pv_missing=true label to appear on volume %s", fcdID))
+			err = e2eVSphere.waitForPVMissingLabel(ctx, fcdID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
-			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// Volume must still exist in CNS — the label is on the volume, not
+			// a tombstone. Confirm by direct query.
+			queryResult, err = e2eVSphere.queryCNSVolumeWithResult(fcdID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(queryResult.Volumes).To(gomega.HaveLen(1),
+				"CNS volume must remain registered after missing-PV labeling (unregister flow has been removed)")
 
-	})
+			// Test owns cleanup — full-sync will no longer GC orphaned volumes.
+			ginkgo.By(fmt.Sprintf("Explicitly deleting CNS volume %s (deleteDisk=true) since fullsync "+
+				"no longer unregisters volumes with missing PVs", fcdID))
+			err = e2eVSphere.cnsDeleteVolume(ctx, fcdID, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By(fmt.Sprintf("Waiting for volume %s to be removed from CNS", fcdID))
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// FCD already destroyed via cnsDeleteVolume(deleteDisk=true); this
+			// is a defensive sweep tolerating not-found.
+			ginkgo.By(fmt.Sprintf("Sweeping FCD: %s (tolerating not-found)", fcdID))
+			_ = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
+				[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
+
+		})
 
 	// Fullsync test with multiple PVCs.
 	// 1. create a storage class with reclaim policy as "Retain".
@@ -683,14 +722,19 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Static PV deletion no longer triggers CNS unregister via full-sync
+		// (cns-health-initiative). Drive cleanup explicitly.
+		ginkgo.By(fmt.Sprintf("Explicitly deleting CNS volume %s (deleteDisk=true)", fcdID))
+		err = e2eVSphere.cnsDeleteVolume(ctx, fcdID, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
+		ginkgo.By(fmt.Sprintf("Sweeping FCD: %s (tolerating not-found)", fcdID))
+		_ = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
 			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
@@ -771,14 +815,19 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Static PV deletion no longer triggers CNS unregister via full-sync
+		// (cns-health-initiative). Drive cleanup explicitly.
+		ginkgo.By(fmt.Sprintf("Explicitly deleting CNS volume %s (deleteDisk=true)", fcdID))
+		err = e2eVSphere.cnsDeleteVolume(ctx, fcdID, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.By(fmt.Sprintf("Waiting for volume %s to be deleted", fcdID))
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		ginkgo.By(fmt.Sprintf("Deleting FCD: %s", fcdID))
-		err = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
+		ginkgo.By(fmt.Sprintf("Sweeping FCD: %s (tolerating not-found)", fcdID))
+		_ = deleteFcdWithRetriesForSpecificErr(ctx, fcdID, datastore.Reference(),
 			[]string{disklibUnlinkErr}, []string{objOrItemNotFoundErr})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
 	/*
