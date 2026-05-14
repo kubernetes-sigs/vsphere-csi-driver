@@ -77,7 +77,7 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 	schemeOnce.Do(func() {
 		log.Info("Initializing global scheme for CNS Operator")
 		globalScheme = runtime.NewScheme()
-		
+
 		// Add all schemes sequentially to avoid race conditions
 		if err := cnsoperatorv1alpha1.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add cnsoperatorv1alpha1 to global scheme: %+v", err)
@@ -94,7 +94,7 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 		if err := vmoperatortypes.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add vmoperatortypes to global scheme: %+v", err)
 		}
-		
+
 		log.Info("Global scheme initialization completed successfully")
 	})
 	return globalScheme
@@ -346,7 +346,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 	// Initialize the global scheme once before creating the manager
 	scheme := getGlobalScheme(ctx)
-	
+
 	// Create a new operator to provide shared dependencies and start components
 	// Setting namespace to empty would let operator watch all namespaces.
 	mgr, err := manager.New(restConfig, manager.Options{
