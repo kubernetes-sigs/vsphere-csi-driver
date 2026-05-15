@@ -465,7 +465,54 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				annotations := make(map[string]string)
 				key := fmt.Sprintf("%s/%s", c.tanzukubernetesClusterName, c.guestClusterDist)
 				labels[key] = c.tanzukubernetesClusterUID
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
+
+				// FVS DevOps zone override: when a guest PVC for the new vSAN File Service has
+				// csi.vsphere.volume-requested-topology set by DevOps, propagate it to the
+				// supervisor PVC and override req.AccessibilityRequirements.Preferred. If the
+				// annotation is absent/empty, fvsTopologyOverridden stays false and the existing
+				// TKGsHA topology block below runs unchanged, honoring
+				// req.AccessibilityRequirements.Preferred as today. Gated on
+				// IsVsanFileVolumeServiceEnabled FSS so behavior is unchanged when FSS is off.
+				// Limited to file volumes whose storage class is an FVS SC; block volumes and
+				// legacy file volumes are unaffected.
+				fvsTopologyOverridden := false
+				if IsVsanFileVolumeServiceEnabled && isFileVolumeRequest && !isLinkedCloneRequest {
+					if pvcName == "" || pvcNamespace == "" {
+						msg := fmt.Sprintf("missing guest PVC name/namespace parameters; "+
+							"cannot evaluate FVS topology override for supervisor PVC %s",
+							supervisorPVCName)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+					guestPVC, err := c.guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(
+						ctx, pvcName, metav1.GetOptions{})
+					if err != nil {
+						msg := fmt.Sprintf("failed to get guest PVC %s/%s for FVS topology override: %v",
+							pvcNamespace, pvcName, err)
+						log.Error(msg)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					}
+					if common.IsFVSPersistentVolumeClaim(guestPVC) {
+						if v, ok := guestPVC.Annotations[common.AnnGuestClusterRequestedTopology]; ok &&
+							strings.TrimSpace(v) != "" {
+							normalized, err := validateGuestClusterRequestedTopologyAnnotation(v)
+							if err != nil {
+								msg := fmt.Sprintf("invalid %s annotation on guest PVC %s/%s: %v",
+									common.AnnGuestClusterRequestedTopology, pvcNamespace, pvcName, err)
+								log.Error(msg)
+								return nil, csifault.CSIInvalidArgumentFault,
+									status.Error(codes.InvalidArgument, msg)
+							}
+							annotations[common.AnnGuestClusterRequestedTopology] = normalized
+							fvsTopologyOverridden = true
+							log.Infof("FVS: overriding requested topology for supervisor PVC %s "+
+								"with DevOps annotation %q", supervisorPVCName, normalized)
+						}
+					}
+				}
+
+				if !fvsTopologyOverridden &&
+					commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
 					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||

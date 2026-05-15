@@ -293,6 +293,56 @@ func generateGuestClusterRequestedTopologyJSON(topologies []*csi.Topology) (stri
 	return "[" + strings.Join(segmentsArray, ",") + "]", nil
 }
 
+// validateGuestClusterRequestedTopologyAnnotation validates a DevOps-supplied
+// csi.vsphere.volume-requested-topology annotation value on a guest-cluster
+// PVC and returns its canonical (whitespace-normalized) JSON representation
+// to set on the supervisor PVC.
+//
+// The accepted shape is the same JSON segment-map array used end-to-end with
+// the supervisor, e.g.:
+//
+//	[{"topology.kubernetes.io/zone":"zone-1"},{"topology.kubernetes.io/zone":"zone-2"}]
+//
+// The helper rejects empty input, malformed JSON, an empty array, empty inner
+// maps, and entries with empty keys or values. It does not enforce a specific
+// topology key; the supervisor's existing validation/reconciliation is the
+// source of truth on accepted keys.
+func validateGuestClusterRequestedTopologyAnnotation(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("annotation value is empty")
+	}
+	segments := make([]map[string]string, 0)
+	if err := json.Unmarshal([]byte(trimmed), &segments); err != nil {
+		return "", fmt.Errorf("failed to parse annotation value %q as JSON array of "+
+			"topology segment maps: %v", trimmed, err)
+	}
+	if len(segments) == 0 {
+		return "", fmt.Errorf("annotation value %q must contain at least one topology segment", trimmed)
+	}
+	for i, seg := range segments {
+		if len(seg) == 0 {
+			return "", fmt.Errorf("annotation value %q contains an empty topology segment at index %d",
+				trimmed, i)
+		}
+		for k, v := range seg {
+			if strings.TrimSpace(k) == "" {
+				return "", fmt.Errorf("annotation value %q contains an empty topology key at index %d",
+					trimmed, i)
+			}
+			if strings.TrimSpace(v) == "" {
+				return "", fmt.Errorf("annotation value %q contains an empty topology value for key %q "+
+					"at index %d", trimmed, k, i)
+			}
+		}
+	}
+	normalized, err := json.Marshal(segments)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal normalized topology segments: %v", err)
+	}
+	return string(normalized), nil
+}
+
 // generateVolumeAccessibleTopologyFromPVCAnnotation returns accessible topologies generated using
 // PVC annotation "csi.vsphere.volume-accessible-topology".
 func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolumeClaim) (
