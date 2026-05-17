@@ -56,6 +56,7 @@ import (
 	wcpcapv1alph1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -66,6 +67,14 @@ import (
 )
 
 const informerCreateRetryInterval = 5 * time.Minute
+
+// cbtConfigCRDName is the cluster-scoped name of the CBTConfig CustomResourceDefinition
+// (plural.group, matching cnsdp.vmware.com / cbtconfigs).
+const cbtConfigCRDName = "cbtconfigs.cnsdp.vmware.com"
+
+// cbtConfigCRDPollInterval is how often HandleLateInstallationOfDPOService polls the
+// API server for the CBTConfig CRD when it is not yet installed.
+const cbtConfigCRDPollInterval = 5 * time.Minute
 
 // operationModeWebHookServer indicates container running as webhook server
 const operationModeWebHookServer = "WEBHOOK_SERVER"
@@ -1260,6 +1269,65 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 				log.Infof("Successfully updated CNS-CSI FSS: %q to true", common.WorkloadDomainIsolationFSS)
 			}
 			os.Exit(1)
+		}
+	}
+}
+
+// IsDPOServiceInstalled reports whether the Data Protection Operator service is installed by checking if the
+// CBTConfig CRD is present on the API server. Only meaningful on workload (WCP) clusters.
+func (c *K8sOrchestrator) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
+	log := logger.GetLogger(ctx)
+	restClientConfig, err := clientconfig.GetConfig()
+	if err != nil {
+		return false, fmt.Errorf("failed to get Kubernetes config. Err: %w", err)
+	}
+	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(restClientConfig)
+	if err != nil {
+		return false, fmt.Errorf("failed to create apiextensions clientset. Err: %w", err)
+	}
+	_, err = apiextensionsClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(ctx,
+		cbtConfigCRDName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("Data Protection Operator service is not installed on the cluster.")
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check if DPO service is installed. Err: %w", err)
+	}
+
+	log.Infof("Data Protection Operator service is installed on the cluster.")
+
+	return true, nil
+}
+
+// HandleLateInstallationOfDPOService polls every cbtConfigCRDPollInterval until the Data Protection Operator service's
+// CBTConfig CRD appears, then exits with status 0 so the pod restarts and DP controllers
+// initialise. Transient API errors are retried silently.
+func (c *K8sOrchestrator) HandleLateInstallationOfDPOService(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Waiting for Data Protection Operator service installation (poll interval: %s)",
+		cbtConfigCRDPollInterval)
+	ticker := time.NewTicker(cbtConfigCRDPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("Stopped waiting for Data Protection Operator service: context cancelled")
+			return
+		case <-ticker.C:
+			installed, err := c.IsDPOServiceInstalled(ctx)
+			if err != nil {
+				log.Warnf("transient error checking Data Protection Operator service installation, will retry: %+v",
+					err)
+				continue
+			}
+			if installed {
+				log.Infof("Data Protection Operator service installed." +
+					" Restarting container to initialize DP controllers.")
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
+			}
+			log.Debugf("Data Protection Operator service not yet installed.")
 		}
 	}
 }

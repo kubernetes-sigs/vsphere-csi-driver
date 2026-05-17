@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/sample-controller/pkg/signals"
 
@@ -257,13 +258,22 @@ func (im *InformerManager) AddPodListener(ctx context.Context, add func(obj inte
 	return nil
 }
 
+// InitVolumeAttachmentInformer registers the cluster VolumeAttachment shared informer with the
+// factory (no event handlers). Idempotent. Call before Listen when only the VolumeAttachment
+// lister/cache is needed (e.g. DP operator).
+func (im *InformerManager) InitVolumeAttachmentInformer() {
+	if im.volumeAttachmentInformer != nil {
+		return
+	}
+	im.volumeAttachmentInformer = im.informerFactory.Storage().V1().VolumeAttachments().Informer()
+	im.volumeAttachmentSynced = im.volumeAttachmentInformer.HasSynced
+}
+
 // AddVolumeAttachmentListener hooks up add, update, delete callbacks.
 func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add func(obj interface{}),
 	update func(oldObj, newObj interface{}), remove func(obj interface{})) error {
 	log := logger.GetLogger(ctx)
-	if im.volumeAttachmentInformer == nil {
-		im.volumeAttachmentInformer = im.informerFactory.Storage().V1().VolumeAttachments().Informer()
-	}
+	im.InitVolumeAttachmentInformer()
 
 	_, err := im.volumeAttachmentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    add,
@@ -297,6 +307,16 @@ func (im *InformerManager) GetPodLister() corelisters.PodLister {
 	return im.informerFactory.Core().V1().Pods().Lister()
 }
 
+// GetVolumeAttachmentLister returns the VolumeAttachment lister backed by the shared informer
+// factory. The caller must register the underlying informer first via
+// InitVolumeAttachmentInformer (or AddVolumeAttachmentListener) before Listen() so the cache
+// is started and waited on. On Workload and Vanilla-controller flavors the k8sorchestrator
+// also registers a VolumeAttachment listener on the same singleton, so callers reuse that
+// informer instead of starting a second one.
+func (im *InformerManager) GetVolumeAttachmentLister() storagelistersv1.VolumeAttachmentLister {
+	return im.informerFactory.Storage().V1().VolumeAttachments().Lister()
+}
+
 // Client returns the Kubernetes clientset associated with this informer manager.
 func (im *InformerManager) Client() clientset.Interface {
 	return im.client
@@ -313,14 +333,25 @@ func (im *InformerManager) NamespaceInformerSynced() cache.InformerSynced {
 	return im.namespaceSynced
 }
 
-// Listen starts the Informers.
+// Listen starts the Informers and waits for every registered informer's cache to sync.
+// Only informers whose HasSynced func has been captured (via Add*Listener or Init*Informer)
+// are waited on; unregistered ones are skipped, so callers don't have to register all
+// informers to get a cache-sync wait for the ones they do register.
 func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 	go im.informerFactory.Start(im.stopCh)
-	if im.pvSynced != nil && im.pvcSynced != nil && im.podSynced != nil && im.configMapSynced != nil {
-		if !cache.WaitForCacheSync(im.stopCh, im.pvSynced, im.pvcSynced, im.podSynced, im.configMapSynced) {
+	var synced []cache.InformerSynced
+	for _, fn := range []cache.InformerSynced{
+		im.pvSynced, im.pvcSynced, im.podSynced, im.configMapSynced,
+		im.namespaceSynced, im.volumeAttachmentSynced,
+	} {
+		if fn != nil {
+			synced = append(synced, fn)
+		}
+	}
+	if len(synced) > 0 {
+		if !cache.WaitForCacheSync(im.stopCh, synced...) {
 			return
 		}
-
 	}
 	return im.stopCh
 }

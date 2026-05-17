@@ -723,6 +723,13 @@ func (m *mockCOCommonForFullSync) HandleLateEnablementOfCapability(
 	// No-op for mock
 }
 
+func (m *mockCOCommonForFullSync) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
+	return true, nil
+}
+
+func (m *mockCOCommonForFullSync) HandleLateInstallationOfDPOService(ctx context.Context) {
+}
+
 // mockVolumeManagerForFullSync implements volumes.Manager for testing.
 // cnsVolumes holds a pre-built index of VolumeId.Id -> CnsVolume so that
 // QueryAllVolume and QueryVolumeAsync can return realistic results without

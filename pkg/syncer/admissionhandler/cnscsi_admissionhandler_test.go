@@ -264,6 +264,15 @@ func (m *MockCOCommonInterface) HandleLateEnablementOfCapability(ctx context.Con
 	m.Called(ctx, clusterFlavor, capability, gcPort, gcEndpoint)
 }
 
+func (m *MockCOCommonInterface) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
+	args := m.Called(ctx)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockCOCommonInterface) HandleLateInstallationOfDPOService(ctx context.Context) {
+	m.Called(ctx)
+}
+
 // MockCryptoClient is a mock implementation of crypto.Client
 type MockCryptoClient struct {
 	mock.Mock

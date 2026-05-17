@@ -125,6 +125,11 @@ type COCommonInterface interface {
 	GetPvcObjectByName(ctx context.Context, pvcName string, namespace string) (*v1.PersistentVolumeClaim, error)
 	HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
 		gcPort, gcEndpoint string)
+	// IsDPOServiceInstalled returns whether the Data Protection Operator service is installed on the cluster.
+	IsDPOServiceInstalled(ctx context.Context) (bool, error)
+	// HandleLateInstallationOfDPOService polls until the Data Protection Operator service is installed, then restarts
+	// the container so DP controllers can be initialised.
+	HandleLateInstallationOfDPOService(ctx context.Context)
 	// GetPVCNamespacedNameByUID returns the PVC's namespaced name (namespace/name) for the given UID.
 	// If the PVC is not found in the cache, it returns an empty string and false.
 	GetPVCNamespacedNameByUID(uid string) (k8stypes.NamespacedName, bool)

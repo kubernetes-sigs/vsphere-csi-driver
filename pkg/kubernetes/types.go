@@ -83,4 +83,6 @@ type InformerManager struct {
 
 	// volume attachment informer
 	volumeAttachmentInformer cache.SharedInformer
+	// Function to determine if volumeAttachmentInformer has been synced
+	volumeAttachmentSynced cache.InformerSynced
 }
