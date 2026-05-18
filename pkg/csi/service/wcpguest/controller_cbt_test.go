@@ -348,7 +348,10 @@ func testLocalhostTLSCert(t *testing.T) (caPEM []byte, serverCert tls.Certificat
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
-		DNSNames:     []string{"localhost"},
+		// Include the production TLS ServerName so tests that use the real TLS
+		// dial path (withProductionTLSDialForSubtest) pass the same DNS-SAN
+		// check that production clients perform.
+		DNSNames: []string{"localhost", snapMetadataSrvName},
 	}
 	servDER, err := x509.CreateCertificate(rand.Reader, servTmpl, caTmpl, &servKey.PublicKey, caKey)
 	require.NoError(t, err)
