@@ -527,6 +527,26 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
 				}
+				if commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+					guestClusterAnnot := make(map[string]string)
+					guestClusterAnnot["clusterId"] = c.tanzukubernetesClusterUID
+					guestClusterAnnot["clusterName"] = c.tanzukubernetesClusterName
+					guestClusterAnnot["clusterDist"] = c.guestClusterDist
+					// Add guest PVC information to the same JSON structure
+					if pvcName != "" {
+						guestClusterAnnot["pvcName"] = pvcName
+					}
+					if pvcNamespace != "" {
+						guestClusterAnnot["pvcNamespace"] = pvcNamespace
+					}
+					guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
+					if err != nil {
+						msg := fmt.Sprintf("failed to marshal guest cluster annotation: %+v", err)
+						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+					} else {
+						annotations[common.AnnKeyGuestClusterPvc] = string(guestClusterAnnotJSON)
+					}
+				}
 				// Add CnsVolumeFinalizer to Supervisor PVC if SVPVCSnapshotProtectionFinalizer FSS is enabled
 				finalizers := []string{}
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -1798,9 +1818,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 			ctx, supervisorVolumeSnapshotName, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
-				// New createSnapshot request on the guest
-				// Add "csi.vsphere.guest-initiated-csi-snapshot" annotation on VolumeSnapshot CR in
-				// the supervisor cluster to indicate that snapshot creation is initiated from Guest cluster
 				annotation := make(map[string]string)
 				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
 				labels := make(map[string]string)

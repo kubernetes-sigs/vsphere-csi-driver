@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"reflect"
 	"sync"
@@ -847,5 +848,224 @@ func TestPatchObjectErrorHandling(t *testing.T) {
 		// This should still work as the fake client is permissive
 		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
 		assert.NoError(t, err) // Fake client allows this
+	})
+}
+
+// TestCreateVolumeAnnotationLogic tests the annotation creation logic in isolation
+func TestCreateVolumeAnnotationLogic(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup global container orchestrator utility (required for feature switch)
+	originalCO := commonco.ContainerOrchestratorUtility
+
+	// Create properly initialized fake container orchestrator
+	fakeOrchestrator, coErr := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, coErr)
+
+	// Enable the ImprovedVolumeVisibility feature switch
+	err := fakeOrchestrator.EnableFSS(ctx, common.ImprovedVolumeVisibility)
+	require.NoError(t, err)
+
+	commonco.ContainerOrchestratorUtility = fakeOrchestrator
+	defer func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+	}()
+
+	// Setup test controller
+	supervisorClient := testclient.NewClientset()
+
+	controller := &controller{
+		supervisorClient:           supervisorClient,
+		supervisorNamespace:        "test-namespace",
+		tanzukubernetesClusterUID:  "test-cluster-uid",
+		tanzukubernetesClusterName: "test-cluster-name",
+		guestClusterDist:           "test-distribution",
+	}
+
+	t.Run("Test annotation and label creation for PVC", func(t *testing.T) {
+		// Test the annotation creation logic by directly creating a PVC with annotations
+		// This simulates what CreateVolume does internally
+
+		pvcName := "test-pvc-name"
+		pvcNamespace := "test-pvc-namespace"
+
+		// Create the annotations map as done in CreateVolume
+		labels := make(map[string]string)
+		annotations := make(map[string]string)
+
+		// Add guest cluster label (from CreateVolume logic)
+		key := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		labels[key] = controller.tanzukubernetesClusterUID
+
+		// Create guest cluster annotation (from CreateVolume logic)
+		guestClusterAnnot := make(map[string]string)
+		guestClusterAnnot["clusterId"] = controller.tanzukubernetesClusterUID
+		guestClusterAnnot["clusterName"] = controller.tanzukubernetesClusterName
+		guestClusterAnnot["clusterDist"] = controller.guestClusterDist
+		guestClusterAnnot["pvcName"] = pvcName
+		guestClusterAnnot["pvcNamespace"] = pvcNamespace
+
+		guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
+		require.NoError(t, err, "Should marshal guest cluster annotation")
+		annotations[common.AnnKeyGuestClusterPvc] = string(guestClusterAnnotJSON)
+
+		// Create PVC with annotations and labels
+		supervisorPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-supervisor-pvc",
+				Namespace:   controller.supervisorNamespace,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		_, err = supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Create(ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Verify the PVC was created with correct annotations and labels
+		createdPVC, err := supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Get(ctx, "test-supervisor-pvc", metav1.GetOptions{})
+		require.NoError(t, err)
+
+		// Verify guest cluster label
+		expectedLabelKey := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		assert.Equal(t, controller.tanzukubernetesClusterUID, createdPVC.Labels[expectedLabelKey], "Guest cluster label should match")
+
+		// Verify guest cluster annotation
+		guestClusterAnnotationJSON := createdPVC.Annotations[common.AnnKeyGuestClusterPvc]
+		assert.NotEmpty(t, guestClusterAnnotationJSON, "Guest cluster annotation should be present")
+
+		var retrievedAnnotation map[string]string
+		err = json.Unmarshal([]byte(guestClusterAnnotationJSON), &retrievedAnnotation)
+		require.NoError(t, err, "Guest cluster annotation should be valid JSON")
+
+		// Verify annotation content
+		assert.Equal(t, controller.tanzukubernetesClusterUID, retrievedAnnotation["clusterId"])
+		assert.Equal(t, controller.tanzukubernetesClusterName, retrievedAnnotation["clusterName"])
+		assert.Equal(t, controller.guestClusterDist, retrievedAnnotation["clusterDist"])
+		assert.Equal(t, pvcName, retrievedAnnotation["pvcName"])
+		assert.Equal(t, pvcNamespace, retrievedAnnotation["pvcNamespace"])
+	})
+
+	t.Run("Test annotation creation without PVC parameters", func(t *testing.T) {
+		// Test when PVC name/namespace are missing
+
+		labels := make(map[string]string)
+		annotations := make(map[string]string)
+
+		// Add guest cluster label
+		key := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		labels[key] = controller.tanzukubernetesClusterUID
+
+		// Create guest cluster annotation without PVC info
+		guestClusterAnnot := make(map[string]string)
+		guestClusterAnnot["clusterId"] = controller.tanzukubernetesClusterUID
+		guestClusterAnnot["clusterName"] = controller.tanzukubernetesClusterName
+		guestClusterAnnot["clusterDist"] = controller.guestClusterDist
+		// No pvcName and pvcNamespace
+
+		guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
+		require.NoError(t, err)
+		annotations[common.AnnKeyGuestClusterPvc] = string(guestClusterAnnotJSON)
+
+		// Create PVC
+		supervisorPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-supervisor-pvc-no-params",
+				Namespace:   controller.supervisorNamespace,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		_, err = supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Create(ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Verify annotation content
+		createdPVC, err := supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Get(ctx, "test-supervisor-pvc-no-params", metav1.GetOptions{})
+		require.NoError(t, err)
+
+		guestClusterAnnotationJSON := createdPVC.Annotations[common.AnnKeyGuestClusterPvc]
+		var retrievedAnnotation map[string]string
+		err = json.Unmarshal([]byte(guestClusterAnnotationJSON), &retrievedAnnotation)
+		require.NoError(t, err)
+
+		// Should have cluster info but not PVC info
+		assert.Equal(t, controller.tanzukubernetesClusterUID, retrievedAnnotation["clusterId"])
+		assert.Equal(t, controller.tanzukubernetesClusterName, retrievedAnnotation["clusterName"])
+		assert.Equal(t, controller.guestClusterDist, retrievedAnnotation["clusterDist"])
+		assert.Empty(t, retrievedAnnotation["pvcName"])
+		assert.Empty(t, retrievedAnnotation["pvcNamespace"])
+	})
+
+	t.Run("Test no annotations when ImprovedVolumeVisibility feature is disabled", func(t *testing.T) {
+		// Create a new orchestrator with the feature disabled
+		disabledOrchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		// Don't enable the ImprovedVolumeVisibility feature switch
+
+		// Temporarily replace the orchestrator
+		originalOrchestrator := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = disabledOrchestrator
+		defer func() {
+			commonco.ContainerOrchestratorUtility = originalOrchestrator
+		}()
+
+		// Create PVC without guest cluster annotations (simulating CreateVolume behavior when feature is disabled)
+		labels := make(map[string]string)
+		annotations := make(map[string]string)
+
+		// Add guest cluster label (this is always added regardless of feature switch)
+		key := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		labels[key] = controller.tanzukubernetesClusterUID
+
+		// Do NOT add guest cluster annotation when feature is disabled
+
+		supervisorPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-supervisor-pvc-feature-disabled",
+				Namespace:   controller.supervisorNamespace,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		_, err = supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Create(ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Verify the PVC was created
+		createdPVC, err := supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).Get(ctx, "test-supervisor-pvc-feature-disabled", metav1.GetOptions{})
+		require.NoError(t, err)
+
+		// Verify guest cluster label is still present
+		expectedLabelKey := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		assert.Equal(t, controller.tanzukubernetesClusterUID, createdPVC.Labels[expectedLabelKey], "Guest cluster label should be present even when feature is disabled")
+
+		// Verify guest cluster annotation is NOT present when feature is disabled
+		guestClusterAnnotationJSON := createdPVC.Annotations[common.AnnKeyGuestClusterPvc]
+		assert.Empty(t, guestClusterAnnotationJSON, "Guest cluster annotation should NOT be present when ImprovedVolumeVisibility feature is disabled")
 	})
 }

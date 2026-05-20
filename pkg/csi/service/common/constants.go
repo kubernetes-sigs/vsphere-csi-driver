@@ -411,6 +411,9 @@ const (
 	// AnnKeyLinkedClone is the linked clone annotation on the PVC
 	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
 
+	// AnnKeyGuestCluster is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
+	AnnKeyGuestClusterPvc = "csi.vsphere.volume/guest-cluster-pvc"
+
 	// AnnKeyBackingDiskType is the type of the backing disk.
 	// It is added on the PVC during static volume provisioning
 	// and is used to specify the `CnsBackingType` during volume attachment.
