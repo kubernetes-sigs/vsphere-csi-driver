@@ -62,6 +62,7 @@ import (
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_ATTACH"
 	defaultMaxWorkerThreads = 20
+	attachedVmPrefix        = "cns.vmware.com/usedby-vm-"
 )
 
 // backOffDuration is a map of cnsnodevmattachment name's to the time after
@@ -824,11 +825,38 @@ func addFinalizerToPVC(ctx context.Context, client client.Client,
 	return faulttype, err
 }
 
+// pvcHasUsedByAnnotaion goes through all annotations on the PVC to find out if the PVC is used by any VM or not.
+func pvcHasUsedByAnnotaion(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
+	log := logger.GetLogger(ctx)
+
+	if pvc.Annotations == nil {
+		log.Infof("No annotation found on PVC %s", pvc.Name)
+		return false
+	}
+
+	for key := range pvc.Annotations {
+		if strings.HasPrefix(key, attachedVmPrefix) {
+			log.Infof("Annotation with prefix %s found on PVC %s", attachedVmPrefix, pvc.Name)
+			return true
+		}
+	}
+
+	log.Infof("PVC %s does not contain any annotations with prefix %s", pvc.Name, attachedVmPrefix)
+	return false
+}
+
 // removeFinalizerFromPVC will remove the CNS Finalizer, cns.vmware.com/pvc-protection,
 // from a given PersistentVolumeClaim.
 func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim) (string, error) {
 	log := logger.GetLogger(ctx)
+
+	// Before proceeding with finalizer removal, check if PVC has any used-by annotations
+	if pvcHasUsedByAnnotaion(ctx, pvc) {
+		log.Infof("PVC %s still has used-by annotations, skipping finalizer removal", pvc.Name)
+		return "", nil
+	}
+
 	finalizerFound := false
 	for i, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoptypes.CNSPvcFinalizer {

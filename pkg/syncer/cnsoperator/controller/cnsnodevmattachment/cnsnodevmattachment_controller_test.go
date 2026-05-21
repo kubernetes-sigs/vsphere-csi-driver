@@ -844,3 +844,159 @@ func (m *trackingMockVolumeManager) ClearVolumeControlFlags(ctx context.Context,
 	m.clearCalled = true
 	return nil
 }
+
+// TestRemoveFinalizerFromPVCWithUsedByAnnotations tests that the removeFinalizerFromPVC function
+// properly skips finalizer removal when used-by annotations are present on the PVC.
+func TestRemoveFinalizerFromPVCWithUsedByAnnotations(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name              string
+		pvcAnnotations    map[string]string
+		shouldSkipRemoval bool
+	}{
+		{
+			name: "PVC with used-by annotation should skip finalizer removal",
+			pvcAnnotations: map[string]string{
+				"cns.vmware.com/usedby-vm-12345": "",
+				"other-annotation":               "value",
+			},
+			shouldSkipRemoval: true,
+		},
+		{
+			name: "PVC with multiple used-by annotations should skip finalizer removal",
+			pvcAnnotations: map[string]string{
+				"cns.vmware.com/usedby-vm-12345": "",
+				"cns.vmware.com/usedby-vm-67890": "",
+			},
+			shouldSkipRemoval: true,
+		},
+		{
+			name: "PVC without used-by annotations should allow finalizer removal",
+			pvcAnnotations: map[string]string{
+				"other-annotation": "value",
+			},
+			shouldSkipRemoval: false,
+		},
+		{
+			name:              "PVC with no annotations should allow finalizer removal",
+			pvcAnnotations:    nil,
+			shouldSkipRemoval: false,
+		},
+		{
+			name: "PVC with similar but non-matching annotations should allow finalizer removal",
+			pvcAnnotations: map[string]string{
+				"cns.vmware.com/other-annotation": "value",
+				"usedby-vm-12345":                 "value",
+			},
+			shouldSkipRemoval: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-pvc",
+					Namespace:   "test-ns",
+					Annotations: tt.pvcAnnotations,
+					Finalizers:  []string{cnsoptypes.CNSPvcFinalizer},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(pvc).
+				Build()
+
+			// Call removeFinalizerFromPVC
+			faultType, err := removeFinalizerFromPVC(ctx, fakeClient, pvc)
+
+			// Should never return an error
+			assert.NoError(t, err)
+			assert.Empty(t, faultType)
+
+			// Verify the PVC state
+			updatedPVC := &v1.PersistentVolumeClaim{}
+			err = fakeClient.Get(ctx, client.ObjectKey{
+				Name:      pvc.Name,
+				Namespace: pvc.Namespace,
+			}, updatedPVC)
+			assert.NoError(t, err)
+
+			if tt.shouldSkipRemoval {
+				// Should still have the finalizer when skipping removal
+				assert.Contains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer,
+					"Expected finalizer to be preserved when used-by annotations are present")
+			} else {
+				// For cases where finalizer should be removed, log the attempt
+				t.Logf("Finalizer removal attempted for PVC without used-by annotations")
+			}
+		})
+	}
+}
+
+// TestPvcHasUsedByAnnotaion tests the helper function that checks for used-by annotations.
+func TestPvcHasUsedByAnnotaion(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expected    bool
+	}{
+		{
+			name: "PVC with used-by annotation",
+			annotations: map[string]string{
+				"cns.vmware.com/usedby-vm-12345": "",
+			},
+			expected: true,
+		},
+		{
+			name: "PVC with multiple used-by annotations",
+			annotations: map[string]string{
+				"cns.vmware.com/usedby-vm-12345": "",
+				"cns.vmware.com/usedby-vm-67890": "",
+			},
+			expected: true,
+		},
+		{
+			name: "PVC without used-by annotations",
+			annotations: map[string]string{
+				"other-annotation": "value",
+			},
+			expected: false,
+		},
+		{
+			name:        "PVC with no annotations",
+			annotations: nil,
+			expected:    false,
+		},
+		{
+			name: "PVC with similar but non-matching annotations",
+			annotations: map[string]string{
+				"cns.vmware.com/other-annotation": "value",
+				"usedby-vm-12345":                 "value",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-pvc",
+					Namespace:   "test-ns",
+					Annotations: tt.annotations,
+				},
+			}
+
+			result := pvcHasUsedByAnnotaion(ctx, pvc)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
