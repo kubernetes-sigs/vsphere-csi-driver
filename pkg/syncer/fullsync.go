@@ -126,6 +126,19 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 
+	// On Supervisor cluster, if SupervisorPVCWorkloadTypeAnnotation FSS is enabled,
+	// classify every PVC according to the consumer workload-type signals
+	// (VKS Node VM ownerRef, VKS guest cluster TKGService label, or none)
+	// and reconcile the matching csi.vsphere.volume.type/* annotations. The
+	// annotations are advisory metadata for VI admins, operators, and other
+	// tooling that needs to distinguish VKS-attributable PVCs from purely
+	// supervisor-side ones; they have no functional effect on CSI provisioning.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SupervisorPVCWorkloadTypeAnnotation) {
+			annotateSupervisorPVCsWithWorkloadType(ctx, metadataSyncer)
+		}
+	}
+
 	defer func() {
 		fullSyncStatus := prometheus.PrometheusPassStatus
 		if err != nil {
@@ -1854,6 +1867,189 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 			}
 		}
 	}
+}
+
+// classifySupervisorPVC examines the labels and ownerReferences of a
+// supervisor PVC and returns the set of csi.vsphere.volume.type/* annotation
+// keys that should be present on it. All returned keys map to AnnValueTrue;
+// the value is the same for every category so callers only need the keys.
+//
+// Classification rules (boolean tags, not mutually exclusive):
+//
+//   - AnnKeyVKSNode is included if any OwnerReference has
+//     Kind == OwnerKindVirtualMachine or Kind == OwnerKindVSphereMachine.
+//     This signals that the PVC is consumed as a Node-VM disk in a VKS
+//     guest cluster (lifetime tied to a specific Node VM).
+//
+//   - AnnKeyVKSWorkload is included if any label key contains
+//     TKGServiceLabelMarker. VKS guest-cluster Pod PVCs carry a label of
+//     the form "<gc-name>/TKGService" — the presence of that marker is
+//     authoritative even when the rest of the key has been redacted.
+//
+//   - AnnKeySupervisorWorkload is included only when neither of the above
+//     applies. The annotation is set explicitly rather than implied by
+//     absence so that "no csi.vsphere.volume.type/* annotation at all"
+//     reliably means "fullsync has not yet evaluated this PVC".
+//
+// A PVC that satisfies both Node and Workload signals (rare but possible
+// if, for example, a guest-cluster Pod volume gains a VM owner reference
+// through an out-of-band edit) is double-tagged with vks-node AND
+// vks-workload but is NOT tagged supervisor-workload.
+func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim) map[string]string {
+	desired := make(map[string]string, 2)
+
+	hasVKSNode := false
+	for _, owner := range pvc.OwnerReferences {
+		if owner.Kind == common.OwnerKindVirtualMachine ||
+			owner.Kind == common.OwnerKindVSphereMachine {
+			hasVKSNode = true
+			break
+		}
+	}
+
+	hasVKSWorkload := false
+	for key := range pvc.Labels {
+		if strings.Contains(key, common.TKGServiceLabelMarker) {
+			hasVKSWorkload = true
+			break
+		}
+	}
+
+	if hasVKSNode {
+		desired[common.AnnKeyVKSNode] = common.AnnValueTrue
+	}
+	if hasVKSWorkload {
+		desired[common.AnnKeyVKSWorkload] = common.AnnValueTrue
+	}
+	if !hasVKSNode && !hasVKSWorkload {
+		desired[common.AnnKeySupervisorWorkload] = common.AnnValueTrue
+	}
+	return desired
+}
+
+// reconcilePVCWorkloadTypeAnnotations returns a Strategic-Merge-Patch byte
+// payload that, when applied to pvc, adds every annotation in desired and
+// removes every csi.vsphere.volume.type/* annotation that is NOT in desired.
+// Annotations outside the AnnPrefixVKSWorkloadType namespace are left
+// untouched. Returns (nil, false, nil) if no change is needed; the caller
+// can then skip the API patch entirely.
+//
+// The patch is built via strategic-merge so that:
+//   - other PVC fields (Spec, Status, other annotations) are never touched,
+//   - stale tags are explicitly deleted via the JSON "null" value (the SMP
+//     convention for removing a map entry).
+func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
+	desired map[string]string) ([]byte, bool, error) {
+	annotationsPatch := map[string]interface{}{}
+
+	// 1) Add or update the desired tags.
+	for key, val := range desired {
+		if existing, ok := pvc.Annotations[key]; !ok || existing != val {
+			annotationsPatch[key] = val
+		}
+	}
+
+	// 2) Remove any pre-existing csi.vsphere.volume.type/* tag that is not
+	//    in the desired set. In Strategic Merge Patch, setting a map key
+	//    to JSON null deletes that key.
+	for key := range pvc.Annotations {
+		if !strings.HasPrefix(key, common.AnnPrefixVKSWorkloadType) {
+			continue
+		}
+		if _, keep := desired[key]; !keep {
+			annotationsPatch[key] = nil
+		}
+	}
+
+	if len(annotationsPatch) == 0 {
+		return nil, false, nil
+	}
+
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": annotationsPatch,
+		},
+	}
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return nil, false, err
+	}
+	return body, true, nil
+}
+
+// annotateSupervisorPVCsWithWorkloadType iterates over every PVC in every
+// supervisor namespace and reconciles the csi.vsphere.volume.type/*
+// annotations that classify the PVC's consumer workload type (VKS Node VM,
+// VKS guest-cluster Pod, or supervisor-side workload). See classifySupervisorPVC
+// for the rule set.
+//
+// PVCs being deleted (DeletionTimestamp set) are skipped — there is no
+// value in updating a tombstone and doing so can race with the deletion
+// flow. Errors are logged per-PVC but do NOT abort the loop: classification
+// is idempotent and the next full-sync cycle will reattempt.
+//
+// This helper is gated behind the SupervisorPVCWorkloadTypeAnnotation FSS
+// and only runs in CnsClusterFlavorWorkload (supervisor) deployments.
+func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
+	metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	log.Infof("annotateSupervisorPVCsWithWorkloadType: start")
+	startTime := time.Now()
+
+	k8sClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to get kubernetes client. Err: %v", err)
+		return
+	}
+
+	// Use the informer cache rather than a fresh API list — supervisors with
+	// thousands of namespaces would otherwise pay a multi-second round-trip
+	// on every full-sync cycle.
+	pvcs, err := metadataSyncer.pvcLister.PersistentVolumeClaims(v1.NamespaceAll).List(labels.Everything())
+	if err != nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list supervisor PVCs. Err: %v", err)
+		return
+	}
+
+	var patched, skipped, failed int
+	for _, pvc := range pvcs {
+		if pvc.ObjectMeta.DeletionTimestamp != nil {
+			skipped++
+			continue
+		}
+		desired := classifySupervisorPVC(pvc)
+		patchBytes, needsPatch, err := reconcilePVCWorkloadTypeAnnotations(pvc, desired)
+		if err != nil {
+			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to build patch for PVC %s/%s. Err: %v",
+				pvc.Namespace, pvc.Name, err)
+			failed++
+			continue
+		}
+		if !needsPatch {
+			skipped++
+			continue
+		}
+		_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx,
+			pvc.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+		if err != nil {
+			// IsNotFound: the PVC was deleted between List and Patch. Treat
+			// as transient — the next full-sync cycle will re-evaluate the
+			// rest of the cluster.
+			if apierrors.IsNotFound(err) {
+				skipped++
+				continue
+			}
+			log.Warnf("annotateSupervisorPVCsWithWorkloadType: failed to patch PVC %s/%s. Err: %v",
+				pvc.Namespace, pvc.Name, err)
+			failed++
+			continue
+		}
+		log.Infof("annotateSupervisorPVCsWithWorkloadType: reconciled workload-type annotations on PVC %s/%s",
+			pvc.Namespace, pvc.Name)
+		patched++
+	}
+	log.Infof("annotateSupervisorPVCsWithWorkloadType: end. total=%d patched=%d skipped=%d failed=%d elapsed=%s",
+		len(pvcs), patched, skipped, failed, time.Since(startTime))
 }
 
 // cleanupUnusedPVCsAndSnapshotsFromGuestCluster iterates over all PVCs and VolumeSnapshots and
