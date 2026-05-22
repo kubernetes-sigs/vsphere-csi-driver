@@ -884,7 +884,8 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 
 	t.Run("Test annotation and label creation for PVC", func(t *testing.T) {
 		// Test the annotation creation logic by directly creating a PVC with annotations
-		// This simulates what CreateVolume does internally
+		// This simulates what CreateVolume does internally when external-provisioner 
+		// sets the PVC metadata parameters with --extra-create-metadata flag
 
 		pvcName := "test-pvc-name"
 		pvcNamespace := "test-pvc-namespace"

@@ -29,7 +29,6 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -117,11 +116,9 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 				needsCleanup = true
 			}
 
-			if commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
-				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
-					delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
-					needsCleanup = true
-				}
+			if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
+				delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
+				needsCleanup = true
 			}
 
 			if needsCleanup {
