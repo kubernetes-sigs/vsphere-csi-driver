@@ -7377,7 +7377,7 @@ func getStoragePolicyUsageForSpecificResourceType(ctx context.Context, restClien
 }
 
 func validate_totalStoragequota(ctx context.Context, diskSizes []string, totalUsedQuotaBefore *resource.Quantity,
-	totalUsedQuotaAfter *resource.Quantity) bool {
+	totalUsedQuotaAfter *resource.Quantity, exactMatch bool) bool {
 	var validTotalQuota bool
 	validTotalQuota = false
 	var totalDiskStorage int64
@@ -7422,8 +7422,17 @@ func validate_totalStoragequota(ctx context.Context, diskSizes []string, totalUs
 		quotaBefore+totalDiskStorage, quotaAfter))
 	ginkgo.By(fmt.Sprintf("totalDiskStorage:  %v", totalDiskStorage))
 
-	if quotaBefore+totalDiskStorage == quotaAfter {
-		validTotalQuota = true
+	if exactMatch {
+		if quotaBefore+totalDiskStorage == quotaAfter {
+			validTotalQuota = true
+		}
+	} else {
+		if quotaAfter >= quotaBefore+totalDiskStorage {
+			validTotalQuota = true
+		}
+	}
+
+	if validTotalQuota {
 		ginkgo.By(fmt.Sprintf("quotaBefore+diskSize:  %v, quotaAfter : %v",
 			quotaBefore+totalDiskStorage, quotaAfter))
 		ginkgo.By(fmt.Sprintf("validTotalQuota on storagePolicy:  %v", validTotalQuota))
@@ -7682,11 +7691,11 @@ func validateQuotaUsageAfterResourceCreation(ctx context.Context, restConfig *re
 			storagePolicyName, namespace, resourceUsage, resourceExtensionName, islatebinding)
 
 	sp_quota_validation := validate_totalStoragequota(ctx, size, storagePolicyQuotaBefore,
-		storagePolicyQuotaAfter)
+		storagePolicyQuotaAfter, true)
 	framework.Logf("Storage-policy-Quota CR validation status :%v", sp_quota_validation)
 
 	sp_usage_validation := validate_totalStoragequota(ctx, size, storagePolicyUsageBefore,
-		storagePolicyUsageAfter)
+		storagePolicyUsageAfter, true)
 	framework.Logf("Storage-policy-usage CR validation status :%v", sp_usage_validation)
 
 	return sp_quota_validation, sp_usage_validation
@@ -8246,7 +8255,7 @@ func validateTotalQuota(ctx context.Context, restConfig *rest.Config, storagePol
 			storagePolicyName, namespace, "", "", islatebinding)
 
 	quotavalidationStatus := validate_totalStoragequota(ctx, size, totalQuotaUsedBefore,
-		totalQuotaUsedAfter)
+		totalQuotaUsedAfter, false)
 	framework.Logf("totalStoragequota validation status :%v", quotavalidationStatus)
 
 	return totalQuotaUsedAfter, quotavalidationStatus

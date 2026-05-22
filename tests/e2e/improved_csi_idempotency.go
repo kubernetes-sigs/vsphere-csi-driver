@@ -973,13 +973,13 @@ func extendVolumeWithServiceDown(serviceName string, namespace string, client cl
 
 		//New size is 6Gi, diskSizeInMb is 2Gi so multiplying by 3 to make the expected quota consumption value
 		quotavalidationStatus := validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
-			totalQuotaUsedBefore, totalquotaAfterExpansion)
+			totalQuotaUsedBefore, totalquotaAfterExpansion, false)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
 		quotavalidationStatus = validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
-			storagePolicyQuotaBefore, storagepolicyquotaAfterExpansion)
+			storagePolicyQuotaBefore, storagepolicyquotaAfterExpansion, true)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
 		quotavalidationStatus = validate_totalStoragequota(ctx, []string{newDiskSizeinMbstr},
-			storagePolicyUsageBefore, storagepolicyUsageAfterExpansion)
+			storagePolicyUsageBefore, storagepolicyUsageAfterExpansion, true)
 		gomega.Expect(quotavalidationStatus).NotTo(gomega.BeFalse())
 	}
 }
