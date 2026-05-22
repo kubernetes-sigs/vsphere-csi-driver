@@ -53,7 +53,7 @@ type Encryption struct {
 
 	// EncryptionTypes indicates the types of encryption.
 	// +optional
-	EncryptionTypes []EncryptionType `json:"encryptionTypes"`
+	EncryptionTypes []EncryptionType `json:"encryptionTypes,omitempty"`
 }
 
 // Performance describes performance characteristics (vSAN only).

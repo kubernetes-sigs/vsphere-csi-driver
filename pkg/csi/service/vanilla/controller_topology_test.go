@@ -359,6 +359,13 @@ func (f *FakeTopologyManager) ZonesWithMultipleClustersExist(ctx context.Context
 	return false
 }
 
+// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+func (f *FakeTopologyManager) GetAccessibleZonesForDatastore(ctx context.Context,
+	datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error) {
+	// Return a fake zone for testing
+	return []string{"fake-zone"}, nil
+}
+
 var vcsimParamsTopology = unittestcommon.VcsimParams{
 	Datacenters:     2,
 	Clusters:        1,

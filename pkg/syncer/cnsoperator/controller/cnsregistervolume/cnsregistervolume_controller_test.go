@@ -1465,6 +1465,12 @@ func (m *mockTopologyService) ZonesWithMultipleClustersExist(ctx context.Context
 	return false
 }
 
+// GetAccessibleZonesForDatastore returns all zones where the specified datastore is accessible.
+func (m *mockTopologyService) GetAccessibleZonesForDatastore(ctx context.Context,
+	datastoreURL string, vc *cnsvsphere.VirtualCenter) ([]string, error) {
+	return []string{"default-zone"}, nil
+}
+
 func TestCnsRegisterVolumeController(t *testing.T) {
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
 

@@ -45,12 +45,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
+	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -98,6 +99,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	// Initialize topology service.
+	topologyMgr, err := commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
+	if err != nil {
+		log := logger.GetLogger(ctx)
+		log.Warnf("Failed to initialize topology service in ClusterStoragePolicyInfo controller: %v", err)
+	}
+
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(
 		&typedcorev1.EventSinkImpl{
@@ -105,17 +113,20 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, topologyMgr, recorder))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
+	topologyMgr commoncotypes.ControllerTopologyService,
 	recorder record.EventRecorder) *ReconcileClusterStoragePolicyInfo {
+
 	return &ReconcileClusterStoragePolicyInfo{
-		client:     mgr.GetClient(),
-		scheme:     mgr.GetScheme(),
-		configInfo: configInfo,
-		recorder:   recorder,
-		mgr:        mgr,
+		client:      mgr.GetClient(),
+		scheme:      mgr.GetScheme(),
+		configInfo:  configInfo,
+		recorder:    recorder,
+		mgr:         mgr,
+		topologyMgr: topologyMgr,
 	}
 }
 
@@ -193,11 +204,12 @@ var _ reconcile.Reconciler = &ReconcileClusterStoragePolicyInfo{}
 
 // ReconcileClusterStoragePolicyInfo reconciles ClusterStoragePolicyInfo objects.
 type ReconcileClusterStoragePolicyInfo struct {
-	client     client.Client
-	scheme     *runtime.Scheme
-	configInfo *config.ConfigurationInfo
-	recorder   record.EventRecorder
-	mgr        manager.Manager
+	client      client.Client
+	scheme      *runtime.Scheme
+	configInfo  *config.ConfigurationInfo
+	recorder    record.EventRecorder
+	mgr         manager.Manager
+	topologyMgr commoncotypes.ControllerTopologyService
 }
 
 // Reconcile syncs storage policy attributes from the vCenter.
@@ -250,21 +262,79 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		log.Infof("Instance was created, creation event will trigger next reconcile")
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
-	// Sync storage policy attributes from vCenter
-	err = r.syncStoragePolicyAttributes(ctx, instance)
+
+	// Ensure InfraStoragePolicyInfo CR exists with the same name
+	infraSPI, err := r.ensureInfraSPIExists(ctx, instance)
 	if err != nil {
-		log.Errorf("Failed to sync storage policy attributes for %q: %v.", request.Name, err)
-		errorMsg := fmt.Sprintf("Failed to sync storage policy attributes: %v", err)
-		if setErr := r.setInstanceError(ctx, instance, errorMsg); setErr != nil {
+		log.Errorf("Failed to ensure InfraStoragePolicyInfo exists for %q: %v", request.Name, err)
+		errorMsg := fmt.Sprintf("Failed to ensure InfraStoragePolicyInfo exists: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	statusErr := r.setInstanceSuccess(ctx, instance, "Successfully synced storage policy attributes")
+	// Connect to vCenter.
+	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	if err != nil {
+		log.Errorf("Failed to get vCenter instance for %q: %v", request.Name, err)
+		errorMsg := fmt.Sprintf("Failed to get vCenter instance: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+			log.Errorf("Failed to set error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
+	// Find storage policy profile by K8s compliant name
+	profile, policyDeleted, err := findStoragePolicyProfile(ctx, instance, vc)
+	if err != nil {
+		errorMsg := fmt.Sprintf("Failed to lookup storage policy: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+			log.Errorf("Failed to set error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if policyDeleted {
+		// Policy was deleted - update status and return success
+		if statusErr := r.setClusterSPISuccess(ctx, instance, "Storage policy deleted from vCenter"); statusErr != nil {
+			log.Errorf("failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
+			return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
+		}
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
+	}
+
+	// Sync storage policy attributes for ClusterSPI instance.
+	err = r.syncClusterSPIAttributes(ctx, instance, vc, profile)
+	if err != nil {
+		log.Errorf("Failed to sync storage policy attributes for %q: %v.", request.Name, err)
+		errorMsg := fmt.Sprintf("Failed to sync storage policy attributes: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+			log.Errorf("Failed to set error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
+	statusErr := r.setClusterSPISuccess(ctx, instance, "Successfully synced storage policy attributes")
 	if statusErr != nil {
 		log.Errorf("failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
+	}
+
+	// Sync InfraSPI attributes for InfraSPI instance.
+	err = r.syncInfraSPIAttributes(ctx, instance, infraSPI, vc, profile)
+	if err != nil {
+		log.Errorf("Failed to sync InfraSPI attributes for %q: %v.", request.Name, err)
+		errorMsg := fmt.Sprintf("Failed to sync InfraSPI attributes: %v", err)
+		if setErr := r.setInfraSPIError(ctx, infraSPI, errorMsg); setErr != nil {
+			log.Errorf("Failed to set infraSPI error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
+	infraSPIStatusErr := r.setInfraSPISuccess(ctx, infraSPI, "Successfully synced InfraSPI attributes")
+	if infraSPIStatusErr != nil {
+		log.Errorf("failed to update status for InfraStoragePolicyInfo %q: %v", request.Name, infraSPIStatusErr)
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, infraSPIStatusErr)
 	}
 
 	log.Infof("Successfully synced storage policy attributes for %q", request.Name)
@@ -385,6 +455,93 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureClusterSPIInstance(ctx context
 	return updatedInstance, false, err
 }
 
+// ensureInfraSPIExists creates an InfraStoragePolicyInfo CR with the same name as the ClusterSPI
+// and sets the ClusterSPI as its owner reference. Returns the InfraSPI instance.
+func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIExists(ctx context.Context,
+	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo) (*infraspiv1alpha1.InfraStoragePolicyInfo, error) {
+	log := logger.GetLogger(ctx)
+
+	// Check if InfraSPI already exists
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+	err := r.client.Get(ctx, apitypes.NamespacedName{Name: clusterSPI.Name}, infraSPI)
+	if err == nil {
+		// InfraSPI already exists, check if it has the correct owner reference
+		err := r.ensureInfraSPIOwnerReference(ctx, infraSPI, clusterSPI)
+		return infraSPI, err
+	}
+
+	if !apierrors.IsNotFound(err) {
+		log.Errorf("Failed to get InfraStoragePolicyInfo %q: %v", clusterSPI.Name, err)
+		return nil, err
+	}
+
+	// Create InfraSPI with ClusterSPI as owner reference
+	ownerRef, err := generateOwnerReference(r.scheme, clusterSPI)
+	if err != nil {
+		log.Errorf("Failed to generate owner reference for ClusterSPI %q: %v", clusterSPI.Name, err)
+		return nil, err
+	}
+
+	infraSPI = &infraspiv1alpha1.InfraStoragePolicyInfo{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: apis.SchemeGroupVersion.String(),
+			Kind:       "InfraStoragePolicyInfo",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            clusterSPI.Name,
+			OwnerReferences: []metav1.OwnerReference{ownerRef},
+		},
+	}
+
+	err = r.client.Create(ctx, infraSPI)
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			// If it was created between our check and create, update owner references
+			err = r.client.Get(ctx, apitypes.NamespacedName{Name: clusterSPI.Name}, infraSPI)
+			if err != nil {
+				return nil, err
+			}
+			err := r.ensureInfraSPIOwnerReference(ctx, infraSPI, clusterSPI)
+			return infraSPI, err
+		}
+		log.Errorf("Failed to create InfraStoragePolicyInfo %q: %v", clusterSPI.Name, err)
+		return nil, err
+	}
+
+	log.Infof("Created InfraStoragePolicyInfo %q with owner reference to ClusterSPI", clusterSPI.Name)
+	return infraSPI, nil
+}
+
+// ensureInfraSPIOwnerReference ensures that the InfraSPI has the correct owner reference to the ClusterSPI.
+func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Context,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo) error {
+	log := logger.GetLogger(ctx)
+
+	// Generate expected owner reference
+	expectedOwnerRef, err := generateOwnerReference(r.scheme, clusterSPI)
+	if err != nil {
+		log.Errorf("Failed to generate owner reference for ClusterSPI %q: %v", clusterSPI.Name, err)
+		return err
+	}
+
+	// Check if owner reference needs to be added or updated
+	currentOwnerRefs := infraSPI.OwnerReferences
+	updatedOwnerRefs := mergeOwnerReference(currentOwnerRefs, expectedOwnerRef)
+
+	// Update if needed
+	if !equality.Semantic.DeepEqual(infraSPI.OwnerReferences, updatedOwnerRefs) {
+		base := infraSPI.DeepCopy()
+		infraSPI.OwnerReferences = updatedOwnerRefs
+		if err := r.client.Patch(ctx, infraSPI, client.MergeFrom(base)); err != nil {
+			log.Errorf("Failed to update InfraStoragePolicyInfo %q owner references: %v", infraSPI.Name, err)
+			return err
+		}
+		log.Infof("Updated InfraStoragePolicyInfo %q owner references", infraSPI.Name)
+	}
+
+	return nil
+}
+
 // validateAndUpdateOwnerReferences validates and updates owner references on existing
 // ClusterStoragePolicyInfo instance.
 func (r *ReconcileClusterStoragePolicyInfo) validateAndUpdateOwnerReferences(ctx context.Context,
@@ -439,50 +596,20 @@ func (r *ReconcileClusterStoragePolicyInfo) completeReconciliationWithError(ctx 
 		types.MaxBackOffDurationForReconciler)
 	backOffDurationMapMutex.Unlock()
 
-	log.Errorf("Failed to reconcile ClusterStoragePolicyInfo. Err: %v. Will retry after %v",
-		namespacedName.Name, err, timeout)
+	log.Errorf("Failed to reconcile ClusterStoragePolicyInfo. Err: %v",
+		namespacedName.Name, err)
 
 	return reconcile.Result{RequeueAfter: timeout}, nil
 }
 
-// syncStoragePolicyAttributes syncs storage policy attributes from vCenter.
-func (r *ReconcileClusterStoragePolicyInfo) syncStoragePolicyAttributes(ctx context.Context,
-	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo) error {
+// syncClusterSPIAttributes syncs storage policy attributes from vCenter.
+func (r *ReconcileClusterStoragePolicyInfo) syncClusterSPIAttributes(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, vc *cnsvsphere.VirtualCenter,
+	profile *cnsvsphere.ProfileDetail) error {
 	log := logger.GetLogger(ctx)
 
-	// The instance.Name is the K8s compliant name, which can be used directly
-	// to search for the storage policy using the new queryProfileDetails API
-	k8sCompliantName := instance.Name
-	log.Infof("Checking storage policy for K8s compliant name %q (ClusterStoragePolicyInfo %q)",
-		k8sCompliantName, instance.Name)
-
-	// Connect to vCenter
-	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
-	if err != nil {
-		return fmt.Errorf("failed to get vCenter instance: %w", err)
-	}
-
-	// Use the new API to find profile by K8s compliant name
-	profile, faultType, err := vc.FindProfileByK8sCompliantName(ctx, k8sCompliantName)
-	if err != nil {
-		if faultType == fault.CSINotFoundFault {
-			// Profile not found - this is expected when policy is deleted
-			log.Warnf("Storage policy with K8s compliant name %q not found in vCenter: %v", k8sCompliantName, err)
-			instance.Status.StoragePolicyDeleted = true
-			// If policy is deleted from the VC, we do not need to proceed further.
-			return nil
-		} else {
-			// Other errors (like internal errors) should be returned as failures
-			log.Errorf("Failed to query storage policy with K8s compliant name %q (fault: %s): %v",
-				k8sCompliantName, faultType, err)
-			return fmt.Errorf("failed to query storage policy: %w", err)
-		}
-	}
-
-	// Profile found - policy exists
-	log.Infof("Storage policy found with K8s compliant name %q: ID=%s, Name=%s",
-		k8sCompliantName, profile.ID, profile.Name)
-	instance.Status.StoragePolicyDeleted = false
+	log.Infof("Syncing storage policy attributes for ClusterStoragePolicyInfo %q (policy ID: %s, name: %s)",
+		instance.Name, profile.ID, profile.Name)
 
 	// Retrieve policy content for analysis
 	policyContent, err := vc.PbmRetrieveContent(ctx, []string{profile.ID})
@@ -513,8 +640,71 @@ func (r *ReconcileClusterStoragePolicyInfo) syncStoragePolicyAttributes(ctx cont
 	return overallErr
 }
 
-// setInstanceError sets error and records an event on the ClusterStoragePolicyInfo instance.
-func (r *ReconcileClusterStoragePolicyInfo) setInstanceError(ctx context.Context,
+// syncInfraSPIAttributes syncs InfraStoragePolicyInfo attributes from vCenter
+func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	vc *cnsvsphere.VirtualCenter, profile *cnsvsphere.ProfileDetail) error {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("Syncing InfraSPI attributes for %q (policy ID: %s, name: %s)",
+		instance.Name, profile.ID, profile.Name)
+
+	// Populate topology capabilities for InfraSPI if policy uses zonal topology
+	err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc)
+	if err != nil {
+		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
+		return err
+	}
+
+	return nil
+}
+
+// populateTopologyCapabilities populates topology information for the storage policy in InfraSPI
+func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx context.Context,
+	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
+	vc *cnsvsphere.VirtualCenter) error {
+	log := logger.GetLogger(ctx)
+
+	// Get StorageClass that references this policy
+	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
+	if err != nil {
+		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
+	}
+
+	// Get the StorageTopologyType parameter value from StorageClass
+	topologyType, err := getStorageTopologyType(ctx, storageClass)
+	if err != nil {
+		log.Errorf("Storage policy %s does not have StorageTopologyType parameter, skipping topology population: %v",
+			profileID, err)
+		return err
+	}
+
+	log.Infof("Storage policy %s has topology type: %q", profileID, topologyType)
+
+	// Initialize topology status with the topology type
+	infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
+		TopologyType: topologyType,
+	}
+
+	log.Infof("Storage policy %s uses zonal topology, populating accessible zones", profileID)
+
+	// Get accessible zones directly using topology service
+	accessibleZones, err := getAccessibleZonesForPolicy(ctx, r.topologyMgr, vc, profileID)
+	if err != nil {
+		return fmt.Errorf("failed to get accessible zones: %w", err)
+	}
+
+	// Update InfraSPI with topology information including accessible zones
+	infraSPI.Status.Topology.AccessibleZones = accessibleZones
+	log.Infof("Storage policy %s is accessible in zones: %v", profileID, accessibleZones)
+
+	return nil
+}
+
+// setClusterSPIError sets error and records an event on the ClusterStoragePolicyInfo instance.
+func (r *ReconcileClusterStoragePolicyInfo) setClusterSPIError(ctx context.Context,
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, errMsg string) error {
 	instance.Status.Error = errMsg
 	err := k8s.UpdateStatus(ctx, r.client, instance)
@@ -526,9 +716,9 @@ func (r *ReconcileClusterStoragePolicyInfo) setInstanceError(ctx context.Context
 	return nil
 }
 
-// setInstanceSuccess sets instance to success and records an event on the
+// setClusterSPISuccess sets instance to success and records an event on the
 // ClusterStoragePolicyInfo instance.
-func (r *ReconcileClusterStoragePolicyInfo) setInstanceSuccess(ctx context.Context,
+func (r *ReconcileClusterStoragePolicyInfo) setClusterSPISuccess(ctx context.Context,
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, msg string) error {
 	// Clear error but preserve other status fields that were set during sync
 	instance.Status.Error = ""
@@ -562,6 +752,59 @@ func (r *ReconcileClusterStoragePolicyInfo) recordEvent(ctx context.Context,
 		backOffDurationMapMutex.Lock()
 		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "ClusterStoragePolicyInfoSynced", msg)
+		backOffDurationMapMutex.Unlock()
+	}
+}
+
+// setInfraSPIError sets error and records an event on the InfraStoragePolicyInfo instance.
+func (r *ReconcileClusterStoragePolicyInfo) setInfraSPIError(ctx context.Context,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, errMsg string) error {
+	infraSPI.Status.Error = errMsg
+	err := k8s.UpdateStatus(ctx, r.client, infraSPI)
+	if err != nil {
+		return err
+	}
+
+	r.recordInfraSPIEvent(ctx, infraSPI, v1.EventTypeWarning, errMsg)
+	return nil
+}
+
+// setInfraSPISuccess sets instance to success and records an event on the
+// InfraStoragePolicyInfo instance.
+func (r *ReconcileClusterStoragePolicyInfo) setInfraSPISuccess(ctx context.Context,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, msg string) error {
+	// Clear error but preserve other status fields that were set during sync
+	infraSPI.Status.Error = ""
+	err := k8s.UpdateStatus(ctx, r.client, infraSPI)
+	if err != nil {
+		return err
+	}
+
+	r.recordInfraSPIEvent(ctx, infraSPI, v1.EventTypeNormal, msg)
+	return nil
+}
+
+// recordInfraSPIEvent records events for InfraStoragePolicyInfo instances and handles backoff duration management
+func (r *ReconcileClusterStoragePolicyInfo) recordInfraSPIEvent(ctx context.Context,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, eventtype string, msg string) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("InfraSPI Event type is %s", eventtype)
+	namespacedName := apitypes.NamespacedName{
+		Name: infraSPI.Name,
+	}
+	switch eventtype {
+	case v1.EventTypeWarning:
+		// Double backOff duration.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+			types.MaxBackOffDurationForReconciler)
+		r.recorder.Event(infraSPI, v1.EventTypeWarning, "InfraStoragePolicyInfoFailed", msg)
+		backOffDurationMapMutex.Unlock()
+	case v1.EventTypeNormal:
+		// Reset backOff duration to 1 second on success.
+		backOffDurationMapMutex.Lock()
+		backOffDuration[namespacedName] = time.Second
+		r.recorder.Event(infraSPI, v1.EventTypeNormal, "InfraStoragePolicyInfoSynced", msg)
 		backOffDurationMapMutex.Unlock()
 	}
 }

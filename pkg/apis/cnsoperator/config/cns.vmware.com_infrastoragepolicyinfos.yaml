@@ -60,9 +60,13 @@ spec:
                       type: string
                     type: array
                     x-kubernetes-list-type: set
-                  error:
-                    description: Error describes a failure condition when resolving
-                      topology for this storage policy.
+                  topologyType:
+                    description: |-
+                      TopologyType describes the type of topology for the storage policy.
+                      Valid values are empty (no topology) or "zonal" (zone-based topology).
+                    enum:
+                    - ""
+                    - zonal
                     type: string
                 type: object
               volumeCapabilities:
@@ -82,4 +86,3 @@ status:
     plural: ""
   conditions: []
   storedVersions: []
-
