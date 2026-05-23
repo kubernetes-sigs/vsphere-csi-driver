@@ -19,9 +19,11 @@ package syncer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1938,4 +1940,185 @@ func TestInitMigrationWatchersOnStartup(t *testing.T) {
 
 		// Test passes if no panic occurred and function processed PVCs correctly
 	})
+}
+
+// ---------------------------------------------------------------------------
+// TestCreateVACStoragePolicyUsageCRsFromList – unit tests for the inner
+// VAC-SPU creation loop that is exercised by both
+// createVACStoragePolicyUsageCRs and createVACStoragePolicyUsageCRsForFullSync.
+// ---------------------------------------------------------------------------
+
+// newVACFakeClient returns a fake controller-runtime client seeded with the
+// CNS operator scheme so StoragePolicyUsage objects can be created/listed.
+func newVACFakeClient(objs ...client.Object) client.Client {
+	scheme := runtime.NewScheme()
+	_ = cnsoperatorv1alpha1.AddToScheme(scheme)
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+}
+
+// makeVAC builds a VolumeAttributesClass with the given policy ID in its
+// parameters (the same key that getStoragePolicyIDFromVAC looks for).
+func makeVAC(name, policyID string) storagev1.VolumeAttributesClass {
+	return storagev1.VolumeAttributesClass{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Parameters: map[string]string{"storagePolicyID": policyID},
+	}
+}
+
+// listSPUs is a test helper that returns all StoragePolicyUsage CRs in a namespace.
+func listSPUs(t *testing.T, ctx context.Context, cl client.Client, namespace string,
+) []storagepolicyv1alpha3.StoragePolicyUsage {
+	t.Helper()
+	list := &storagepolicyv1alpha3.StoragePolicyUsageList{}
+	if err := cl.List(ctx, list, &client.ListOptions{Namespace: namespace}); err != nil {
+		t.Fatalf("listSPUs: %v", err)
+	}
+	return list.Items
+}
+
+// TestCreateVACStoragePolicyUsageCRsFromList_NamingPrefix verifies that
+// VAC-based SPU names are prefixed with "vac-" to avoid collisions with
+// StorageClass-based SPU names.
+func TestCreateVACStoragePolicyUsageCRsFromList_NamingPrefix(t *testing.T) {
+	const (
+		ns       = "test-ns"
+		policyID = "policy-abc"
+		vacName  = "gold-vac"
+	)
+
+	ctx := context.Background()
+	cl := newVACFakeClient()
+	vacs := []storagev1.VolumeAttributesClass{makeVAC(vacName, policyID)}
+
+	err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	spus := listSPUs(t, ctx, cl, ns)
+	// Both PVC and Snapshot SPUs are always created (no StorageQuotaM2 gating for VACs).
+	if len(spus) != 2 {
+		t.Fatalf("expected 2 SPUs (PVC + Snapshot), got %d: %v", len(spus), spuNames(spus))
+	}
+
+	wantPVC := fmt.Sprintf("vac-%s-%s", vacName, storagepolicyv1alpha3.NameSuffixForPVC)
+	if !contains(spuNames(spus), wantPVC) {
+		t.Errorf("PVC SPU %q not found among %v", wantPVC, spuNames(spus))
+	}
+}
+
+// TestCreateVACStoragePolicyUsageCRsFromList_CreatesBothSPUs verifies that both a PVC SPU and a
+// Snapshot SPU are always created for a matching VAC. VAC-based SPU creation is already gated by
+// the VMPVCStoragePolicyMutability FSS at the call site, so no additional StorageQuotaM2 check is
+// needed inside this function.
+func TestCreateVACStoragePolicyUsageCRsFromList_CreatesBothSPUs(t *testing.T) {
+	const (
+		ns       = "test-ns"
+		policyID = "policy-xyz"
+		vacName  = "silver-vac"
+	)
+	vacs := []storagev1.VolumeAttributesClass{makeVAC(vacName, policyID)}
+
+	wantPVC := fmt.Sprintf("vac-%s-%s", vacName, storagepolicyv1alpha3.NameSuffixForPVC)
+	wantSnap := fmt.Sprintf("vac-%s-%s", vacName, storagepolicyv1alpha3.NameSuffixForSnapshot)
+
+	ctx := context.Background()
+	cl := newVACFakeClient()
+
+	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	spus := listSPUs(t, ctx, cl, ns)
+	if len(spus) != 2 {
+		t.Fatalf("expected 2 SPUs (PVC + Snapshot), got %d: %v", len(spus), spuNames(spus))
+	}
+
+	names := spuNames(spus)
+	if !contains(names, wantPVC) {
+		t.Errorf("PVC SPU %q not found among %v", wantPVC, names)
+	}
+	if !contains(names, wantSnap) {
+		t.Errorf("Snapshot SPU %q not found among %v", wantSnap, names)
+	}
+}
+
+// TestCreateVACStoragePolicyUsageCRsFromList_IdempotentWhenSPUExists verifies
+// that calling the function twice does not produce duplicate SPUs.
+func TestCreateVACStoragePolicyUsageCRsFromList_IdempotentWhenSPUExists(t *testing.T) {
+	const (
+		ns       = "test-ns"
+		policyID = "policy-idem"
+		vacName  = "idem-vac"
+	)
+	vacs := []storagev1.VolumeAttributesClass{makeVAC(vacName, policyID)}
+	ctx := context.Background()
+	cl := newVACFakeClient()
+
+	for i := range 2 {
+		if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+			t.Fatalf("call %d: unexpected error: %v", i+1, err)
+		}
+	}
+
+	spus := listSPUs(t, ctx, cl, ns)
+	// Expect exactly 2 SPUs (PVC + Snapshot) — no duplicates from the second call.
+	if len(spus) != 2 {
+		t.Errorf("expected exactly 2 SPUs after two calls, got %d: %v", len(spus), spuNames(spus))
+	}
+}
+
+// TestCreateVACStoragePolicyUsageCRsFromList_MultipleVACs verifies that SPUs are created
+// independently for each VAC in the list, using each VAC's own storage policy ID.
+// The VAC name is the unique key — policy ID is informational only.
+func TestCreateVACStoragePolicyUsageCRsFromList_MultipleVACs(t *testing.T) {
+	const ns = "test-ns"
+	vacs := []storagev1.VolumeAttributesClass{
+		makeVAC("vac-alpha", "policy-alpha"),
+		makeVAC("vac-beta", "policy-beta"),
+	}
+	ctx := context.Background()
+	cl := newVACFakeClient()
+
+	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	spus := listSPUs(t, ctx, cl, ns)
+	// Each VAC produces PVC + Snapshot SPUs independently.
+	if len(spus) != 4 {
+		t.Errorf("expected 4 SPUs (2 VACs × 2 kinds), got %d: %v", len(spus), spuNames(spus))
+	}
+
+	wantNames := []string{
+		fmt.Sprintf("vac-vac-alpha-%s", storagepolicyv1alpha3.NameSuffixForPVC),
+		fmt.Sprintf("vac-vac-alpha-%s", storagepolicyv1alpha3.NameSuffixForSnapshot),
+		fmt.Sprintf("vac-vac-beta-%s", storagepolicyv1alpha3.NameSuffixForPVC),
+		fmt.Sprintf("vac-vac-beta-%s", storagepolicyv1alpha3.NameSuffixForSnapshot),
+	}
+	names := spuNames(spus)
+	for _, want := range wantNames {
+		if !contains(names, want) {
+			t.Errorf("SPU %q not found among %v", want, names)
+		}
+	}
+}
+
+// spuNames extracts the names from a StoragePolicyUsage slice for readable error messages.
+func spuNames(spus []storagepolicyv1alpha3.StoragePolicyUsage) []string {
+	names := make([]string, len(spus))
+	for i, s := range spus {
+		names[i] = s.Name
+	}
+	return names
+}
+
+// contains reports whether s is in the slice.
+func contains(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

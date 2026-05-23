@@ -34,6 +34,7 @@ import (
 	"github.com/go-co-op/gocron"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -43,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -4132,7 +4134,225 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 			}
 		}
 	}
+	// Also create SPUs for all VolumeAttributesClasses in the namespace.
+	// This is only supported in Supervisor clusters with VM_PVC_STORAGE_POLICY_MUTABILITY FSS enabled.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		err = createVACStoragePolicyUsageCRs(ctx, storageQuotaClient, namespace, metadataSyncer)
+		if err != nil {
+			log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create VAC-based SPUs. Err: %+v", err)
+			return nil, err
+		}
+	}
+
 	return usageCR, nil
+}
+
+// createVACStoragePolicyUsageCRs creates StoragePolicyUsage CRs for all VolumeAttributesClasses.
+// Each VAC's own storage policy ID is read from its parameters and stored in the SPU.
+func createVACStoragePolicyUsageCRs(ctx context.Context, quotaClient client.Client,
+	namespace string, metadataSyncer *metadataSyncInformer) error {
+	log := logger.GetLogger(ctx)
+
+	config, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("createVACStoragePolicyUsageCRs: Failed to get KubeConfig. err: %v", err)
+		return err
+	}
+
+	k8sClient, err := clientset.NewForConfig(config)
+	if err != nil {
+		log.Errorf("createVACStoragePolicyUsageCRs: Failed to create kubernetes client. Err: %+v", err)
+		return err
+	}
+
+	// Check if VAC API is available (requires K8s 1.34+)
+	vacSupported, vacErr := vacAPIAvailable(config)
+	if vacErr != nil {
+		log.Warnf("createVACStoragePolicyUsageCRs: Could not discover VolumeAttributesClass API; "+
+			"skipping VAC SPU creation. Err: %v", vacErr)
+		return nil
+	}
+	if !vacSupported {
+		log.Debugf("createVACStoragePolicyUsageCRs: VolumeAttributesClass API not available; skipping VAC SPU creation")
+		return nil
+	}
+
+	vacList, err := k8sClient.StorageV1().VolumeAttributesClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("createVACStoragePolicyUsageCRs: Failed to list VolumeAttributesClasses. Err: %+v", err)
+		return err
+	}
+
+	return createVACStoragePolicyUsageCRsFromList(ctx, quotaClient, vacList.Items, namespace)
+}
+
+// createVACStoragePolicyUsageCRsFromList is the inner loop used by createVACStoragePolicyUsageCRs
+// and the full sync path. It operates on an already-resolved VAC list and a pre-built CNS operator
+// client, making it straightforward to unit test.
+//
+// Each VAC is identified by its name (VolumeAttributesClassName). The storage policy ID is read
+// from the VAC's own parameters and stored in the SPU for informational purposes only — it is not
+// used as a lookup key.
+func createVACStoragePolicyUsageCRsFromList(ctx context.Context, quotaClient client.Client,
+	vacItems []storagev1.VolumeAttributesClass, namespace string) error {
+	log := logger.GetLogger(ctx)
+
+	// Get existing SPUs to check what already exists
+	policyUsageList := &storagepolicyv1alpha3.StoragePolicyUsageList{}
+	err := quotaClient.List(ctx, policyUsageList, &client.ListOptions{
+		Namespace: namespace,
+	})
+	if err != nil {
+		log.Errorf("createVACStoragePolicyUsageCRsFromList: Failed to list StoragePolicyUsage CRs in namespace %v. Err: %+v",
+			namespace, err)
+		return err
+	}
+
+	for _, vac := range vacItems {
+		// The VAC's own parameters carry the storage policy ID; it is stored in the SPU for
+		// informational purposes. The VAC name is the unique key that identifies the SPU.
+		vacPolicyID := getStoragePolicyIDFromVAC(&vac)
+
+		// Check if VAC-based SPUs already exist, keyed on VolumeAttributesClassName.
+		foundPvcUsageInstance := false
+		foundSnapUsageInstance := false
+		for _, usage := range policyUsageList.Items {
+			if usage.Spec.VolumeAttributesClassName == vac.Name {
+				if usage.Spec.ResourceKind == ResourceKindPVC {
+					foundPvcUsageInstance = true
+				}
+				if usage.Spec.ResourceKind == ResourceKindSnapshot {
+					foundSnapUsageInstance = true
+				}
+			}
+		}
+
+		// Create PVC SPU for this VAC if it doesn't exist.
+		// Name is prefixed with "vac-" to avoid collisions with StorageClass-based SPU names.
+		if !foundPvcUsageInstance {
+			pvcQuotaUsageInstanceName := "vac-" + vac.Name + "-" + storagepolicyv1alpha3.NameSuffixForPVC
+			_, err = createVACStoragePolicyUsageCR(ctx, quotaClient, pvcQuotaUsageInstanceName,
+				namespace, vacPolicyID, vac.Name, ResourceKindPVC, ResourceAPIgroupPVC,
+				PVCQuotaExtensionServiceName)
+			if err != nil {
+				log.Errorf("createVACStoragePolicyUsageCRsFromList: Failed to create VAC-based PVC SPU for %v. Err: %+v",
+					vac.Name, err)
+				continue
+			}
+			log.Infof("createVACStoragePolicyUsageCRsFromList: Created VAC-based PVC SPU %v in namespace %v "+
+				"for policy %v VAC %v", pvcQuotaUsageInstanceName, namespace, vacPolicyID, vac.Name)
+		}
+
+		// Create Snapshot SPU for this VAC if it doesn't exist.
+		// Name is prefixed with "vac-" to avoid collisions with StorageClass-based SPU names.
+		if !foundSnapUsageInstance {
+			snapQuotaUsageInstanceName := "vac-" + vac.Name + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+			_, err = createVACStoragePolicyUsageCR(ctx, quotaClient, snapQuotaUsageInstanceName,
+				namespace, vacPolicyID, vac.Name, ResourceKindSnapshot, ResourceAPIgroupSnapshot,
+				SnapQuotaExtensionServiceName)
+			if err != nil {
+				log.Errorf("createVACStoragePolicyUsageCRsFromList: Failed to create VAC-based Snapshot SPU for %v. Err: %+v",
+					vac.Name, err)
+				continue
+			}
+			log.Infof("createVACStoragePolicyUsageCRsFromList: Created VAC-based Snapshot SPU %v in namespace %v "+
+				"for policy %v VAC %v", snapQuotaUsageInstanceName, namespace, vacPolicyID, vac.Name)
+		}
+	}
+
+	return nil
+}
+
+// getStoragePolicyIDFromVAC extracts storage policy ID from VolumeAttributesClass parameters
+func getStoragePolicyIDFromVAC(vac *storagev1.VolumeAttributesClass) string {
+	if vac.Parameters == nil {
+		return ""
+	}
+	// Check for storage policy ID with case-insensitive comparison
+	for key, value := range vac.Parameters {
+		if strings.ToLower(key) == "storagepolicyid" {
+			return value
+		}
+	}
+	return ""
+}
+
+// createVACStoragePolicyUsageCR creates a VAC-based StoragePolicyUsage CR
+func createVACStoragePolicyUsageCR(ctx context.Context, quotaClient client.Client, name, namespace,
+	storagePolicyId, vacName, resourceKind, resourceApiGroup,
+	extensionName string) (*storagepolicyv1alpha3.StoragePolicyUsage, error) {
+	log := logger.GetLogger(ctx)
+	newUsageInstance := storagepolicyv1alpha3.StoragePolicyUsage{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       cnsoperatorv1alpha1.GroupName,
+			APIVersion: cnsoperatorv1alpha1.Version,
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         namespace,
+			Generation:        0,
+			CreationTimestamp: metav1.Time{},
+		},
+		Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
+			StoragePolicyId:           storagePolicyId,
+			StorageClassName:          "", // Empty for VAC-based SPUs per design
+			VolumeAttributesClassName: vacName,
+			VolumeClassName:           vacName, // Same as VAC name per v1alpha3 spec
+			ResourceKind:              resourceKind,
+			ResourceAPIgroup:          &resourceApiGroup,
+			ResourceExtensionName:     extensionName,
+		},
+	}
+	err := quotaClient.Create(ctx, &newUsageInstance, &client.CreateOptions{})
+	if err != nil {
+		log.Errorf("createVACStoragePolicyUsageCR: Failed to create VAC-based StoragePolicyUsage "+
+			"for policyID %v VAC %v resourceKind %v. Err: %+v", storagePolicyId, vacName, resourceKind, err)
+		return nil, err
+	}
+	log.Infof("createVACStoragePolicyUsageCR: Successfully created VAC-based StoragePolicyUsage "+
+		"%q/%q for policyID %v VAC %v resourceKind %v.", name, namespace, storagePolicyId, vacName, resourceKind)
+	return &newUsageInstance, nil
+}
+
+// vacAPIAvailable is a package-level function variable so unit tests can replace it with a stub
+// that returns a fixed (supported, nil) result without hitting a real API server.
+var vacAPIAvailable = volumeAttributesClassAPIAvailableFromConfig
+
+// vacAPIAvailableCheck wraps GetKubeConfig + vacAPIAvailable as a context-based check.
+// Unit tests replace this var with a stub that bypasses cluster connectivity.
+var vacAPIAvailableCheck = func(ctx context.Context) (bool, error) {
+	cfg, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		return false, err
+	}
+	return vacAPIAvailable(cfg)
+}
+
+// TODO: re-evaluate whether we need to check VAC API after the check is added to the storage quota webhook
+
+// volumeAttributesClassAPIAvailableFromConfig checks if VAC API is available from REST config
+func volumeAttributesClassAPIAvailableFromConfig(cfg *restclient.Config) (bool, error) {
+	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return false, err
+	}
+	_, lists, err := dc.ServerGroupsAndResources()
+	if lists == nil && err != nil {
+		return false, err
+	}
+	gv := storagev1.SchemeGroupVersion.String()
+	for _, list := range lists {
+		if list.GroupVersion != gv {
+			continue
+		}
+		for i := range list.APIResources {
+			if list.APIResources[i].Name == "volumeattributesclasses" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // deleteStoragePolicyUsageCR deletes StoragePolicyUsage CR for given storagePolicyId and namespace
@@ -4240,6 +4460,30 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 		return
 	}
 	isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
+
+	// Resolve VAC support and list all VolumeAttributesClasses once for the entire full-sync cycle.
+	// VACs are cluster-scoped, so a single check and a single list cover all SPQ namespaces.
+	// Doing this here avoids a redundant discovery + list call for every SPQ namespace in the loop below.
+	var vacItems []storagev1.VolumeAttributesClass
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		vacSupported, vacErr := vacAPIAvailableCheck(ctx)
+		if vacErr != nil {
+			log.Warnf("createStoragePolicyUsageCRS: Could not discover VolumeAttributesClass API; "+
+				"skipping VAC SPU creation. Err: %v", vacErr)
+		} else if !vacSupported {
+			log.Debugf("createStoragePolicyUsageCRS: VolumeAttributesClass API not available; skipping VAC SPU creation")
+		} else {
+			vacList, listErr := k8sClient.StorageV1().VolumeAttributesClasses().List(ctx, metav1.ListOptions{})
+			if listErr != nil {
+				log.Errorf("createStoragePolicyUsageCRS: Failed to list VolumeAttributesClasses; "+
+					"skipping VAC SPU creation. Err: %v", listErr)
+			} else {
+				vacItems = vacList.Items
+			}
+		}
+	}
+
 	for _, spq := range spqList.Items {
 		// Make sure storagePolicyQuota instance is not getting deleted.
 		if spq.DeletionTimestamp != nil {
@@ -4313,6 +4557,16 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 						continue
 					}
 				}
+			}
+		}
+
+		// Create VAC-based SPUs for this namespace using the VAC list resolved once before the loop.
+		// vacItems is non-nil only when the FSS is enabled and the VAC API is available.
+		if len(vacItems) > 0 {
+			if err = createVACStoragePolicyUsageCRsFromList(ctx, cnsOperatorClient, vacItems, spq.Namespace); err != nil {
+				log.Errorf("createStoragePolicyUsageCRS: Failed to create VAC-based SPUs in namespace %v. Err: %+v",
+					spq.Namespace, err)
+				// Continue processing other namespaces even if VAC SPU creation fails.
 			}
 		}
 	}
@@ -4396,7 +4650,17 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 							volumeHandle = strings.Replace(pv.Spec.CSI.VolumeHandle, ":", "-", 1)
 						}
 						if cnsVolumeInfo, ok := cnsVolumeInfoMap[volumeHandle]; ok {
-							if cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName &&
+							// Check if this volume matches the SPU - either StorageClass-based or VAC-based
+							var matches bool
+							if storagePolicyUsage.Spec.StorageClassName != "" {
+								// StorageClass-based SPU: match by StorageClassName
+								matches = cnsVolumeInfo.Spec.StorageClassName == storagePolicyUsage.Spec.StorageClassName
+							} else if storagePolicyUsage.Spec.VolumeAttributesClassName != "" {
+								// VAC-based SPU: match by VolumeAttributeClassName
+								matches = cnsVolumeInfo.Spec.VolumeAttributeClassName == storagePolicyUsage.Spec.VolumeAttributesClassName
+							}
+
+							if matches &&
 								cnsVolumeInfo.Spec.StoragePolicyID == storagePolicyUsage.Spec.StoragePolicyId &&
 								cnsVolumeInfo.Spec.Namespace == storagePolicyUsage.Namespace {
 								// Compute the total used capacity for the voluems in the current namespace(iteration)
@@ -4409,7 +4673,16 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 					updateSpu = true
 				}
 			} else if isStorageQuotaM2FSSEnabled && storagePolicyUsage.Spec.ResourceKind == ResourceKindSnapshot {
-				spuKey := strings.Join([]string{storagePolicyUsage.Spec.StorageClassName,
+				// Generate SPU key - use StorageClassName for SC-based SPUs, "vac-" + VolumeAttributesClassName
+				// for VAC-based SPUs (prefix avoids collisions when a StorageClass and VolumeAttributesClass
+				// share the same name; must match generateSPUKey).
+				var keyComponent string
+				if storagePolicyUsage.Spec.StorageClassName != "" {
+					keyComponent = storagePolicyUsage.Spec.StorageClassName
+				} else {
+					keyComponent = "vac-" + storagePolicyUsage.Spec.VolumeAttributesClassName
+				}
+				spuKey := strings.Join([]string{keyComponent,
 					storagePolicyUsage.Spec.StoragePolicyId, storagePolicyUsage.Namespace}, "-")
 				if usedQty, ok := spuAggregatedSumMap[spuKey]; ok {
 					log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %s "+
@@ -4469,7 +4742,17 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 }
 
 func generateSPUKey(cnsVolumeInfoObj *cnsvolumeinfov1alpha1.CNSVolumeInfo) string {
-	return strings.Join([]string{cnsVolumeInfoObj.Spec.StorageClassName, cnsVolumeInfoObj.Spec.StoragePolicyID,
+	// Generate SPU key. VAC-based volumes use a "vac-" prefix to avoid key collisions with
+	// StorageClass-based volumes when the names happen to be identical. SC-based volumes use
+	// the StorageClassName directly. Must remain consistent with the snapshot aggregation
+	// map key in storagePolicyUsageCRSync.
+	var keyComponent string
+	if cnsVolumeInfoObj.Spec.VolumeAttributeClassName != "" {
+		keyComponent = "vac-" + cnsVolumeInfoObj.Spec.VolumeAttributeClassName
+	} else {
+		keyComponent = cnsVolumeInfoObj.Spec.StorageClassName
+	}
+	return strings.Join([]string{keyComponent, cnsVolumeInfoObj.Spec.StoragePolicyID,
 		cnsVolumeInfoObj.Spec.Namespace}, "-")
 }
 
