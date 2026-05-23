@@ -411,6 +411,9 @@ const (
 	// AnnKeyLinkedClone is the linked clone annotation on the PVC
 	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
 
+	// AnnKeyGuestCluster is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
+	AnnKeyGuestClusterPvc = "csi.vsphere.volume/guest-cluster-pvc"
+
 	// AnnKeyBackingDiskType is the type of the backing disk.
 	// It is added on the PVC during static volume provisioning
 	// and is used to specify the `CnsBackingType` during volume attachment.
@@ -591,6 +594,12 @@ const (
 	// roll-out can be staged per cluster and so individual environments
 	// can disable the additional API traffic if needed.
 	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
+
+	// SupervisorImproveVisiblity is the FSS that gates improved volume
+	// visibility in guest cluster, when enable it enabled guest cluster
+	// related annotations and other visiblity enhanchment for better
+	// visiblity of the guest cluster resources in the supervisor.
+	SupervisorImproveVisiblity = "improved-volume-visibility"
 )
 
 var WCPFeatureStates = map[string]struct{}{
