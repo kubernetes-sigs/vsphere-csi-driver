@@ -416,6 +416,65 @@ const (
 	// and is used to specify the `CnsBackingType` during volume attachment.
 	AnnKeyBackingDiskType = "cns.vmware.com.protected/disk-backing"
 
+	// AnnPrefixVKSWorkloadType is the common prefix for all PVC annotations
+	// that classify a supervisor PVC according to its consumer workload type.
+	// Annotations under this prefix are managed by supervisor full-sync (see
+	// annotateSupervisorPVCsWithWorkloadType in pkg/syncer/fullsync.go) and
+	// must not be hand-edited — full-sync re-reconciles them every cycle.
+	//
+	// The classification is encoded as boolean tags rather than a single
+	// enumerated value because a PVC can in principle satisfy more than one
+	// signal (e.g., a guest-cluster Pod volume that also gained a VM owner
+	// reference). Boolean tags let the syncer record both signals without
+	// information loss; consumers can OR / AND them as needed.
+	AnnPrefixVKSWorkloadType = "csi.vsphere.volume.type/"
+
+	// AnnKeyVKSNode is set to "true" on a supervisor PVC when at least one
+	// of its OwnerReferences has Kind == "VirtualMachine" or "VSphereMachine".
+	// This identifies PVCs backing VKS guest-cluster Node disks (the node VM
+	// is the volume's owner; deletion of the node VM cascades to the PVC).
+	AnnKeyVKSNode = AnnPrefixVKSWorkloadType + "vks-node"
+
+	// AnnKeyVKSWorkload is set to "true" on a supervisor PVC when one of its
+	// labels carries the "<guest-cluster-name>/TKGService" marker. This
+	// identifies PVCs created on the supervisor on behalf of a workload Pod
+	// running inside a VKS (TKGService) guest cluster. Such PVCs do not have
+	// a VM owner reference; their lifetime is tied to the guest-cluster PVC,
+	// not to any particular Node VM.
+	AnnKeyVKSWorkload = AnnPrefixVKSWorkloadType + "vks-workload"
+
+	// AnnKeySupervisorWorkload is set to "true" on a supervisor PVC that
+	// matches neither AnnKeyVKSNode nor AnnKeyVKSWorkload — i.e., the PVC
+	// was created directly on the supervisor cluster (by a Pod VM, by an
+	// admin, by a third-party operator, etc.) rather than by a VKS guest
+	// cluster. The annotation is set explicitly rather than implied by
+	// absence so that "annotation missing" reliably means "fullsync has not
+	// yet evaluated this PVC" rather than "this is a supervisor workload".
+	AnnKeySupervisorWorkload = AnnPrefixVKSWorkloadType + "supervisor-workload"
+
+	// AnnValueTrue is the canonical value used for the boolean
+	// csi.vsphere.volume.type/* annotations.
+	AnnValueTrue = "true"
+
+	// OwnerKindVirtualMachine is the Kind value used in OwnerReferences for
+	// VM Operator (vmoperator.vmware.com) VirtualMachine objects. VKS node
+	// VMs are managed by VM Operator and use this Kind.
+	OwnerKindVirtualMachine = "VirtualMachine"
+
+	// OwnerKindVSphereMachine is the Kind value used in OwnerReferences for
+	// Cluster API VSphere provider (infrastructure.cluster.x-k8s.io)
+	// VSphereMachine objects. Some VKS configurations expose CAPV machines
+	// as the owner instead of (or in addition to) the VM Operator VM.
+	OwnerKindVSphereMachine = "VSphereMachine"
+
+	// TKGServiceLabelMarker is the substring matched inside PVC label keys
+	// to identify VKS guest-cluster (TKGService) Pod volumes. The fully
+	// qualified label key has the form "<guest-cluster-name>/TKGService"
+	// (the prefix encodes the guest-cluster identifier). This is the same
+	// marker already used elsewhere in the syncer to locate the guest
+	// cluster name (see RemoveCNSFinalizerFromPVCIfTKGClusterDeleted).
+	TKGServiceLabelMarker = "TKGService"
+
 	// PvcUIDLabelKey is a label which gets added to CnsNodeVMAttachment instances
 	// to indicate the PVC that it has attached.
 	PvcUIDLabelKey = "cns.vmware.com/pvc-uid"
@@ -523,6 +582,15 @@ const (
 	// SupportsPerNamespaceNetworkProviders is a WCP capability indicating that network provider
 	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
 	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_providers"
+
+	// SupervisorPVCWorkloadTypeAnnotation is the FSS that gates
+	// annotateSupervisorPVCsWithWorkloadType (see pkg/syncer/fullsync.go).
+	// When enabled, supervisor full-sync iterates every PVC in every
+	// namespace each cycle and reconciles the csi.vsphere.volume.type/*
+	// classification annotations onto them. The flag exists so the
+	// roll-out can be staged per cluster and so individual environments
+	// can disable the additional API traffic if needed.
+	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
 )
 
 var WCPFeatureStates = map[string]struct{}{

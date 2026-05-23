@@ -1541,3 +1541,209 @@ func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
 	setChangeIDAnnotationOnSupervisorSnapshots(ctx, mockMetadataSyncer, "test-vc")
 	// If we get here without panicking, test passes
 }
+
+// makePVCForClassification is a small builder for the
+// TestClassifySupervisorPVC table tests.
+func makePVCForClassification(labels map[string]string,
+	ownerKinds []string) *v1.PersistentVolumeClaim {
+	owners := make([]metav1.OwnerReference, 0, len(ownerKinds))
+	for _, k := range ownerKinds {
+		owners = append(owners, metav1.OwnerReference{Kind: k, Name: "owner-" + k})
+	}
+	return &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-pvc",
+			Namespace:       "test-ns",
+			Labels:          labels,
+			OwnerReferences: owners,
+		},
+	}
+}
+
+// TestClassifySupervisorPVC verifies the rule table for
+// classifySupervisorPVC: VirtualMachine / VSphereMachine ownerRefs imply
+// vks-node, a TKGService marker in any label key implies vks-workload,
+// and the absence of both implies supervisor-workload. The classification
+// is boolean-tag-based — vks-node and vks-workload can co-occur, but
+// supervisor-workload is mutually exclusive with both.
+func TestClassifySupervisorPVC(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    map[string]string
+		owners    []string
+		wantKeys  []string
+		notWanted []string
+	}{
+		{
+			name:      "vks node via VirtualMachine ownerRef",
+			owners:    []string{"VirtualMachine"},
+			wantKeys:  []string{common.AnnKeyVKSNode},
+			notWanted: []string{common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:      "vks node via VSphereMachine ownerRef",
+			owners:    []string{"VSphereMachine"},
+			wantKeys:  []string{common.AnnKeyVKSNode},
+			notWanted: []string{common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:      "vks workload via TKGService label",
+			labels:    map[string]string{"my-tkc/TKGService": "abc123"},
+			wantKeys:  []string{common.AnnKeyVKSWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeySupervisorWorkload},
+		},
+		{
+			name: "vks workload via TKGService marker anywhere in key",
+			// The current syncer uses strings.Contains(key, "TKGService")
+			// rather than a prefix/suffix match — we intentionally preserve
+			// that semantics so prior PVCs with non-standard label keys
+			// stay matched.
+			labels:    map[string]string{"random/key.with.TKGService.embedded": "x"},
+			wantKeys:  []string{common.AnnKeyVKSWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:      "no signals -> supervisor-workload",
+			wantKeys:  []string{common.AnnKeySupervisorWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+		},
+		{
+			name:      "both signals -> double-tagged, supervisor-workload NOT set",
+			labels:    map[string]string{"my-tkc/TKGService": "abc123"},
+			owners:    []string{"VirtualMachine"},
+			wantKeys:  []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+			notWanted: []string{common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:      "unrelated owner kind is ignored",
+			owners:    []string{"StatefulSet"},
+			wantKeys:  []string{common.AnnKeySupervisorWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := makePVCForClassification(tt.labels, tt.owners)
+			got := classifySupervisorPVC(pvc)
+			for _, k := range tt.wantKeys {
+				v, ok := got[k]
+				assert.True(t, ok, "missing expected key %s in classification (got=%v)", k, got)
+				assert.Equal(t, common.AnnValueTrue, v, "expected value %q for key %s", common.AnnValueTrue, k)
+			}
+			for _, k := range tt.notWanted {
+				_, ok := got[k]
+				assert.False(t, ok, "unexpected key %s in classification (got=%v)", k, got)
+			}
+		})
+	}
+}
+
+// TestReconcilePVCWorkloadTypeAnnotations exercises the diff-and-patch
+// path: it should emit a Strategic Merge Patch that adds the desired
+// annotations, removes stale csi.vsphere.volume.type/* annotations, leaves
+// other annotations untouched, and returns no-patch-needed when the PVC
+// already matches the desired set.
+func TestReconcilePVCWorkloadTypeAnnotations(t *testing.T) {
+	tests := []struct {
+		name           string
+		existingAnn    map[string]string
+		desired        map[string]string
+		wantNeedsPatch bool
+		// substrings the generated patch JSON must contain (for additions)
+		mustContain []string
+		// substrings the generated patch JSON must contain at value=null
+		// (for deletions of stale tags)
+		mustContainDeletion []string
+		// substrings the generated patch JSON must NOT contain (e.g.,
+		// annotations outside the AnnPrefixVKSWorkloadType namespace
+		// must never be mentioned)
+		mustNotContain []string
+	}{
+		{
+			name:           "fresh PVC, no annotations, gets vks-node",
+			existingAnn:    nil,
+			desired:        map[string]string{common.AnnKeyVKSNode: common.AnnValueTrue},
+			wantNeedsPatch: true,
+			mustContain:    []string{common.AnnKeyVKSNode, common.AnnValueTrue},
+		},
+		{
+			name: "already-correct annotations -> no patch",
+			existingAnn: map[string]string{
+				common.AnnKeyVKSWorkload: common.AnnValueTrue,
+			},
+			desired:        map[string]string{common.AnnKeyVKSWorkload: common.AnnValueTrue},
+			wantNeedsPatch: false,
+		},
+		{
+			name: "stale tag must be deleted (set to null) when classification changes",
+			existingAnn: map[string]string{
+				common.AnnKeySupervisorWorkload: common.AnnValueTrue,
+			},
+			desired:             map[string]string{common.AnnKeyVKSNode: common.AnnValueTrue},
+			wantNeedsPatch:      true,
+			mustContain:         []string{common.AnnKeyVKSNode},
+			mustContainDeletion: []string{common.AnnKeySupervisorWorkload},
+		},
+		{
+			name: "unrelated annotation outside the namespace must not appear in patch",
+			existingAnn: map[string]string{
+				"csi.vsphere.volume/fast-provisioning": "true",
+				"some.other.namespace/label":           "value",
+			},
+			desired:        map[string]string{common.AnnKeyVKSNode: common.AnnValueTrue},
+			wantNeedsPatch: true,
+			mustContain:    []string{common.AnnKeyVKSNode},
+			mustNotContain: []string{
+				"csi.vsphere.volume/fast-provisioning",
+				"some.other.namespace/label",
+			},
+		},
+		{
+			name: "double-tag transition: vks-node already set, add vks-workload",
+			existingAnn: map[string]string{
+				common.AnnKeyVKSNode: common.AnnValueTrue,
+			},
+			desired: map[string]string{
+				common.AnnKeyVKSNode:     common.AnnValueTrue,
+				common.AnnKeyVKSWorkload: common.AnnValueTrue,
+			},
+			wantNeedsPatch: true,
+			mustContain:    []string{common.AnnKeyVKSWorkload},
+			// vks-node is already correct, so it must NOT be in the patch
+			// — strategic merge would no-op on it but the smaller payload
+			// is the correct shape.
+			mustNotContain: []string{`"` + common.AnnKeyVKSNode + `":"true"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := &v1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "pvc",
+					Namespace:   "ns",
+					Annotations: tt.existingAnn,
+				},
+			}
+			patchBytes, needsPatch, err := reconcilePVCWorkloadTypeAnnotations(pvc, tt.desired)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantNeedsPatch, needsPatch, "needsPatch mismatch")
+			if !tt.wantNeedsPatch {
+				assert.Nil(t, patchBytes)
+				return
+			}
+			body := string(patchBytes)
+			for _, s := range tt.mustContain {
+				assert.Contains(t, body, s, "patch must contain %q\npatch=%s", s, body)
+			}
+			for _, s := range tt.mustContainDeletion {
+				// SMP deletes a map key by setting it to JSON null.
+				assert.Contains(t, body, `"`+s+`":null`,
+					"stale tag %q must be set to null for deletion\npatch=%s", s, body)
+			}
+			for _, s := range tt.mustNotContain {
+				assert.NotContains(t, body, s,
+					"patch must NOT contain %q\npatch=%s", s, body)
+			}
+		})
+	}
+}
