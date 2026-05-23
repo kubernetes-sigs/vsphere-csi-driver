@@ -594,6 +594,12 @@ const (
 	// roll-out can be staged per cluster and so individual environments
 	// can disable the additional API traffic if needed.
 	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
+
+	// SupervisorImproveVisiblity is the FSS that gates improved volume
+	// visibility in guest cluster, when enable it enabled guest cluster
+	// related annotations and other visiblity enhanchment for better
+	// visiblity of the guest cluster resources in the supervisor.
+	SupervisorImproveVisiblity = "improved-volume-visibility"
 )
 
 var WCPFeatureStates = map[string]struct{}{

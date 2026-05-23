@@ -863,7 +863,7 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 	require.NoError(t, coErr)
 
 	// Enable the ImprovedVolumeVisibility feature switch
-	err := fakeOrchestrator.EnableFSS(ctx, common.ImprovedVolumeVisibility)
+	err := fakeOrchestrator.EnableFSS(ctx, common.SupervisorImproveVisiblity)
 	require.NoError(t, err)
 
 	commonco.ContainerOrchestratorUtility = fakeOrchestrator
@@ -884,7 +884,7 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 
 	t.Run("Test annotation and label creation for PVC", func(t *testing.T) {
 		// Test the annotation creation logic by directly creating a PVC with annotations
-		// This simulates what CreateVolume does internally when external-provisioner 
+		// This simulates what CreateVolume does internally when external-provisioner
 		// sets the PVC metadata parameters with --extra-create-metadata flag
 
 		pvcName := "test-pvc-name"
