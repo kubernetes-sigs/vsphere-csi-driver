@@ -95,6 +95,9 @@ const (
 	// StorageClassVsanFileServicePolicyLateBinding is the supervisor StorageClass for vSAN file service (late binding).
 	StorageClassVsanFileServicePolicyLateBinding = "vsan-file-service-policy-latebinding"
 
+	// StoragePolicyMarkerVsanFileService is the k8scompliantname for the vSAN file service marker policy.
+	StoragePolicyMarkerVsanFileService = "vsan-file-service-policy"
+
 	// FVSVolumeIDPrefix is the CSI volume ID prefix for the FVS FileVolume CR workflow
 	// (fv:<instance-namespace>:<filevolume-name>).
 	FVSVolumeIDPrefix = "fv:"

@@ -22,6 +22,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,11 +35,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
+	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 // ownerReferenceKey returns OwnerReference key which is concatenated from the APIVersion, Kind and Name.
@@ -395,108 +400,6 @@ func getStorageTopologyType(ctx context.Context, sc *storagev1.StorageClass) (st
 	return "", nil
 }
 
-// getAccessibleZonesForPolicy determines which zones can access datastores compatible with the given storage policy
-func getAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, profileID string) ([]string, error) {
-	log := logger.GetLogger(ctx)
-
-	// If topology manager is not available, fall back to basic implementation
-	if topologyMgr == nil {
-		log.Warnf("Topology manager not available, cannot determine accessible zones for policy")
-		return []string{}, nil
-	}
-
-	// Get all zones from the topology service
-	azClustersMap := topologyMgr.GetAZClustersMap(ctx)
-	if len(azClustersMap) == 0 {
-		log.Warnf("No zones found in topology service")
-		return []string{}, nil
-	}
-
-	// Get all datastores compatible with the policy directly (single efficient PBM call)
-	compatibleHubs, err := vc.PbmQueryMatchingHub(ctx, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query compatible datastores for policy: %w", err)
-	}
-
-	if len(compatibleHubs) == 0 {
-		log.Warnf("No compatible datastores found for storage policy %s", profileID)
-		return []string{}, nil
-	}
-
-	// Build map of compatible datastore IDs for quick lookup
-	compatibleDSIDs := make(map[string]struct{})
-	for _, hub := range compatibleHubs {
-		compatibleDSIDs[hub.HubId] = struct{}{}
-	}
-
-	log.Infof("Found %d compatible datastores for policy %s", len(compatibleHubs), profileID)
-
-	// Cache for cluster datastore lookups to avoid redundant calls
-	clusterToDatastoresCache := make(map[string][]*cnsvsphere.DatastoreInfo)
-
-	accessibleZones := make(map[string]struct{})
-
-	// For each zone, check intersection with compatible datastores
-	for zone, clusters := range azClustersMap {
-		log.Debugf("Checking zone %s with clusters %v", zone, clusters)
-
-		zoneHasCompatibleDS := false
-
-		// Get datastores for this zone's clusters and check intersection
-		for _, clusterMoref := range clusters {
-			var clusterDSes []*cnsvsphere.DatastoreInfo
-			var err error
-
-			// Check cache first
-			if cachedDSes, exists := clusterToDatastoresCache[clusterMoref]; exists {
-				clusterDSes = cachedDSes
-				log.Debugf("Using cached datastores for cluster %s", clusterMoref)
-			} else {
-				// Cache miss - fetch from vCenter and cache the result
-				clusterDSes, _, err = cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref, false)
-				if err != nil {
-					log.Warnf("Failed to get datastores for cluster %s in zone %s: %v", clusterMoref, zone, err)
-					continue
-				}
-				clusterToDatastoresCache[clusterMoref] = clusterDSes
-				log.Debugf("Cached %d datastores for cluster %s", len(clusterDSes), clusterMoref)
-			}
-
-			// Check if any datastores in this cluster are in the compatible list
-			for _, ds := range clusterDSes {
-				if _, isCompatible := compatibleDSIDs[ds.Reference().Value]; isCompatible {
-					zoneHasCompatibleDS = true
-					break
-				}
-			}
-
-			if zoneHasCompatibleDS {
-				break // Found compatible datastore in this zone, no need to check more clusters
-			}
-		}
-
-		if zoneHasCompatibleDS {
-			accessibleZones[zone] = struct{}{}
-			log.Debugf("Zone %s has compatible datastores for policy %s", zone, profileID)
-		}
-	}
-
-	// Convert map to slice
-	var zones []string
-	for zone := range accessibleZones {
-		zones = append(zones, zone)
-	}
-
-	if len(zones) == 0 {
-		log.Warnf("No accessible zones found for storage policy %s", profileID)
-	} else {
-		log.Infof("Storage policy %s is accessible from zones: %v", profileID, zones)
-	}
-
-	return zones, nil
-}
-
 // findStoragePolicyProfile finds a storage policy profile by K8s compliant name.
 // Returns (profile, policyDeleted, error) where:
 // - profile is the found profile (nil if policy deleted or error)
@@ -531,4 +434,265 @@ func findStoragePolicyProfile(ctx context.Context,
 	instance.Status.StoragePolicyDeleted = false
 
 	return profile, false, nil // profile found, not deleted, no error
+}
+
+// populateVolumeCapabilities computes volume capabilities for the given storage policy and
+// writes them into infraSPI.Status.VolumeCapabilities.
+//
+// SupportsVolumeModeFilesystem is always true.
+// SupportsVolumeModeBlock is always true except when the policy is a marker policy
+// (k8scompliantname is "vsan-file-service-policy").
+// For marker policies, SupportsHighPerformanceLinkedClone and SupportsLinkedClone are also false.
+// SupportsLinkedClone is true if any policy-compatible datastore has at least one mounting host
+// running ESXi 9.1 or above (no vSAN-ESA requirement).
+// SupportsHighPerformanceLinkedClone is true if SupportsLinkedClone is true AND at least one of
+// those ESXi 9.1+ hosts belongs to a cluster with vSAN-ESA enabled.
+//
+// This function accepts an optional cache from topology calculation to avoid redundant vCenter calls.
+func populateVolumeCapabilities(ctx context.Context,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	vc *cnsvsphere.VirtualCenter, profileID string,
+	topologyMgr commoncotypes.ControllerTopologyService,
+	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) error {
+	log := logger.GetLogger(ctx)
+
+	caps := map[infraspiv1alpha1.VolumeCapability]bool{
+		infraspiv1alpha1.SupportsVolumeModeFilesystem: true,
+	}
+
+	// Check if this is a marker policy
+	// A marker policy is one where k8scompliantname is "vsan-file-service-policy"
+	k8sCompliantName := infraSPI.Name
+	isMarkerPolicy := k8sCompliantName == common.StoragePolicyMarkerVsanFileService
+
+	// SupportsVolumeModeBlock is always true except when policy is marker policy
+	caps[infraspiv1alpha1.SupportsVolumeModeBlock] = !isMarkerPolicy
+	log.Infof("Storage policy %s SupportsVolumeModeBlock=%v (isMarkerPolicy=%v)",
+		profileID, !isMarkerPolicy, isMarkerPolicy)
+
+	// For marker policies, linked clone capabilities are always false
+	if isMarkerPolicy {
+		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
+		caps[infraspiv1alpha1.SupportsLinkedClone] = false
+		log.Infof("Storage policy %s is a marker policy - SupportsHighPerformanceLinkedClone=false, "+
+			"SupportsLinkedClone=false", profileID)
+
+		infraSPI.Status.VolumeCapabilities = caps
+		return nil
+	}
+
+	if clusterDatastoreCache == nil {
+		clusterDatastoreCache = make(map[string][]*cnsvsphere.DatastoreInfo)
+	}
+
+	lc, esxi91Hosts, err := checkLinkedClone(ctx, vc, profileID, topologyMgr, clusterDatastoreCache)
+	if err != nil {
+		log.Errorf("Failed to check SupportsLinkedClone for policy %s: %v", profileID, err)
+		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
+		caps[infraspiv1alpha1.SupportsLinkedClone] = false
+		infraSPI.Status.VolumeCapabilities = caps
+		return err
+	}
+
+	caps[infraspiv1alpha1.SupportsLinkedClone] = lc
+
+	// If LinkedClone is not supported, then HighPerformanceLinkedClone cannot be supported either
+	var hplc bool
+	if !lc {
+		hplc = false
+		log.Infof("Storage policy %s does not support LinkedClone or HighPerformanceLinkedClone", profileID)
+	} else {
+		// Check if any of the ESXi 9.1+ hosts are in vSAN-ESA enabled clusters
+		hplc, err = checkHighPerformanceLinkedClone(ctx, vc, esxi91Hosts)
+		if err != nil {
+			log.Errorf("Failed to check SupportsHighPerformanceLinkedClone for policy %s: %v", profileID, err)
+			caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
+			infraSPI.Status.VolumeCapabilities = caps
+			return err
+		}
+	}
+
+	caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = hplc
+	log.Infof("Storage policy %s SupportsLinkedClone=%v, SupportsHighPerformanceLinkedClone=%v",
+		profileID, lc, hplc)
+
+	infraSPI.Status.VolumeCapabilities = caps
+	return nil
+}
+
+// checkLinkedClone returns whether LinkedClone is supported and collects all ESXi 9.1+ hosts.
+func checkLinkedClone(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter, profileID string,
+	topologyMgr commoncotypes.ControllerTopologyService,
+	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo,
+) (bool, map[string]vimtypes.ManagedObjectReference, error) {
+	log := logger.GetLogger(ctx)
+
+	if topologyMgr == nil {
+		log.Warnf("Topology manager unavailable; cannot determine SupportsLinkedClone")
+		return false, nil, fmt.Errorf("topology manager is not available")
+	}
+
+	zoneCompatibleDS, err := cnsoperatorutil.GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID,
+		clusterDatastoreCache)
+	if err != nil {
+		return false, nil, err
+	}
+
+	pc := property.DefaultCollector(vc.Client.Client)
+	esxi91HostsMap := make(map[string]vimtypes.ManagedObjectReference) // hostRef.Value -> hostRef
+	processedHosts := make(map[string]bool)                            // hostRef.Value -> isESXi9.1+
+	processedDatastores := make(map[string]bool)                       // datastoreRef.Value -> processed
+
+	// Check each zone for any ESXi 9.1+ hosts
+	for zone, compatibleDatastores := range zoneCompatibleDS {
+		if len(compatibleDatastores) == 0 {
+			continue
+		}
+
+		// Check each compatible datastore in this zone
+		for _, ds := range compatibleDatastores {
+			datastoreValue := ds.Reference().Value
+
+			// Check if this datastore has already been processed
+			if processedDatastores[datastoreValue] {
+				log.Debugf("Skipping already processed datastore %s in zone", datastoreValue)
+				continue
+			}
+
+			// Mark datastore as processed
+			processedDatastores[datastoreValue] = true
+
+			// Retrieve mounting hosts from the datastore managed object
+			var dsMO mo.Datastore
+			if err := pc.RetrieveOne(ctx, ds.Reference(), []string{"host"}, &dsMO); err != nil {
+				log.Warnf("Failed to retrieve host mounts for datastore %s: %v", datastoreValue, err)
+				continue
+			}
+			if len(dsMO.Host) == 0 {
+				log.Debugf("Datastore %s has no mounting hosts", datastoreValue)
+				continue
+			}
+
+			hostRefs := make([]vimtypes.ManagedObjectReference, 0, len(dsMO.Host))
+			for _, mount := range dsMO.Host {
+				hostRefs = append(hostRefs, mount.Key)
+			}
+
+			// Retrieve host details (parent cluster and ESXi version)
+			var hostMOs []mo.HostSystem
+			if err := pc.Retrieve(ctx, hostRefs, []string{"parent", "config.product"}, &hostMOs); err != nil {
+				log.Warnf("Failed to retrieve host properties for datastore %s: %v", datastoreValue, err)
+				continue
+			}
+
+			// Check each host for ESXi 9.1+ and collect host info
+			for i := range hostMOs {
+				h := &hostMOs[i]
+				if h.Parent == nil || h.Parent.Type != "ClusterComputeResource" || h.Config == nil {
+					continue
+				}
+
+				hostValue := h.Self.Value
+
+				// Check cache first to avoid redundant version checks
+				if is91Cached, cached := processedHosts[hostValue]; cached {
+					if is91Cached {
+						// Already confirmed ESXi 9.1+ - add to map (map naturally handles duplicates)
+						esxi91HostsMap[hostValue] = h.Self
+						log.Debugf("Host %s (cached ESXi 9.1+) in zone %s (cluster %s, datastore %s)",
+							hostValue, zone, h.Parent.Value, datastoreValue)
+					}
+					// If not 9.1+, skip (already cached as false)
+					continue
+				}
+
+				// Not in cache - check ESXi version
+				is91, err := cnsvsphere.IsvSphereVersion91orAbove(ctx, h.Config.Product)
+				if err != nil {
+					log.Warnf("Failed to parse ESXi version for host %s: %v", hostValue, err)
+					continue
+				}
+
+				// Cache the result
+				processedHosts[hostValue] = is91
+
+				if is91 {
+					// Collect ESXi 9.1+ host reference for potential HPLC check
+					esxi91HostsMap[hostValue] = h.Self
+
+					log.Debugf("Found ESXi 9.1+ host %s in zone %s (cluster %s, datastore %s)",
+						hostValue, zone, h.Parent.Value, datastoreValue)
+				}
+			}
+		}
+	}
+
+	linkedCloneSupported := len(esxi91HostsMap) > 0
+	if linkedCloneSupported {
+		log.Infof("Storage policy %s supports LinkedClone: found %d unique ESXi 9.1+ hosts", profileID, len(esxi91HostsMap))
+	} else {
+		log.Infof("Storage policy %s does not support LinkedClone: no ESXi 9.1+ hosts found", profileID)
+	}
+
+	return linkedCloneSupported, esxi91HostsMap, nil
+}
+
+// checkHighPerformanceLinkedClone checks if any of the provided ESXi 9.1+ hosts
+// are in clusters with vSAN-ESA enabled.
+func checkHighPerformanceLinkedClone(ctx context.Context,
+	vc *cnsvsphere.VirtualCenter, esxi91Hosts map[string]vimtypes.ManagedObjectReference) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	if len(esxi91Hosts) == 0 {
+		return false, nil
+	}
+
+	pc := property.DefaultCollector(vc.Client.Client)
+	checkedClusters := make(map[string]bool) // clusterValue -> checked (implicitly false for ESA)
+
+	// Check each ESXi 9.1+ host's cluster for vSAN-ESA
+	for _, hostRef := range esxi91Hosts {
+		// First get the host's parent cluster
+		var hostMO mo.HostSystem
+		if err := pc.RetrieveOne(ctx, hostRef, []string{"parent"}, &hostMO); err != nil {
+			log.Warnf("Failed to retrieve parent cluster for host %s: %v", hostRef.Value, err)
+			continue
+		}
+
+		if hostMO.Parent == nil {
+			log.Warnf("Host %s has no parent cluster", hostRef.Value)
+			continue
+		}
+
+		clusterRef := *hostMO.Parent
+		clusterValue := clusterRef.Value
+
+		// Check cache first to avoid duplicate vCenter calls for same cluster
+		if checkedClusters[clusterValue] {
+			continue // This cluster already checked and doesn't have ESA (otherwise we would have returned)
+		}
+
+		// Check cluster vSAN-ESA configuration
+		var clusterMO mo.ClusterComputeResource
+		if err := pc.RetrieveOne(ctx, clusterRef, []string{"configurationEx"}, &clusterMO); err != nil {
+			log.Warnf("Failed to retrieve configurationEx for cluster %s: %v", clusterValue, err)
+			continue
+		}
+
+		cfgEx, ok := clusterMO.ConfigurationEx.(*vimtypes.ClusterConfigInfoEx)
+		esaEnabled := ok && cfgEx.VsanConfigInfo != nil &&
+			cfgEx.VsanConfigInfo.VsanEsaEnabled != nil && *cfgEx.VsanConfigInfo.VsanEsaEnabled
+
+		if esaEnabled {
+			log.Infof("Host %s in cluster %s supports HPLC: vSAN-ESA enabled", hostRef.Value, clusterValue)
+			return true, nil
+		}
+
+		// Mark cluster as checked (implicitly ESA disabled since we didn't return)
+		checkedClusters[clusterValue] = true
+	}
+
+	log.Infof("HighPerformanceLinkedClone not supported: no ESXi 9.1+ hosts found in vSAN-ESA enabled clusters")
+	return false, nil
 }
