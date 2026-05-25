@@ -29,6 +29,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -78,7 +80,15 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 		log.Info("Initializing global scheme for CNS Operator")
 		globalScheme = runtime.NewScheme()
 
-		// Add all schemes sequentially to avoid race conditions
+		// Add core Kubernetes types first (required for PVC and other core resources)
+		if err := corev1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add corev1 to global scheme: %+v", err)
+		}
+		if err := storagev1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add storagev1 to global scheme: %+v", err)
+		}
+
+		// Add all other schemes sequentially to avoid race conditions
 		if err := cnsoperatorv1alpha1.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add cnsoperatorv1alpha1 to global scheme: %+v", err)
 		}

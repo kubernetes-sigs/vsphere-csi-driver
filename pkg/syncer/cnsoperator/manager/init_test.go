@@ -33,6 +33,10 @@ import (
 // the scheme confirms each underlying AddToScheme ran successfully without
 // pulling every API package into this test (which would bloat the test binary).
 var expectedRegisteredKinds = []schema.GroupVersionKind{
+	// corev1
+	{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"},
+	// storagev1
+	{Group: "storage.k8s.io", Version: "v1", Kind: "StorageClass"},
 	// cnsoperatorv1alpha1
 	{Group: "cns.vmware.com", Version: "v1alpha1", Kind: "CnsVolumeMetadata"},
 	// csinodetopologyv1alpha1
