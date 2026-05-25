@@ -25,15 +25,16 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
@@ -76,9 +77,14 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 	log := logger.GetLogger(ctx)
 	schemeOnce.Do(func() {
 		log.Info("Initializing global scheme for CNS Operator")
-		globalScheme = runtime.NewScheme()
 
-		// Add all schemes sequentially to avoid race conditions
+		// Start with the complete client-go scheme that includes all core Kubernetes types
+		globalScheme = runtime.NewScheme()
+		if err := clientgoscheme.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add clientgoscheme to global scheme: %+v", err)
+		}
+
+		// Add all other schemes sequentially to avoid race conditions
 		if err := cnsoperatorv1alpha1.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add cnsoperatorv1alpha1 to global scheme: %+v", err)
 		}
