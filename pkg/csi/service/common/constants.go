@@ -361,9 +361,16 @@ const (
 	// the request parameters
 	VolumeSnapshotNamespaceKey = "csi.storage.k8s.io/volumesnapshot/namespace"
 
+	// VolumeSnapshotContentNameKey represents the volumesnapshotcontent CR name within
+	// the request parameters
+	VolumeSnapshotContentNameKey = "csi.storage.k8s.io/volumesnapshotcontent/name"
+
 	// VolumeSnapshotInfoKey represents the annotation key of the fcd-id + snapshot-id
 	// on the VolumeSnapshot CR
 	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
+
+	// AnnKeyGuestClusterSnapshot is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
+	AnnKeyGuestClusterSnapshot = "csi.vsphere.volume/guest-cluster-snapshot"
 
 	// VolumeSnapshotChangeIDKey represents the annotation key that stores the
 	// vSphere change-id of the FCD snapshot on a VolumeSnapshot CR. In the paravirtual

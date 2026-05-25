@@ -1868,6 +1868,26 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				volumeSnapshotNamespace, volumeSnapshotName)
 		}
 
+		guestSnapAnnot := make(map[string]string)
+		guestSnapAnnot["name"] = req.Name
+		guestSnapAnnot["namespace"] = volumeSnapshotNamespace
+		guestSnapAnnot["clusterName"] = c.tanzukubernetesClusterName
+		guestSnapAnnot["sourceVolumeId"] = req.SourceVolumeId
+		// Record the guest-cluster VolumeSnapshotContent name, injected into the
+		// CreateSnapshot parameters by the external-snapshotter sidecar running in
+		// the guest cluster.
+		if _, ok := req.Parameters[common.VolumeSnapshotContentNameKey]; ok {
+			guestSnapAnnot["volumeSnapshotContentName"] = req.Parameters[common.VolumeSnapshotContentNameKey]
+		}
+
+		guestSnapAnnotJSON, err := json.Marshal(guestSnapAnnot)
+		if err != nil {
+			log.Errorf("failed to marshal guest cluster snapshot annotation: %v", err)
+			return nil, status.Error(codes.Internal, "failed to marshal guest cluster snapshot annotation")
+		}
+
+		guestAnnotations[common.AnnKeyGuestClusterSnapshot] = string(guestSnapAnnotJSON)
+
 		log.Infof("Attempting to annotate Guest volumesnapshot %s/%s with %v",
 			volumeSnapshotNamespace, volumeSnapshotName, guestAnnotations)
 		annotated, err := commonco.ContainerOrchestratorUtility.AnnotateVolumeSnapshot(ctx, volumeSnapshotName,
@@ -1877,6 +1897,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				" with annotations %v. Error: %v", snapshotID, volumeSnapshotNamespace,
 				volumeSnapshotName, guestAnnotations, err)
 		}
+
 		snapshotCreateTimeInProto := timestamppb.New(vs.Status.CreationTime.Time)
 		snapshotSize := vs.Status.RestoreSize.Value()
 		createSnapshotResponse := &csi.CreateSnapshotResponse{

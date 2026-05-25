@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"reflect"
 	"sync"
@@ -25,6 +26,8 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	fakesnapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -98,9 +101,13 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
+		// Create fake snapshot client
+		fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+
 		c := &controller{
-			supervisorClient:    supervisorClient,
-			supervisorNamespace: supervisorNamespace,
+			supervisorClient:            supervisorClient,
+			supervisorSnapshotterClient: fakeSnapshotClient,
+			supervisorNamespace:         supervisorNamespace,
 		}
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
@@ -847,5 +854,158 @@ func TestPatchObjectErrorHandling(t *testing.T) {
 		// This should still work as the fake client is permissive
 		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
 		assert.NoError(t, err) // Fake client allows this
+	})
+}
+
+// annotateSnapshotSpy embeds FakeK8SOrchestrator and records the exact arguments
+// passed to AnnotateVolumeSnapshot so tests can assert on them without relying
+// on side-effects in an external client.
+type annotateSnapshotSpy struct {
+	*unittestcommon.FakeK8SOrchestrator
+	calledName        string
+	calledNamespace   string
+	calledAnnotations map[string]string
+}
+
+func (s *annotateSnapshotSpy) AnnotateVolumeSnapshot(_ context.Context,
+	volumeSnapshotName, volumeSnapshotNamespace string,
+	annotations map[string]string) (bool, error) {
+	s.calledName = volumeSnapshotName
+	s.calledNamespace = volumeSnapshotNamespace
+	s.calledAnnotations = annotations
+	return true, nil
+}
+
+// TestCreateSnapshotWithAnnotations verifies the full CreateSnapshot path in the
+// guest controller: supervisor PVC lookup, VolumeSnapshot readiness polling, and
+// guest-cluster annotation propagation.
+//
+// The supervisor VolumeSnapshot is pre-created in the fake snapshotter client with
+// ReadyToUse=true so that IsVolumeSnapshotReady returns on the first (immediate)
+// poll without any real-time wait.
+func TestCreateSnapshotWithAnnotations(t *testing.T) {
+	ctx := context.Background()
+
+	fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	spy := &annotateSnapshotSpy{
+		FakeK8SOrchestrator: fakeOrch.(*unittestcommon.FakeK8SOrchestrator),
+	}
+	commonco.ContainerOrchestratorUtility = spy
+
+	// Use isolated fake clients so this test does not interfere with the shared
+	// singleton controller used by the other tests in this package.
+	const (
+		snapReqName        = "snapshot-mysnap"
+		sourcePVCName      = "source-pvc"
+		guestSnapName      = "snapshot-mysnap"
+		guestSnapNamespace = "guest-ns"
+		// CreateSnapshot derives the supervisor snapshot name as:
+		//   tanzukubernetesClusterUID + "-" + req.Name[9:]
+		// The code assumes a "snapshot-" prefix (9 chars). With clusterUID
+		// "tkc-uid" and req.Name = "snapshot-mysnap", supervisorSnapName = "tkc-uid-mysnap".
+		clusterUID         = "tkc-uid"
+		clusterName        = "my-tkc"
+		supervisorSnapName = "tkc-uid-mysnap"
+		wantSnapshotInfo   = "fcd-abc+snap-xyz"
+		wantChangeID       = "change-id-123"
+		wantVSCName        = "snapcontent-tkc-uid-mysnap"
+	)
+
+	supervisorFakeClient := testclient.NewClientset()
+	fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+	c := &controller{
+		supervisorClient:            supervisorFakeClient,
+		supervisorSnapshotterClient: fakeSnapshotClient,
+		supervisorNamespace:         testNamespace,
+		tanzukubernetesClusterUID:  clusterUID,
+		tanzukubernetesClusterName: clusterName,
+	}
+
+	// Create the supervisor PVC that backs the snapshot request.
+	_, err = supervisorFakeClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx,
+		&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sourcePVCName,
+				Namespace: testNamespace,
+			},
+		}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	// Pre-create the supervisor VolumeSnapshot already in ReadyToUse=true state.
+	// This way IsVolumeSnapshotReady returns on the first (immediate) poll without
+	// any real-time wait, exercising the full annotation-mirroring code path.
+	readyToUse := true
+	creationTime := metav1.Now()
+	restoreSize := resource.MustParse("1Gi")
+	_, err = fakeSnapshotClient.SnapshotV1().VolumeSnapshots(testNamespace).Create(ctx,
+		&snap.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      supervisorSnapName,
+				Namespace: testNamespace,
+				Annotations: map[string]string{
+					common.SupervisorVolumeSnapshotAnnotationKey: "true",
+					common.VolumeSnapshotInfoKey:                 wantSnapshotInfo,
+					common.VolumeSnapshotChangeIDKey:             wantChangeID,
+				},
+			},
+			Status: &snap.VolumeSnapshotStatus{
+				ReadyToUse:   &readyToUse,
+				CreationTime: &creationTime,
+				RestoreSize:  &restoreSize,
+			},
+		}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	t.Run("returns correct snapshot fields on success", func(t *testing.T) {
+		resp, err := c.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+			Name:           snapReqName,
+			SourceVolumeId: sourcePVCName,
+			Parameters: map[string]string{
+				common.AttributeSupervisorVolumeSnapshotClass: "test-snapshot-class",
+				common.VolumeSnapshotNameKey:                  guestSnapName,
+				common.VolumeSnapshotNamespaceKey:             guestSnapNamespace,
+				common.VolumeSnapshotContentNameKey:           wantVSCName,
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Snapshot)
+		assert.Equal(t, supervisorSnapName, resp.Snapshot.SnapshotId)
+		assert.Equal(t, sourcePVCName, resp.Snapshot.SourceVolumeId)
+		assert.True(t, resp.Snapshot.ReadyToUse)
+		assert.NotNil(t, resp.Snapshot.CreationTime)
+
+		// Verify AnnotateVolumeSnapshot was called with the correct target.
+		assert.Equal(t, guestSnapName, spy.calledName)
+		assert.Equal(t, guestSnapNamespace, spy.calledNamespace)
+
+		// Verify snapshot-info and change-id annotations are mirrored from the
+		// supervisor VolumeSnapshot to the guest VolumeSnapshot.
+		assert.Equal(t, wantSnapshotInfo, spy.calledAnnotations[common.VolumeSnapshotInfoKey])
+		assert.Equal(t, wantChangeID, spy.calledAnnotations[common.VolumeSnapshotChangeIDKey])
+
+		// Verify the guest-cluster-snapshot annotation carries all fields written by
+		// CreateSnapshot: name, namespace, clusterName, sourceVolumeId, and (when the
+		// VolumeSnapshotContent name param is present) volumeSnapshotContentName.
+		var guestAnnot map[string]string
+		require.NoError(t, json.Unmarshal(
+			[]byte(spy.calledAnnotations[common.AnnKeyGuestClusterSnapshot]), &guestAnnot))
+		assert.Equal(t, snapReqName, guestAnnot["name"])
+		assert.Equal(t, guestSnapNamespace, guestAnnot["namespace"])
+		assert.Equal(t, clusterName, guestAnnot["clusterName"])
+		assert.Equal(t, sourcePVCName, guestAnnot["sourceVolumeId"])
+		assert.Equal(t, wantVSCName, guestAnnot["volumeSnapshotContentName"])
+	})
+
+	t.Run("returns error when supervisor PVC does not exist", func(t *testing.T) {
+		_, err := c.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+			Name:           "snapshot-missing",
+			SourceVolumeId: "nonexistent-pvc",
+			Parameters: map[string]string{
+				common.AttributeSupervisorVolumeSnapshotClass: "test-snapshot-class",
+			},
+		})
+		require.Error(t, err)
 	})
 }
