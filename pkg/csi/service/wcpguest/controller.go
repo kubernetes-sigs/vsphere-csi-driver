@@ -534,10 +534,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					guestClusterAnnot["clusterDist"] = c.guestClusterDist
 					// Add guest PVC information to the same JSON structure
 					if pvcName != "" {
-						guestClusterAnnot["pvcName"] = pvcName
+						guestClusterAnnot["name"] = pvcName
 					}
 					if pvcNamespace != "" {
-						guestClusterAnnot["pvcNamespace"] = pvcNamespace
+						guestClusterAnnot["namespace"] = pvcNamespace
 					}
 					guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
 					if err != nil {
