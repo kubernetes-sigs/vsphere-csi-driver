@@ -58,7 +58,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 // backOffDuration is a map of ClusterStoragePolicyInfo names to the time after
@@ -149,7 +149,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 
 func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := util.GetMaxWorkerThreads(ctx, workerThreadsEnvVar, defaultMaxWorkerThreads)
+	maxWorkerThreads := cnsoperatorutil.GetMaxWorkerThreads(ctx, workerThreadsEnvVar, defaultMaxWorkerThreads)
 	scVacPredicates := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return e.Object != nil
@@ -669,21 +669,32 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	log.Infof("Syncing InfraSPI attributes for %q (policy ID: %s, name: %s)",
 		instance.Name, profile.ID, profile.Name)
 
-	// Populate topology capabilities for InfraSPI if policy uses zonal topology
-	err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc)
-	if err != nil {
+	var overallErr error
+
+	// Create a cache for datastore information to be shared across capability calculations
+	// This avoids redundant vCenter calls when populating both topology and volume capabilities
+	clusterDatastoreCache := make(map[string][]*cnsvsphere.DatastoreInfo)
+
+	// Populate topology capabilities for InfraSPI.
+	if err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc, clusterDatastoreCache); err != nil {
 		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
-		return err
+		overallErr = errors.Join(overallErr, err)
 	}
 
-	return nil
+	// Populate volume capabilities.
+	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, r.topologyMgr, clusterDatastoreCache); err != nil {
+		log.Errorf("Failed to populate volume capabilities for profile %s: %v", profile.ID, err)
+		overallErr = errors.Join(overallErr, err)
+	}
+
+	return overallErr
 }
 
 // populateTopologyCapabilities populates topology information for the storage policy in InfraSPI
 func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx context.Context,
 	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
-	vc *cnsvsphere.VirtualCenter) error {
+	vc *cnsvsphere.VirtualCenter, clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) error {
 	log := logger.GetLogger(ctx)
 
 	// Marker policies (e.g. vSAN File Service) derive their cluster-wide accessible zones from
@@ -694,7 +705,7 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 		zonesFn := func(ns string) map[string]struct{} {
 			return commonco.ContainerOrchestratorUtility.GetZonesForNamespace(ns)
 		}
-		zones, err := util.GetZonesForvSANFileServiceMarkerPolicy(ctx, r.k8sClient, zonesFn)
+		zones, err := cnsoperatorutil.GetZonesForvSANFileServiceMarkerPolicy(ctx, r.k8sClient, zonesFn)
 		if err != nil {
 			return fmt.Errorf("failed to compute cluster zones for vSAN File Service marker policy %q: %w", clusterSPI.Name, err)
 		}
@@ -727,10 +738,10 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 		TopologyType: topologyType,
 	}
 
-	log.Infof("Storage policy %s uses zonal topology, populating accessible zones", profileID)
+	log.Infof("Storage policy %s: populating accessible zones", profileID)
 
-	// Get accessible zones directly using topology service
-	accessibleZones, err := getAccessibleZonesForPolicy(ctx, r.topologyMgr, vc, profileID)
+	accessibleZones, err := cnsoperatorutil.GetAccessibleZonesForPolicy(ctx, r.topologyMgr, vc, profileID,
+		clusterDatastoreCache)
 	if err != nil {
 		return fmt.Errorf("failed to get accessible zones: %w", err)
 	}
