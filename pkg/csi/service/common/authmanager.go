@@ -62,10 +62,10 @@ type AuthManager struct {
 	// for that cluster. The datastore info objects are to be used when invoking
 	// CNS CreateVolume API.
 	fsEnabledClusterToDsMap map[string][]*cnsvsphere.DatastoreInfo
-	// Make sure the update for datastoreMap is mutually exclusive.
-	rwMutex sync.RWMutex
 	// VCenter Instance.
 	vcenter *cnsvsphere.VirtualCenter
+	// Make sure the update for datastoreMap is mutually exclusive.
+	rwMutex sync.RWMutex
 }
 
 // onceForAuthorizationService is used for initializing the AuthorizationService

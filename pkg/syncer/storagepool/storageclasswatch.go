@@ -40,13 +40,13 @@ type StorageClassWatch struct {
 	scWatch        watch.Interface
 	clientset      *kubernetes.Clientset
 	vc             *cnsvsphere.VirtualCenter
-	policyIDs      []string
 	policyToScMap  map[string]map[string]*storagev1.StorageClass
 	isHostLocalMap map[string]bool
-	clusterIDs     []string
 	spController   *SpController
 
 	dsPolicyCompatMapCache map[string][]string
+	policyIDs              []string
+	clusterIDs             []string
 }
 
 // Watch storage classes that pertain to our CSI driver.

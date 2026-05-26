@@ -27,12 +27,12 @@ import (
 )
 
 type MockManager struct {
-	// failRequest is used to simulate failure in the mock manager.
-	failRequest bool
 	// err is used to store the error that should be returned by the mock manager.
 	err error
 	// faultType is used to store the fault type that should be returned by the mock manager.
 	faultType string
+	// failRequest is used to simulate failure in the mock manager.
+	failRequest bool
 }
 
 func NewMockManager(failReq bool, err error, faultType string) *MockManager {

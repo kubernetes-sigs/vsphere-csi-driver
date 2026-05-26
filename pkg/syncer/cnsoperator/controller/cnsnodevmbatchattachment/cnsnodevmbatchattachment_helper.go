@@ -69,10 +69,10 @@ const (
 
 // FCDBackingDetails reflects the parameters with which a given FCD is attached to a VM.
 type FCDBackingDetails struct {
-	ControllerKey int32
-	UnitNumber    int32
 	DiskMode      string
 	SharingMode   string
+	ControllerKey int32
+	UnitNumber    int32
 }
 
 // trimMessage safely truncates a message to the Kubernetes status.conditions max length.

@@ -91,8 +91,8 @@ type VirtualCenter struct {
 }
 
 type MetricRoundTripper struct {
-	clientName   string
 	roundTripper soap.RoundTripper
+	clientName   string
 }
 
 var (
@@ -120,15 +120,10 @@ type VirtualCenterConfig struct {
 	Scheme string
 	// Host represents the virtual center host address.
 	Host string
-	// Port represents the virtual center host port.
-	Port int
 	// Username represents the virtual center username.
 	Username string
 	// Password represents the virtual center password in clear text.
 	Password string
-	// Specifies whether to verify the server's certificate chain. Set to true to
-	// skip verification.
-	Insecure bool
 	// Specifies the path to a CA certificate in PEM format. This has no effect
 	// if Insecure is enabled. Optional; if not configured, the system's CA
 	// certificates will be used.
@@ -136,23 +131,28 @@ type VirtualCenterConfig struct {
 	// Thumbprint specifies the certificate thumbprint to use. This has no effect
 	// if InsecureFlag is enabled.
 	Thumbprint string
-	// RoundTripperCount is the SOAP round tripper count.
-	// retries = RoundTripperCount - 1
-	RoundTripperCount int
+	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
+	// and hence should be used as default datastore.
+	MigrationDataStoreURL string
 	// DatacenterPaths represents paths of datacenters on the virtual center.
 	DatacenterPaths []string
 	// TargetvSANFileShareClusters represents file service enabled vSAN clusters
 	// on which file volumes can be created.
 	TargetvSANFileShareClusters []string
+	// Port represents the virtual center host port.
+	Port int
+	// RoundTripperCount is the SOAP round tripper count.
+	// retries = RoundTripperCount - 1
+	RoundTripperCount int
 	// QueryLimit specifies the number of volumes that can be fetched by CNS
 	// QueryAll API at a time
 	QueryLimit int
 	// ListVolumeThreshold specifies the maximum number of differences in volume that
 	// can exist between CNS and kubernetes
 	ListVolumeThreshold int
-	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
-	// and hence should be used as default datastore.
-	MigrationDataStoreURL string
+	// Specifies whether to verify the server's certificate chain. Set to true to
+	// skip verification.
+	Insecure bool
 	// when ReloadVCConfigForNewClient is set to true it forces re-read config secret when
 	// new vc client needs to be created
 	ReloadVCConfigForNewClient bool
@@ -230,7 +230,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
 	}
 	rt := vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
-	client.RoundTripper = &MetricRoundTripper{"soap", rt}
+	client.RoundTripper = &MetricRoundTripper{clientName: "soap", roundTripper: rt}
 	return client, nil
 }
 
@@ -428,7 +428,7 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			log.Errorf("failed to create pbm client with err: %v", err)
 			return err
 		}
-		vc.PbmClient.RoundTripper = &MetricRoundTripper{"pbm", vc.PbmClient.RoundTripper}
+		vc.PbmClient.RoundTripper = &MetricRoundTripper{clientName: "pbm", roundTripper: vc.PbmClient.RoundTripper}
 	}
 	// Recreate CNSClient if created using timed out VC Client.
 	if vc.CnsClient != nil {
@@ -452,7 +452,7 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			log.Errorf("failed to create vsan client with err: %v", err)
 			return err
 		}
-		vc.VsanClient.RoundTripper = &MetricRoundTripper{"vsan", vc.VsanClient.RoundTripper}
+		vc.VsanClient.RoundTripper = &MetricRoundTripper{clientName: "vsan", roundTripper: vc.VsanClient.RoundTripper}
 	}
 	return nil
 }

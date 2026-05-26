@@ -32,7 +32,7 @@ func NewCnsClient(ctx context.Context, c *vim25.Client) (*cns.Client, error) {
 		log.Errorf("failed to create a new client for CNS. err: %v", err)
 		return nil, err
 	}
-	cnsClient.RoundTripper = &MetricRoundTripper{"cns", cnsClient.RoundTripper}
+	cnsClient.RoundTripper = &MetricRoundTripper{clientName: "cns", roundTripper: cnsClient.RoundTripper}
 	return cnsClient, nil
 }
 

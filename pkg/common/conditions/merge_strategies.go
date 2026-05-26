@@ -29,10 +29,10 @@ import (
 // and more specifically for computing the target Reason and the target Message.
 type mergeOptions struct {
 	conditionTypes                     []string
-	addSourceRef                       bool
-	addStepCounter                     bool
 	addStepCounterIfOnlyConditionTypes []string
 	stepCounter                        int
+	addSourceRef                       bool
+	addStepCounter                     bool
 }
 
 // MergeOption defines an option for computing a summary of conditions.

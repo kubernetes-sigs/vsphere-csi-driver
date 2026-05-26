@@ -184,20 +184,20 @@ type CnsVolumeInfo struct {
 }
 
 type CnsSnapshotInfo struct {
+	SnapshotLatestOperationCompleteTime time.Time
 	SnapshotID                          string
 	SourceVolumeID                      string
 	SnapshotDescription                 string
-	AggregatedSnapshotCapacityInMb      int64
-	SnapshotLatestOperationCompleteTime time.Time
 	ChangedBlockTrackingId              string
+	AggregatedSnapshotCapacityInMb      int64
 }
 
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
 // are not present in the CNS CreateVolume spec.
 type CreateVolumeExtraParams struct {
-	VolSizeBytes                            int64
 	StorageClassName                        string
 	Namespace                               string
+	VolSizeBytes                            int64
 	IsPodVMOnStretchSupervisorFSSEnabled    bool
 	IsMultipleClustersPerVsphereZoneEnabled bool
 }
@@ -205,10 +205,10 @@ type CreateVolumeExtraParams struct {
 // CreateSnapshotExtraParams consist of values required by the CreateSnapshot interface and
 // are not present in the CNS CreateSnapshot spec.
 type CreateSnapshotExtraParams struct {
+	Capacity                       *resource.Quantity
 	StorageClassName               string
 	StoragePolicyID                string
 	Namespace                      string
-	Capacity                       *resource.Quantity
 	IsStorageQuotaM2FSSEnabled     bool
 	IsCSITransactionSupportEnabled bool
 }
@@ -216,21 +216,21 @@ type CreateSnapshotExtraParams struct {
 // DeleteSnapshotExtraParams consist of values required by the DeleteSnapshot interface and
 // are not present in the CNS DeleteSnapshot spec.
 type DeletesnapshotExtraParams struct {
-	IsStorageQuotaM2FSSEnabled bool
+	Capacity                   *resource.Quantity
 	StorageClassName           string
 	StoragePolicyID            string
 	Namespace                  string
-	Capacity                   *resource.Quantity
+	IsStorageQuotaM2FSSEnabled bool
 }
 
 // ExpandVolumeExtraParams consist of values required by the ExpandVolume interface and
 // are not present in the CNS ExpandVolume spec
 type ExpandVolumeExtraParams struct {
-	StorageClassName string
-	StoragePolicyID  string
-	Namespace        string
 	// Capacity stores the original volume size which is from CNSVolumeInfo
 	Capacity                             *resource.Quantity
+	StorageClassName                     string
+	StoragePolicyID                      string
+	Namespace                            string
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 }
 
@@ -315,14 +315,14 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 
 // DefaultManager provides functionality to manage volumes.
 type defaultManager struct {
-	virtualCenter                  *cnsvsphere.VirtualCenter
 	operationStore                 cnsvolumeoperationrequest.VolumeOperationRequest
-	idempotencyHandlingEnabled     bool
-	multivCenterTopologyDeployment bool
 	listViewIf                     ListViewIf
+	virtualCenter                  *cnsvsphere.VirtualCenter
 	clusterFlavor                  cnstypes.CnsClusterFlavor
 	clusterId                      string
 	clusterDistribution            string
+	idempotencyHandlingEnabled     bool
+	multivCenterTopologyDeployment bool
 }
 
 // ClearTaskInfoObjects is a go routine which runs in the background to clean

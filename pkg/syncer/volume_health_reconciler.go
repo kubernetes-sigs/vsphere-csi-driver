@@ -106,17 +106,17 @@ type volumeHealthReconciler struct {
 
 	// Tanzu Kubernetes Grid PV Lister.
 	tkgPVLister corelisters.PersistentVolumeLister
-	// Tanzu Kubernetes Grid PV Synced.
-	tkgPVSynced cache.InformerSynced
 	// Supervisor Cluster PVC Lister.
 	svcPVCLister corelisters.PersistentVolumeClaimLister
+	// Tanzu Kubernetes Grid PV Synced.
+	tkgPVSynced cache.InformerSynced
 	// Supervisor Cluster PVC Synced.
 	svcPVCSynced cache.InformerSynced
-	// Supervisor Cluster namespace.
-	supervisorNamespace string
 
 	// Volume handle to PV list mapping.
 	volumeHandleToPVs *volumeHandleToPVs
+	// Supervisor Cluster namespace.
+	supervisorNamespace string
 }
 
 // NewVolumeHealthReconciler returns a VolumeHealthReconciler.

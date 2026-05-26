@@ -108,25 +108,23 @@ type (
 )
 
 type metadataSyncInformer struct {
-	clusterFlavor cnstypes.CnsClusterFlavor
-	volumeManager volumes.Manager
-	// map of VC Host to Volume Manager
-	// Use this for Vanilla flavor Multi vCenter Topology feature
-	volumeManagers     map[string]volumes.Manager
-	host               string
-	cnsOperatorClient  client.Client
-	supervisorClient   clientset.Interface
-	configInfo         *config.ConfigurationInfo
-	k8sInformerManager *k8s.InformerManager
-	pvLister           corelisters.PersistentVolumeLister
-	pvcLister          corelisters.PersistentVolumeClaimLister
-	vaLister           storagelistersv1.VolumeAttachmentLister
-	podLister          corelisters.PodLister
-	coCommonInterface  commonco.COCommonInterface
+	volumeManager     volumes.Manager
+	cnsOperatorClient client.Client
+	supervisorClient  clientset.Interface
+	pvLister          corelisters.PersistentVolumeLister
+	pvcLister         corelisters.PersistentVolumeClaimLister
+	vaLister          storagelistersv1.VolumeAttachmentLister
+	podLister         corelisters.PodLister
+	coCommonInterface commonco.COCommonInterface
 	// fileVolumeClient is a controller-runtime client for reading FileVolume CRs
 	// (fvs.vcf.broadcom.com/v1alpha1). Initialized only when IsVsanFileVolumeServiceEnabled
 	// is true; nil otherwise.
 	fileVolumeClient client.Client
+	// map of VC Host to Volume Manager
+	// Use this for Vanilla flavor Multi vCenter Topology feature
+	volumeManagers     map[string]volumes.Manager
+	configInfo         *config.ConfigurationInfo
+	k8sInformerManager *k8s.InformerManager
 	// topologyVCMap maintains a cache of topology tags to the vCenter IP/FQDN which holds the tag.
 	// Example - {region1: {VC1: struct{}{}, VC2: struct{}{}},
 	//            zone1: {VC1: struct{}{}},
@@ -134,6 +132,8 @@ type metadataSyncInformer struct {
 	// The vCenter IP/FQDN under each tag are maintained as a map of string with nil values to improve
 	// retrieval and deletion performance.
 	topologyVCMap map[string]map[string]struct{}
+	clusterFlavor cnstypes.CnsClusterFlavor
+	host          string
 }
 
 const (

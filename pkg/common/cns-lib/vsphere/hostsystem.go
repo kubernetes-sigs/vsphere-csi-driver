@@ -94,10 +94,10 @@ func (host *HostSystem) GetHostVsanNodeUUID(ctx context.Context) (string, error)
 // VsanHostCapacity captures the capacity info of a host. It exists to support
 // the API within this Go helper module.
 type VsanHostCapacity struct {
+	HostMoID         string
 	Capacity         int64
 	CapacityReserved int64
 	CapacityUsed     int64
-	HostMoID         string
 }
 
 type DiskHealth struct {
@@ -109,13 +109,13 @@ type DiskHealth struct {
 // VsanPhysicalDisk reflects the fields of JSON structure emitted by the
 // VsanInternalSystem.QueryPhysicalVsanDisks API that we care about.
 type VsanPhysicalDisk struct {
-	IsSSD            int        `json:"isSsd,omitempty"`
 	SsdUUID          string     `json:"ssdUuid,omitempty"`
+	Disk_Health      DiskHealth `json:"disk_health,omitempty"`
+	IsSSD            int        `json:"isSsd,omitempty"`
 	Capacity         int64      `json:"capacity,omitempty"`
 	CapacityReserved int64      `json:"capacityReserved,omitempty"`
 	CapacityUsed     int64      `json:"capacityUsed,omitempty"`
 	IsAllFlash       int        `json:"isAllFlash,omitempty"`
-	Disk_Health      DiskHealth `json:"disk_health,omitempty"`
 }
 
 // VsanPhysicalDiskMap is what VsanInternalSystem.QueryPhysicalVsanDisks returns

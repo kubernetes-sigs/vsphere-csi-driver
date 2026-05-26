@@ -60,14 +60,14 @@ const (
 )
 
 type dsProps struct {
+	capacity    *resource.Quantity
+	freeSpace   *resource.Quantity
 	dsName      string
 	dsURL       string
 	dsType      string
 	containerID string
 	inMM        bool
 	accessible  bool
-	capacity    *resource.Quantity
-	freeSpace   *resource.Quantity
 }
 
 // getDatastoreProperties returns the total capacity, freeSpace, URL, type and

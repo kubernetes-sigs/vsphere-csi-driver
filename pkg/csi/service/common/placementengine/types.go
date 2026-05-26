@@ -26,10 +26,10 @@ type VanillaSharedDatastoresParams struct {
 	// Vcenter holds the client connection to the VC on
 	// which volume provisioning is being attempted.
 	Vcenter *cnsvsphere.VirtualCenter
-	// TopologySegmentsList is the list of topology segments
-	// which represent the accessibility requirements for the volume provisioning request.
-	TopologySegmentsList []map[string]string
 	// StoragePolicyID represents the unique ID of the storage policy
 	// name given in the Storage Class on the attempted VC.
 	StoragePolicyID string
+	// TopologySegmentsList is the list of topology segments
+	// which represent the accessibility requirements for the volume provisioning request.
+	TopologySegmentsList []map[string]string
 }

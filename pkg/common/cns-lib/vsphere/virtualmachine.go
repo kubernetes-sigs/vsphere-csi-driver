@@ -41,14 +41,14 @@ var (
 
 // VirtualMachine holds details of a virtual machine instance.
 type VirtualMachine struct {
-	// VirtualCenterHost represents the virtual machine's vCenter host.
-	VirtualCenterHost string
-	// UUID represents the virtual machine's UUID.
-	UUID string
 	// VirtualMachine represents the virtual machine.
 	*object.VirtualMachine
 	// Datacenter represents the datacenter to which the virtual machine belongs.
 	Datacenter *Datacenter
+	// VirtualCenterHost represents the virtual machine's vCenter host.
+	VirtualCenterHost string
+	// UUID represents the virtual machine's UUID.
+	UUID string
 }
 
 func (vm *VirtualMachine) String() string {
