@@ -68,6 +68,7 @@ import (
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
@@ -107,6 +108,16 @@ var (
 	// When false, ControllerModifyVolume returns Unimplemented and MODIFY_VOLUME is not advertised
 	// in ControllerGetCapabilities.
 	isVMPVCStoragePolicyMutabilityEnabled bool
+	// isPerNamespaceNetworkProvidersFSSEnabled is true when the supports_per_namespace_network_providers
+	// capability is enabled on the supervisor; when true, FVS routing reads the namespace-scoped
+	// NetworkSettings CR per CreateVolume call instead of consulting the cached global provider.
+	isPerNamespaceNetworkProvidersFSSEnabled bool
+	// cachedGlobalNetworkProvider holds the value of wcp-network-config.network_provider resolved
+	// once during controller.Init when isPerNamespaceNetworkProvidersFSSEnabled is false. It is
+	// only consulted on the FVS routing path for the reserved vsan-file-service-policy /
+	// vsan-file-service-policy-latebinding storage classes; legacy non-FVS paths do not use this
+	// value. Empty when the per-namespace capability is on (in which case the value is unused).
+	cachedGlobalNetworkProvider string
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -216,6 +227,26 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.VsanFileVolumeService, "", "")
 	}
+	isPerNamespaceNetworkProvidersFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.SupportsPerNamespaceNetworkProviders)
+	if !isPerNamespaceNetworkProvidersFSSEnabled {
+		// Resolve the global wcp-network-config network provider once at startup so reserved-FVS
+		// storage class requests don't pay a configmap read on every CreateVolume. The cache is
+		// only consulted on the FVS routing path; legacy file/block paths are unaffected.
+		// If the read fails we leave the cache empty and surface a clear error from
+		// shouldProvisionVsanFileVolumeViaFVS so non-FVS paths keep working.
+		if np, npErr := cnsoperatorutil.GetNetworkProvider(ctx); npErr != nil {
+			log.Warnf("failed to read network provider from wcp-network-config: %v; reserved FVS storage "+
+				"classes will be rejected until the controller is restarted with a readable wcp-network-config",
+				npErr)
+		} else {
+			cachedGlobalNetworkProvider = np
+			log.Infof("cached global network provider %q from wcp-network-config "+
+				"(supports_per_namespace_network_providers capability disabled)", cachedGlobalNetworkProvider)
+		}
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+			cnstypes.CnsClusterFlavorWorkload, common.SupportsPerNamespaceNetworkProviders, "", "")
+	}
 	if !IsMultipleClustersPerVsphereZoneFSSEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.MultipleClustersPerVsphereZone, "", "")
@@ -311,13 +342,21 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		}
 		log.Info("Initialized CBTConfig Kubernetes client")
 	}
-	if isVsanFileVolumeServiceFSSEnabled {
+
+	// Dynamic client is needed by both FVS (FileVolume CR operations) and the per-namespace
+	// network provider path (NetworkSettings CR lookups for FVS routing).
+	if isVsanFileVolumeServiceFSSEnabled || isPerNamespaceNetworkProvidersFSSEnabled {
 		c.dynamicClient, err = dynamic.NewForConfig(cfg)
 		if err != nil {
 			log.Errorf("failed to create dynamic Kubernetes client. err=%v", err)
 			return err
 		}
 		log.Info("Initialized dynamic Kubernetes client")
+	}
+	// FileVolume typed client and namespace informer are only used for FVS FileVolume CR
+	// provisioning; they are not needed when only the per-namespace network provider
+	// capability is enabled.
+	if isVsanFileVolumeServiceFSSEnabled {
 		fvsScheme := runtime.NewScheme()
 		if err = fvsapis.AddToScheme(fvsScheme); err != nil {
 			log.Errorf("failed to add FileVolume API types to scheme. err=%v", err)
@@ -1853,7 +1892,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					"file volume feature is disabled on the cluster")
 			}
 			scName := req.Parameters[common.AttributeStorageClassName]
-			useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, scName)
+			pvcNamespace := req.Parameters[common.AttributePvcNamespace]
+			useFVS, err := shouldProvisionVsanFileVolumeViaFVS(ctx, c.dynamicClient, pvcNamespace, scName)
 			if err != nil {
 				return nil, csifault.CSIInvalidArgumentFault, err
 			}

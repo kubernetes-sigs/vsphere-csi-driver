@@ -188,6 +188,15 @@ func GetTKGVMIPFromNetworkSettings(ctx context.Context, vmOperatorClient client.
 	return GetTKGVMIP(ctx, vmOperatorClient, dc, vmNamespace, vmName, networkProviderType, true)
 }
 
+// GetNetworkProviderFromNetworkSettings returns the per-namespace NetworkSettings provider
+// (mapped to NSXTNetworkProvider / VDSNetworkProvider / VPCNetworkProvider). Callers must only use
+// this when SupportsPerNamespaceNetworkProviders is enabled. Returns ErrNetworkSettingsUnavailable
+// when the namespace has no NetworkSettings or provider is empty.
+func GetNetworkProviderFromNetworkSettings(ctx context.Context, dc dynamic.Interface,
+	namespace string) (string, error) {
+	return getNetworkProviderFromNetworkSettings(ctx, dc, namespace)
+}
+
 func getNetworkProviderFromNetworkSettings(ctx context.Context, dc dynamic.Interface,
 	namespace string) (string, error) {
 	list, err := dc.Resource(networkSettingsGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
