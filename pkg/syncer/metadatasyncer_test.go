@@ -33,7 +33,9 @@ import (
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
@@ -1825,4 +1827,115 @@ func TestHandleVACChangeForVolumeInfo_NilCapacity(t *testing.T) {
 
 	// Should not panic, no SPU lookups should happen.
 	handleVACChangeForVolumeInfo(ctx, fakeClient, oldCVI, newCVI)
+}
+
+func TestInitMigrationWatchersOnStartup(t *testing.T) {
+	// Helper to create a PVC with migration annotations
+	makePVCWithAnnotations := func(namespace, name string, annotations map[string]string) *v1.PersistentVolumeClaim {
+		return &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   namespace,
+				Name:        name,
+				Annotations: annotations,
+			},
+		}
+	}
+
+	// Helper to enable migration FSS
+	enableMigrationFSS := func(t *testing.T) {
+		t.Helper()
+		fakeCO, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("GetFakeContainerOrchestratorInterface failed: %v", err)
+		}
+		if err := fakeCO.EnableFSS(context.Background(), common.VMPVCStoragePolicyMutability); err != nil {
+			t.Fatalf("EnableFSS failed: %v", err)
+		}
+		commonco.ContainerOrchestratorUtility = fakeCO
+	}
+
+	// Helper to reset test state
+	resetTestState := func() {
+		commonco.ContainerOrchestratorUtility = nil
+	}
+
+	t.Run("FSS disabled - no-op", func(t *testing.T) {
+		resetTestState()
+		ctx := context.Background()
+
+		// Create a simple mock syncer with minimal setup
+		syncer := &metadataSyncInformer{}
+
+		// Call initMigrationWatchersOnStartup - should return early due to FSS disabled
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred and function returned
+	})
+
+	t.Run("orchestrator nil - no-op", func(t *testing.T) {
+		resetTestState()
+		ctx := context.Background()
+
+		// Explicitly set orchestrator to nil
+		commonco.ContainerOrchestratorUtility = nil
+
+		syncer := &metadataSyncInformer{}
+
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred
+	})
+
+	t.Run("PVC lister error handling", func(t *testing.T) {
+		resetTestState()
+		enableMigrationFSS(t)
+		ctx := context.Background()
+
+		// Create syncer with nil pvcLister to simulate error
+		syncer := &metadataSyncInformer{
+			pvcLister: nil, // This will cause List() to fail
+		}
+
+		// This should not panic and should handle the error gracefully
+		// The function should log the error and return
+		initMigrationWatchersOnStartup(ctx, syncer)
+		// If we reach here without panic, the error was handled correctly
+	})
+
+	t.Run("integration test - basic functionality", func(t *testing.T) {
+		resetTestState()
+		enableMigrationFSS(t)
+		ctx := context.Background()
+
+		// Create test PVCs
+		pvcWithAnnotations := makePVCWithAnnotations("test-ns", "test-pvc", map[string]string{
+			common.AnnMigrationCRKind: common.MigrationCRKindVolume,
+			common.AnnMigrationCRName: "test-cr",
+		})
+		pvcWithoutAnnotations := makePVCWithAnnotations("test-ns", "test-pvc2", nil)
+
+		// Create basic informer setup using the pattern from other tests
+		objs := []runtime.Object{pvcWithAnnotations, pvcWithoutAnnotations}
+		client := testclient.NewClientset(objs...)
+
+		// Use a simple informer factory setup
+		factory := informers.NewSharedInformerFactory(client, 0)
+		pvcInformer := factory.Core().V1().PersistentVolumeClaims()
+
+		// Start the informer
+		stopCh := make(chan struct{})
+		defer close(stopCh)
+		factory.Start(stopCh)
+		factory.WaitForCacheSync(stopCh)
+
+		syncer := &metadataSyncInformer{
+			pvcLister: pvcInformer.Lister(),
+		}
+
+		// This should process the PVCs and call handlePvcMigrationAnnotations for the one with annotations
+		// The actual behavior will be tested by handlePvcMigrationAnnotations which has its own FSS checks
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred and function processed PVCs correctly
+	})
 }

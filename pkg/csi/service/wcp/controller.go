@@ -110,6 +110,11 @@ var (
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
 
+// modifyVolumePollInterval is how often ControllerModifyVolume polls CNSVolumeInfo
+// for migration status updates. A shorter interval provides faster feedback but
+// increases API server load. Declared as a var so it can be adjusted in tests.
+var modifyVolumePollInterval = 30 * time.Second
+
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
 
@@ -3176,7 +3181,7 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 		return resp, terminalErr
 	}
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(modifyVolumePollInterval)
 	defer ticker.Stop()
 
 	for {

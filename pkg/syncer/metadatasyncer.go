@@ -767,6 +767,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 	log.Infof("Initialized metadata syncer")
 
+	// Recover migration watchers for existing PVCs with migration annotations.
+	// This ensures that migration watchers are properly started after syncer restart.
+	initMigrationWatchersOnStartup(ctx, metadataSyncer)
+
 	fullSyncTicker := time.NewTicker(time.Duration(getFullSyncIntervalInMin(ctx)) * time.Minute)
 	defer fullSyncTicker.Stop()
 	// Trigger full sync.
@@ -4633,5 +4637,60 @@ func updateStoragePolicyUsageQuota(ctx context.Context, cnsOperatorClient client
 	} else {
 		log.Infof("updateStoragePolicyUsageQuota: successfully patched %q, operation: %s, capacity: %s",
 			spuName, map[bool]string{true: "decrease", false: "increase"}[decrease], capacity.String())
+	}
+}
+
+// initMigrationWatchersOnStartup scans all existing PVCs for migration annotations
+// and starts migration watchers for them. This ensures that migration watchers
+// are properly recovered after syncer restart.
+//
+// This function should be called after informer caches are synced but before
+// the main sync loop begins.
+func initMigrationWatchersOnStartup(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+
+	// Only proceed if the migration FSS is enabled
+	if commonco.ContainerOrchestratorUtility == nil ||
+		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		log.Debugf("initMigrationWatchersOnStartup: VM_PVC_STORAGE_POLICY_MUTABILITY FSS not enabled, skipping")
+		return
+	}
+
+	log.Infof("initMigrationWatchersOnStartup: Scanning existing PVCs for migration annotations")
+
+	// Check if pvcLister is available
+	if metadataSyncer.pvcLister == nil {
+		log.Errorf("initMigrationWatchersOnStartup: PVC lister is not initialized")
+		return
+	}
+
+	// List all PVCs across all namespaces
+	pvcList, err := metadataSyncer.pvcLister.List(labels.Everything())
+	if err != nil {
+		log.Errorf("initMigrationWatchersOnStartup: Failed to list PVCs: %v", err)
+		return
+	}
+
+	watchersStarted := 0
+	for _, pvc := range pvcList {
+		// Check if PVC has migration annotations
+		kind := pvc.Annotations[common.AnnMigrationCRKind]
+		name := pvc.Annotations[common.AnnMigrationCRName]
+
+		if kind != "" && name != "" {
+			log.Infof("initMigrationWatchersOnStartup: Found PVC %s/%s with migration annotations %s=%s, %s=%s",
+				pvc.Namespace, pvc.Name, common.AnnMigrationCRKind, kind, common.AnnMigrationCRName, name)
+
+			// Start migration watcher for this PVC (simulate update event with nil oldPvc)
+			// This will internally validate the kind and start the watcher if appropriate
+			handlePvcMigrationAnnotations(ctx, nil, pvc, metadataSyncer)
+			watchersStarted++
+		}
+	}
+
+	if watchersStarted > 0 {
+		log.Infof("initMigrationWatchersOnStartup: Successfully started %d migration watchers", watchersStarted)
+	} else {
+		log.Infof("initMigrationWatchersOnStartup: No PVCs with migration annotations found")
 	}
 }

@@ -1910,6 +1910,13 @@ func TestControllerModifyVolume(t *testing.T) {
 			DisableFSS(ctx, common.VMPVCStoragePolicyMutability)
 	}()
 
+	// Speed up polling for tests to avoid long waits
+	originalPollInterval := modifyVolumePollInterval
+	modifyVolumePollInterval = 1 * time.Millisecond
+	defer func() {
+		modifyVolumePollInterval = originalPollInterval
+	}()
+
 	// Create a volume to obtain a real CSI volume ID for test inputs.
 	capabilities := []*csi.VolumeCapability{
 		{
