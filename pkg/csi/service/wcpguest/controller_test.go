@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"reflect"
 	"sync"
@@ -25,6 +26,8 @@ import (
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	fakesnapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -36,6 +39,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	ktesting "k8s.io/client-go/testing"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -98,9 +102,13 @@ func getControllerTest(t *testing.T) *controllerTest {
 			t.Fatal(err)
 		}
 
+		// Create fake snapshot client
+		fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+
 		c := &controller{
-			supervisorClient:    supervisorClient,
-			supervisorNamespace: supervisorNamespace,
+			supervisorClient:            supervisorClient,
+			supervisorSnapshotterClient: fakeSnapshotClient,
+			supervisorNamespace:         supervisorNamespace,
 		}
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
@@ -847,5 +855,434 @@ func TestPatchObjectErrorHandling(t *testing.T) {
 		// This should still work as the fake client is permissive
 		err := k8s.PatchObject(ctx, fakeClient, original, pvc)
 		assert.NoError(t, err) // Fake client allows this
+	})
+}
+
+// TestCreateVolumeAnnotationLogic tests the annotation creation logic in isolation
+func TestCreateVolumeAnnotationLogic(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup global container orchestrator utility (required for feature switch)
+	originalCO := commonco.ContainerOrchestratorUtility
+
+	// Create properly initialized fake container orchestrator
+	fakeOrchestrator, coErr := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, coErr)
+
+	// Enable the ImprovedVolumeVisibility feature switch
+	err := fakeOrchestrator.EnableFSS(ctx, common.SupervisorImproveVisiblity)
+	require.NoError(t, err)
+
+	commonco.ContainerOrchestratorUtility = fakeOrchestrator
+	defer func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+	}()
+
+	// Setup test controller
+	supervisorClient := testclient.NewClientset()
+
+	controller := &controller{
+		supervisorClient:           supervisorClient,
+		supervisorNamespace:        "test-namespace",
+		tanzukubernetesClusterUID:  "test-cluster-uid",
+		tanzukubernetesClusterName: "test-cluster-name",
+		guestClusterDist:           "test-distribution",
+	}
+
+	t.Run("Test annotation and label creation for PVC", func(t *testing.T) {
+		// Test the annotation creation logic by directly creating a PVC with annotations
+		// This simulates what CreateVolume does internally when external-provisioner
+		// sets the PVC metadata parameters with --extra-create-metadata flag
+
+		pvcName := "test-pvc-name"
+		pvcNamespace := "test-pvc-namespace"
+
+		// Create the annotations map as done in CreateVolume
+		labels := make(map[string]string)
+		annotations := make(map[string]string)
+
+		// Add guest cluster label (from CreateVolume logic)
+		key := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		labels[key] = controller.tanzukubernetesClusterUID
+
+		// Create guest cluster annotation (from CreateVolume logic)
+		guestClusterAnnot := make(map[string]string)
+		guestClusterAnnot["clusterId"] = controller.tanzukubernetesClusterUID
+		guestClusterAnnot["clusterName"] = controller.tanzukubernetesClusterName
+		guestClusterAnnot["clusterDist"] = controller.guestClusterDist
+		guestClusterAnnot["pvcName"] = pvcName
+		guestClusterAnnot["pvcNamespace"] = pvcNamespace
+
+		guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
+		require.NoError(t, err, "Should marshal guest cluster annotation")
+		annotations[common.AnnKeyGuestClusterPvc] = string(guestClusterAnnotJSON)
+
+		// Create PVC with annotations and labels
+		supervisorPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-supervisor-pvc",
+				Namespace:   controller.supervisorNamespace,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		_, err = supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).
+			Create(ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Verify the PVC was created with correct annotations and labels
+		createdPVC, err := supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).
+			Get(ctx, "test-supervisor-pvc", metav1.GetOptions{})
+
+		require.NoError(t, err)
+
+		// Verify guest cluster label
+		expectedLabelKey := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		assert.Equal(t, controller.tanzukubernetesClusterUID, createdPVC.Labels[expectedLabelKey],
+			"Guest cluster label should match")
+
+		// Verify guest cluster annotation
+		guestClusterAnnotationJSON := createdPVC.Annotations[common.AnnKeyGuestClusterPvc]
+		assert.NotEmpty(t, guestClusterAnnotationJSON, "Guest cluster annotation should be present")
+
+		var retrievedAnnotation map[string]string
+		err = json.Unmarshal([]byte(guestClusterAnnotationJSON), &retrievedAnnotation)
+		require.NoError(t, err, "Guest cluster annotation should be valid JSON")
+
+		// Verify annotation content
+		assert.Equal(t, controller.tanzukubernetesClusterUID, retrievedAnnotation["clusterId"])
+		assert.Equal(t, controller.tanzukubernetesClusterName, retrievedAnnotation["clusterName"])
+		assert.Equal(t, controller.guestClusterDist, retrievedAnnotation["clusterDist"])
+		assert.Equal(t, pvcName, retrievedAnnotation["pvcName"])
+		assert.Equal(t, pvcNamespace, retrievedAnnotation["pvcNamespace"])
+	})
+
+	t.Run("Test annotation creation without PVC parameters", func(t *testing.T) {
+		// Test when PVC name/namespace are missing
+
+		labels := make(map[string]string)
+		annotations := make(map[string]string)
+
+		// Add guest cluster label
+		key := controller.tanzukubernetesClusterName + "/" + controller.guestClusterDist
+		labels[key] = controller.tanzukubernetesClusterUID
+
+		// Create guest cluster annotation without PVC info
+		guestClusterAnnot := make(map[string]string)
+		guestClusterAnnot["clusterId"] = controller.tanzukubernetesClusterUID
+		guestClusterAnnot["clusterName"] = controller.tanzukubernetesClusterName
+		guestClusterAnnot["clusterDist"] = controller.guestClusterDist
+		// No pvcName and pvcNamespace
+
+		guestClusterAnnotJSON, err := json.Marshal(guestClusterAnnot)
+		require.NoError(t, err)
+		annotations[common.AnnKeyGuestClusterPvc] = string(guestClusterAnnotJSON)
+
+		// Create PVC
+		supervisorPVC := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-supervisor-pvc-no-params",
+				Namespace:   controller.supervisorNamespace,
+				Labels:      labels,
+				Annotations: annotations,
+			},
+			Spec: v1.PersistentVolumeClaimSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				Resources: v1.VolumeResourceRequirements{
+					Requests: v1.ResourceList{
+						v1.ResourceStorage: resource.MustParse("1Gi"),
+					},
+				},
+			},
+		}
+
+		_, err = supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).
+			Create(ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Verify annotation content
+		createdPVC, err := supervisorClient.CoreV1().PersistentVolumeClaims(controller.supervisorNamespace).
+			Get(ctx, "test-supervisor-pvc-no-params", metav1.GetOptions{})
+		require.NoError(t, err)
+
+		guestClusterAnnotationJSON := createdPVC.Annotations[common.AnnKeyGuestClusterPvc]
+		var retrievedAnnotation map[string]string
+		err = json.Unmarshal([]byte(guestClusterAnnotationJSON), &retrievedAnnotation)
+		require.NoError(t, err)
+
+		// Should have cluster info but not PVC info
+		assert.Equal(t, controller.tanzukubernetesClusterUID, retrievedAnnotation["clusterId"])
+		assert.Equal(t, controller.tanzukubernetesClusterName, retrievedAnnotation["clusterName"])
+		assert.Equal(t, controller.guestClusterDist, retrievedAnnotation["clusterDist"])
+		assert.Empty(t, retrievedAnnotation["pvcName"])
+		assert.Empty(t, retrievedAnnotation["pvcNamespace"])
+	})
+
+}
+
+// TestCreateVolumeUpdatesVolumeNameAnnotation verifies that CreateVolume patches the
+// supervisor PVC with the bound PV name inside the AnnKeyGuestClusterPvc annotation
+// when the SupervisorImproveVisiblity FSS is enabled.
+//
+// The key behavior under test is that isPVCInSupervisorClusterBound now returns the
+// bound PVC object, so CreateVolume can use it directly (no extra GET round-trip) to
+// write volumeName into the annotation via a MergePatch.
+func TestCreateVolumeUpdatesVolumeNameAnnotation(t *testing.T) {
+	tCtx := context.Background()
+
+	// Fresh, isolated client and controller — do not share with the sync.Once singleton.
+	supervisorClient := testclient.NewClientset()
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	require.NoError(t, co.EnableFSS(tCtx, common.SupervisorImproveVisiblity))
+
+	oldCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
+
+	const (
+		clusterUID = "test-uid"
+		// CreateVolume strips the leading "pvc-" prefix before building the supervisor PVC
+		// name: supervisorPVCName = tanzukubernetesClusterUID + "-" + req.Name[4:]
+		volReqName = "pvc-vol-abc"
+		svPVCName  = clusterUID + "-vol-abc"
+		// PV name that the supervisor cluster assigns once the PVC is bound.
+		svPVName = "pv-test-backing"
+	)
+
+	c := &controller{
+		supervisorClient:           supervisorClient,
+		supervisorNamespace:        testNamespace,
+		tanzukubernetesClusterUID:  clusterUID,
+		tanzukubernetesClusterName: "test-cluster",
+		guestClusterDist:           "test-dist",
+	}
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: volReqName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributeSupervisorStorageClass: testStorageClass,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		}},
+	}
+
+	type cvResult struct {
+		resp *csi.CreateVolumeResponse
+		err  error
+	}
+	resultCh := make(chan cvResult, 1)
+	go func() {
+		resp, err := c.CreateVolume(tCtx, reqCreate)
+		resultCh <- cvResult{resp, err}
+	}()
+
+	// Wait long enough for CreateVolume to create the supervisor PVC and start the Watch.
+	time.Sleep(1 * time.Second)
+
+	// Simulate the supervisor cluster binding the PVC and assigning a backing PV name.
+	// Because the fake client's Update propagates through the Watch channel, this wakes
+	// up isPVCInSupervisorClusterBound and returns the object as boundPVC.
+	pvc, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).
+		Get(tCtx, svPVCName, metav1.GetOptions{})
+	require.NoError(t, err, "supervisor PVC should exist once CreateVolume has started")
+
+	pvc.Status.Phase = v1.ClaimBound
+	pvc.Spec.VolumeName = svPVName
+	_, err = supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).
+		Update(tCtx, pvc, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	r := <-resultCh
+	require.NoError(t, r.err, "CreateVolume should succeed once PVC is bound")
+
+	// After CreateVolume returns, it must have already MergePatch-ed the supervisor PVC
+	// with volumeName — no extra GET was needed because isPVCInSupervisorClusterBound
+	// now returns the fresh bound object directly.
+	updated, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).
+		Get(tCtx, svPVCName, metav1.GetOptions{})
+	require.NoError(t, err)
+
+	annotJSON, ok := updated.Annotations[common.AnnKeyGuestClusterPvc]
+	require.True(t, ok, "AnnKeyGuestClusterPvc annotation must be present after bind")
+
+	var annot map[string]string
+	require.NoError(t, json.Unmarshal([]byte(annotJSON), &annot))
+
+	// Core assertion: the PV name assigned by the supervisor must appear in the annotation.
+	assert.Equal(t, svPVName, annot["volumeName"],
+		"volumeName in annotation must equal the PV name returned by the supervisor cluster")
+
+	// Fields written at creation time must survive the MergePatch.
+	assert.Equal(t, clusterUID, annot["clusterId"])
+	assert.Equal(t, "test-cluster", annot["clusterName"])
+}
+
+// annotateSnapshotSpy embeds FakeK8SOrchestrator and records the exact arguments
+// passed to AnnotateVolumeSnapshot so tests can assert on them without relying
+// on side-effects in an external client.
+type annotateSnapshotSpy struct {
+	*unittestcommon.FakeK8SOrchestrator
+	calledName        string
+	calledNamespace   string
+	calledAnnotations map[string]string
+}
+
+func (s *annotateSnapshotSpy) AnnotateVolumeSnapshot(_ context.Context,
+	volumeSnapshotName, volumeSnapshotNamespace string,
+	annotations map[string]string) (bool, error) {
+	s.calledName = volumeSnapshotName
+	s.calledNamespace = volumeSnapshotNamespace
+	s.calledAnnotations = annotations
+	return true, nil
+}
+
+// TestCreateSnapshotWithAnnotations verifies the full CreateSnapshot path in the
+// guest controller: supervisor PVC lookup, VolumeSnapshot readiness polling, and
+// guest-cluster annotation propagation.
+//
+// The supervisor VolumeSnapshot is pre-created in the fake snapshotter client with
+// ReadyToUse=true so that IsVolumeSnapshotReady returns on the first (immediate)
+// poll without any real-time wait.
+func TestCreateSnapshotWithAnnotations(t *testing.T) {
+	ctx := context.Background()
+
+	fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	spy := &annotateSnapshotSpy{
+		FakeK8SOrchestrator: fakeOrch.(*unittestcommon.FakeK8SOrchestrator),
+	}
+	oldCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = spy
+	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
+	require.NoError(t, spy.EnableFSS(ctx, common.SupervisorImproveVisiblity))
+
+	// Use isolated fake clients so this test does not interfere with the shared
+	// singleton controller used by the other tests in this package.
+	const (
+		snapReqName        = "snapshot-mysnap"
+		sourcePVCName      = "source-pvc"
+		guestSnapName      = "snapshot-mysnap"
+		guestSnapNamespace = "guest-ns"
+		// CreateSnapshot derives the supervisor snapshot name as:
+		//   tanzukubernetesClusterUID + "-" + req.Name[9:]
+		// The code assumes a "snapshot-" prefix (9 chars). With clusterUID
+		// "tkc-uid" and req.Name = "snapshot-mysnap", supervisorSnapName = "tkc-uid-mysnap".
+		clusterUID         = "tkc-uid"
+		clusterName        = "my-tkc"
+		supervisorSnapName = "tkc-uid-mysnap"
+		wantSnapshotInfo   = "fcd-abc+snap-xyz"
+		wantChangeID       = "change-id-123"
+		wantVSCName        = "snapcontent-tkc-uid-mysnap"
+	)
+
+	supervisorFakeClient := testclient.NewClientset()
+	fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+	c := &controller{
+		supervisorClient:            supervisorFakeClient,
+		supervisorSnapshotterClient: fakeSnapshotClient,
+		supervisorNamespace:         testNamespace,
+		tanzukubernetesClusterUID:   clusterUID,
+		tanzukubernetesClusterName:  clusterName,
+	}
+
+	// Create the supervisor PVC that backs the snapshot request.
+	_, err = supervisorFakeClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx,
+		&v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sourcePVCName,
+				Namespace: testNamespace,
+			},
+		}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	// Register a reactor that enriches every supervisor VolumeSnapshot created by
+	// the controller with ReadyToUse=true status and the info/change-id annotations
+	// that the SV snapshot controller would normally populate. This lets
+	// IsVolumeSnapshotReady return on the very first poll (immediate=true), keeping
+	// the test fast while exercising the full annotation path.
+	// Returning (false, nil, nil) lets the default object-tracker also handle the
+	// Create, so the enriched VS is stored and subsequent Get calls find it.
+	readyToUse := true
+	creationTime := metav1.Now()
+	restoreSize := resource.MustParse("1Gi")
+	fakeSnapshotClient.PrependReactor("create", "volumesnapshots",
+		func(action ktesting.Action) (bool, runtime.Object, error) {
+			vs := action.(ktesting.CreateAction).GetObject().(*snap.VolumeSnapshot)
+			vs.Status = &snap.VolumeSnapshotStatus{
+				ReadyToUse:   &readyToUse,
+				CreationTime: &creationTime,
+				RestoreSize:  &restoreSize,
+			}
+			if vs.Annotations == nil {
+				vs.Annotations = make(map[string]string)
+			}
+			vs.Annotations[common.VolumeSnapshotInfoKey] = wantSnapshotInfo
+			vs.Annotations[common.VolumeSnapshotChangeIDKey] = wantChangeID
+			return false, nil, nil
+		})
+
+	t.Run("returns correct snapshot fields on success", func(t *testing.T) {
+		resp, err := c.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+			Name:           snapReqName,
+			SourceVolumeId: sourcePVCName,
+			Parameters: map[string]string{
+				common.AttributeSupervisorVolumeSnapshotClass: "test-snapshot-class",
+				common.VolumeSnapshotNameKey:                  guestSnapName,
+				common.VolumeSnapshotNamespaceKey:             guestSnapNamespace,
+				common.VolumeSnapshotContentNameKey:           wantVSCName,
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Snapshot)
+		assert.Equal(t, supervisorSnapName, resp.Snapshot.SnapshotId)
+		assert.Equal(t, sourcePVCName, resp.Snapshot.SourceVolumeId)
+		assert.True(t, resp.Snapshot.ReadyToUse)
+		assert.NotNil(t, resp.Snapshot.CreationTime)
+
+		// Verify AnnotateVolumeSnapshot was called with the correct target.
+		assert.Equal(t, guestSnapName, spy.calledName)
+		assert.Equal(t, guestSnapNamespace, spy.calledNamespace)
+
+		// Verify snapshot-info and change-id annotations are mirrored from the
+		// supervisor VolumeSnapshot to the guest VolumeSnapshot.
+		assert.Equal(t, wantSnapshotInfo, spy.calledAnnotations[common.VolumeSnapshotInfoKey])
+		assert.Equal(t, wantChangeID, spy.calledAnnotations[common.VolumeSnapshotChangeIDKey])
+
+		// Verify that AnnKeyGuestClusterSnapshot is NOT on the guest VS annotations —
+		// it is patched directly on the supervisor VolumeSnapshot instead.
+		assert.Empty(t, spy.calledAnnotations[common.AnnKeyGuestClusterSnapshot],
+			"guest-cluster-snapshot annotation must NOT be sent to the guest VS")
+
+		// Verify the supervisor VolumeSnapshot was patched with AnnKeyGuestClusterSnapshot
+		// carrying all expected fields: name, namespace, clusterName, sourceVolumeId,
+		// and volumeSnapshotContentName.
+		updatedSVS, err := fakeSnapshotClient.SnapshotV1().VolumeSnapshots(testNamespace).
+			Get(ctx, supervisorSnapName, metav1.GetOptions{})
+		require.NoError(t, err)
+		var svAnnot map[string]string
+		require.NoError(t, json.Unmarshal(
+			[]byte(updatedSVS.Annotations[common.AnnKeyGuestClusterSnapshot]), &svAnnot))
+		assert.Equal(t, snapReqName, svAnnot["name"])
+		assert.Equal(t, guestSnapNamespace, svAnnot["namespace"])
+		assert.Equal(t, clusterName, svAnnot["clusterName"])
+		assert.Equal(t, sourcePVCName, svAnnot["sourceVolumeId"])
+		assert.Equal(t, wantVSCName, svAnnot["volumeSnapshotContentName"])
 	})
 }

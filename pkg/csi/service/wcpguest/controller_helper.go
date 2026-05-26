@@ -362,10 +362,11 @@ func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolum
 	return volumeAccessibleTopologyArray, nil
 }
 
-// isPVCInSupervisorClusterBound return true if the PVC is bound in the
-// supervisor cluster before timeout, otherwise return false.
+// isPVCInSupervisorClusterBound waits until the PVC reaches the Bound phase in
+// the supervisor cluster or the timeout elapses. On success it returns the
+// bound PVC object.
 func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interface,
-	claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, error) {
+	claim *v1.PersistentVolumeClaim, timeout time.Duration) (bool, *v1.PersistentVolumeClaim, error) {
 	log := logger.GetLogger(ctx)
 	pvcName := claim.Name
 	ns := claim.Namespace
@@ -383,7 +384,7 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 	if err != nil {
 		errMsg := fmt.Errorf("failed to watch PersistentVolumeClaim %s with Error: %v", pvcName, err)
 		log.Error(errMsg)
-		return false, errMsg
+		return false, nil, errMsg
 	}
 	defer watchClaim.Stop()
 
@@ -396,10 +397,10 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 			pvcName, ns, pvc.Status.Phase, event)
 		if pvc.Status.Phase == v1.ClaimBound && pvc.Name == pvcName {
 			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s", pvcName, ns, pvc.Status.Phase)
-			return true, nil
+			return true, pvc, nil
 		}
 	}
-	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
+	return false, nil, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
