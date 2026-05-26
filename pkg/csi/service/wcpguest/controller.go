@@ -540,7 +540,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
 				}
-				if true || commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
 					guestPvcAnnotJSON, err := json.Marshal(guestPvcAnnot)
 					if err != nil {
 						msg := fmt.Sprintf("failed to marshal guest cluster annotation: %+v", err)
@@ -625,7 +625,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
 
-		if true || commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
 			guestPvcAnnot["volumeName"] = boundPVC.Spec.VolumeName
 			updatedJSON, jsonErr := json.Marshal(guestPvcAnnot)
 			if jsonErr != nil {
@@ -1863,7 +1863,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				// the supervisor cluster to indicate that snapshot creation is initiated from Guest cluster
 				annotation := make(map[string]string)
 				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
-				if true || commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
 					guestSnapAnnot := make(map[string]string)
 					guestSnapAnnot["name"] = volumeSnapshotName
 					guestSnapAnnot["namespace"] = volumeSnapshotNamespace
