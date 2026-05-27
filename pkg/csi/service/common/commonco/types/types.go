@@ -65,26 +65,20 @@ type WCPTopologyFetchDSParams struct {
 // required to be able to call GetTopologyInfoFromNodes in
 // vanilla cluster.
 type VanillaRetrieveTopologyInfoParams struct {
-	// NodeNames is the list of node names which have
-	// access to the selected datastore.
-	NodeNames []string
-	// DatastoreURL is the selected datastore for which the topology
-	// information needs to be retrieved.
-	DatastoreURL string
 	// TopologyRequirement represents the topology conditions
 	// which need to be satisfied during volume provisioning.
 	TopologyRequirement *csi.TopologyRequirement
+	// DatastoreURL is the selected datastore for which the topology
+	// information needs to be retrieved.
+	DatastoreURL string
+	// NodeNames is the list of node names which have
+	// access to the selected datastore.
+	NodeNames []string
 }
 
 // WCPRetrieveTopologyInfoParams represents the params required to call
 // GetTopologyInfoFromNodes in workload cluster.
 type WCPRetrieveTopologyInfoParams struct {
-	// DatastoreURL is the selected datastore for which the topology
-	// information needs to be retrieved.
-	DatastoreURL string
-	// StorageTopologyType is a storageClass parameter.
-	// It represents a zonal or a crossZonal volume provisioning.
-	StorageTopologyType string
 	// TopologyRequirement represents the topology conditions
 	// which need to be satisfied during volume provisioning.
 	TopologyRequirement *csi.TopologyRequirement
@@ -94,6 +88,12 @@ type WCPRetrieveTopologyInfoParams struct {
 	// TopoSegToDatastoresMap stores the candidate datastores available in each
 	// topology segment given in the CreateVolume accessibility requirements.
 	TopoSegToDatastoresMap map[string][]*cnsvsphere.DatastoreInfo
+	// DatastoreURL is the selected datastore for which the topology
+	// information needs to be retrieved.
+	DatastoreURL string
+	// StorageTopologyType is a storageClass parameter.
+	// It represents a zonal or a crossZonal volume provisioning.
+	StorageTopologyType string
 }
 
 // ControllerTopologyService is an interface which exposes functionality

@@ -48,19 +48,19 @@ type resizeReconciler struct {
 	tkgClient kubernetes.Interface
 	// Supervisor Cluster KubeClient.
 	supervisorClient kubernetes.Interface
-	// Supervisor Cluster namespace.
-	supervisorNamespace string
 	// Tanzu Kubernetes Grid claim queue.
 	claimQueue workqueue.TypedRateLimitingInterface[any]
 
 	// Tanzu Kubernetes Grid PVC Lister.
 	pvcLister corelisters.PersistentVolumeClaimLister
-	// Tanzu Kubernetes Grid PVC Synced.
-	pvcSynced cache.InformerSynced
 	// Tanzu Kubernetes Grid PV Lister.
 	pvLister corelisters.PersistentVolumeLister
+	// Tanzu Kubernetes Grid PVC Synced.
+	pvcSynced cache.InformerSynced
 	// Tanzu Kubernetes Grid PV Synced.
 	pvSynced cache.InformerSynced
+	// Supervisor Cluster namespace.
+	supervisorNamespace string
 }
 
 var (

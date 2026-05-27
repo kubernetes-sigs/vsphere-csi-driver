@@ -54,12 +54,12 @@ type FakeK8SOrchestrator struct {
 
 // volumeMigration holds mocked migrated volume information
 type mockVolumeMigration struct {
-	// volumePath to volumeId map
-	volumePathToVolumeID sync.Map
 	// volumeManager helps perform Volume Operations
 	volumeManager *cnsvolume.Manager
 	// cnsConfig helps retrieve vSphere CSI configuration for RegisterVolume Operation
 	cnsConfig *cnsconfig.Config
+	// volumePath to volumeId map
+	volumePathToVolumeID sync.Map
 }
 
 // MockVolumeMigrationService is a mocked VolumeMigrationService needed for CSI migration feature
@@ -91,6 +91,10 @@ type mockNodeVolumeTopology struct {
 }
 
 type VcsimParams struct {
+	// Version is the dot-separated VC version like 7.0.3
+	Version string
+	// ApiVersion is the dot-separated API version like 7.0
+	ApiVersion      string
 	Datacenters     int
 	Clusters        int
 	HostsPerCluster int
@@ -100,10 +104,6 @@ type VcsimParams struct {
 	// all hosts belonging to a datacenter. Internally each datastore will have temporary local file storage and
 	// it will be mounted on every HostSystem of the datacenter.
 	Datastores int
-	// Version is the dot-separated VC version like 7.0.3
-	Version string
-	// ApiVersion is the dot-separated API version like 7.0
-	ApiVersion string
 }
 
 type MockVolumeManager struct {

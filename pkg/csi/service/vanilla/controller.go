@@ -76,12 +76,12 @@ type TopologyCalculatorInterface interface {
 
 // TopologyCalculationParams contains all parameters needed for topology calculation
 type TopologyCalculationParams struct {
-	VolumeInfo          *cnsvolume.CnsVolumeInfo
-	VCenter             *cnsvsphere.VirtualCenter
-	VCHost              string
-	TopologySegmentsMap map[string][]map[string]string
 	VolumeManager       cnsvolume.Manager
 	NodeManager         NodeManagerInterface
+	VolumeInfo          *cnsvolume.CnsVolumeInfo
+	VCenter             *cnsvsphere.VirtualCenter
+	TopologySegmentsMap map[string][]map[string]string
+	VCHost              string
 }
 
 // defaultTopologyCalculator is the default implementation of TopologyCalculatorInterface

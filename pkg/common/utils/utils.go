@@ -217,9 +217,9 @@ func QuerySnapshotsUtil(ctx context.Context, m cnsvolume.Manager, snapshotQueryF
 
 type CnsVolumeDetails struct {
 	VolumeID     string
-	SizeInMB     int64
 	DatastoreUrl string
 	VolumeType   string
+	SizeInMB     int64
 }
 
 // QueryVolumeDetailsUtil queries Capacity in MB and datastore URL for the source volume with expected volume type.

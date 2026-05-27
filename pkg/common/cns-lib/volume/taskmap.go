@@ -23,14 +23,14 @@ type InMemoryMapIf interface {
 
 // TaskMap binds together the task details map and a mutex to guard it
 type TaskMap struct {
+	// taskMap: is an in-memory map to associate task details
+	// taskMap             map[types.ManagedObjectReference]*TaskDetails
+	m map[types.ManagedObjectReference]TaskDetails
 	// sync.RWMutex: a mutex is required for concurrent access to a go map
 	// reference - see the section on Concurrency at https://go.dev/blog/maps
 	// important note - sync.RWMutex can be held by an arbitrary number of readers or a single writer.
 	// an example of how sync.RWMutex works - https://gist.github.com/adikul30/31fad45c2b77bf70cd7e0a352b6d98fb
 	mu sync.RWMutex
-	// taskMap: is an in-memory map to associate task details
-	// taskMap             map[types.ManagedObjectReference]*TaskDetails
-	m map[types.ManagedObjectReference]TaskDetails
 }
 
 // NewTaskMap returns a new instance of TaskMap

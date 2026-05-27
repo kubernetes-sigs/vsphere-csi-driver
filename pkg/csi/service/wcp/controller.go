@@ -124,16 +124,16 @@ type snapshotLockManager struct {
 }
 
 type controller struct {
-	manager          *common.Manager
+	csi.UnimplementedControllerServer
+	csi.UnimplementedSnapshotMetadataServer
 	authMgr          common.AuthorizationService
 	topologyMgr      commoncotypes.ControllerTopologyService
-	snapshotLockMgr  *snapshotLockManager
 	k8sClient        kubernetes.Interface
 	dynamicClient    dynamic.Interface
 	namespaceLister  corelisters.NamespaceLister
 	fileVolumeClient ctrlclient.Client
-	csi.UnimplementedControllerServer
-	csi.UnimplementedSnapshotMetadataServer
+	manager          *common.Manager
+	snapshotLockMgr  *snapshotLockManager
 }
 
 // New creates a CNS controller.

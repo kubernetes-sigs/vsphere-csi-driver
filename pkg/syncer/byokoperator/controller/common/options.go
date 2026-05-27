@@ -24,8 +24,8 @@ import (
 )
 
 type Options struct {
-	ClusterFlavor cnstypes.CnsClusterFlavor
-	VCenterClient *vsphere.VirtualCenter
 	CryptoClient  crypto.Client
 	VolumeManager volume.Manager
+	VCenterClient *vsphere.VirtualCenter
+	ClusterFlavor cnstypes.CnsClusterFlavor
 }

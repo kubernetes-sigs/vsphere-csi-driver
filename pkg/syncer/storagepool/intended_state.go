@@ -56,12 +56,6 @@ const (
 // intendedState of a StoragePool from Datastore properties fetched from VC as
 // source of truth.
 type intendedState struct {
-	// Datastore moid in VC.
-	dsMoid string
-	// Datastore type in VC.
-	dsType string
-	// StoragePool name derived from datastore's name.
-	spName string
 	// From Datastore.summary.capacity in VC.
 	capacity *resource.Quantity
 	// From Datastore.summary.freeSpace in VC.
@@ -71,19 +65,25 @@ type intendedState struct {
 	// For vSAN default overhead depends on type of policy used, currently its
 	// also 4% less of free space.
 	allocatableSpace *resource.Quantity
+	// Datastore moid in VC.
+	dsMoid string
+	// Datastore type in VC.
+	dsType string
+	// StoragePool name derived from datastore's name.
+	spName string
 	// From Datastore.summary.Url.
 	url string
+	// Accessible list of k8s nodes on which this datastore is mounted in VC
+	// cluster.
+	nodes []string
+	// Compatible list of StorageClass names computed from SPBM.
+	compatSC []string
 	// From Datastore.summary.Accessible.
 	accessible bool
 	// From Datastore.summary.maintenanceMode.
 	datastoreInMM bool
 	// True only when all hosts this Datastore is mounted on is in MM.
 	allHostsInMM bool
-	// Accessible list of k8s nodes on which this datastore is mounted in VC
-	// cluster.
-	nodes []string
-	// Compatible list of StorageClass names computed from SPBM.
-	compatSC []string
 	// Is a remote vSAN Datastore mounted into this cluster - HCI Mesh feature.
 	isRemoteVsan bool
 }
@@ -91,11 +91,11 @@ type intendedState struct {
 // SpController holds the intended state updated by property collector listener
 // and has methods to apply intended state into actual k8s state.
 type SpController struct {
-	vc         *cnsvsphere.VirtualCenter
-	clusterIDs []string
+	vc *cnsvsphere.VirtualCenter
 	// intendedStateMap stores the datastoreMoid -> IntendedState for each
 	// datastore. Underlying map type map[string]*intendedState.
 	intendedStateMap sync.Map
+	clusterIDs       []string
 }
 
 func newSPController(vc *cnsvsphere.VirtualCenter, clusterIDs []string) (*SpController, error) {

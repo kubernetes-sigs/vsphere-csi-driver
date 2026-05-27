@@ -42,14 +42,14 @@ import (
 // VanillaCreateBlockVolParamsForMultiVC stores the parameters
 // required to call CreateBlockVolumeUtilForMultiVC function.
 type VanillaCreateBlockVolParamsForMultiVC struct {
-	Vcenter                   *vsphere.VirtualCenter
 	VolumeManager             cnsvolume.Manager
+	Vcenter                   *vsphere.VirtualCenter
 	CNSConfig                 *config.Config
-	StoragePolicyID           string
 	Spec                      *CreateVolumeSpec
-	SharedDatastores          []*vsphere.DatastoreInfo
+	StoragePolicyID           string
 	SnapshotDatastoreURL      string
 	ClusterFlavor             cnstypes.CnsClusterFlavor
+	SharedDatastores          []*vsphere.DatastoreInfo
 	FilterSuspendedDatastores bool
 }
 

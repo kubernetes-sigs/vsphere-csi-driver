@@ -22,6 +22,33 @@ import (
 
 // Config is used to read and store information from the cloud configuration file
 type Config struct {
+
+	// Multiple sets of Net Permissions applied to all file shares
+	// The string can uniquely represent each Net Permissions config
+	NetPermissions map[string]*NetPermissionConfig
+
+	// Virtual Center configurations
+	VirtualCenter map[string]*VirtualCenterConfig
+
+	TopologyCategory map[string]*TopologyCategoryInfo
+
+	// Guest Cluster configurations, only used by GC
+	GC GCConfig
+
+	// Labels will list the topology domains the CSI driver is expected
+	// to pick up from the inventory. This info will later be used while provisioning volumes.
+	Labels struct {
+		// Zone and Region correspond to the vSphere categories
+		// created to tag specific topology domains in the inventory.
+		Zone   string `gcfg:"zone"`   // Deprecated
+		Region string `gcfg:"region"` // Deprecated
+		// TopologyCategories is a comma separated string of topology domains
+		// which will correspond to the `Categories` the vSphere admin will
+		// create in the inventory using the UI.
+		// Maximum number of categories allowed is 5.
+		TopologyCategories string `gcfg:"topology-categories"`
+	}
+
 	Global struct {
 		//vCenter IP address or FQDN
 		VCenterIP string
@@ -76,34 +103,8 @@ type Config struct {
 		ListVolumeThreshold int `gcfg:"list-volume-threshold"`
 	}
 
-	// Multiple sets of Net Permissions applied to all file shares
-	// The string can uniquely represent each Net Permissions config
-	NetPermissions map[string]*NetPermissionConfig
-
-	// Virtual Center configurations
-	VirtualCenter map[string]*VirtualCenterConfig
-
 	// Snapshot configurations.
 	Snapshot SnapshotConfig
-
-	// Guest Cluster configurations, only used by GC
-	GC GCConfig
-
-	// Labels will list the topology domains the CSI driver is expected
-	// to pick up from the inventory. This info will later be used while provisioning volumes.
-	Labels struct {
-		// Zone and Region correspond to the vSphere categories
-		// created to tag specific topology domains in the inventory.
-		Zone   string `gcfg:"zone"`   // Deprecated
-		Region string `gcfg:"region"` // Deprecated
-		// TopologyCategories is a comma separated string of topology domains
-		// which will correspond to the `Categories` the vSphere admin will
-		// create in the inventory using the UI.
-		// Maximum number of categories allowed is 5.
-		TopologyCategories string `gcfg:"topology-categories"`
-	}
-
-	TopologyCategory map[string]*TopologyCategoryInfo
 }
 
 // ConfigurationInfo is a struct that used to capture config param details
@@ -142,8 +143,6 @@ type VirtualCenterConfig struct {
 	Password string `gcfg:"password" sensitive:"true"`
 	// vCenter port.
 	VCenterPort string `gcfg:"port"`
-	// True if vCenter uses self-signed cert.
-	InsecureFlag bool `gcfg:"insecure-flag"`
 	// Specifies the path to a CA certificate in PEM format. This has no effect if
 	// InsecureFlag is enabled. Optional; if not configured, the system's CA
 	// certificates will be used.
@@ -158,6 +157,8 @@ type VirtualCenterConfig struct {
 	// MigrationDataStore specifies datastore which is set as default datastore in legacy cloud-config
 	// and hence should be used as default datastore.
 	MigrationDataStoreURL string `gcfg:"migration-datastore-url"`
+	// True if vCenter uses self-signed cert.
+	InsecureFlag bool `gcfg:"insecure-flag"`
 	// FileVolumeActivated indicates whether file service has been enabled on any vSAN cluster or not
 	FileVolumeActivated bool
 }

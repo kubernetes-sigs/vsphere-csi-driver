@@ -61,15 +61,15 @@ type Driver interface {
 }
 
 type vsphereCSIDriver struct {
-	mode    string
+	csi.UnimplementedNodeServer
+	csi.UnimplementedIdentityServer
+	csi.UnimplementedSnapshotMetadataServer
 	cnscs   csitypes.CnsController
 	osUtils *osutils.OsUtils
 	// A map storing all volumes with ongoing operations so that additional operations
 	// for that same volume (as defined by VolumeID) return an Aborted error
 	volumeLocks *node.VolumeLocks
-	csi.UnimplementedNodeServer
-	csi.UnimplementedIdentityServer
-	csi.UnimplementedSnapshotMetadataServer
+	mode        string
 }
 
 // If k8s node died unexpectedly in an earlier run, the unix socket is left

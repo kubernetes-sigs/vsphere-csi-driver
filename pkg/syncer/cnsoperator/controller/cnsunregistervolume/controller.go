@@ -516,12 +516,12 @@ func recordEvent(ctx context.Context, r *Reconciler,
 }
 
 type params struct {
-	retainFCD bool
-	force     bool
 	namespace string
 	volumeID  string
 	pvcName   string
 	pvName    string
+	retainFCD bool
+	force     bool
 }
 
 func (p params) String() string {

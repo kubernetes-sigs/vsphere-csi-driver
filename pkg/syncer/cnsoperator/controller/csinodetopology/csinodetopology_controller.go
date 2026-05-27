@@ -203,12 +203,12 @@ type ReconcileCSINodeTopology struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
 	client              client.Client
+	recorder            record.EventRecorder
+	vmOperatorClient    client.Client
 	scheme              *runtime.Scheme
 	configInfo          *cnsconfig.ConfigurationInfo
-	recorder            record.EventRecorder
-	enableTKGsHAinGuest bool
-	vmOperatorClient    client.Client
 	supervisorNamespace string
+	enableTKGsHAinGuest bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

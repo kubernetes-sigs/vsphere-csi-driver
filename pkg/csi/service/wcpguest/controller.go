@@ -136,23 +136,23 @@ func (tokenAuth) RequireTransportSecurity() bool {
 }
 
 type controller struct {
+	csi.UnimplementedControllerServer
+	csi.UnimplementedSnapshotMetadataServer
 	supervisorClient            clientset.Interface
 	guestClient                 clientset.Interface
 	supervisorSnapshotterClient snapshotterClientSet.Interface
-	restClientConfig            *rest.Config
 	vmOperatorClient            client.Client
 	cnsOperatorClient           client.Client
 	// supervisorRuntimeClient is a controller-runtime client for the supervisor cluster used for
 	// patch operations on supervisor PVCs. Lazily created from restClientConfig on first use;
 	// may be injected directly in unit tests via ctrlclientfake.
 	supervisorRuntimeClient    client.Client
+	restClientConfig           *rest.Config
 	vmWatcher                  *cache.ListWatch
 	supervisorNamespace        string
 	tanzukubernetesClusterUID  string
 	tanzukubernetesClusterName string
 	guestClusterDist           string
-	csi.UnimplementedControllerServer
-	csi.UnimplementedSnapshotMetadataServer
 }
 
 // New creates a CNS controller

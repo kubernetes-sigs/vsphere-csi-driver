@@ -56,11 +56,11 @@ type ListViewImpl struct {
 
 // TaskDetails is used to hold state for a task
 type TaskDetails struct {
+	// channel to return results. the caller (CSI op) is waiting on this channel
+	ResultCh  chan TaskResult
 	Reference types.ManagedObjectReference
 	// MarkedForRemoval helps in retrying the removal of tasks in case of failures
 	MarkedForRemoval bool
-	// channel to return results. the caller (CSI op) is waiting on this channel
-	ResultCh chan TaskResult
 }
 
 type TaskResult struct {

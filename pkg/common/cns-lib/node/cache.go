@@ -71,12 +71,12 @@ func GetCache(ctx context.Context) Cache {
 
 // defaultCache caches node information and provides functionality around it.
 type defaultCache struct {
-	// mutex is used to ensure atomicity.
-	mutex sync.Mutex
 	// uuidsToNames map node UUIDs to their names.
 	uuidsToNames map[string]string
 	// namesToUUIDs map node names to their UUIDs.
 	namesToUUIDs map[string]string
+	// mutex is used to ensure atomicity.
+	mutex sync.Mutex
 }
 
 func normalizeUUID(nodeUUID string) string {

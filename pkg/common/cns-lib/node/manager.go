@@ -103,12 +103,12 @@ func GetManager(ctx context.Context) Manager {
 
 // defaultManager holds node information and provides functionality around it.
 type defaultManager struct {
+	// k8s client.
+	k8sClient clientset.Interface
 	// nodeVMs maps node UUIDs to VirtualMachine objects.
 	nodeVMs sync.Map
 	// node name to node UUI map.
 	nodeNameToUUID sync.Map
-	// k8s client.
-	k8sClient clientset.Interface
 }
 
 // SetKubernetesClient sets specified kubernetes client to defaultManager.k8sClient

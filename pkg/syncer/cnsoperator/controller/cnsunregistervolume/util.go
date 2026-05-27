@@ -37,11 +37,11 @@ import (
 )
 
 type volumeUsageInfo struct {
-	isInUse         bool
 	pods            []string
 	snapshots       []string
 	virtualMachines []string
 	guestClusters   []string
+	isInUse         bool
 }
 
 func (v volumeUsageInfo) String() string {

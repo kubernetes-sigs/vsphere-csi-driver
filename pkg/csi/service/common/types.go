@@ -73,17 +73,17 @@ type Managers struct {
 
 // CreateVolumeSpec is the Volume Spec used by CSI driver
 type CreateVolumeSpec struct {
-	Name     string
-	ScParams *StorageClassParams
+	ScParams    *StorageClassParams
+	CryptoKeyID *CryptoKeyID
+	Name        string
 	// TODO: Move this StorageClassParams
 	StoragePolicyID string
-	CapacityMB      int64
 	// TODO: Move this StorageClassParams
 	AffineToHost            string
 	VolumeType              string
 	VsanDatastoreURL        string // Datastore URL used by host local volumes (vSAN Direct/vSAN SNA)
 	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
-	CryptoKeyID             *CryptoKeyID
+	CapacityMB              int64
 	IsLinkedCloneRequest    bool
 }
 
