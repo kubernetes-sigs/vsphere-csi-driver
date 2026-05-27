@@ -1953,7 +1953,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 			// If StoragePolicyUsage CR has Status.QuotaUsage fields not nil update StoragePolicyUsage reserved field
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 				*cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-			err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -1979,7 +1979,7 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 					Used:     &usedQty,
 				},
 			}
-			err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -2053,7 +2053,7 @@ func cnsvolumeoperationrequestCRDeleted(obj interface{}) {
 		// deleted CnsVolumeOperationRequest object's "reserved" field.
 		patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
 			*cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-		err = PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+		err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 			patchedStoragePolicyUsageCR)
 		if err != nil {
 			log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -2156,7 +2156,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 					storagePolicyUsageCR.Name, newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved.Value())
 				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Add(
 					*newcnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved)
-				err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+				err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 					patchedStoragePolicyUsageCR)
 				if err != nil {
 					log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -2216,7 +2216,7 @@ func cnsvolumeoperationrequestCRUpdated(oldObj interface{}, newObj interface{}) 
 			} else {
 				log.Debug("skip increase `used` capacity, for snapshot operation cnsvolumeinfo informer will increase it")
 			}
-			err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("patching operation failed for StoragePolicyUsage CR: %s in namespace: %s. err: %v",
@@ -3547,7 +3547,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 				volumeInfo.Spec.Capacity.ScaledValue(resource.Mega))
 		} else {
 			patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Sub(*volumeInfo.Spec.Capacity)
-			err = PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+			err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("updateStoragePolicyUsage failed. err: %v", err)
@@ -4344,7 +4344,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 							"is not matching with the total capacity of all the k8s volumes in Bound state. Current: %s , "+
 							"Expected: %s", storagePolicyUsage.Name, storagePolicyUsage.Namespace,
 							currentUsedCapacity.String(), totalUsedQty.String())
-						err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, &storagePolicyUsage,
+						err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage,
 							&patchedStoragePolicyUsage)
 						if err != nil {
 							log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %s in "+
@@ -4366,7 +4366,7 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 							Used: totalUsedQty,
 						},
 					}
-					err := PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, &storagePolicyUsage,
+					err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, &storagePolicyUsage,
 						&patchedStoragePolicyUsage)
 					if err != nil {
 						log.Errorf("storagePolicyUsageCRSync: Patching operation failed for StoragePolicyUsage CR: %s in "+
@@ -4516,7 +4516,7 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 	}
 
 	// Patch StoragePolicyUsage CR
-	err = PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, storagePolicyUsageCR,
+	err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 		patchedStoragePolicyUsageCR)
 	if err != nil {
 		log.Errorf("error occurred while patching StoragePolicyUsage CR %q, err: %v",
@@ -4631,7 +4631,7 @@ func updateStoragePolicyUsageQuota(ctx context.Context, cnsOperatorClient client
 		}
 	}
 
-	err = PatchStoragePolicyUsageV3(ctx, cnsOperatorClient, spu, patchedSpu)
+	err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, spu, patchedSpu)
 	if err != nil {
 		log.Errorf("updateStoragePolicyUsageQuota: failed to patch %q, err: %v", spuName, err)
 	} else {
