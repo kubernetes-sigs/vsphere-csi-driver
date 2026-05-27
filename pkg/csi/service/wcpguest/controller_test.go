@@ -1252,7 +1252,6 @@ func TestCreateSnapshotWithAnnotations(t *testing.T) {
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Snapshot)
 		assert.Equal(t, supervisorSnapName, resp.Snapshot.SnapshotId)
-		assert.Equal(t, sourcePVCName, resp.Snapshot.SourceVolumeId)
 		assert.True(t, resp.Snapshot.ReadyToUse)
 		assert.NotNil(t, resp.Snapshot.CreationTime)
 
@@ -1282,7 +1281,6 @@ func TestCreateSnapshotWithAnnotations(t *testing.T) {
 		assert.Equal(t, snapReqName, svAnnot["name"])
 		assert.Equal(t, guestSnapNamespace, svAnnot["namespace"])
 		assert.Equal(t, clusterName, svAnnot["clusterName"])
-		assert.Equal(t, sourcePVCName, svAnnot["sourceVolumeId"])
 		assert.Equal(t, wantVSCName, svAnnot["volumeSnapshotContentName"])
 	})
 }

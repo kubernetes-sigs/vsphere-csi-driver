@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
@@ -118,8 +119,26 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 			}
 
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
-				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
-					delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
+				if annVal, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
+					// Selectively remove PVC-specific fields from the JSON annotation so
+					// that cluster-identity fields (clusterId, clusterName) are preserved
+					// for auditing only name and namespace are cleared.
+					var annMap map[string]string
+					if jsonErr := json.Unmarshal([]byte(annVal), &annMap); jsonErr == nil {
+						delete(annMap, "name")
+						delete(annMap, "namespace")
+						updated, marshalErr := json.Marshal(annMap)
+						if marshalErr == nil {
+							svPVC.Annotations[common.AnnKeyGuestClusterPvc] = string(updated)
+						} else {
+							log.Warnf("failed to re-marshal %s on PVC %q: %v; removing annotation entirely",
+								common.AnnKeyGuestClusterPvc, svPVC.Name, marshalErr)
+						}
+					} else {
+						log.Warnf("failed to unmarshal %s on PVC %q: %v; removing annotation entirely",
+							common.AnnKeyGuestClusterPvc, svPVC.Name, jsonErr)
+						delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
+					}
 					needsCleanup = true
 				}
 			}
