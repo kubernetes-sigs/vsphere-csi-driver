@@ -84,7 +84,7 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 	k8sCloudOperatorServicePort := common.GetK8sCloudOperatorServicePort(ctx)
 	log.Debugf("K8s Cloud Operator Service will be running on port %d", k8sCloudOperatorServicePort)
 	port := flag.Int("port", k8sCloudOperatorServicePort, "The k8s cloud operator service port")
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
+	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		log.Errorf("failed to listen. Err: %v", err)
 		return err
