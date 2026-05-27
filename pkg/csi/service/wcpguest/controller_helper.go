@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -402,6 +403,42 @@ func isPVCInSupervisorClusterBound(ctx context.Context, client clientset.Interfa
 	}
 	return false, nil, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
 		pvcName, ns, v1.ClaimBound, timeoutSeconds)
+}
+
+// patchSupervisorPVCAnnotation patches the supervisor PVC annotation with the given key and value
+func patchSupervisorPVCAnnotation(ctx context.Context, client clientset.Interface,
+	annotations map[string]string, supervisorPVCName string, supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	updatedJSON, jsonErr := json.Marshal(annotations)
+	if jsonErr != nil {
+		return fmt.Errorf("failed to marshal updated annotation for PVC error: %v", jsonErr)
+	}
+
+	escapedKey := strings.ReplaceAll(common.AnnKeyGuestClusterPvc, "/", "~1")
+	patchPath := "/metadata/annotations/" + escapedKey
+	patchPayload := []map[string]interface{}{
+		{
+			"op":    "add", // "add" works for both inserting and updating keys in a map
+			"path":  patchPath,
+			"value": string(updatedJSON),
+		},
+	}
+
+	patchBytes, jsonErr := json.Marshal(patchPayload)
+	if jsonErr != nil {
+		return fmt.Errorf("failed to marshal updated annotation for PVC error: %v", jsonErr)
+	}
+
+	_, patchErr := client.CoreV1().PersistentVolumeClaims(
+		supervisorNamespace).Patch(ctx, supervisorPVCName,
+		types.JSONPatchType, patchBytes, metav1.PatchOptions{})
+	if patchErr != nil {
+		return fmt.Errorf("failed to patch guest-cluster annotation on supervisor PVC %s/%s: %v",
+			supervisorNamespace, supervisorPVCName, patchErr)
+	}
+	log.Infof("Successfully patched guest-cluster annotation on supervisor PVC %s/%s with patch %s",
+		supervisorNamespace, supervisorPVCName)
+	return nil
 }
 
 // getProvisionTimeoutInMin() return the timeout for volume provision.

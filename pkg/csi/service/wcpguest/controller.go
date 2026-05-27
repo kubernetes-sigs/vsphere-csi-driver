@@ -540,11 +540,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					}
 					annotations[common.AnnGuestClusterRequestedTopology] = topologyAnnotation
 				}
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
 					guestPvcAnnotJSON, err := json.Marshal(guestPvcAnnot)
 					if err != nil {
-						msg := fmt.Sprintf("failed to marshal guest cluster annotation: %+v", err)
-						return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+						log.Errorf("failed to marshal guest cluster annotation: %+v", err)
 					} else {
 						annotations[common.AnnKeyGuestClusterPvc] = string(guestPvcAnnotJSON)
 					}
@@ -625,39 +624,11 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			attributes[common.AttributeDiskType] = common.DiskTypeBlockVolume
 		}
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
 			guestPvcAnnot["volumeName"] = boundPVC.Spec.VolumeName
-			updatedJSON, jsonErr := json.Marshal(guestPvcAnnot)
-			if jsonErr != nil {
-				log.Warnf("Failed to marshal updated annotation for PVC error: %v", jsonErr)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal,
-					"failed to marshal updated annotation for PVC error")
-			} else {
-				escapedKey := strings.ReplaceAll(common.AnnKeyGuestClusterPvc, "/", "~1")
-				patchPath := "/metadata/annotations/" + escapedKey
-				patchPayload := []map[string]interface{}{
-					{
-						"op":    "add", // "add" works for both inserting and updating keys in a map
-						"path":  patchPath,
-						"value": string(updatedJSON),
-					},
-				}
-				patchBytes, jsonErr := json.Marshal(patchPayload)
-				if jsonErr != nil {
-					log.Warnf("Failed to marshal updated annotation for PVC error: %v", jsonErr)
-					return nil, csifault.CSIInternalFault, status.Error(codes.Internal,
-						"failed to marshal updated annotation for PVC error")
-				}
-
-				_, patchErr := c.supervisorClient.CoreV1().PersistentVolumeClaims(
-					c.supervisorNamespace).Patch(ctx, supervisorPVCName,
-					types.JSONPatchType, patchBytes, metav1.PatchOptions{})
-				if patchErr != nil {
-					log.Warnf("Failed to patch guest-cluster annotation on supervisor PVC %s/%s: %v",
-						c.supervisorNamespace, supervisorPVCName, patchErr)
-				}
-				log.Infof("Successfully patched guest-cluster annotation on supervisor PVC %s/%s with patch %s",
-					c.supervisorNamespace, supervisorPVCName, string(patchBytes))
+			err := patchSupervisorPVCAnnotation(ctx, c.supervisorClient, guestPvcAnnot, supervisorPVCName, c.supervisorNamespace)
+			if err != nil {
+				log.Error("failed to patch supervisor PVC annotation: %v", err.Error())
 			}
 		}
 
@@ -1863,7 +1834,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				// the supervisor cluster to indicate that snapshot creation is initiated from Guest cluster
 				annotation := make(map[string]string)
 				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
-				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupervisorImproveVisiblity) {
+				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
 					guestSnapAnnot := make(map[string]string)
 					guestSnapAnnot["name"] = volumeSnapshotName
 					guestSnapAnnot["namespace"] = volumeSnapshotNamespace
@@ -1879,9 +1850,9 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					guestSnapAnnotJSON, err := json.Marshal(guestSnapAnnot)
 					if err != nil {
 						log.Errorf("failed to marshal guest cluster snapshot annotation: %v", err)
-						return nil, status.Error(codes.Internal, "failed to marshal guest cluster snapshot annotation")
+					} else {
+						annotation[common.AnnKeyGuestClusterSnapshot] = string(guestSnapAnnotJSON)
 					}
-					annotation[common.AnnKeyGuestClusterSnapshot] = string(guestSnapAnnotJSON)
 				}
 				labels := make(map[string]string)
 				finalizers := []string{}

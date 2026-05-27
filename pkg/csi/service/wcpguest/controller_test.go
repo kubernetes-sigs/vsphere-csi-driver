@@ -870,7 +870,7 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 	require.NoError(t, coErr)
 
 	// Enable the ImprovedVolumeVisibility feature switch
-	err := fakeOrchestrator.EnableFSS(ctx, common.SupervisorImproveVisiblity)
+	err := fakeOrchestrator.EnableFSS(ctx, common.ImprovedVolumeVisiblity)
 	require.NoError(t, err)
 
 	commonco.ContainerOrchestratorUtility = fakeOrchestrator
@@ -1031,7 +1031,7 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 
 // TestCreateVolumeUpdatesVolumeNameAnnotation verifies that CreateVolume patches the
 // supervisor PVC with the bound PV name inside the AnnKeyGuestClusterPvc annotation
-// when the SupervisorImproveVisiblity FSS is enabled.
+// when the ImprovedVolumeVisiblity FSS is enabled.
 //
 // The key behavior under test is that isPVCInSupervisorClusterBound now returns the
 // bound PVC object, so CreateVolume can use it directly (no extra GET round-trip) to
@@ -1043,7 +1043,7 @@ func TestCreateVolumeUpdatesVolumeNameAnnotation(t *testing.T) {
 	supervisorClient := testclient.NewClientset()
 	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 	require.NoError(t, err)
-	require.NoError(t, co.EnableFSS(tCtx, common.SupervisorImproveVisiblity))
+	require.NoError(t, co.EnableFSS(tCtx, common.ImprovedVolumeVisiblity))
 
 	oldCO := commonco.ContainerOrchestratorUtility
 	commonco.ContainerOrchestratorUtility = co
@@ -1170,7 +1170,7 @@ func TestCreateSnapshotWithAnnotations(t *testing.T) {
 	oldCO := commonco.ContainerOrchestratorUtility
 	commonco.ContainerOrchestratorUtility = spy
 	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
-	require.NoError(t, spy.EnableFSS(ctx, common.SupervisorImproveVisiblity))
+	require.NoError(t, spy.EnableFSS(ctx, common.ImprovedVolumeVisiblity))
 
 	// Use isolated fake clients so this test does not interfere with the shared
 	// singleton controller used by the other tests in this package.

@@ -605,11 +605,11 @@ const (
 	// can disable the additional API traffic if needed.
 	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
 
-	// SupervisorImproveVisiblity is the FSS that gates improved volume
+	// ImprovedVolumeVisiblity is the FSS that gates improved volume
 	// visibility in guest cluster, when enable it enabled guest cluster
 	// related annotations and other visiblity enhanchment for better
 	// visiblity of the guest cluster resources in the supervisor.
-	SupervisorImproveVisiblity = "improved-volume-visibility"
+	ImprovedVolumeVisiblity = "improved-volume-visibility"
 
 	// VMPVCStoragePolicyMutability is the WCP capability for the DevOps storage-policy
 	// change feature on VMs and PVCs. When enabled on the supervisor, the CSI driver
