@@ -33,6 +33,9 @@ import (
 // the scheme confirms each underlying AddToScheme ran successfully without
 // pulling every API package into this test (which would bloat the test binary).
 var expectedRegisteredKinds = []schema.GroupVersionKind{
+	// clientgoscheme includes core Kubernetes types
+	{Group: "", Version: "v1", Kind: "PersistentVolumeClaim"},
+	{Group: "storage.k8s.io", Version: "v1", Kind: "StorageClass"},
 	// cnsoperatorv1alpha1
 	{Group: "cns.vmware.com", Version: "v1alpha1", Kind: "CnsVolumeMetadata"},
 	// csinodetopologyv1alpha1
@@ -41,8 +44,9 @@ var expectedRegisteredKinds = []schema.GroupVersionKind{
 	{Group: "cns.vmware.com", Version: "v1alpha1", Kind: "CnsFileVolumeClient"},
 	// wcpcapapis
 	{Group: "iaas.vmware.com", Version: "v1alpha1", Kind: "Capabilities"},
-	// vmoperatortypes (vm-operator v1alpha5)
+	// vmoperatortypes (vm-operator v1alpha5) - includes both VirtualMachine and VirtualMachineSnapshot
 	{Group: "vmoperator.vmware.com", Version: "v1alpha5", Kind: "VirtualMachine"},
+	{Group: "vmoperator.vmware.com", Version: "v1alpha5", Kind: "VirtualMachineSnapshot"},
 }
 
 // resetGlobalScheme resets the package-level globalScheme / schemeOnce so each
