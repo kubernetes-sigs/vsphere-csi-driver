@@ -203,12 +203,6 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	)
 
 	scheme.AddKnownTypes(
-		SchemeGroupVersionV3,
-		&storagepolicyv1alpha3.StorageQuota{},
-		&storagepolicyv1alpha3.StorageQuotaList{},
-	)
-
-	scheme.AddKnownTypes(
 		SchemeGroupVersion,
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfo{},
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfoList{},
