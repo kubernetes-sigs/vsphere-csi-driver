@@ -117,7 +117,7 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 				needsCleanup = true
 			}
 
-			if true || commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
 				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
 					delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
 					needsCleanup = true

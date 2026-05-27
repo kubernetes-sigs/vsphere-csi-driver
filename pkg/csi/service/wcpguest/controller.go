@@ -1839,7 +1839,6 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					guestSnapAnnot["name"] = volumeSnapshotName
 					guestSnapAnnot["namespace"] = volumeSnapshotNamespace
 					guestSnapAnnot["clusterName"] = c.tanzukubernetesClusterName
-					guestSnapAnnot["sourceVolumeId"] = req.SourceVolumeId
 					// Record the guest-cluster VolumeSnapshotContent name, injected into the
 					// CreateSnapshot parameters by the external-snapshotter sidecar running in
 					// the guest cluster.
