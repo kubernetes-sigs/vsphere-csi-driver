@@ -34,11 +34,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	k8sFake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -2267,33 +2264,29 @@ func (m *batchTrackingMockVolumeManager) ClearVolumeControlFlags(ctx context.Con
 	return nil
 }
 
-func batchCbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
-	u := &unstructured.Unstructured{}
-	u.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cbtconfigv1alpha1.GroupName,
-		Version: cbtconfigv1alpha1.Version,
-		Kind:    "CBTConfig",
-	})
-	u.SetName(name)
-	u.SetNamespace(namespace)
-	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
-	if statusEnabled != nil {
-		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
-	}
-	return u
-}
-
-func newBatchCBTTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+// newBatchCBTTestClient returns a crclient.Client pre-populated with the given CBTConfig objects.
+func newBatchCBTTestClient(t *testing.T, objs ...crclient.Object) crclient.Client {
 	t.Helper()
-	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		cbtGVR: "CBTConfigList",
+	s := runtime.NewScheme()
+	if err := cbtconfigv1alpha1.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add CBTConfig scheme: %v", err)
 	}
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()
 }
 
-// withCSIBackupAPIEnabled sets the package isCSIBackupAPIEnabled flag for tests that
-// exercise CBT paths (mirrors Add() when CSI_Backup_API FSS is on).
+// batchCBTConfigObject builds a typed CBTConfig CR for use with crclient/fake.
+func batchCBTConfigObject(name, namespace string,
+	statusState *cbtconfigv1alpha1.CBTState) *cbtconfigv1alpha1.CBTConfig {
+	specState := cbtconfigv1alpha1.CBTStateActive
+	obj := &cbtconfigv1alpha1.CBTConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       cbtconfigv1alpha1.CBTConfigSpec{State: specState},
+	}
+	if statusState != nil {
+		obj.Status = &cbtconfigv1alpha1.CBTConfigStatus{State: statusState}
+	}
+	return obj
+}
 
 // TestSyncCBTBeforeBatchAttach_NoCBTConfig skips flag changes when CBTStateForNamespace
 // reports no CBTConfig CR in the namespace (configured=false).
@@ -2301,50 +2294,50 @@ func TestSyncCBTBeforeBatchAttach_NoCBTConfigSkipsFlagChange(t *testing.T) {
 	ctx := context.Background()
 
 	mockVM := &batchTrackingMockVolumeManager{}
-	dyn := newBatchCBTTestDynamicClient(t)
-	common.SyncVolumeCBTState(ctx, dyn, "unknown-ns", mockVM, "vol-1", "vol-2")
+	c := newBatchCBTTestClient(t)
+	common.SyncVolumeCBTState(ctx, c, "unknown-ns", mockVM, "vol-1", "vol-2")
 
 	assert.False(t, mockVM.setCalled)
 	assert.False(t, mockVM.clearCalled)
 }
 
-func TestSyncCBTBeforeBatchAttach_CBTEnabled(t *testing.T) {
+func TestSyncCBTBeforeBatchAttach_CBTActive(t *testing.T) {
 	ctx := context.Background()
 
-	enabled := true
-	dyn := newBatchCBTTestDynamicClient(t, batchCbtConfigUnstructured("default", "ns-cbt", &enabled))
+	active := cbtconfigv1alpha1.CBTStateActive
+	c := newBatchCBTTestClient(t, batchCBTConfigObject("default", "ns-cbt", &active))
 	mockVM := &batchTrackingMockVolumeManager{}
-	common.SyncVolumeCBTState(ctx, dyn, "ns-cbt", mockVM, "vol-a", "vol-b")
+	common.SyncVolumeCBTState(ctx, c, "ns-cbt", mockVM, "vol-a", "vol-b")
 
 	assert.True(t, mockVM.setCalled)
 	assert.False(t, mockVM.clearCalled)
 }
 
-func TestSyncCBTBeforeBatchAttach_CBTDisabled(t *testing.T) {
+func TestSyncCBTBeforeBatchAttach_CBTInactive(t *testing.T) {
 	ctx := context.Background()
 
-	disabled := false
-	dyn := newBatchCBTTestDynamicClient(t, batchCbtConfigUnstructured("default", "ns-off", &disabled))
+	inactive := cbtconfigv1alpha1.CBTStateInactive
+	c := newBatchCBTTestClient(t, batchCBTConfigObject("default", "ns-off", &inactive))
 	mockVM := &batchTrackingMockVolumeManager{}
-	common.SyncVolumeCBTState(ctx, dyn, "ns-off", mockVM, "vol-x", "vol-y")
+	common.SyncVolumeCBTState(ctx, c, "ns-off", mockVM, "vol-x", "vol-y")
 
 	assert.False(t, mockVM.setCalled)
 	assert.True(t, mockVM.clearCalled)
 }
 
-// TestSyncCBTBeforeBatchAttach_DynamicClientNil verifies that a nil dynamic client is a no-op.
-func TestSyncCBTBeforeBatchAttach_DynamicClientNil(t *testing.T) {
+// TestSyncCBTBeforeBatchAttach_ClientNil verifies that a nil cbtClient is a no-op.
+func TestSyncCBTBeforeBatchAttach_ClientNil(t *testing.T) {
 	ctx := context.Background()
 
 	mockVM := &batchTrackingMockVolumeManager{}
 	r := &Reconciler{
-		volumeManager:    mockVM,
-		cbtDynamicClient: nil,
+		volumeManager: mockVM,
+		cbtClient:     nil,
 	}
 
 	// Guard in the call site: nil client means SyncVolumeCBTState is never called.
-	if r.cbtDynamicClient != nil {
-		common.SyncVolumeCBTState(ctx, r.cbtDynamicClient, "any-ns", mockVM, "vol-1", "vol-2")
+	if r.cbtClient != nil {
+		common.SyncVolumeCBTState(ctx, r.cbtClient, "any-ns", mockVM, "vol-1", "vol-2")
 	}
 
 	assert.False(t, mockVM.setCalled)

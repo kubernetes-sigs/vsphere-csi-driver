@@ -32,7 +32,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -42,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnode "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
@@ -146,24 +146,28 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	isSharedDiskEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 	isCSIBackupAPIEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)
 
-	var cbtDynClient dynamic.Interface
+	var cbtClient client.Client
 	if isCSIBackupAPIEnabled {
-		dyn, err := dynamic.NewForConfig(restClientConfig)
+		cbtScheme := runtime.NewScheme()
+		if schemeErr := cbtconfigv1alpha1.AddToScheme(cbtScheme); schemeErr != nil {
+			log.Errorf("Adding CBTConfig scheme failed. Err: %v", schemeErr)
+			return schemeErr
+		}
+		cbtClient, err = client.New(restClientConfig, client.Options{Scheme: cbtScheme})
 		if err != nil {
-			log.Errorf("Creating dynamic client for CBT lookup failed. Err: %v", err)
+			log.Errorf("Creating CBTConfig client for CBT lookup failed. Err: %v", err)
 			return err
 		}
-		cbtDynClient = dyn
 	}
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder, cbtDynClient))
+	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, recorder, cbtClient))
 }
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
-	recorder record.EventRecorder, cbtDynamicClient dynamic.Interface) reconcile.Reconciler {
+	recorder record.EventRecorder, cbtClient client.Client) reconcile.Reconciler {
 	ctx, _ := logger.GetNewContextWithLogger()
 	return &ReconcileCnsNodeVMAttachment{
 		client:           mgr.GetClient(),
@@ -173,7 +177,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		vmOperatorClient: vmOperatorClient,
 		nodeManager:      cnsnode.GetManager(ctx),
 		recorder:         recorder,
-		cbtDynamicClient: cbtDynamicClient,
+		cbtClient:        cbtClient,
 	}
 }
 
@@ -213,9 +217,9 @@ type ReconcileCnsNodeVMAttachment struct {
 	vmOperatorClient client.Client
 	nodeManager      cnsnode.Manager
 	recorder         record.EventRecorder
-	// cbtDynamicClient is set when isCSIBackupAPIEnabled (CSI_Backup_API FSS on); used for
+	// cbtClient is set when isCSIBackupAPIEnabled (CSI_Backup_API FSS on); used for
 	// namespace-scoped CBTConfig lookups before attach.
-	cbtDynamicClient dynamic.Interface
+	cbtClient client.Client
 }
 
 // Reconcile reads that state of the cluster for a CnsNodeVMAttachment object
@@ -429,8 +433,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 
 			log.Debugf("instance after the patch: %s", instance)
 
-			if isCSIBackupAPIEnabled && r.cbtDynamicClient != nil {
-				common.SyncVolumeCBTState(internalCtx, r.cbtDynamicClient, instance.Namespace,
+			if isCSIBackupAPIEnabled && r.cbtClient != nil {
+				common.SyncVolumeCBTState(internalCtx, r.cbtClient, instance.Namespace,
 					r.volumeManager, volumeID)
 			}
 

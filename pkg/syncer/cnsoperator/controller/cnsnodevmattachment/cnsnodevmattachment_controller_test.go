@@ -18,6 +18,7 @@ package cnsnodevmattachment
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,16 +27,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/dynamic"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -738,33 +737,45 @@ func TestPatchObjectWithDeepCopy(t *testing.T) {
 	})
 }
 
-func cbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
-	u := &unstructured.Unstructured{}
-	u.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cbtconfigv1alpha1.GroupName,
-		Version: cbtconfigv1alpha1.Version,
-		Kind:    "CBTConfig",
-	})
-	u.SetName(name)
-	u.SetNamespace(namespace)
-	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
-	if statusEnabled != nil {
-		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
-	}
-	return u
-}
-
-func newCBTTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+// newCBTTestClient returns a ctrlclient.Client pre-populated with the given CBTConfig objects.
+func newCBTTestClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
-	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		cbtGVR: "CBTConfigList",
+	s := runtime.NewScheme()
+	if err := cbtconfigv1alpha1.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add CBTConfig scheme: %v", err)
 	}
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+	return fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()
 }
 
-// withCSIBackupAPIEnabled sets the package isCSIBackupAPIEnabled flag for tests that
-// exercise CBT paths (mirrors Add() when CSI_Backup_API FSS is on).
+// newCBTErrClient returns a ctrlclient.Client whose List always returns the given error.
+func newCBTErrClient(t *testing.T, listErr error) client.Client {
+	t.Helper()
+	s := runtime.NewScheme()
+	if err := cbtconfigv1alpha1.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add CBTConfig scheme: %v", err)
+	}
+	base := fake.NewClientBuilder().WithScheme(s).Build()
+	return interceptor.NewClient(base, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+			opts ...client.ListOption) error {
+			return listErr
+		},
+	})
+}
+
+// cbtConfigObject builds a typed CBTConfig CR for use with ctrlclient/fake.
+func cbtConfigObject(name, namespace string,
+	statusState *cbtconfigv1alpha1.CBTState) *cbtconfigv1alpha1.CBTConfig {
+	specState := cbtconfigv1alpha1.CBTStateActive
+	obj := &cbtconfigv1alpha1.CBTConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       cbtconfigv1alpha1.CBTConfigSpec{State: specState},
+	}
+	if statusState != nil {
+		obj.Status = &cbtconfigv1alpha1.CBTConfigStatus{State: statusState}
+	}
+	return obj
+}
 
 // TestSyncCBTBeforeAttach_NoCBTConfig skips flag changes when CBTStateForNamespace
 // reports no CBTConfig CR in the namespace (configured=false).
@@ -772,54 +783,67 @@ func TestSyncCBTBeforeAttach_NoCBTConfigSkipsFlagChange(t *testing.T) {
 	ctx := context.Background()
 
 	mockVM := &trackingMockVolumeManager{}
-	dyn := newCBTTestDynamicClient(t)
-	common.SyncVolumeCBTState(ctx, dyn, "unknown-ns", mockVM, "vol-1")
+	c := newCBTTestClient(t)
+	common.SyncVolumeCBTState(ctx, c, "unknown-ns", mockVM, "vol-1")
 
 	assert.False(t, mockVM.setCalled)
 	assert.False(t, mockVM.clearCalled)
 }
 
-// TestSyncCBTBeforeAttach_CBTEnabled verifies that when CBTConfig has status.enabled true,
+// TestSyncCBTBeforeAttach_CBTActive verifies that when CBTConfig has status.state Active,
 // SetVolumeControlFlags is called.
-func TestSyncCBTBeforeAttach_CBTEnabled(t *testing.T) {
+func TestSyncCBTBeforeAttach_CBTActive(t *testing.T) {
 	ctx := context.Background()
 
-	enabled := true
-	dyn := newCBTTestDynamicClient(t, cbtConfigUnstructured("default", "ns-cbt", &enabled))
+	active := cbtconfigv1alpha1.CBTStateActive
+	c := newCBTTestClient(t, cbtConfigObject("default", "ns-cbt", &active))
 	mockVM := &trackingMockVolumeManager{}
-	common.SyncVolumeCBTState(ctx, dyn, "ns-cbt", mockVM, "vol-cbt-on")
+	common.SyncVolumeCBTState(ctx, c, "ns-cbt", mockVM, "vol-cbt-on")
 
 	assert.True(t, mockVM.setCalled)
 	assert.False(t, mockVM.clearCalled)
 }
 
-// TestSyncCBTBeforeAttach_CBTDisabled verifies that when CBTConfig has status.enabled false,
+// TestSyncCBTBeforeAttach_CBTInactive verifies that when CBTConfig has status.state Inactive,
 // ClearVolumeControlFlags is called.
-func TestSyncCBTBeforeAttach_CBTDisabled(t *testing.T) {
+func TestSyncCBTBeforeAttach_CBTInactive(t *testing.T) {
 	ctx := context.Background()
 
-	disabled := false
-	dyn := newCBTTestDynamicClient(t, cbtConfigUnstructured("default", "ns-nocbt", &disabled))
+	inactive := cbtconfigv1alpha1.CBTStateInactive
+	c := newCBTTestClient(t, cbtConfigObject("default", "ns-nocbt", &inactive))
 	mockVM := &trackingMockVolumeManager{}
-	common.SyncVolumeCBTState(ctx, dyn, "ns-nocbt", mockVM, "vol-cbt-off")
+	common.SyncVolumeCBTState(ctx, c, "ns-nocbt", mockVM, "vol-cbt-off")
 
 	assert.False(t, mockVM.setCalled)
 	assert.True(t, mockVM.clearCalled)
 }
 
-// TestSyncCBTBeforeAttach_DynamicClientNil verifies that a nil dynamic client is a no-op.
-func TestSyncCBTBeforeAttach_DynamicClientNil(t *testing.T) {
+// TestSyncCBTBeforeAttach_ListError verifies that when the CBTConfig List call fails,
+// neither SetVolumeControlFlags nor ClearVolumeControlFlags is called.
+func TestSyncCBTBeforeAttach_ListError(t *testing.T) {
+	ctx := context.Background()
+
+	c := newCBTErrClient(t, fmt.Errorf("injected list error"))
+	mockVM := &trackingMockVolumeManager{}
+	common.SyncVolumeCBTState(ctx, c, "ns-err", mockVM, "vol-err")
+
+	assert.False(t, mockVM.setCalled)
+	assert.False(t, mockVM.clearCalled)
+}
+
+// TestSyncCBTBeforeAttach_ClientNil verifies that a nil cbtClient is a no-op.
+func TestSyncCBTBeforeAttach_ClientNil(t *testing.T) {
 	ctx := context.Background()
 
 	mockVM := &trackingMockVolumeManager{}
 	r := &ReconcileCnsNodeVMAttachment{
-		volumeManager:    mockVM,
-		cbtDynamicClient: nil,
+		volumeManager: mockVM,
+		cbtClient:     nil,
 	}
 
 	// Guard in the call site: nil client means SyncVolumeCBTState is never called.
-	if r.cbtDynamicClient != nil {
-		common.SyncVolumeCBTState(ctx, r.cbtDynamicClient, "ns-cbt", mockVM, "vol-cbt-on")
+	if r.cbtClient != nil {
+		common.SyncVolumeCBTState(ctx, r.cbtClient, "ns-cbt", mockVM, "vol-cbt-on")
 	}
 
 	assert.False(t, mockVM.setCalled)

@@ -32,11 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/dynamic/fake"
+	dynfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/rest"
-	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -45,6 +42,9 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -578,7 +578,7 @@ func TestGetClusterComputeResourceMoIds_MultipleClustersPerAZ(t *testing.T) {
 	az2.SetName("zone-b")
 	_ = unstructured.SetNestedStringSlice(az2.Object, []string{"domain-c3"}, "spec", "clusterComputeResourceMoIDs")
 
-	fakeClient := fake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
+	fakeClient := dynfake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
 	patches.ApplyFuncVar(&getAvailabilityZoneClient, func() (dynamic.Interface, error) {
 		return fakeClient, nil
 	})
@@ -618,7 +618,7 @@ func TestGetClusterComputeResourceMoIds_SingleClusterPerAZ(t *testing.T) {
 	az2.SetName("zone-b")
 	_ = unstructured.SetNestedStringSlice(az2.Object, []string{"domain-c2"}, "spec", "clusterComputeResourceMoIDs")
 
-	fakeClient := fake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
+	fakeClient := dynfake.NewSimpleDynamicClient(runtime.NewScheme(), az1, az2)
 	patches.ApplyFuncVar(&getAvailabilityZoneClient, func() (dynamic.Interface, error) {
 		return fakeClient, nil
 	})
@@ -629,142 +629,90 @@ func TestGetClusterComputeResourceMoIds_SingleClusterPerAZ(t *testing.T) {
 	gomega.Expect(moIDs).To(gomega.ContainElements("domain-c1", "domain-c2"))
 }
 
-func cbtConfigUnstructured(name, namespace string, statusEnabled *bool) *unstructured.Unstructured {
-	u := &unstructured.Unstructured{}
-	u.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cbtconfigv1alpha1.GroupName,
-		Version: cbtconfigv1alpha1.Version,
-		Kind:    "CBTConfig",
-	})
-	u.SetName(name)
-	u.SetNamespace(namespace)
-	_ = unstructured.SetNestedField(u.Object, true, "spec", "enabled")
-	if statusEnabled != nil {
-		_ = unstructured.SetNestedField(u.Object, *statusEnabled, "status", "enabled")
+// cbtConfigObject builds a typed CBTConfig CR for use in ctrlclient/fake tests.
+func cbtConfigObject(name, namespace string, statusState *cbtconfigv1alpha1.CBTState) *cbtconfigv1alpha1.CBTConfig {
+	specState := cbtconfigv1alpha1.CBTStateActive
+	obj := &cbtconfigv1alpha1.CBTConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       cbtconfigv1alpha1.CBTConfigSpec{State: specState},
 	}
-	return u
+	if statusState != nil {
+		obj.Status = &cbtconfigv1alpha1.CBTConfigStatus{State: statusState}
+	}
+	return obj
 }
 
-func cbtTestDynamicClient(t *testing.T, objs ...runtime.Object) dynamic.Interface {
+// cbtTestScheme returns a runtime.Scheme with CBTConfig types registered.
+func cbtTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
-	cbtGVR := cbtconfigv1alpha1.GroupVersion.WithResource(cbtconfigv1alpha1.CBTConfigResource)
-	gvrToListKind := map[schema.GroupVersionResource]string{
-		cbtGVR: "CBTConfigList",
+	s := runtime.NewScheme()
+	if err := cbtconfigv1alpha1.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add CBTConfig scheme: %v", err)
 	}
-	return fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind, objs...)
+	return s
 }
 
-// errDynamicClient is a minimal dynamic.Interface stub that always returns a
-// fixed error from List. Only the Resource chain is implemented; all other
-// methods panic to catch unexpected calls.
-type errDynamicClient struct{ err error }
+// cbtTestClient returns a ctrlclient.Client backed by the fake builder,
+// pre-populated with the given CBTConfig objects.
+func cbtTestClient(t *testing.T, objs ...ctrlclient.Object) ctrlclient.Client {
+	t.Helper()
+	return ctrlfake.NewClientBuilder().WithScheme(cbtTestScheme(t)).WithObjects(objs...).Build()
+}
 
-func (e *errDynamicClient) Resource(schema.GroupVersionResource) dynamic.NamespaceableResourceInterface {
-	return &errNamespaceableResource{err: e.err}
-}
-func (e *errDynamicClient) Tracker() k8stesting.ObjectTracker { panic("not implemented") }
-
-type errNamespaceableResource struct{ err error }
-
-func (r *errNamespaceableResource) Namespace(string) dynamic.ResourceInterface { return r }
-func (r *errNamespaceableResource) List(
-	_ context.Context, _ metav1.ListOptions,
-) (*unstructured.UnstructuredList, error) {
-	return nil, r.err
-}
-func (r *errNamespaceableResource) Create(
-	_ context.Context, _ *unstructured.Unstructured, _ metav1.CreateOptions, _ ...string,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Update(
-	_ context.Context, _ *unstructured.Unstructured, _ metav1.UpdateOptions, _ ...string,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) UpdateStatus(
-	_ context.Context, _ *unstructured.Unstructured, _ metav1.UpdateOptions,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Delete(
-	_ context.Context, _ string, _ metav1.DeleteOptions, _ ...string,
-) error {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) DeleteCollection(
-	_ context.Context, _ metav1.DeleteOptions, _ metav1.ListOptions,
-) error {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Get(
-	_ context.Context, _ string, _ metav1.GetOptions, _ ...string,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Watch(
-	_ context.Context, _ metav1.ListOptions,
-) (watch.Interface, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Patch(
-	_ context.Context, _ string, _ types.PatchType, _ []byte, _ metav1.PatchOptions, _ ...string,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) Apply(
-	_ context.Context, _ string, _ *unstructured.Unstructured, _ metav1.ApplyOptions, _ ...string,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
-}
-func (r *errNamespaceableResource) ApplyStatus(
-	_ context.Context, _ string, _ *unstructured.Unstructured, _ metav1.ApplyOptions,
-) (*unstructured.Unstructured, error) {
-	panic("not implemented")
+// cbtErrClient returns a ctrlclient.Client whose List always returns the given error.
+func cbtErrClient(t *testing.T, listErr error) ctrlclient.Client {
+	t.Helper()
+	base := ctrlfake.NewClientBuilder().WithScheme(cbtTestScheme(t)).Build()
+	return interceptor.NewClient(base, interceptor.Funcs{
+		List: func(ctx context.Context, c ctrlclient.WithWatch, list ctrlclient.ObjectList,
+			opts ...ctrlclient.ListOption) error {
+			return listErr
+		},
+	})
 }
 
 func TestCBTStateForNamespace(t *testing.T) {
 	ctx := context.Background()
 	ns := "test-ns"
-	enabled := true
-	disabled := false
+	enabled := cbtconfigv1alpha1.CBTStateActive
+	disabled := cbtconfigv1alpha1.CBTStateInactive
 
 	t.Run("API unavailable (NoKindMatchError)", func(t *testing.T) {
 		noMatch := &apiMeta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "cbt.vsphere.vmware.com"}}
-		dyn := &errDynamicClient{err: noMatch}
-		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+		c := cbtErrClient(t, noMatch)
+		en, configured, err := CBTStateForNamespace(ctx, c, ns)
 		assert.NoError(t, err)
 		assert.False(t, configured)
 		assert.False(t, en)
 	})
 
 	t.Run("no CBTConfig objects", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t)
-		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+		c := cbtTestClient(t)
+		en, configured, err := CBTStateForNamespace(ctx, c, ns)
 		assert.NoError(t, err)
 		assert.False(t, configured)
 		assert.False(t, en)
 	})
 
-	t.Run("status.enabled true", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
-		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+	t.Run("status.state Active", func(t *testing.T) {
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &enabled))
+		en, configured, err := CBTStateForNamespace(ctx, c, ns)
 		assert.NoError(t, err)
 		assert.True(t, configured)
 		assert.True(t, en)
 	})
 
-	t.Run("status.enabled false", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
-		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+	t.Run("status.state Inactive", func(t *testing.T) {
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &disabled))
+		en, configured, err := CBTStateForNamespace(ctx, c, ns)
 		assert.NoError(t, err)
 		assert.True(t, configured)
 		assert.False(t, en)
 	})
 
-	t.Run("status.enabled omitted", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, nil))
-		en, configured, err := CBTStateForNamespace(ctx, dyn, ns)
+	t.Run("status.state omitted", func(t *testing.T) {
+		c := cbtTestClient(t, cbtConfigObject("default", ns, nil))
+		en, configured, err := CBTStateForNamespace(ctx, c, ns)
 		assert.NoError(t, err)
 		assert.False(t, configured)
 		assert.False(t, en)
@@ -1016,45 +964,45 @@ func (m *cbtFlagsMockVolumeManager) QueryFCDChangedBlocks(context.Context,
 func TestSyncVolumeCBTState(t *testing.T) {
 	ctx := context.Background()
 	ns := "test-ns"
-	enabled := true
-	disabled := false
+	enabled := cbtconfigv1alpha1.CBTStateActive
+	disabled := cbtconfigv1alpha1.CBTStateInactive
 
-	t.Run("CBT enabled calls Set for each volume", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
+	t.Run("CBT active calls Set for each volume", func(t *testing.T) {
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &enabled))
 		vm := &cbtFlagsMockVolumeManager{}
-		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1", "vol-2")
+		SyncVolumeCBTState(ctx, c, ns, vm, "vol-1", "vol-2")
 		assert.True(t, vm.setCalled)
 		assert.False(t, vm.clearCalled)
 	})
 
-	t.Run("CBT disabled calls Clear for each volume", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
+	t.Run("CBT inactive calls Clear for each volume", func(t *testing.T) {
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &disabled))
 		vm := &cbtFlagsMockVolumeManager{}
-		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1", "vol-2")
+		SyncVolumeCBTState(ctx, c, ns, vm, "vol-1", "vol-2")
 		assert.False(t, vm.setCalled)
 		assert.True(t, vm.clearCalled)
 	})
 
 	t.Run("not configured skips flag change", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t) // no CBTConfig CR
+		c := cbtTestClient(t) // no CBTConfig CR
 		vm := &cbtFlagsMockVolumeManager{}
-		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		SyncVolumeCBTState(ctx, c, ns, vm, "vol-1")
 		assert.False(t, vm.setCalled)
 		assert.False(t, vm.clearCalled)
 	})
 
 	t.Run("Set error is swallowed after logging", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &enabled))
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &enabled))
 		vm := &cbtFlagsMockVolumeManager{setErr: errors.New("set failed")}
-		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		SyncVolumeCBTState(ctx, c, ns, vm, "vol-1")
 		assert.True(t, vm.setCalled)
 		assert.False(t, vm.clearCalled)
 	})
 
 	t.Run("Clear error is swallowed after logging", func(t *testing.T) {
-		dyn := cbtTestDynamicClient(t, cbtConfigUnstructured("default", ns, &disabled))
+		c := cbtTestClient(t, cbtConfigObject("default", ns, &disabled))
 		vm := &cbtFlagsMockVolumeManager{clearErr: errors.New("clear failed")}
-		SyncVolumeCBTState(ctx, dyn, ns, vm, "vol-1")
+		SyncVolumeCBTState(ctx, c, ns, vm, "vol-1")
 		assert.False(t, vm.setCalled)
 		assert.True(t, vm.clearCalled)
 	})

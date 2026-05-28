@@ -49,6 +49,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -130,6 +131,7 @@ type controller struct {
 	topologyMgr      commoncotypes.ControllerTopologyService
 	k8sClient        kubernetes.Interface
 	dynamicClient    dynamic.Interface
+	cbtClient        ctrlclient.Client
 	namespaceLister  corelisters.NamespaceLister
 	fileVolumeClient ctrlclient.Client
 	manager          *common.Manager
@@ -277,16 +279,26 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 	log.Info("Initialized Kubernetes client")
 
-	// One dynamic client for File Volume Service and/or CBTConfig (CSI Backup) API.
-	if isVsanFileVolumeServiceFSSEnabled || isCSIBackupAPIEnabled {
+	if isCSIBackupAPIEnabled {
+		cbtScheme := runtime.NewScheme()
+		if err = cbtconfigv1alpha1.AddToScheme(cbtScheme); err != nil {
+			log.Errorf("failed to add CBTConfig API types to scheme. err=%v", err)
+			return err
+		}
+		c.cbtClient, err = ctrlclient.New(cfg, ctrlclient.Options{Scheme: cbtScheme})
+		if err != nil {
+			log.Errorf("failed to create CBTConfig Kubernetes client. err=%v", err)
+			return err
+		}
+		log.Info("Initialized CBTConfig Kubernetes client")
+	}
+	if isVsanFileVolumeServiceFSSEnabled {
 		c.dynamicClient, err = dynamic.NewForConfig(cfg)
 		if err != nil {
 			log.Errorf("failed to create dynamic Kubernetes client. err=%v", err)
 			return err
 		}
 		log.Info("Initialized dynamic Kubernetes client")
-	}
-	if isVsanFileVolumeServiceFSSEnabled {
 		fvsScheme := runtime.NewScheme()
 		if err = fvsapis.AddToScheme(fvsScheme); err != nil {
 			log.Errorf("failed to add FileVolume API types to scheme. err=%v", err)
@@ -1198,16 +1210,16 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		// periodic reconciler in syncer.
 		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
 			// Volumes are created with CBT off by default; only enable when the
-			// namespace has CBT active. enableCbt is true only when configured.
-			enableCbt, _, err := common.CBTStateForNamespace(ctx, c.dynamicClient, pvcNamespace)
+			// namespace has CBT active. active is true only when configured.
+			active, _, err := common.CBTStateForNamespace(ctx, c.cbtClient, pvcNamespace)
 			if err != nil {
 				log.Warnf("failed to get CBTConfig for namespace %s: %+v", pvcNamespace, err)
-			} else if enableCbt {
+			} else if active {
 				volumeID := volumeInfo.VolumeID.Id
 				if err := common.SetVolumeCbtFlagsUtil(ctx, c.manager.VolumeManager, volumeID); err != nil {
-					log.Warnf("failed to set CBT %t for volume %s: %v", enableCbt, volumeID, err)
+					log.Warnf("failed to set CBT %t for volume %s: %v", active, volumeID, err)
 				} else {
-					log.Infof("Successfully set CBT %t for volume %s", enableCbt, volumeID)
+					log.Infof("Successfully set CBT %t for volume %s", active, volumeID)
 				}
 			}
 		} else {
@@ -2024,7 +2036,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			// Best-effort: sync CBT state before attach. Any failure is deferred
 			// to the periodic reconciler in the syncer.
 			if ok && pvcNamespace != "" {
-				common.SyncVolumeCBTState(ctx, c.dynamicClient, pvcNamespace, c.manager.VolumeManager, req.VolumeId)
+				common.SyncVolumeCBTState(ctx, c.cbtClient, pvcNamespace, c.manager.VolumeManager, req.VolumeId)
 			} else {
 				log.Warnf("failed to get PVC namespace from request parameters for volume %s", req.VolumeId)
 			}

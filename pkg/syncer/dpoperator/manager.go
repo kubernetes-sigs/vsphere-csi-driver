@@ -95,7 +95,7 @@ func NewManager(
 	pvcLister := informerManager.GetPVCLister()
 	vaLister := informerManager.GetVolumeAttachmentLister()
 
-	if err := controller.AddToManager(mgr, volumeManager, pvLister, pvcLister, vaLister); err != nil {
+	if err := controller.AddToManager(mgr, k8sClient, volumeManager, pvLister, pvcLister, vaLister); err != nil {
 		return nil, err
 	}
 

@@ -21,19 +21,72 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// CBTConfigSpec defines the desired state of CBTConfig
+var (
+	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
+	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
+
+	// AddToScheme adds the types in this group-version to the given scheme.
+	AddToScheme = SchemeBuilder.AddToScheme
+)
+
+// addKnownTypes adds the set of types defined in this package to the supplied scheme.
+func addKnownTypes(scheme *runtime.Scheme) error {
+	scheme.AddKnownTypes(GroupVersion,
+		&CBTConfig{},
+		&CBTConfigList{},
+	)
+	metav1.AddToGroupVersion(scheme, GroupVersion)
+	return nil
+}
+
+// CBTState is a string enum that represents whether Change Block Tracking
+// is enabled or not.
+// +kubebuilder:validation:Enum=Active;Inactive
+type CBTState string
+
+const (
+	// CBTStateActive requests that Change Block Tracking be turned on.
+	CBTStateActive CBTState = "Active"
+	// CBTStateInactive requests that Change Block Tracking be turned off.
+	CBTStateInactive CBTState = "Inactive"
+
+	// CBTConfigConditionConfigured is True when every VirtualMachine in the
+	// namespace has its CBT flag aligned with Spec.State.
+	CBTConfigConditionConfigured = "Configured"
+
+	// Condition reasons for CBTConfig.
+	// Pattern: {CRPrefix}Reason{ConditionType}{Success|Error|Semantic}.
+
+	CBTConfigReasonConfiguredInProgress = "InProgress"
+	CBTConfigReasonConfiguredSuccess    = "Succeeded"
+	CBTConfigReasonConfiguredFailed     = "Failed"
+)
+
+// CBTConfigSpec defines the desired state of CBTConfig.
 type CBTConfigSpec struct {
-	// Cbt is requested to be set true/false in the namespace.
-	Enabled bool `json:"enabled"`
+	// state requests that Change Block Tracking be turned on or off
+	// in this namespace.
+	// +required
+	State CBTState `json:"state,omitempty"`
 }
 
 // CBTConfigStatus defines the observed state of CBTConfig.
 type CBTConfigStatus struct {
-	// The cbt status of the namespace.
-	Enabled *bool `json:"enabled,omitempty"`
+	// conditions describes the observed conditions of the CBTConfig.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=32
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// The last error encountered from the last reconcile, if any.
-	Error string `json:"error,omitempty"`
+	// observedGeneration is the metadata.generation of the CBTConfig that the
+	// controller last finished reconciling on the success path.
+	// +optional
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// state reflects the current CBT state of this namespace.
+	// +optional
+	State *CBTState `json:"state,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -44,17 +97,31 @@ type CBTConfigStatus struct {
 type CBTConfig struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
+	// metadata is a standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// spec defines the desired state of CBTConfig
+	// spec defines the desired state of CBTConfig.
 	// +required
-	Spec CBTConfigSpec `json:"spec"`
+	Spec CBTConfigSpec `json:"spec,omitzero"`
 
-	// status defines the observed state of CBTConfig
+	// status defines the observed state of CBTConfig.
 	// +optional
-	Status CBTConfigStatus `json:"status,omitempty"`
+	Status *CBTConfigStatus `json:"status,omitempty"`
+}
+
+func (c *CBTConfig) GetConditions() []metav1.Condition {
+	if c.Status == nil {
+		return nil
+	}
+	return c.Status.Conditions
+}
+
+func (c *CBTConfig) SetConditions(conditions []metav1.Condition) {
+	if c.Status == nil {
+		c.Status = &CBTConfigStatus{}
+	}
+	c.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true
@@ -64,12 +131,4 @@ type CBTConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []CBTConfig `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(func(s *runtime.Scheme) error {
-		s.AddKnownTypes(GroupVersion, &CBTConfig{}, &CBTConfigList{})
-		metav1.AddToGroupVersion(s, GroupVersion)
-		return nil
-	})
 }
