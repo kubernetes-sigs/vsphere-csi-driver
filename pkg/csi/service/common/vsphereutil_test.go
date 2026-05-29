@@ -105,6 +105,10 @@ func (m *mockVolumeManager) RetrieveVStorageObject(ctx context.Context,
 func (m *mockVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
 	return nil
 }
+
+func (m *mockVolumeManager) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	return nil
+}
 func (m *mockVolumeManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
 	return nil
 }

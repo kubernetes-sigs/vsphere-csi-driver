@@ -595,6 +595,17 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			instance.Name, instance.Spec.VolumeMode)
 	}
 
+	// When a PVC is created by VM Operator with DataSourceRef set to a VirtualMachine,
+	// and the matching VM volume entry has removable=false, clear the keepAfterDeleteVm
+	// control flag that CNS auto-sets on a newly registered FCD. This ensures the
+	// FCD lifecycle is governed by the PVC, not by the consuming VM. The clear is
+	// performed via the VSLM endpoint, which is broadly available on older vSphere too.
+	if err = clearKeepAfterDeleteVmIfNonRemovable(ctx, r.client, r.volumeManager,
+		pvc, instance.Namespace, volumeID); err != nil {
+		setInstanceError(ctx, r, instance, err.Error())
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
 	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
 	// is created even if validation fails
 	if pvc != nil {
