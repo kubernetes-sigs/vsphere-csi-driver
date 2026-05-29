@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
@@ -995,4 +996,182 @@ func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolum
 			claim.Name, claim.Namespace, err)
 	}
 	return volumeAccessibleTopologyArray, nil
+}
+
+// vmOperatorAPIGroup is the API group for vmoperator VirtualMachine resources.
+const vmOperatorAPIGroup = "vmoperator.vmware.com"
+
+// hasVMOwnerRef checks if a PVC has an ownerReference pointing to a VirtualMachine.
+// Returns true if any ownerReference has Kind=VirtualMachine and APIVersion
+// contains the vmoperator.vmware.com API group.
+func hasVMOwnerRef(pvc *v1.PersistentVolumeClaim) bool {
+	if pvc == nil {
+		return false
+	}
+	for _, ownerRef := range pvc.OwnerReferences {
+		if ownerRef.Kind == "VirtualMachine" &&
+			len(ownerRef.APIVersion) > len(vmOperatorAPIGroup) &&
+			ownerRef.APIVersion[:len(vmOperatorAPIGroup)] == vmOperatorAPIGroup {
+			return true
+		}
+	}
+	return false
+}
+
+// handleVMOwnerRefChange detects changes in VM ownerRef between old and new PVC
+// and calls the appropriate volume manager method to set or clear the
+// keepAfterDeleteVm control flag. When clearing the flag, it also sets an
+// annotation on the PVC to prevent repeated VSLM calls on syncer restarts.
+//
+// When a VM ownerRef is added → clear keepAfterDeleteVm (volume tied to VM lifecycle)
+// When a VM ownerRef is removed (and PVC not being deleted) → set keepAfterDeleteVm
+func handleVMOwnerRefChange(ctx context.Context, oldPvc, newPvc *v1.PersistentVolumeClaim,
+	volumeID string, volumeManager volumes.Manager, k8sClient clientset.Interface) {
+	log := logger.GetLogger(ctx)
+
+	oldHasVMOwner := hasVMOwnerRef(oldPvc)
+	newHasVMOwner := hasVMOwnerRef(newPvc)
+
+	if oldHasVMOwner == newHasVMOwner {
+		return
+	}
+
+	if newHasVMOwner {
+		log.Infof("VM ownerRef added to PVC %s/%s; clearing keepAfterDeleteVm for volume %s",
+			newPvc.Namespace, newPvc.Name, volumeID)
+		if err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID); err != nil {
+			log.Errorf("Failed to clear keepAfterDeleteVm for volume %s (PVC %s/%s): %v",
+				volumeID, newPvc.Namespace, newPvc.Name, err)
+			return
+		}
+		// Set annotation to prevent repeated VSLM calls on syncer restarts
+		if err := setVMDeleteProtectionClearedAnnotation(ctx, k8sClient, newPvc); err != nil {
+			log.Errorf("Failed to set protection-cleared annotation on PVC %s/%s: %v",
+				newPvc.Namespace, newPvc.Name, err)
+		}
+		return
+	}
+
+	if !newPvc.DeletionTimestamp.IsZero() {
+		log.Debugf("VM ownerRef removed from PVC %s/%s but PVC has deletion timestamp; "+
+			"skipping keepAfterDeleteVm restore for volume %s",
+			newPvc.Namespace, newPvc.Name, volumeID)
+		return
+	}
+
+	log.Infof("VM ownerRef removed from PVC %s/%s; setting keepAfterDeleteVm for volume %s",
+		newPvc.Namespace, newPvc.Name, volumeID)
+	if err := volumeManager.ProtectVolumeFromVMDeletion(ctx, volumeID); err != nil {
+		log.Errorf("Failed to set keepAfterDeleteVm for volume %s (PVC %s/%s): %v",
+			volumeID, newPvc.Namespace, newPvc.Name, err)
+		return
+	}
+	// Remove the annotation since protection is restored
+	if err := removeVMDeleteProtectionClearedAnnotation(ctx, k8sClient, newPvc); err != nil {
+		log.Errorf("Failed to remove protection-cleared annotation from PVC %s/%s: %v",
+			newPvc.Namespace, newPvc.Name, err)
+	}
+}
+
+// setVMDeleteProtectionClearedAnnotation sets the annotation indicating that
+// keepAfterDeleteVm has been cleared due to VM ownerRef presence.
+func setVMDeleteProtectionClearedAnnotation(ctx context.Context, k8sClient clientset.Interface,
+	pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+	if k8sClient == nil {
+		return fmt.Errorf("k8sClient is nil")
+	}
+
+	// Fetch fresh PVC to avoid conflicts
+	freshPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+	}
+
+	// Check if annotation is already set
+	if freshPVC.Annotations != nil && freshPVC.Annotations[common.AnnVMDeleteProtectionCleared] == "true" {
+		return nil
+	}
+
+	metav1.SetMetaDataAnnotation(&freshPVC.ObjectMeta, common.AnnVMDeleteProtectionCleared, "true")
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(freshPVC.Namespace).Update(ctx, freshPVC, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update PVC %s/%s: %v", freshPVC.Namespace, freshPVC.Name, err)
+	}
+	log.Infof("Set %s annotation on PVC %s/%s", common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
+	return nil
+}
+
+// removeVMDeleteProtectionClearedAnnotation removes the annotation when
+// keepAfterDeleteVm protection is restored (VM ownerRef removed).
+func removeVMDeleteProtectionClearedAnnotation(ctx context.Context, k8sClient clientset.Interface,
+	pvc *v1.PersistentVolumeClaim) error {
+	log := logger.GetLogger(ctx)
+	if k8sClient == nil {
+		return fmt.Errorf("k8sClient is nil")
+	}
+
+	// Fetch fresh PVC to avoid conflicts
+	freshPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+	}
+
+	// Check if annotation exists
+	if freshPVC.Annotations == nil || freshPVC.Annotations[common.AnnVMDeleteProtectionCleared] == "" {
+		return nil
+	}
+
+	delete(freshPVC.Annotations, common.AnnVMDeleteProtectionCleared)
+	_, err = k8sClient.CoreV1().PersistentVolumeClaims(freshPVC.Namespace).Update(ctx, freshPVC, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update PVC %s/%s: %v", freshPVC.Namespace, freshPVC.Name, err)
+	}
+	log.Infof("Removed %s annotation from PVC %s/%s", common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
+	return nil
+}
+
+// clearKeepAfterDeleteVmForExistingPVC clears the keepAfterDeleteVm flag for
+// a PVC that has a VM ownerRef but hasn't been processed yet (e.g., on CSI
+// driver upgrade). This is called from pvcAdded to handle existing PVCs.
+// Returns true if the flag was cleared, false otherwise.
+func clearKeepAfterDeleteVmForExistingPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim,
+	volumeID string, volumeManager volumes.Manager, k8sClient clientset.Interface) bool {
+	log := logger.GetLogger(ctx)
+
+	// Skip if PVC doesn't have VM ownerRef
+	if !hasVMOwnerRef(pvc) {
+		return false
+	}
+
+	// Skip if already processed (annotation present)
+	if pvc.Annotations != nil && pvc.Annotations[common.AnnVMDeleteProtectionCleared] == "true" {
+		log.Debugf("PVC %s/%s already has protection-cleared annotation; skipping",
+			pvc.Namespace, pvc.Name)
+		return false
+	}
+
+	// Skip if PVC is being deleted
+	if !pvc.DeletionTimestamp.IsZero() {
+		log.Debugf("PVC %s/%s has deletion timestamp; skipping keepAfterDeleteVm clear",
+			pvc.Namespace, pvc.Name)
+		return false
+	}
+
+	log.Infof("Existing PVC %s/%s has VM ownerRef; clearing keepAfterDeleteVm for volume %s",
+		pvc.Namespace, pvc.Name, volumeID)
+
+	if err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID); err != nil {
+		log.Errorf("Failed to clear keepAfterDeleteVm for volume %s (PVC %s/%s): %v",
+			volumeID, pvc.Namespace, pvc.Name, err)
+		return false
+	}
+
+	// Set annotation to prevent repeated VSLM calls
+	if err := setVMDeleteProtectionClearedAnnotation(ctx, k8sClient, pvc); err != nil {
+		log.Errorf("Failed to set protection-cleared annotation on PVC %s/%s: %v",
+			pvc.Namespace, pvc.Name, err)
+	}
+
+	return true
 }

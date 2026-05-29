@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -36,6 +37,7 @@ import (
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsstoragepolicyquotasv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -104,6 +106,82 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 		}
 	}
 	return false
+}
+
+// clearKeepAfterDeleteVmIfNonRemovable clears the keepAfterDeleteVm control flag
+// on the just-registered FCD when the PVC was created by VM Operator with a
+// VirtualMachine DataSourceRef and the matching volume entry on the VM has
+// removable=false. CNS automatically sets keepAfterDeleteVm on every newly
+// registered FCD; for non-removable VM-imported PVCs we want the FCD lifecycle
+// to be governed by the PVC, not by the consuming VM, so we clear the flag
+// after registration.
+//
+// The clear is performed via the VSLM endpoint (UnprotectVolumeFromVMDeletion),
+// which is broadly available on older vSphere as well; no FSS gate is required.
+//
+// Returns nil (no-op) when:
+//   - pvc is nil or has no DataSourceRef,
+//   - DataSourceRef does not point at vmoperator.vmware.com/VirtualMachine,
+//   - the matching VM volume entry has removable=true or removable=nil (default).
+//
+// Returns a non-nil error when the VirtualMachine CR cannot be fetched or when
+// the underlying VSLM clear call fails. Both cases are safe to retry on the
+// next reconcile (CreateVolume and VSLM clear are both idempotent).
+func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclient.Client,
+	volumeManager volumes.Manager, pvc *v1.PersistentVolumeClaim, namespace, volumeID string) error {
+	log := logger.GetLogger(ctx)
+
+	if pvc == nil || pvc.Spec.DataSourceRef == nil ||
+		pvc.Spec.DataSourceRef.APIGroup == nil ||
+		*pvc.Spec.DataSourceRef.APIGroup != "vmoperator.vmware.com" ||
+		pvc.Spec.DataSourceRef.Kind != "VirtualMachine" {
+		return nil
+	}
+
+	vm := &vmoperatortypes.VirtualMachine{}
+	if err := c.Get(ctx, ctrlruntimeclient.ObjectKey{
+		Namespace: namespace,
+		Name:      pvc.Spec.DataSourceRef.Name,
+	}, vm); err != nil {
+		return fmt.Errorf("failed to get VirtualMachine %s/%s referenced by PVC DataSourceRef: %v",
+			namespace, pvc.Spec.DataSourceRef.Name, err)
+	}
+
+	nonRemovable := false
+	for _, vmVol := range vm.Spec.Volumes {
+		if vmVol.PersistentVolumeClaim != nil &&
+			vmVol.PersistentVolumeClaim.ClaimName == pvc.Name &&
+			vmVol.Removable != nil && !*vmVol.Removable {
+			nonRemovable = true
+			break
+		}
+	}
+
+	if !nonRemovable {
+		return nil
+	}
+
+	log.Infof("Clearing keepAfterDeleteVm for volumeID %s (PVC %s/%s mounted as non-removable on VM %s)",
+		volumeID, pvc.Namespace, pvc.Name, vm.Name)
+	if err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID); err != nil {
+		return fmt.Errorf("failed to clear keepAfterDeleteVm for volumeID %s: %v", volumeID, err)
+	}
+
+	// Set annotation to indicate keepAfterDeleteVm has been cleared.
+	// This prevents redundant VSLM calls on syncer restarts or informer resyncs.
+	pvcCopy := pvc.DeepCopy()
+	if pvcCopy.Annotations == nil {
+		pvcCopy.Annotations = make(map[string]string)
+	}
+	pvcCopy.Annotations[common.AnnVMDeleteProtectionCleared] = "true"
+	if err := c.Update(ctx, pvcCopy); err != nil {
+		log.Warnf("Failed to set %s annotation on PVC %s/%s: %v",
+			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name, err)
+	} else {
+		log.Infof("Set %s annotation on PVC %s/%s",
+			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
+	}
+	return nil
 }
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec.

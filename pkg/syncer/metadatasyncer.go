@@ -528,6 +528,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return logger.LogNewErrorf(log, "failed to create CnsOperator client for WCP mode. Err: %v", err)
 		}
 
+		// Initialize supervisor client for PVC annotation updates (e.g., VM delete protection).
+		metadataSyncer.supervisorClient, err = k8s.NewSupervisorClient(ctx, k8sConfig)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create supervisorClient for WCP mode. Err: %v", err)
+		}
+
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSISVFeatureStateReplication) {
 			svParams, ok := COInitParams.(k8sorchestrator.K8sSupervisorInitParams)
 			if !ok {
@@ -718,18 +724,23 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	// Set up kubernetes resource listeners for metadata syncer.
 	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
-	err = metadataSyncer.k8sInformerManager.AddPVCListener(
-		ctx,
-		nil, // Add.
-		func(oldObj interface{}, newObj interface{}) { // Update.
-			pvcUpdated(oldObj, newObj, metadataSyncer)
-		},
-		func(obj interface{}) { // Delete.
-			pvcDeleted(obj, metadataSyncer)
-		})
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to listen on PVCs. Error: %v", err)
+
+	// Initialize listers BEFORE registering listeners. This ensures that when
+	// pvcAdded is called, it can look up PVs via pvLister without nil panics.
+	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
+	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
+	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
+
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		// Initialize the VolumeAttachment informer and get the lister. This is needed
+		// for the cbtsync to watch on VolumeAttachment resources.
+		metadataSyncer.k8sInformerManager.InitVolumeAttachmentInformer()
+		metadataSyncer.vaLister = metadataSyncer.k8sInformerManager.GetVolumeAttachmentLister()
 	}
+
+	// Register PV listener first, then PVC listener. This ordering ensures that
+	// when pvcAdded runs during informer sync, the PV cache is already populated.
 	err = metadataSyncer.k8sInformerManager.AddPVListener(
 		ctx,
 		func(obj interface{}) {
@@ -743,6 +754,20 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		})
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on PVs. Error: %v", err)
+	}
+	err = metadataSyncer.k8sInformerManager.AddPVCListener(
+		ctx,
+		func(obj interface{}) { // Add.
+			pvcAdded(obj, metadataSyncer)
+		},
+		func(oldObj interface{}, newObj interface{}) { // Update.
+			pvcUpdated(oldObj, newObj, metadataSyncer)
+		},
+		func(obj interface{}) { // Delete.
+			pvcDeleted(obj, metadataSyncer)
+		})
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to listen on PVCs. Error: %v", err)
 	}
 	err = metadataSyncer.k8sInformerManager.AddPodListener(
 		ctx,
@@ -759,17 +784,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		return logger.LogNewErrorf(log, "failed to listen on pods. Error: %v", err)
 	}
 
-	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API) {
-		// Initialize the VolumeAttachment informer and get the lister. This is needed
-		// for the cbtsync to watch on VolumeAttachment resources.
-		metadataSyncer.k8sInformerManager.InitVolumeAttachmentInformer()
-		metadataSyncer.vaLister = metadataSyncer.k8sInformerManager.GetVolumeAttachmentLister()
-	}
-
-	metadataSyncer.pvLister = metadataSyncer.k8sInformerManager.GetPVLister()
-	metadataSyncer.pvcLister = metadataSyncer.k8sInformerManager.GetPVCLister()
-	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 	stopCh := metadataSyncer.k8sInformerManager.Listen()
 	if stopCh == nil {
 		return logger.LogNewError(log, "Failed to sync informer caches")
@@ -2631,6 +2645,59 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 	return nil
 }
 
+// pvcAdded handles PVC add events. On Supervisor cluster, this clears the
+// keepAfterDeleteVm control flag for existing PVCs that have VM ownerRefs
+// but haven't been processed yet (e.g., on CSI driver upgrade/restart).
+func pvcAdded(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	// Only process on Supervisor cluster
+	if metadataSyncer == nil || metadataSyncer.clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		return
+	}
+
+	pvc, ok := obj.(*v1.PersistentVolumeClaim)
+	if pvc == nil || !ok {
+		return
+	}
+
+	// Skip if already processed (annotation present) - check this first to avoid
+	// unnecessary PV lookups and other checks on every syncer restart/resync.
+	if pvc.Annotations != nil && pvc.Annotations[common.AnnVMDeleteProtectionCleared] == "true" {
+		return
+	}
+
+	ctx, log := logger.GetNewContextWithLogger()
+
+	// Only process bound PVCs
+	if pvc.Status.Phase != v1.ClaimBound {
+		log.Debugf("PVCAdded: PVC %s/%s not in Bound phase; skipping", pvc.Namespace, pvc.Name)
+		return
+	}
+
+	// Ensure pvLister is initialized before using it
+	if metadataSyncer.pvLister == nil {
+		log.Debugf("PVCAdded: pvLister not initialized yet; skipping PVC %s/%s", pvc.Namespace, pvc.Name)
+		return
+	}
+
+	// Get PV object attached to PVC
+	pv, err := metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
+	if pv == nil || err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Errorf("PVCAdded: Error getting PV for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+		}
+		return
+	}
+
+	// Only process vSphere CSI volumes
+	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+		return
+	}
+
+	// Clear keepAfterDeleteVm for existing PVCs with VM ownerRef
+	clearKeepAfterDeleteVmForExistingPVC(ctx, pvc, pv.Spec.CSI.VolumeHandle,
+		metadataSyncer.volumeManager, metadataSyncer.supervisorClient)
+}
+
 // pvcUpdated updates persistent volume claim metadata on VC when pvc labels
 // on K8S cluster have been updated.
 func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer) {
@@ -2727,6 +2794,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 			log.Debugf("PVCUpdated: Not a vSphere CSI Volume")
 			return
 		}
+
+		// On Supervisor, manage the keepAfterDeleteVm control flag based on
+		// VirtualMachine ownerRef changes. When a VM ownerRef is added, clear
+		// the flag (volume lifecycle tied to VM). When removed (and PVC not
+		// being deleted), restore the flag so the FCD persists independently.
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+			handleVMOwnerRefChange(ctx, oldPvc, newPvc, pv.Spec.CSI.VolumeHandle,
+				metadataSyncer.volumeManager, metadataSyncer.supervisorClient)
+		}
+
 		// For volumes provisioned by CSI driver, verify if old and new labels are not equal.
 		if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
 			log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")

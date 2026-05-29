@@ -918,6 +918,10 @@ func (m *mockVolumeManagerForFullSync) ProtectVolumeFromVMDeletion(ctx context.C
 	return nil
 }
 
+func (m *mockVolumeManagerForFullSync) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	return nil
+}
+
 func (m *mockVolumeManagerForFullSync) SetVolumeControlFlags(
 	ctx context.Context, volumeID string, controlFlags []string,
 ) error {
