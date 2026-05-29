@@ -325,37 +325,33 @@ func validateProviderServiceAccount(ctx context.Context, serviceAccountName stri
 		return false, fmt.Errorf("failed to create cluster API client: %w", err)
 	}
 
-	// Try to find cluster in common namespaces using direct lookup
-	commonNamespaces := []string{"default", "kube-system", "vmware-system-csi"}
-	
-	for _, namespace := range commonNamespaces {
-		cluster := &ccV1beta2.Cluster{}
-		err := k8sClient.Get(ctx, client.ObjectKey{
-			Name:      clusterName,
-			Namespace: namespace,
-		}, cluster)
+	// Search for cluster with specific name across all namespaces
+	clusterList := &ccV1beta2.ClusterList{}
+	err = k8sClient.List(ctx, clusterList, client.MatchingFields{
+		"metadata.name": clusterName,
+	})
 
-		if err == nil {
-			log.Infof("Found cluster '%s' in namespace '%s', service account '%s' is valid", 
-				clusterName, namespace, serviceAccountName)
-			return true, nil
+	if err != nil {
+		if errors.IsForbidden(err) {
+			log.Warnf("Access denied when searching for cluster '%s' across namespaces", clusterName)
+			return false, fmt.Errorf("insufficient permissions to validate cluster: %w", err)
 		}
-
-		if !errors.IsNotFound(err) {
-			// Handle non-NotFound errors (permissions, API issues, etc.)
-			if errors.IsForbidden(err) {
-				log.Warnf("Access denied when checking cluster '%s' in namespace '%s'", clusterName, namespace)
-				continue // Try other namespaces
-			}
-			log.Warnf("Error checking cluster '%s' in namespace '%s': %v", clusterName, namespace, err)
-			continue // Try other namespaces
-		}
-		
-		log.Debugf("Cluster '%s' not found in namespace '%s'", clusterName, namespace)
+		return false, fmt.Errorf("failed to search for cluster '%s': %w", clusterName, err)
 	}
 
-	// Cluster not found in any common namespace
-	log.Infof("Cluster '%s' not found in any namespace, service account '%s' is not valid", 
-		clusterName, serviceAccountName)
-	return false, nil
+	// Check if we found any clusters with the matching name
+	if len(clusterList.Items) == 0 {
+		log.Infof("Cluster '%s' not found in any namespace, service account '%s' is not valid", 
+			clusterName, serviceAccountName)
+		return false, nil
+	}
+
+	// Log found clusters for debugging
+	log.Infof("Found %d cluster(s) named '%s' for service account validation", len(clusterList.Items), clusterName)
+	for i, cluster := range clusterList.Items {
+		log.Infof("Cluster %d: Name='%s', Namespace='%s'", i+1, cluster.Name, cluster.Namespace)
+	}
+
+	log.Infof("Cluster '%s' found, service account '%s' is valid", clusterName, serviceAccountName)
+	return true, nil
 }
