@@ -55,6 +55,12 @@ func createTestClusters() []ccV1beta2.Cluster {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster-e2e-script-95jxs-pvcsi",
+				Namespace: "test-gc-e2e-demo-ns",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "prod-cluster",
 				Namespace: "production",
 			},
@@ -123,6 +129,11 @@ func TestValidatePvCSIServiceAccount(t *testing.T) {
 		{
 			name:     "Valid test-cluster-pvcsi pattern with real cluster validation",
 			username: "system:serviceaccount:vmware-system-csi:test-cluster-pvcsi",
+			expected: false, // Matches "test-cluster" in our fake cluster list
+		},
+		{
+			name:     "Valid test-cluster-pvcsi pattern with real cluster validation",
+			username: "system:serviceaccount:test-gc-e2e-demo-ns:test-cluster-e2e-script-95jxs-pvcsi",
 			expected: true, // Matches "test-cluster" in our fake cluster list
 		},
 		{
