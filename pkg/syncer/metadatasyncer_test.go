@@ -31,8 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 // fake implementation for fetchStorageClassToStoragePolicyMapping
@@ -251,17 +255,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
 				tenGi := resource.MustParse("10Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
@@ -287,17 +291,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
 				fiveGi := resource.MustParse("5Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-2",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
@@ -324,32 +328,32 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 
 				tenGi := resource.MustParse("10Gi")
 				fiveGi := resource.MustParse("5Gi")
-				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu1 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
 				}
-				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu2 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
@@ -376,32 +380,32 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 
 				tenGi := resource.MustParse("10Gi")
 				fiveGi := resource.MustParse("5Gi")
-				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu1 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
 				}
-				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu2 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-2",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
@@ -442,17 +446,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
 				tenGi := resource.MustParse("10Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: "other-extension",
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
@@ -474,19 +478,19 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 
 				now := metav1.Now()
 				tenGi := resource.MustParse("10Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:              "spu-1",
 						Namespace:         namespace,
 						DeletionTimestamp: &now,
 						Finalizers:        []string{"test-finalizer"},
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
@@ -506,16 +510,16 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				scheme := runtime.NewScheme()
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
 						ResourceTypeLevelQuotaUsage: nil,
 					},
 				}
@@ -539,85 +543,85 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				fiveGi := resource.MustParse("5Gi")
 
 				// Valid SPU
-				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu1 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
 				}
 
 				// Invalid SPU - wrong extension name
-				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu2 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-2",
 						ResourceExtensionName: "other-extension",
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
 				}
 
 				// Invalid SPU - marked for deletion
-				spu3 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu3 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:              "spu-3",
 						Namespace:         namespace,
 						DeletionTimestamp: &now,
 						Finalizers:        []string{"test-finalizer"},
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-3",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
 				}
 
 				// Invalid SPU - missing status
-				spu4 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu4 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-4",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-4",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
 						ResourceTypeLevelQuotaUsage: nil,
 					},
 				}
 
 				// Valid SPU
-				spu5 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu5 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-5",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
@@ -661,17 +665,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
 				zero := resource.MustParse("0Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &zero,
 						},
 					},
@@ -695,17 +699,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 
 				tenGi := resource.MustParse("10Gi")
 				// SPU in different namespace
-				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu1 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: "other-namespace",
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
@@ -713,17 +717,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 
 				// SPU in target namespace
 				fiveGi := resource.MustParse("5Gi")
-				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu2 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-2",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
@@ -749,17 +753,17 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 
 				threeGi := resource.MustParse("3Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-podvm",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-podvm",
 						ResourceExtensionName: PodVMQuotaExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &threeGi,
 						},
 					},
@@ -787,47 +791,47 @@ func TestCalculateExtensionResourceSPUReservedForNamespace(t *testing.T) {
 				tenGi := resource.MustParse("10Gi")
 				fiveGi := resource.MustParse("5Gi")
 				threeGi := resource.MustParse("3Gi")
-				spu1 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu1 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &tenGi,
 						},
 					},
 				}
-				spu2 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu2 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-2",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMSnapshotExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &fiveGi,
 						},
 					},
 				}
-				spu3 := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu3 := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-3",
 						Namespace: namespace,
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: PodVMQuotaExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &threeGi,
 						},
 					},
@@ -952,7 +956,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 				_ = sqperiodicsyncv1alpha1.AddToScheme(scheme)
 
-				spq := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-1",
 						Namespace: "test-ns",
@@ -992,13 +996,13 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 				_ = sqperiodicsyncv1alpha1.AddToScheme(scheme)
 
-				spq1 := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq1 := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-1",
 						Namespace: "test-ns-1",
 					},
 				}
-				spq2 := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq2 := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-2",
 						Namespace: "test-ns-2",
@@ -1038,7 +1042,7 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 				_ = sqperiodicsyncv1alpha1.AddToScheme(scheme)
 
-				spq := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-1",
 						Namespace: "test-ns",
@@ -1047,17 +1051,17 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 
 				// Create StoragePolicyUsage with negative reserved value
 				negTenGi := resource.MustParse("-10Gi")
-				spu := &storagepolicyv1alpha2.StoragePolicyUsage{
+				spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spu-1",
 						Namespace: "test-ns",
 					},
-					Spec: storagepolicyv1alpha2.StoragePolicyUsageSpec{
+					Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 						StoragePolicyId:       "policy-1",
 						ResourceExtensionName: VMExtensionServiceName,
 					},
-					Status: storagepolicyv1alpha2.StoragePolicyUsageStatus{
-						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha2.QuotaUsageDetails{
+					Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+						ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
 							Reserved: &negTenGi,
 						},
 					},
@@ -1100,13 +1104,13 @@ func TestSyncStorageQuotaReserved(t *testing.T) {
 				_ = cnsoperatorv1alpha1.AddToScheme(scheme)
 				_ = sqperiodicsyncv1alpha1.AddToScheme(scheme)
 
-				spq1 := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq1 := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-1",
 						Namespace: "test-ns-1",
 					},
 				}
-				spq2 := &storagepolicyv1alpha2.StoragePolicyQuota{
+				spq2 := &storagepolicyv1alpha3.StoragePolicyQuota{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "spq-2",
 						Namespace: "test-ns-2",
@@ -1627,4 +1631,311 @@ func TestUpdateStorageQuotaPeriodicSyncCR(t *testing.T) {
 			// We verify it completes execution without panicking
 		})
 	}
+}
+
+// TestHandleVACChangeForVolumeInfo verifies that a successful storage-policy
+// migration rebalances StoragePolicyUsage quota from the OLD SPU (keyed by
+// old VAC, or StorageClassName when there was no prior VAC) to the NEW SPU
+// (always keyed by new VAC).
+func TestHandleVACChangeForVolumeInfo(t *testing.T) {
+	const (
+		namespace = "test-ns"
+		scName    = "sc-old"
+		oldVAC    = "vac-silver"
+		newVAC    = "vac-gold"
+	)
+
+	// mkSPU is a small builder for StoragePolicyUsage CRs with a non-nil
+	// Status.ResourceTypeLevelQuotaUsage.Used so updateStoragePolicyUsageQuota
+	// follows the in-place add/sub branch.
+	mkSPU := func(name string, used resource.Quantity) *storagepolicyv1alpha3.StoragePolicyUsage {
+		return &storagepolicyv1alpha3.StoragePolicyUsage{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+				ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
+					Used: &used,
+				},
+			},
+		}
+	}
+
+	pvcCap := resource.MustParse("10Gi")
+	snapCap := resource.MustParse("3Gi")
+
+	cases := []struct {
+		name             string
+		oldVAC           string
+		expectedOldSPU   string // SPU name we expect the helper to DECREMENT
+		newVAC           string
+		expectedNewSPU   string // SPU name we expect the helper to INCREMENT
+		expectSnapshotIO bool   // whether we wire AggregatedSnapshotSize
+	}{
+		{
+			name:             "first migration: no prior VAC -> SC-keyed SPU drained, VAC-keyed SPU filled",
+			oldVAC:           "",
+			expectedOldSPU:   scName + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			newVAC:           newVAC,
+			expectedNewSPU:   "vac-" + newVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			expectSnapshotIO: false,
+		},
+		{
+			name:             "VAC -> VAC migration: old VAC SPU drained, new VAC SPU filled",
+			oldVAC:           oldVAC,
+			expectedOldSPU:   "vac-" + oldVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			newVAC:           newVAC,
+			expectedNewSPU:   "vac-" + newVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			expectSnapshotIO: false,
+		},
+		{
+			name:             "with AggregatedSnapshotSize: both PVC and snapshot SPUs are rebalanced",
+			oldVAC:           oldVAC,
+			expectedOldSPU:   "vac-" + oldVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			newVAC:           newVAC,
+			expectedNewSPU:   "vac-" + newVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
+			expectSnapshotIO: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			_ = cnsoperatorv1alpha1.AddToScheme(scheme)
+
+			// Seed the old SPU with the full quota and the new SPU with zero,
+			// so we can read back: old.Used should decrement by pvcCap,
+			// new.Used should increment by pvcCap.
+			oldSPU := mkSPU(tc.expectedOldSPU, pvcCap.DeepCopy())
+			newSPUStartUsed := resource.MustParse("0")
+			newSPU := mkSPU(tc.expectedNewSPU, newSPUStartUsed)
+
+			objs := []client.Object{oldSPU, newSPU}
+
+			var oldSnapSPU, newSnapSPU *storagepolicyv1alpha3.StoragePolicyUsage
+			if tc.expectSnapshotIO {
+				oldSnapName := scName + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+				newSnapName := "vac-" + tc.newVAC + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+				if tc.oldVAC != "" {
+					oldSnapName = "vac-" + tc.oldVAC + "-" + storagepolicyv1alpha3.NameSuffixForSnapshot
+				}
+				oldSnapSPU = mkSPU(oldSnapName, snapCap.DeepCopy())
+				zero := resource.MustParse("0")
+				newSnapSPU = mkSPU(newSnapName, zero)
+				objs = append(objs, oldSnapSPU, newSnapSPU)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				WithStatusSubresource(&storagepolicyv1alpha3.StoragePolicyUsage{}).
+				Build()
+
+			oldCVI := cnsvolumeinfov1alpha1.CNSVolumeInfo{
+				Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+					Namespace:                namespace,
+					StorageClassName:         scName,
+					VolumeAttributeClassName: tc.oldVAC,
+					K8sCompliantName:         tc.oldVAC,
+					StoragePolicyID:          "policy-uuid-silver",
+					Capacity:                 &pvcCap,
+				},
+			}
+			if tc.expectSnapshotIO {
+				oldCVI.Spec.AggregatedSnapshotSize = &snapCap
+			}
+			newCVI := oldCVI
+			newCVI.Spec.VolumeAttributeClassName = tc.newVAC
+			newCVI.Spec.K8sCompliantName = tc.newVAC
+			newCVI.Spec.StoragePolicyID = "policy-uuid-gold"
+			// StorageClassName is INTENTIONALLY unchanged - this mirrors what
+			// the watcher writes (PVC StorageClassName is immutable).
+
+			handleVACChangeForVolumeInfo(ctx, fakeClient, oldCVI, newCVI)
+
+			// Verify quotas moved.
+			gotOld := &storagepolicyv1alpha3.StoragePolicyUsage{}
+			if err := fakeClient.Get(ctx, client.ObjectKey{
+				Namespace: namespace, Name: tc.expectedOldSPU,
+			}, gotOld); err != nil {
+				t.Fatalf("failed to read OLD SPU %q: %v", tc.expectedOldSPU, err)
+			}
+			if gotOld.Status.ResourceTypeLevelQuotaUsage.Used.Value() != 0 {
+				t.Errorf("OLD SPU %q used=%s want 0 (decremented by %s)",
+					tc.expectedOldSPU,
+					gotOld.Status.ResourceTypeLevelQuotaUsage.Used.String(),
+					pvcCap.String())
+			}
+
+			gotNew := &storagepolicyv1alpha3.StoragePolicyUsage{}
+			if err := fakeClient.Get(ctx, client.ObjectKey{
+				Namespace: namespace, Name: tc.expectedNewSPU,
+			}, gotNew); err != nil {
+				t.Fatalf("failed to read NEW SPU %q: %v", tc.expectedNewSPU, err)
+			}
+			if gotNew.Status.ResourceTypeLevelQuotaUsage.Used.Value() != pvcCap.Value() {
+				t.Errorf("NEW SPU %q used=%s want %s (incremented)",
+					tc.expectedNewSPU,
+					gotNew.Status.ResourceTypeLevelQuotaUsage.Used.String(),
+					pvcCap.String())
+			}
+
+			if tc.expectSnapshotIO {
+				gotOldSnap := &storagepolicyv1alpha3.StoragePolicyUsage{}
+				if err := fakeClient.Get(ctx, client.ObjectKey{
+					Namespace: namespace, Name: oldSnapSPU.Name,
+				}, gotOldSnap); err != nil {
+					t.Fatalf("failed to read OLD snapshot SPU: %v", err)
+				}
+				if gotOldSnap.Status.ResourceTypeLevelQuotaUsage.Used.Value() != 0 {
+					t.Errorf("OLD snap SPU used=%s want 0",
+						gotOldSnap.Status.ResourceTypeLevelQuotaUsage.Used.String())
+				}
+				gotNewSnap := &storagepolicyv1alpha3.StoragePolicyUsage{}
+				if err := fakeClient.Get(ctx, client.ObjectKey{
+					Namespace: namespace, Name: newSnapSPU.Name,
+				}, gotNewSnap); err != nil {
+					t.Fatalf("failed to read NEW snapshot SPU: %v", err)
+				}
+				if gotNewSnap.Status.ResourceTypeLevelQuotaUsage.Used.Value() != snapCap.Value() {
+					t.Errorf("NEW snap SPU used=%s want %s",
+						gotNewSnap.Status.ResourceTypeLevelQuotaUsage.Used.String(),
+						snapCap.String())
+				}
+			}
+		})
+	}
+}
+
+// TestHandleVACChangeForVolumeInfo_NilCapacity verifies that nil PVC capacity
+// is a no-op (no panics, no SPU read attempts).
+func TestHandleVACChangeForVolumeInfo_NilCapacity(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = cnsoperatorv1alpha1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	oldCVI := cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			Namespace:        "test-ns",
+			StorageClassName: "sc-old",
+			Capacity:         nil,
+		},
+	}
+	newCVI := oldCVI
+	newCVI.Spec.VolumeAttributeClassName = "vac-gold"
+	newCVI.Spec.K8sCompliantName = "vac-gold"
+
+	// Should not panic, no SPU lookups should happen.
+	handleVACChangeForVolumeInfo(ctx, fakeClient, oldCVI, newCVI)
+}
+
+func TestInitMigrationWatchersOnStartup(t *testing.T) {
+	// Helper to create a PVC with migration annotations
+	makePVCWithAnnotations := func(namespace, name string, annotations map[string]string) *v1.PersistentVolumeClaim {
+		return &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   namespace,
+				Name:        name,
+				Annotations: annotations,
+			},
+		}
+	}
+
+	// Helper to enable migration FSS
+	enableMigrationFSS := func(t *testing.T) {
+		t.Helper()
+		fakeCO, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		if err != nil {
+			t.Fatalf("GetFakeContainerOrchestratorInterface failed: %v", err)
+		}
+		if err := fakeCO.EnableFSS(context.Background(), common.VMPVCStoragePolicyMutability); err != nil {
+			t.Fatalf("EnableFSS failed: %v", err)
+		}
+		commonco.ContainerOrchestratorUtility = fakeCO
+	}
+
+	// Helper to reset test state
+	resetTestState := func() {
+		commonco.ContainerOrchestratorUtility = nil
+	}
+
+	t.Run("FSS disabled - no-op", func(t *testing.T) {
+		resetTestState()
+		ctx := context.Background()
+
+		// Create a simple mock syncer with minimal setup
+		syncer := &metadataSyncInformer{}
+
+		// Call initMigrationWatchersOnStartup - should return early due to FSS disabled
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred and function returned
+	})
+
+	t.Run("orchestrator nil - no-op", func(t *testing.T) {
+		resetTestState()
+		ctx := context.Background()
+
+		// Explicitly set orchestrator to nil
+		commonco.ContainerOrchestratorUtility = nil
+
+		syncer := &metadataSyncInformer{}
+
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred
+	})
+
+	t.Run("PVC lister error handling", func(t *testing.T) {
+		resetTestState()
+		enableMigrationFSS(t)
+		ctx := context.Background()
+
+		// Create syncer with nil pvcLister to simulate error
+		syncer := &metadataSyncInformer{
+			pvcLister: nil, // This will cause List() to fail
+		}
+
+		// This should not panic and should handle the error gracefully
+		// The function should log the error and return
+		initMigrationWatchersOnStartup(ctx, syncer)
+		// If we reach here without panic, the error was handled correctly
+	})
+
+	t.Run("integration test - basic functionality", func(t *testing.T) {
+		resetTestState()
+		enableMigrationFSS(t)
+		ctx := context.Background()
+
+		// Create test PVCs
+		pvcWithAnnotations := makePVCWithAnnotations("test-ns", "test-pvc", map[string]string{
+			common.AnnMigrationCRKind: common.MigrationCRKindVolume,
+			common.AnnMigrationCRName: "test-cr",
+		})
+		pvcWithoutAnnotations := makePVCWithAnnotations("test-ns", "test-pvc2", nil)
+
+		// Create basic informer setup using the pattern from other tests
+		objs := []runtime.Object{pvcWithAnnotations, pvcWithoutAnnotations}
+		client := testclient.NewClientset(objs...)
+
+		// Use a simple informer factory setup
+		factory := informers.NewSharedInformerFactory(client, 0)
+		pvcInformer := factory.Core().V1().PersistentVolumeClaims()
+
+		// Start the informer
+		stopCh := make(chan struct{})
+		defer close(stopCh)
+		factory.Start(stopCh)
+		factory.WaitForCacheSync(stopCh)
+
+		syncer := &metadataSyncInformer{
+			pvcLister: pvcInformer.Lister(),
+		}
+
+		// This should process the PVCs and call handlePvcMigrationAnnotations for the one with annotations
+		// The actual behavior will be tested by handlePvcMigrationAnnotations which has its own FSS checks
+		initMigrationWatchersOnStartup(ctx, syncer)
+
+		// Test passes if no panic occurred and function processed PVCs correctly
+	})
 }

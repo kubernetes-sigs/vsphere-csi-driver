@@ -128,7 +128,15 @@ spec:
                         type: string
                       type:
                         maxLength: 316
-                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Z0-9][-A-Z0-9_.]*)?[A-Z0-9])$
+                        # The character class in the suffix part allows BOTH
+                        # uppercase and lowercase letters. The previous regex
+                        # accidentally only allowed [A-Z0-9] (upstream
+                        # controller-gen v0.9.2 bug), which rejected standard
+                        # condition types like "InProgress" / "Complete" /
+                        # "Ready". The correct regex matches the upstream
+                        # metav1.Condition.type pattern emitted by newer
+                        # controller-gen versions.
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                         type: string
                     required:
                       - lastTransitionTime

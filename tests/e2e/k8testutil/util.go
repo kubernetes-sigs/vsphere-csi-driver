@@ -92,7 +92,7 @@ import (
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
-	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/clients/vsan"
@@ -6745,7 +6745,7 @@ func SetStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config,
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	spq := &storagepolicyv1alpha3.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6767,7 +6767,7 @@ func RemoveStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	spq := &storagepolicyv1alpha3.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6778,7 +6778,7 @@ func RemoveStoragePolicyQuota(ctx context.Context, restClientConfig *rest.Config
 	err = cnsOperatorClient.Update(ctx, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq = &storagepolicyv1alpha2.StoragePolicyQuota{}
+	spq = &storagepolicyv1alpha3.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6813,7 +6813,7 @@ func GetStoragePolicyQuotaForSpecificResourceType(ctx context.Context, restClien
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	spq := &storagepolicyv1alpha3.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6867,7 +6867,7 @@ func GetTotalQuotaConsumedByStoragePolicy(ctx context.Context, restClientConfig 
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	spq := &storagepolicyv1alpha3.StoragePolicyQuota{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + constants.StoragePolicyQuota, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -6899,8 +6899,8 @@ func GetStoragePolicyUsageForSpecificResourceType(ctx context.Context, restClien
 	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, cnsoperatorv1alpha1.GroupName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	//spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
-	spq := &storagepolicyv1alpha2.StoragePolicyUsage{}
+	//spq := &storagepolicyv1alpha3.StoragePolicyQuota{}
+	spq := &storagepolicyv1alpha3.StoragePolicyUsage{}
 	err = cnsOperatorClient.Get(ctx,
 		pkgtypes.NamespacedName{Name: scName + resourceUsage, Namespace: namespace}, spq)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -7351,7 +7351,7 @@ func ListStoragePolicyUsages(ctx context.Context, c clientset.Interface, restCli
 	waitErr := wait.PollUntilContextTimeout(ctx, constants.StoragePolicyUsagePollInterval,
 		constants.StoragePolicyUsagePollTimeout,
 		true, func(ctx context.Context) (bool, error) {
-			spuList := &storagepolicyv1alpha2.StoragePolicyUsageList{}
+			spuList := &storagepolicyv1alpha3.StoragePolicyUsageList{}
 			err := cnsOperatorClient.List(ctx, spuList, &client.ListOptions{Namespace: namespace})
 			if err != nil {
 				return false, nil

@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyusagev1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -913,8 +913,8 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 
 // PatchStoragePolicyUsage patches the StoragePolicyUsage CR based on old and new objects
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
-	oldObj *storagepolicyusagev1alpha2.StoragePolicyUsage,
-	newObj *storagepolicyusagev1alpha2.StoragePolicyUsage) error {
+	oldObj *storagepolicyusagev1alpha3.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) error {
 	log := logger.GetLogger(ctx)
 	patch, err := getPatchData(oldObj, newObj)
 	if err != nil {

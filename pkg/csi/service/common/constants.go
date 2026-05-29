@@ -57,6 +57,9 @@ const (
 	// For Example: StoragePolicyId: "251bce41-cb24-41df-b46b-7c75aed3c4ee".
 	AttributeStoragePolicyID = "storagepolicyid"
 
+	// AttributeK8sCompliantName represents the K8s-compliant name derived from the storage policy name.
+	AttributeK8sCompliantName = "k8scompliantname"
+
 	// AttributeSupervisorStorageClass represents name of the Storage Class.
 	// For example: StorageClassName: "silver".
 	AttributeSupervisorStorageClass = "svstorageclass"
@@ -591,6 +594,39 @@ const (
 	// roll-out can be staged per cluster and so individual environments
 	// can disable the additional API traffic if needed.
 	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
+
+	// VMPVCStoragePolicyMutability is the WCP capability for the DevOps storage-policy
+	// change feature on VMs and PVCs. When enabled on the supervisor, the CSI driver
+	// will advertise the CSI MODIFY_VOLUME capability and accept ControllerModifyVolume
+	// calls that delegate the policy change to the Mobility Operator.
+	VMPVCStoragePolicyMutability = "supports_VM_PVC_storage_policy_mutability"
+	// VMPVCStoragePolicyMutabilityFSS is the pvCSI FSS paired with VMPVCStoragePolicyMutability
+	// on the supervisor.
+	VMPVCStoragePolicyMutabilityFSS = "VM_PVC_STORAGE_POLICY_MUTABILITY"
+
+	// AnnMigrationCRKind is the SV PVC annotation set by the Mobility Operator that
+	// names the kind of the migration CR it created (one of MigrationCRKindVMInfra
+	// or MigrationCRKindVolume). The CSI Syncer uses this annotation, together with
+	// AnnMigrationCRName, to discover which migration CR to watch for the volume's
+	// storage-policy change progress.
+	AnnMigrationCRKind = "cns.vmware.com/migration-cr-kind"
+	// AnnMigrationCRName is the SV PVC annotation set by the Mobility Operator that
+	// names the migration CR it created. Paired with AnnMigrationCRKind.
+	AnnMigrationCRName = "cns.vmware.com/migration-cr-name"
+	// MigrationCRKindVMInfra is the value of AnnMigrationCRKind for attached PVCs.
+	// The Mobility Operator handles attached PVCs via the VirtualMachineInfraMigration CR.
+	MigrationCRKindVMInfra = "VirtualMachineInfraMigration"
+	// MigrationCRKindVolume is the value of AnnMigrationCRKind for detached PVCs.
+	// The Mobility Operator handles detached PVCs via the VolumeMigration CR.
+	MigrationCRKindVolume = "VolumeMigration"
+	// MobilityOperatorGroup is the API group used by the Mobility Operator's migration CRs.
+	MobilityOperatorGroup = "mobility-operator.vmware.com"
+	// MobilityOperatorVersion is the API version used by the Mobility Operator's migration CRs.
+	MobilityOperatorVersion = "v1alpha4"
+	// MobilityOperatorVMInfraResource is the plural name of the VirtualMachineInfraMigration CR.
+	MobilityOperatorVMInfraResource = "virtualmachineinframigrations"
+	// MobilityOperatorVolumeResource is the plural name of the VolumeMigration CR.
+	MobilityOperatorVolumeResource = "volumemigrations"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -611,6 +647,7 @@ var WCPFeatureStates = map[string]struct{}{
 	CSI_Backup_API:                          {},
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
+	VMPVCStoragePolicyMutability:            {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -629,6 +666,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	CSI_Backup_API:                          {},
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
+	VMPVCStoragePolicyMutability:            {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
@@ -640,4 +678,5 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	LinkedCloneSupportFSS:           LinkedCloneSupport,
 	VsanFileVolumeServiceSupportFSS: VsanFileVolumeService,
 	CSI_Backup_API_FSS:              CSI_Backup_API,
+	VMPVCStoragePolicyMutabilityFSS: VMPVCStoragePolicyMutability,
 }

@@ -51,7 +51,7 @@ import (
 	clientConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
-	storagepolicyusagev1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	storagepolicyusagev1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -822,15 +822,15 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 			namespace := instance.Namespace
 			storagePolicyUsageCRName := storageClassName + "-" +
-				storagepolicyusagev1alpha2.NameSuffixForPVC
-			storagePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+				storagepolicyusagev1alpha3.NameSuffixForPVC
+			storagePolicyUsageCR := &storagepolicyusagev1alpha3.StoragePolicyUsage{}
 			err = cnsOperatorClient.Get(ctx, apitypes.NamespacedName{
 				Namespace: namespace,
 				Name:      storagePolicyUsageCRName},
 				storagePolicyUsageCR)
 			if err != nil {
 				log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-					storagepolicyusagev1alpha2.CRDSingular, storagePolicyUsageCRName,
+					storagepolicyusagev1alpha3.CRDSingular, storagePolicyUsageCRName,
 					namespace, err)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
@@ -846,8 +846,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					reservedQty resource.Quantity
 				)
 				reservedQty = *resource.NewQuantity(pvCapacity.Value(), pvCapacity.Format)
-				patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha2.StoragePolicyUsageStatus{
-					ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha2.QuotaUsageDetails{
+				patchedStoragePolicyUsageCR.Status = storagepolicyusagev1alpha3.StoragePolicyUsageStatus{
+					ResourceTypeLevelQuotaUsage: &storagepolicyusagev1alpha3.QuotaUsageDetails{
 						Reserved: &reservedQty,
 						Used:     &usedQty,
 					},
@@ -859,8 +859,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					storagePolicyUsageCR.Name, storagePolicyUsageCR.Namespace, err)
 			}
 			// Retrieve the CR
-			currentStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
-			finalStoragePolicyUsageCR := &storagepolicyusagev1alpha2.StoragePolicyUsage{}
+			currentStoragePolicyUsageCR := &storagepolicyusagev1alpha3.StoragePolicyUsage{}
+			finalStoragePolicyUsageCR := &storagepolicyusagev1alpha3.StoragePolicyUsage{}
 			key := apitypes.NamespacedName{Namespace: storagePolicyUsageCR.Namespace,
 				Name: storagePolicyUsageCR.Name}
 			err = cnsOperatorClient.Get(ctx, key, currentStoragePolicyUsageCR)

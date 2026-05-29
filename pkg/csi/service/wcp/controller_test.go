@@ -18,6 +18,7 @@ package wcp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -42,6 +43,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	cnsvolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
 const (
@@ -1840,12 +1843,81 @@ func TestControllerGetVolume(t *testing.T) {
 	})
 }
 
-// TestControllerModifyVolume tests the ControllerModifyVolume method
+// fakeVolumeInfoService is a minimal stand-in for cnsvolumeinfo.VolumeInfoService
+// used by the WCP ControllerModifyVolume tests. It models only what the
+// poll-only controller needs: a Get of the CNSVolumeInfo CR. Patches are
+// counted (so tests can assert the controller stays read-only) but otherwise
+// no-op since the CSI Syncer is the sole writer in production.
+type fakeVolumeInfoService struct {
+	cnsvolumeinfo.VolumeInfoService
+	volumeInfo *cnsvolumeinfov1alpha1.CNSVolumeInfo
+	mu         sync.Mutex
+	patchCount int
+}
+
+func (f *fakeVolumeInfoService) GetVolumeInfoForVolumeID(
+	ctx context.Context, volumeID string,
+) (*cnsvolumeinfov1alpha1.CNSVolumeInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.volumeInfo != nil && f.volumeInfo.Spec.VolumeID == volumeID {
+		return f.volumeInfo.DeepCopy(), nil
+	}
+	return nil, fmt.Errorf("volume not found")
+}
+
+func (f *fakeVolumeInfoService) PatchVolumeInfo(
+	ctx context.Context, volumeID string, patchBytes []byte, retries int,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patchCount++
+	return nil
+}
+
+func (f *fakeVolumeInfoService) PatchVolumeInfoStatus(
+	ctx context.Context, volumeID string, patchBytes []byte, retries int,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.patchCount++
+	return nil
+}
+
+// setMigrationConditions atomically replaces the MigrationConditions list on
+// the underlying CNSVolumeInfo (simulating what the CSI Syncer does in
+// production based on the Mobility Operator's migration CR status).
+func (f *fakeVolumeInfoService) setMigrationConditions(conds []metav1.Condition) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.volumeInfo.Status.MigrationConditions = conds
+}
+
+// TestControllerModifyVolume covers the poll-only WCP CSI ControllerModifyVolume.
+// Under the new design the controller does NOT mutate CNSVolumeInfo; it only
+// polls Status.MigrationConditions. The CSI Syncer (simulated here by the
+// test setting MigrationConditions directly on the fake) writes those
+// transitions in production.
 func TestControllerModifyVolume(t *testing.T) {
 	ct := getControllerTest(t)
+	// Enable the supervisor capability that gates ControllerModifyVolume.
+	if err := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator).
+		EnableFSS(ctx, common.VMPVCStoragePolicyMutability); err != nil {
+		t.Fatalf("failed to enable %s FSS: %v", common.VMPVCStoragePolicyMutability, err)
+	}
+	defer func() {
+		_ = commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator).
+			DisableFSS(ctx, common.VMPVCStoragePolicyMutability)
+	}()
 
-	// First create a volume
-	params := make(map[string]string)
+	// Speed up polling for tests to avoid long waits
+	originalPollInterval := modifyVolumePollInterval
+	modifyVolumePollInterval = 1 * time.Millisecond
+	defer func() {
+		modifyVolumePollInterval = originalPollInterval
+	}()
+
+	// Create a volume to obtain a real CSI volume ID for test inputs.
 	capabilities := []*csi.VolumeCapability{
 		{
 			AccessMode: &csi.VolumeCapability_AccessMode{
@@ -1853,53 +1925,231 @@ func TestControllerModifyVolume(t *testing.T) {
 			},
 		},
 	}
-
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-modify-" + uuid.New().String(),
 		CapacityRange: &csi.CapacityRange{
 			RequiredBytes: 1 * common.GbInBytes,
 		},
-		Parameters:         params,
+		Parameters:         map[string]string{},
 		VolumeCapabilities: capabilities,
 	}
-
 	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		// Clean up
-		reqDelete := &csi.DeleteVolumeRequest{
+		_, _ = ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{
 			VolumeId: respCreate.Volume.VolumeId,
-		}
-		_, _ = ct.controller.DeleteVolume(ctx, reqDelete)
+		})
 	}()
 
-	t.Run("ValidModifyVolume", func(t *testing.T) {
-		req := &csi.ControllerModifyVolumeRequest{
-			VolumeId: respCreate.Volume.VolumeId,
+	newFakeVIS := func() *fakeVolumeInfoService {
+		return &fakeVolumeInfoService{
+			volumeInfo: &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+				Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+					VolumeID: respCreate.Volume.VolumeId,
+				},
+			},
 		}
+	}
+	makeReq := func() *csi.ControllerModifyVolumeRequest {
+		return &csi.ControllerModifyVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+			MutableParameters: map[string]string{
+				common.AttributeStoragePolicyName: "new-policy-name",
+				common.AttributeStoragePolicyID:   "new-policy-id",
+			},
+		}
+	}
 
-		_, err := ct.controller.ControllerModifyVolume(ctx, req)
-		// ControllerModifyVolume returns Unimplemented in WCP controller
-		// This is expected behavior, so we just verify the method can be called
-		if err != nil {
-			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
+	t.Run("ImmediateComplete", func(t *testing.T) {
+		// Pre-populated Complete: poll observes it on the first iteration / fast path.
+		fakeVIS := newFakeVIS()
+		fakeVIS.setMigrationConditions([]metav1.Condition{{
+			Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
+			Status: metav1.ConditionTrue,
+		}})
+		volumeInfoService = fakeVIS
+
+		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if _, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq()); err != nil {
+			t.Fatalf("ControllerModifyVolume returned error on Complete fast-path: %v", err)
+		}
+		if fakeVIS.patchCount != 0 {
+			t.Fatalf("Expected zero patches in poll-only design; got %d", fakeVIS.patchCount)
+		}
+	})
+
+	t.Run("AsyncCompleteViaSyncerSimulation", func(t *testing.T) {
+		fakeVIS := newFakeVIS()
+		volumeInfoService = fakeVIS
+		// Simulate the CSI Syncer transitioning MigrationConditions to Complete
+		// after a short delay (as it would in production after observing the
+		// Mobility Operator's migration CR reaching its terminal state).
+		go func() {
+			time.Sleep(1 * time.Second)
+			fakeVIS.setMigrationConditions([]metav1.Condition{{
+				Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
+				Status: metav1.ConditionTrue,
+			}})
+		}()
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq()); err != nil {
+			t.Fatalf("ControllerModifyVolume returned error: %v", err)
+		}
+		if fakeVIS.patchCount != 0 {
+			t.Fatalf("Expected zero patches in poll-only design; got %d", fakeVIS.patchCount)
+		}
+	})
+
+	t.Run("ErrorReturnsInvalidArgument", func(t *testing.T) {
+		fakeVIS := newFakeVIS()
+		fakeVIS.setMigrationConditions([]metav1.Condition{{
+			Type:   cnsvolumeinfov1alpha1.MigrationConditionError,
+			Status: metav1.ConditionTrue,
+		}})
+		volumeInfoService = fakeVIS
+		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		_, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq())
+		if err == nil {
+			t.Fatalf("expected InvalidArgument when MigrationConditions=Error")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
+		}
+	})
+
+	t.Run("InfeasibleReturnsInvalidArgument", func(t *testing.T) {
+		fakeVIS := newFakeVIS()
+		fakeVIS.setMigrationConditions([]metav1.Condition{{
+			Type:   cnsvolumeinfov1alpha1.MigrationConditionInfeasible,
+			Status: metav1.ConditionTrue,
+		}})
+		volumeInfoService = fakeVIS
+		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		_, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq())
+		if err == nil {
+			t.Fatalf("expected InvalidArgument when MigrationConditions=Infeasible")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
+		}
+	})
+
+	t.Run("ContextDeadlineReturnsDeadlineExceeded", func(t *testing.T) {
+		fakeVIS := newFakeVIS()
+		// No condition transitions: the controller will poll until the gRPC
+		// context deadline fires, which should yield codes.DeadlineExceeded.
+		volumeInfoService = fakeVIS
+		timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq())
+		if err == nil {
+			t.Fatalf("expected DeadlineExceeded when poll loop times out")
+		}
+		if status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("expected codes.DeadlineExceeded, got %v", status.Code(err))
 		}
 	})
 
 	t.Run("InvalidVolumeId", func(t *testing.T) {
-		req := &csi.ControllerModifyVolumeRequest{
+		volumeInfoService = newFakeVIS()
+		_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
 			VolumeId: "invalid-volume-id",
+			MutableParameters: map[string]string{
+				common.AttributeStoragePolicyName: "new-policy-name",
+			},
+		})
+		if err == nil {
+			t.Fatalf("expected error for invalid volume id (Get returns not-found, controller maps to Internal)")
 		}
-
-		_, err := ct.controller.ControllerModifyVolume(ctx, req)
-		// ControllerModifyVolume returns Unimplemented in WCP controller
-		// This is expected behavior, so we just verify the method can be called
-		if err != nil {
-			t.Logf("ControllerModifyVolume failed as expected (Unimplemented): %v", err)
+		if status.Code(err) != codes.Internal {
+			t.Fatalf("expected codes.Internal for unknown volumeID, got %v", status.Code(err))
 		}
 	})
+
+	t.Run("MissingMutableParameters", func(t *testing.T) {
+		volumeInfoService = newFakeVIS()
+		_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		})
+		if err == nil {
+			t.Fatalf("expected InvalidArgument when MutableParameters is nil")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
+		}
+	})
+
+	t.Run("EmptyVolumeId", func(t *testing.T) {
+		volumeInfoService = newFakeVIS()
+		_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
+			VolumeId:          "",
+			MutableParameters: map[string]string{"x": "y"},
+		})
+		if err == nil {
+			t.Fatalf("expected InvalidArgument when VolumeId is empty")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
+		}
+	})
+}
+
+// TestControllerModifyVolumeFSSDisabled verifies that when the
+// supports_VM_PVC_storage_policy_mutability capability is disabled, the
+// controller returns codes.Unimplemented immediately without touching
+// volumeInfoService or otherwise progressing the call.
+func TestControllerModifyVolumeFSSDisabled(t *testing.T) {
+	ct := getControllerTest(t)
+	// Ensure the FSS is disabled (it may have been enabled by a prior test).
+	_ = commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator).
+		DisableFSS(ctx, common.VMPVCStoragePolicyMutability)
+
+	_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
+		VolumeId:          "any-volume-id",
+		MutableParameters: map[string]string{"x": "y"},
+	})
+	if err == nil {
+		t.Fatalf("expected codes.Unimplemented when FSS disabled")
+	}
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected codes.Unimplemented, got %v", status.Code(err))
+	}
+}
+
+// TestControllerGetCapabilitiesModifyVolumeGated verifies that MODIFY_VOLUME is
+// advertised in ControllerGetCapabilities only when the
+// supports_VM_PVC_storage_policy_mutability capability is enabled.
+func TestControllerGetCapabilitiesModifyVolumeGated(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrch := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+	hasModifyVolume := func() bool {
+		resp, err := ct.controller.ControllerGetCapabilities(ctx, &csi.ControllerGetCapabilitiesRequest{})
+		if err != nil {
+			t.Fatalf("ControllerGetCapabilities failed: %v", err)
+		}
+		for _, c := range resp.Capabilities {
+			if rpc := c.GetRpc(); rpc != nil && rpc.Type == csi.ControllerServiceCapability_RPC_MODIFY_VOLUME {
+				return true
+			}
+		}
+		return false
+	}
+
+	_ = fakeOrch.DisableFSS(ctx, common.VMPVCStoragePolicyMutability)
+	if hasModifyVolume() {
+		t.Fatalf("MODIFY_VOLUME should NOT be advertised when FSS disabled")
+	}
+	_ = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutability)
+	defer func() { _ = fakeOrch.DisableFSS(ctx, common.VMPVCStoragePolicyMutability) }()
+	if !hasModifyVolume() {
+		t.Fatalf("MODIFY_VOLUME should be advertised when FSS enabled")
+	}
 }
 
 func TestSnapshotLockManager(t *testing.T) {

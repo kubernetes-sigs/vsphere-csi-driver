@@ -39,6 +39,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -81,6 +82,8 @@ var (
 	// interact with VolumeOperationRequest interface.
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest
 	// controllerCaps represents the capability of controller service.
+	// MODIFY_VOLUME is added dynamically in ControllerGetCapabilities only when
+	// the supports_VM_PVC_storage_policy_mutability supervisor capability is enabled.
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
@@ -99,9 +102,19 @@ var (
 	isVsanFileVolumeServiceFSSEnabled bool
 	// isCSIBackupAPIEnabled is true when supports_CSI_Backup_API FSS is enabled for CSI CBT support.
 	isCSIBackupAPIEnabled bool
+	// isVMPVCStoragePolicyMutabilityEnabled is true when the supports_VM_PVC_storage_policy_mutability
+	// supervisor capability (paired with the VM_PVC_STORAGE_POLICY_MUTABILITY pvCSI FSS) is enabled.
+	// When false, ControllerModifyVolume returns Unimplemented and MODIFY_VOLUME is not advertised
+	// in ControllerGetCapabilities.
+	isVMPVCStoragePolicyMutabilityEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
+
+// modifyVolumePollInterval is how often ControllerModifyVolume polls CNSVolumeInfo
+// for migration status updates. A shorter interval provides faster feedback but
+// increases API server load. Declared as a var so it can be adjusted in tests.
+var modifyVolumePollInterval = 30 * time.Second
 
 // Contains list of clusterComputeResourceMoIds on which supervisor cluster is deployed.
 var clusterComputeResourceMoIds = make([]string, 0)
@@ -221,6 +234,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if !isCSIBackupAPIEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.CSI_Backup_API, "", "")
+	}
+	isVMPVCStoragePolicyMutabilityEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.VMPVCStoragePolicyMutability)
+	if !isVMPVCStoragePolicyMutabilityEnabled {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.VMPVCStoragePolicyMutability, "", "")
 	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
@@ -2594,6 +2613,12 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
 			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 	}
+	// MODIFY_VOLUME is only advertised when the supports_VM_PVC_storage_policy_mutability
+	// supervisor capability is enabled. This way csi-resizer will not call
+	// ControllerModifyVolume against drivers that do not yet support it.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_MODIFY_VOLUME)
+	}
 
 	for _, cap := range controllerCaps {
 		c := &csi.ControllerServiceCapability{
@@ -3067,9 +3092,135 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
+// checkMigrationTerminalConditions classifies MigrationConditions into a terminal outcome.
+// Returns:
+//
+//	(response, gRPC error, true)  when a terminal condition has been observed
+//	(nil, nil, false)             when no terminal condition is set yet
+func checkMigrationTerminalConditions(
+	ctx context.Context, volumeID string, cvi *cnsvolumeinfov1alpha1.CNSVolumeInfo,
+) (*csi.ControllerModifyVolumeResponse, error, bool) {
+	log := logger.GetLogger(ctx)
+	// The syncer always replaces MigrationConditions with a single-element slice
+	// (JSON Merge Patch replaces arrays atomically), so at most one condition is
+	// present at a time. FindStatusCondition is a keyed lookup by type, so slice
+	// order and length do not affect correctness. The check order below
+	// (Complete → Error → Infeasible) reflects intentional precedence.
+	conds := cvi.Status.MigrationConditions
+	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionComplete); c != nil &&
+		c.Status == metav1.ConditionTrue {
+		log.Infof("Volume %q migration successfully completed by Mobility Controller", volumeID)
+		return &csi.ControllerModifyVolumeResponse{}, nil, true
+	}
+	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionError); c != nil &&
+		c.Status == metav1.ConditionTrue {
+		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
+		// and the user can roll back to the original VAC.
+		return nil, status.Errorf(codes.InvalidArgument,
+			"Mobility Controller failed to migrate volume %s", volumeID), true
+	}
+	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionInfeasible); c != nil &&
+		c.Status == metav1.ConditionTrue {
+		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
+		// and the user can roll back to the original VAC.
+		return nil, status.Errorf(codes.InvalidArgument,
+			"Mobility Controller found migration infeasible for volume %s", volumeID), true
+	}
+	return nil, nil, false
+}
+
+// ControllerModifyVolume implements the CSI ControllerModifyVolume RPC for the
+// Supervisor (WCP) flavor. It polls the volume's CNSVolumeInfo CR for the
+// terminal state of MigrationConditions written by the CSI Syncer (which in
+// turn observes the Mobility Operator's VirtualMachineInfraMigration /
+// VolumeMigration CR). The driver itself does NOT decide whether migration is
+// needed and does NOT mutate CNSVolumeInfo; the Mobility Operator drives the
+// actual policy change and the Syncer is the sole writer of MigrationConditions
+// and the destination storage-policy fields on CNSVolumeInfo.
+//
+// gRPC error codes returned:
+//   - codes.Unimplemented        - the supports_VM_PVC_storage_policy_mutability
+//     capability is not enabled on the supervisor.
+//   - codes.InvalidArgument      - basic request validation failure, or the
+//     Mobility Operator reported Error / Infeasible
+//     via MigrationConditions. csi-resizer marks
+//     the PVC Infeasible, allowing the user to roll
+//     back by patching spec.VAC; the slow-retry
+//     queue still keeps trying in case the failure
+//     was transient.
+//   - codes.DeadlineExceeded     - the gRPC context deadline expired while the
+//     migration is still in flight. csi-resizer's
+//     per-RPC --timeout is typically much shorter
+//     than a real Storage vMotion, so timeouts are
+//     expected during normal long-running
+//     migrations. DeadlineExceeded is non-final, so
+//     the resizer keeps the PVC InProgress and
+//     fast-retries via the uncertain cache; the
+//     next poll observes the eventual Complete and
+//     finishes cleanly.
+//   - codes.Internal             - unexpected K8s API failure (e.g., persistent
+//     failure to GET CNSVolumeInfo). Final but not
+//     Infeasible; resizer slow-retries with PVC
+//     kept InProgress.
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
 	*csi.ControllerModifyVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerModifyVolume: called with args %+v", req)
+
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"ControllerModifyVolume is not supported: supports_VM_PVC_storage_policy_mutability capability is not enabled")
+	}
+
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "Volume ID must be provided")
+	}
+
+	if req.GetMutableParameters() == nil {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "MutableParameters must be provided")
+	}
+
+	if volumeInfoService == nil {
+		return nil, logger.LogNewErrorCode(log, codes.Internal, "volumeInfoService is not initialized")
+	}
+
+	// Fast path: if a terminal state is already recorded by the Syncer, return it
+	// without entering the poll loop.
+	cvi, err := volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get CNSVolumeInfo for volume %s: %v", volumeID, err)
+	}
+	if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, cvi); done {
+		return resp, terminalErr
+	}
+
+	ticker := time.NewTicker(modifyVolumePollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// gRPC context deadline (csi-resizer per-RPC --timeout) typically
+			// fires long before a real Storage vMotion completes. Returning
+			// DeadlineExceeded keeps the PVC in InProgress on the resizer side
+			// and triggers a fast retry that rejoins the in-flight migration.
+			return nil, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
+				"context cancelled or deadline exceeded while waiting for volume %s migration", volumeID)
+		case <-ticker.C:
+			cvi, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, volumeID)
+			if err != nil {
+				log.Errorf("failed to poll CNSVolumeInfo for volume %s: %v", volumeID, err)
+				continue
+			}
+			if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, cvi); done {
+				return resp, terminalErr
+			}
+		}
+	}
 }
 
 func (c *controller) UpdateCNSVolumeInfo(ctx context.Context, patch map[string]interface{}, volumeID string) error {
