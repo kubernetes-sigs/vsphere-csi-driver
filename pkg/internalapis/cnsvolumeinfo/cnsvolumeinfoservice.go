@@ -344,15 +344,21 @@ func (volumeInfo *volumeInfo) PatchVolumeInfoStatus(ctx context.Context, volumeI
 	}
 }
 
+// GetCnsVolumeInfoCrName returns the Kubernetes-safe CR name for a volumeID.
+// It replaces the "file:" prefix with "file-" because Kubernetes object names
+// only allow alphanumeric characters and "-".
+func GetCnsVolumeInfoCrName(volumeID string) string {
+	if strings.HasPrefix(volumeID, FileVolumePrefix) {
+		return strings.Replace(volumeID, ":", "-", 1)
+	}
+	return volumeID
+}
+
 // getCnsVolumeInfoCrName replaces "file:" with "file-" as K8s only allows alphanumeric and "-" in object name."
 func getCnsVolumeInfoCrName(ctx context.Context, volumeID string) string {
 	log := logger.GetLogger(ctx)
-
 	if strings.HasPrefix(volumeID, FileVolumePrefix) {
 		log.Debugf("File volume observed %s", volumeID)
-
-		volumeInfoCrName := strings.Replace(volumeID, ":", "-", 1)
-		return volumeInfoCrName
 	}
-	return volumeID
+	return GetCnsVolumeInfoCrName(volumeID)
 }

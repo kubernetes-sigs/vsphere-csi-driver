@@ -515,6 +515,19 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
 		metadataSyncer.volumeManager = volumeManager
+
+		// Initialize a CnsOperator client for supervisor-mode operations
+		// (e.g. CNSVolumeInfo and StoragePolicyUsage patches during
+		// VMPVCStoragePolicyMutability storage-policy migrations).
+		k8sConfig, err := k8s.GetKubeConfig(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get Kubernetes config for CnsOperator client. Err: %v", err)
+		}
+		metadataSyncer.cnsOperatorClient, err = k8s.NewClientForGroup(ctx, k8sConfig, cnsoperatorv1alpha1.GroupName)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to create CnsOperator client for WCP mode. Err: %v", err)
+		}
+
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSISVFeatureStateReplication) {
 			svParams, ok := COInitParams.(k8sorchestrator.K8sSupervisorInitParams)
 			if !ok {
@@ -538,10 +551,6 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			if volumeInfoService != nil {
 				log.Infof("Successfully initialized VolumeInfoService")
-			}
-			k8sConfig, err := k8s.GetKubeConfig(ctx)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to get kubeconfig with error: %v", err)
 			}
 			err = initCnsVolumeOperationRequestCRInformer(ctx, k8sConfig)
 			if err != nil {

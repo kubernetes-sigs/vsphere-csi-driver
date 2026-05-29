@@ -32,12 +32,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -564,6 +566,61 @@ func newSyncerWithListers(
 	return syncer, client
 }
 
+// cnsScheme returns a runtime.Scheme that includes CNSVolumeInfo types.
+func cnsScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	if err := cnsvolumeinfov1alpha1.AddToScheme(s); err != nil {
+		panic("failed to add CNSVolumeInfo to scheme: " + err.Error())
+	}
+	return s
+}
+
+// makeFakeCNSClient builds a controller-runtime fake client pre-seeded with
+// the supplied CNSVolumeInfo objects and configured to handle the status
+// subresource separately (matching the real CRD annotation).
+func makeFakeCNSClient(objs ...*cnsvolumeinfov1alpha1.CNSVolumeInfo) client.Client {
+	s := cnsScheme()
+	b := ctrlclientfake.NewClientBuilder().
+		WithScheme(s).
+		WithStatusSubresource(&cnsvolumeinfov1alpha1.CNSVolumeInfo{})
+	for _, o := range objs {
+		b = b.WithObjects(o)
+	}
+	return b.Build()
+}
+
+// makeFakeCNSClientWithInterceptor wraps the fake client with interceptor
+// functions, useful for injecting errors into specific operations.
+func makeFakeCNSClientWithInterceptor(
+	funcs interceptor.Funcs,
+	objs ...*cnsvolumeinfov1alpha1.CNSVolumeInfo,
+) client.Client {
+	s := cnsScheme()
+	b := ctrlclientfake.NewClientBuilder().
+		WithScheme(s).
+		WithStatusSubresource(&cnsvolumeinfov1alpha1.CNSVolumeInfo{}).
+		WithInterceptorFuncs(funcs)
+	for _, o := range objs {
+		b = b.WithObjects(o)
+	}
+	return b.Build()
+}
+
+// getCNSVolumeInfoFromClient fetches a CNSVolumeInfo by volumeID from a fake
+// client.
+func getCNSVolumeInfoFromClient(t *testing.T, c client.Client, volumeID string) *cnsvolumeinfov1alpha1.CNSVolumeInfo {
+	t.Helper()
+	obj := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+	key := k8stypes.NamespacedName{
+		Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName(volumeID),
+		Namespace: common.GetCSINamespace(),
+	}
+	if err := c.Get(context.Background(), key, obj); err != nil {
+		t.Fatalf("getCNSVolumeInfoFromClient: Get(%s) failed: %v", volumeID, err)
+	}
+	return obj
+}
+
 // -----------------------------------------------------------------------------
 // Direct-function unit tests.
 // -----------------------------------------------------------------------------
@@ -1001,65 +1058,66 @@ func TestPatchMigrationConditionsType(t *testing.T) {
 	syncer, _ := newSyncerWithListers(t, ctx,
 		[]*v1.PersistentVolumeClaim{pvc}, []*v1.PersistentVolume{pv})
 
-	t.Run("patches InProgress condition via fake service", func(t *testing.T) {
-		fakeSvc := newFakeVolumeInfoService()
-		volumeInfoService = fakeSvc
+	// Seed the CNSVolumeInfo the client needs to find for the status patch target.
+	seedCVI := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName("csi-handle-1"),
+			Namespace: common.GetCSINamespace(),
+		},
+	}
+
+	t.Run("patches InProgress condition via cnsOperatorClient", func(t *testing.T) {
+		syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
 
 		err := patchMigrationConditionsInProgress(ctx, "ns", "pvc-1", syncer)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(fakeSvc.patchStatusCalls) != 1 {
-			t.Fatalf("expected 1 status patch, got %d", len(fakeSvc.patchStatusCalls))
+		got := getCNSVolumeInfoFromClient(t, syncer.cnsOperatorClient, "csi-handle-1")
+		if len(got.Status.MigrationConditions) != 1 {
+			t.Fatalf("expected 1 condition, got %d", len(got.Status.MigrationConditions))
 		}
-		call := fakeSvc.patchStatusCalls[0]
-		if call.volumeID != "csi-handle-1" {
-			t.Fatalf("got volumeID %q, want csi-handle-1", call.volumeID)
-		}
-		if !strings.Contains(string(call.body), cnsvolumeinfov1alpha1.MigrationConditionInProgress) {
-			t.Fatalf("status patch missing InProgress type: %s", call.body)
-		}
-		if call.retries != migrationPatchRetries {
-			t.Fatalf("got retries %d, want %d", call.retries, migrationPatchRetries)
+		if got.Status.MigrationConditions[0].Type != cnsvolumeinfov1alpha1.MigrationConditionInProgress {
+			t.Fatalf("got condition type %q, want %q",
+				got.Status.MigrationConditions[0].Type, cnsvolumeinfov1alpha1.MigrationConditionInProgress)
 		}
 	})
 
 	t.Run("patches Terminal Error condition", func(t *testing.T) {
-		fakeSvc := newFakeVolumeInfoService()
-		volumeInfoService = fakeSvc
+		syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
 
 		err := patchMigrationConditionsTerminal(ctx, "ns", "pvc-1",
 			cnsvolumeinfov1alpha1.MigrationConditionError, syncer)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(fakeSvc.patchStatusCalls) != 1 {
-			t.Fatalf("expected 1 status patch, got %d", len(fakeSvc.patchStatusCalls))
+		got := getCNSVolumeInfoFromClient(t, syncer.cnsOperatorClient, "csi-handle-1")
+		if len(got.Status.MigrationConditions) == 0 {
+			t.Fatal("expected at least one condition")
 		}
-		if !strings.Contains(string(fakeSvc.patchStatusCalls[0].body),
-			cnsvolumeinfov1alpha1.MigrationConditionError) {
-			t.Fatalf("status patch missing Error type: %s", fakeSvc.patchStatusCalls[0].body)
+		if got.Status.MigrationConditions[0].Type != cnsvolumeinfov1alpha1.MigrationConditionError {
+			t.Fatalf("got condition type %q, want %q",
+				got.Status.MigrationConditions[0].Type, cnsvolumeinfov1alpha1.MigrationConditionError)
 		}
 	})
 
 	t.Run("volumeID resolution failure propagates", func(t *testing.T) {
-		fakeSvc := newFakeVolumeInfoService()
-		volumeInfoService = fakeSvc
+		syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
 
 		err := patchMigrationConditionsType(ctx, "ns", "does-not-exist",
 			cnsvolumeinfov1alpha1.MigrationConditionInfeasible, syncer)
 		if err == nil {
 			t.Fatal("expected error when PVC missing")
 		}
-		if len(fakeSvc.patchStatusCalls) != 0 {
-			t.Fatal("no status patch should be made if volumeID resolution fails")
-		}
 	})
 
-	t.Run("service patch error propagates", func(t *testing.T) {
-		fakeSvc := newFakeVolumeInfoService()
-		fakeSvc.patchStatusErr = errors.New("patch failed")
-		volumeInfoService = fakeSvc
+	t.Run("client status patch error propagates", func(t *testing.T) {
+		syncer.cnsOperatorClient = makeFakeCNSClientWithInterceptor(interceptor.Funcs{
+			SubResourcePatch: func(_ context.Context, _ client.Client, _ string,
+				_ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
+				return errors.New("patch failed")
+			},
+		}, seedCVI)
 
 		err := patchMigrationConditionsType(ctx, "ns", "pvc-1",
 			cnsvolumeinfov1alpha1.MigrationConditionInProgress, syncer)
@@ -1288,18 +1346,28 @@ func TestPropagateMigrationSuccess(t *testing.T) {
 	}
 	volumeInfoService = fakeSvc
 
+	// seedCVI is pre-seeded in the fake client so the patch target exists.
+	seedCVI := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName("csi-handle-1"),
+			Namespace: common.GetCSINamespace(),
+		},
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			VolumeID:         "csi-handle-1",
+			StorageClassName: "sc-old",
+			StoragePolicyID:  "policy-uuid-silver",
+		},
+	}
+
 	cr := &unstructured.Unstructured{Object: map[string]interface{}{
 		"kind": common.MigrationCRKindVolume,
 		"spec": map[string]interface{}{"storagePolicyID": "policy-uuid-gold"},
 	}}
 
 	t.Run("happy path: spec + status patched, quota cascade fires", func(t *testing.T) {
-		// Reset state, but keep listers + svc set up above.
-		fakeSvc.patchSpecCalls = nil
-		fakeSvc.patchStatusCalls = nil
 		quotaCalled := false
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			oldCVI, newCVI cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 			quotaCalled = true
 			if oldCVI.Spec.StoragePolicyID != "policy-uuid-silver" ||
@@ -1308,35 +1376,38 @@ func TestPropagateMigrationSuccess(t *testing.T) {
 					oldCVI.Spec.StoragePolicyID, newCVI.Spec.StoragePolicyID)
 			}
 		}
-		// Set up a mock CnsOperator client to avoid the config.GetConfig() call
-		// that fails in CI environments without proper Kubernetes configuration.
-		syncer.cnsOperatorClient = ctrlclientfake.NewClientBuilder().Build()
+		syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
+
 		if err := propagateMigrationSuccess(ctx, syncer, "ns", "pvc-1", cr); err != nil {
 			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(fakeSvc.patchSpecCalls) != 1 {
-			t.Fatalf("expected 1 spec patch, got %d", len(fakeSvc.patchSpecCalls))
-		}
-		if len(fakeSvc.patchStatusCalls) != 1 {
-			t.Fatalf("expected 1 status patch, got %d", len(fakeSvc.patchStatusCalls))
 		}
 		if !quotaCalled {
 			t.Fatal("expected quota cascade")
 		}
-		if !strings.Contains(string(fakeSvc.patchSpecCalls[0].body), "policy-uuid-gold") {
-			t.Fatalf("spec patch missing new policy: %s", fakeSvc.patchSpecCalls[0].body)
+		got := getCNSVolumeInfoFromClient(t, syncer.cnsOperatorClient, "csi-handle-1")
+		if got.Spec.StoragePolicyID != "policy-uuid-gold" {
+			t.Fatalf("spec not patched: StoragePolicyID=%q, want policy-uuid-gold", got.Spec.StoragePolicyID)
+		}
+		if len(got.Status.MigrationConditions) == 0 {
+			t.Fatal("expected MigrationConditions in status after patch")
+		}
+		if got.Status.MigrationConditions[0].Type != cnsvolumeinfov1alpha1.MigrationConditionComplete {
+			t.Fatalf("got condition %q, want Complete", got.Status.MigrationConditions[0].Type)
 		}
 	})
 
 	t.Run("status patch failure propagates", func(t *testing.T) {
-		fakeSvc.patchSpecCalls = nil
-		fakeSvc.patchStatusCalls = nil
-		fakeSvc.patchStatusErr = errors.New("patch status fail")
-		defer func() { fakeSvc.patchStatusErr = nil }()
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
+		syncer.cnsOperatorClient = makeFakeCNSClientWithInterceptor(interceptor.Funcs{
+			SubResourcePatch: func(_ context.Context, _ client.Client, _ string,
+				_ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
+				return errors.New("patch status fail")
+			},
+		}, seedCVI)
+
 		if err := propagateMigrationSuccess(ctx, syncer, "ns", "pvc-1", cr); err == nil ||
 			!strings.Contains(err.Error(), "patch status fail") {
 			t.Fatalf("expected status patch failure, got: %v", err)
@@ -1344,6 +1415,7 @@ func TestPropagateMigrationSuccess(t *testing.T) {
 	})
 
 	t.Run("missing PVC errors at lister stage", func(t *testing.T) {
+		syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
 		if err := propagateMigrationSuccess(ctx, syncer, "ns", "missing", cr); err == nil {
 			t.Fatal("expected error for missing PVC")
 		}
@@ -1374,9 +1446,24 @@ func TestStartMigrationWatcher(t *testing.T) {
 	volumeInfoService = fakeSvc
 
 	migrationHandleStoragePolicyChange = func(
-		_ context.Context, _ ctrlclient.Client,
+		_ context.Context, _ client.Client,
 		_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 	}
+
+	// Seed the fake cnsOperatorClient with the CNSVolumeInfo object so that
+	// all patch calls (InProgress, Complete, Error, etc.) have a target.
+	watcherSeedCVI := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName("csi-handle-1"),
+			Namespace: common.GetCSINamespace(),
+		},
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			VolumeID:         "csi-handle-1",
+			StorageClassName: "sc-old",
+			StoragePolicyID:  "policy-uuid-silver",
+		},
+	}
+	syncer.cnsOperatorClient = makeFakeCNSClient(watcherSeedCVI)
 
 	// Build a fake dynamic client serving a VolumeMigration CR that we will
 	// mutate mid-test to drive the watcher's state transitions.
@@ -1439,7 +1526,7 @@ func TestStartMigrationWatcher(t *testing.T) {
 		// Restore svc + handler that resetMigrationStateForTest cleared.
 		volumeInfoService = fakeSvc
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
 
@@ -1458,7 +1545,7 @@ func TestStartMigrationWatcher(t *testing.T) {
 		migrationPollInterval = 10 * time.Millisecond
 		volumeInfoService = fakeSvc
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
 
@@ -1477,7 +1564,7 @@ func TestStartMigrationWatcher(t *testing.T) {
 		migrationPollInterval = 10 * time.Millisecond
 		volumeInfoService = fakeSvc
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
 
@@ -1496,7 +1583,7 @@ func TestStartMigrationWatcher(t *testing.T) {
 		migrationPollInterval = 10 * time.Millisecond
 		volumeInfoService = fakeSvc
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
 
@@ -1566,6 +1653,17 @@ func TestPropagateMigrationSuccessFailures(t *testing.T) {
 		[]*v1.PersistentVolume{pvNoCSI, pvGood},
 	)
 
+	seedCVI := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName("csi-handle-1"),
+			Namespace: common.GetCSINamespace(),
+		},
+		Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+			VolumeID: "csi-handle-1", StorageClassName: "sc-old", StoragePolicyID: "policy-uuid-silver",
+		},
+	}
+	syncer.cnsOperatorClient = makeFakeCNSClient(seedCVI)
+
 	cr := &unstructured.Unstructured{Object: map[string]interface{}{
 		"kind": common.MigrationCRKindVolume,
 		"spec": map[string]interface{}{"storagePolicyID": "policy-uuid-gold"},
@@ -1613,19 +1711,24 @@ func TestPropagateMigrationSuccessFailures(t *testing.T) {
 		}
 	})
 
-	t.Run("PatchVolumeInfo (spec) error propagates", func(t *testing.T) {
+	t.Run("spec patch error propagates", func(t *testing.T) {
 		fakeSvc := newFakeVolumeInfoService()
 		fakeSvc.infoByID["csi-handle-1"] = &cnsvolumeinfov1alpha1.CNSVolumeInfo{
 			Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
 				VolumeID: "csi-handle-1", StorageClassName: "sc-old", StoragePolicyID: "policy-uuid-silver",
 			},
 		}
-		fakeSvc.patchErr = errors.New("spec patch fail")
 		volumeInfoService = fakeSvc
 		migrationHandleStoragePolicyChange = func(
-			_ context.Context, _ ctrlclient.Client,
+			_ context.Context, _ client.Client,
 			_, _ cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 		}
+		syncer.cnsOperatorClient = makeFakeCNSClientWithInterceptor(interceptor.Funcs{
+			Patch: func(_ context.Context, _ client.WithWatch, _ client.Object,
+				_ client.Patch, _ ...client.PatchOption) error {
+				return errors.New("spec patch fail")
+			},
+		}, seedCVI)
 		err := propagateMigrationSuccess(ctx, syncer, "ns", "pvc-1", cr)
 		if err == nil || !strings.Contains(err.Error(), "spec patch fail") {
 			t.Fatalf("unexpected error: %v", err)
@@ -1633,10 +1736,11 @@ func TestPropagateMigrationSuccessFailures(t *testing.T) {
 	})
 }
 
-// TestPatchMigrationConditionsTypeServiceUnavailable covers the
-// getVolumeInfoService error path that wasn't reachable in the main test
-// because volumeInfoService was always set there.
-func TestPatchMigrationConditionsTypeServiceUnavailable(t *testing.T) {
+// TestPatchMigrationConditionsTypeClientError covers the path where the
+// cnsOperatorClient Status patch returns an error.
+// (Previously this tested getVolumeInfoService failure; the patch path now
+// uses cnsOperatorClient directly.)
+func TestPatchMigrationConditionsTypeClientError(t *testing.T) {
 	resetMigrationStateForTest(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1646,15 +1750,23 @@ func TestPatchMigrationConditionsTypeServiceUnavailable(t *testing.T) {
 	syncer, _ := newSyncerWithListers(t, ctx,
 		[]*v1.PersistentVolumeClaim{pvc}, []*v1.PersistentVolume{pv})
 
-	volumeInfoService = nil
-	migrationInitVolumeInfoService = func(_ context.Context) (cnsvolumeinfo.VolumeInfoService, error) {
-		return nil, errors.New("svc init err")
+	seedCVI := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName("csi-handle-1"),
+			Namespace: common.GetCSINamespace(),
+		},
 	}
+	syncer.cnsOperatorClient = makeFakeCNSClientWithInterceptor(interceptor.Funcs{
+		SubResourcePatch: func(_ context.Context, _ client.Client, _ string,
+			_ client.Object, _ client.Patch, _ ...client.SubResourcePatchOption) error {
+			return errors.New("client patch err")
+		},
+	}, seedCVI)
 
 	err := patchMigrationConditionsType(ctx, "ns", "pvc-1",
 		cnsvolumeinfov1alpha1.MigrationConditionInProgress, syncer)
-	if err == nil || !strings.Contains(err.Error(), "svc init err") {
-		t.Fatalf("expected service init error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "client patch err") {
+		t.Fatalf("expected client patch error, got: %v", err)
 	}
 }
 

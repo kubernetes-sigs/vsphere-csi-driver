@@ -3089,6 +3089,11 @@ func checkMigrationTerminalConditions(
 	ctx context.Context, volumeID string, cvi *cnsvolumeinfov1alpha1.CNSVolumeInfo,
 ) (*csi.ControllerModifyVolumeResponse, error, bool) {
 	log := logger.GetLogger(ctx)
+	// The syncer always replaces MigrationConditions with a single-element slice
+	// (JSON Merge Patch replaces arrays atomically), so at most one condition is
+	// present at a time. FindStatusCondition is a keyed lookup by type, so slice
+	// order and length do not affect correctness. The check order below
+	// (Complete → Error → Infeasible) reflects intentional precedence.
 	conds := cvi.Status.MigrationConditions
 	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionComplete); c != nil &&
 		c.Status == metav1.ConditionTrue {

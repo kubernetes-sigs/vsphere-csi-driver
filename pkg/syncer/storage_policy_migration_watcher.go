@@ -46,10 +46,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -224,9 +225,11 @@ func startMigrationWatcher(parentCtx context.Context, pvcNamespace, pvcName, crK
 	watchCtx, cancel := context.WithCancel(context.Background())
 	activeMigrationsMu.Lock()
 	activeMigrations[key] = &activeMigration{cancel: cancel, crKind: crKind, crName: crName}
+	activeCount := len(activeMigrations)
 	activeMigrationsMu.Unlock()
 
-	log.Infof("startMigrationWatcher: starting watcher for PVC %s on %s/%s", key, crKind, crName)
+	log.Infof("startMigrationWatcher: launching watcher goroutine for PVC %s on %s/%s (%d active)",
+		key, crKind, crName, activeCount)
 
 	go func() {
 		defer func() {
@@ -234,7 +237,10 @@ func startMigrationWatcher(parentCtx context.Context, pvcNamespace, pvcName, crK
 			if existing, ok := activeMigrations[key]; ok && existing.crKind == crKind && existing.crName == crName {
 				delete(activeMigrations, key)
 			}
+			remaining := len(activeMigrations)
 			activeMigrationsMu.Unlock()
+			log.Infof("startMigrationWatcher: watcher goroutine for PVC %s exited (%d active remaining)",
+				key, remaining)
 		}()
 
 		ticker := time.NewTicker(migrationPollInterval)
@@ -250,49 +256,47 @@ func startMigrationWatcher(parentCtx context.Context, pvcNamespace, pvcName, crK
 		for {
 			select {
 			case <-watchCtx.Done():
-				log.Infof("startMigrationWatcher: watcher for PVC %s stopped", key)
 				return
 			case <-ticker.C:
-			}
+				cr, err := getMigrationCR(watchCtx, pvcNamespace, crKind, crName)
+				if err != nil {
+					if apierrors.IsNotFound(err) {
+						log.Infof("startMigrationWatcher: migration CR %s/%s for PVC %s not found, exiting watcher. "+
+							"Mobility Operator will handle cleanup.", crKind, crName, key)
+						return
+					}
+					log.Warnf("startMigrationWatcher: error fetching migration CR %s/%s for PVC %s: %v",
+						crKind, crName, key, err)
+					continue
+				}
 
-			cr, err := getMigrationCR(watchCtx, pvcNamespace, crKind, crName)
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					log.Infof("startMigrationWatcher: migration CR %s/%s for PVC %s not found, exiting watcher. "+
-						"Mobility Operator will handle cleanup.", crKind, crName, key)
+				outcome := classifyMigrationCR(cr)
+				switch outcome {
+				case migrationOutcomeInProgress:
+					continue
+				case migrationOutcomeComplete:
+					if err := propagateMigrationSuccess(watchCtx, metadataSyncer, pvcNamespace, pvcName, cr); err != nil {
+						log.Errorf("startMigrationWatcher: failed to propagate success for PVC %s: %v", key, err)
+						// Don't return; we want to retry on the next tick rather than
+						// leave CNSVolumeInfo in InProgress forever.
+						continue
+					}
+					return
+				case migrationOutcomeError:
+					if err := patchMigrationConditionsTerminal(watchCtx, pvcNamespace, pvcName,
+						cnsvolumeinfov1alpha1.MigrationConditionError, metadataSyncer); err != nil {
+						log.Errorf("startMigrationWatcher: failed to patch Error condition for PVC %s: %v", key, err)
+						continue
+					}
+					return
+				case migrationOutcomeInfeasible:
+					if err := patchMigrationConditionsTerminal(watchCtx, pvcNamespace, pvcName,
+						cnsvolumeinfov1alpha1.MigrationConditionInfeasible, metadataSyncer); err != nil {
+						log.Errorf("startMigrationWatcher: failed to patch Infeasible condition for PVC %s: %v", key, err)
+						continue
+					}
 					return
 				}
-				log.Warnf("startMigrationWatcher: error fetching migration CR %s/%s for PVC %s: %v",
-					crKind, crName, key, err)
-				continue
-			}
-
-			outcome := classifyMigrationCR(cr)
-			switch outcome {
-			case migrationOutcomeInProgress:
-				continue
-			case migrationOutcomeComplete:
-				if err := propagateMigrationSuccess(watchCtx, metadataSyncer, pvcNamespace, pvcName, cr); err != nil {
-					log.Errorf("startMigrationWatcher: failed to propagate success for PVC %s: %v", key, err)
-					// Don't return; we want to retry on the next tick rather than
-					// leave CNSVolumeInfo in InProgress forever.
-					continue
-				}
-				return
-			case migrationOutcomeError:
-				if err := patchMigrationConditionsTerminal(watchCtx, pvcNamespace, pvcName,
-					cnsvolumeinfov1alpha1.MigrationConditionError, metadataSyncer); err != nil {
-					log.Errorf("startMigrationWatcher: failed to patch Error condition for PVC %s: %v", key, err)
-					continue
-				}
-				return
-			case migrationOutcomeInfeasible:
-				if err := patchMigrationConditionsTerminal(watchCtx, pvcNamespace, pvcName,
-					cnsvolumeinfov1alpha1.MigrationConditionInfeasible, metadataSyncer); err != nil {
-					log.Errorf("startMigrationWatcher: failed to patch Infeasible condition for PVC %s: %v", key, err)
-					continue
-				}
-				return
 			}
 		}
 	}()
@@ -425,11 +429,9 @@ func patchMigrationConditionsType(ctx context.Context, pvcNamespace, pvcName, co
 	if err != nil {
 		return fmt.Errorf("failed to marshal CNSVolumeInfo status patch: %w", err)
 	}
-	volumeInfoSvc, err := getVolumeInfoService(ctx)
-	if err != nil {
-		return err
-	}
-	return volumeInfoSvc.PatchVolumeInfoStatus(ctx, volumeID, patchBytes, migrationPatchRetries)
+	cvi := cnsVolumeInfoObj(volumeID)
+	return patchCNSVolumeInfoStatusWithRetry(ctx, metadataSyncer.cnsOperatorClient, cvi, patchBytes,
+		migrationPatchRetries)
 }
 
 // propagateMigrationSuccess performs the single-handler PATCH + quota update
@@ -480,14 +482,18 @@ func propagateMigrationSuccess(ctx context.Context, metadataSyncer *metadataSync
 	if err != nil {
 		return err
 	}
-	// Apply spec part first via PatchVolumeInfo, then status via PatchVolumeInfoStatus.
-	// PatchVolumeInfoStatus only touches the status subresource; spec lives separately.
+
+	cnsClient := metadataSyncer.cnsOperatorClient
+	cvi := cnsVolumeInfoObj(csiVolumeID)
+
+	// Apply spec patch first (non-status subresource), then status.
 	if len(specPatchBytes) > 0 {
-		if err := volumeInfoSvc.PatchVolumeInfo(ctx, csiVolumeID, specPatchBytes, migrationPatchRetries); err != nil {
+		if err := patchCNSVolumeInfoSpecWithRetry(ctx, cnsClient, cvi, specPatchBytes,
+			migrationPatchRetries); err != nil {
 			return fmt.Errorf("failed to patch CNSVolumeInfo spec: %w", err)
 		}
 	}
-	if err := volumeInfoSvc.PatchVolumeInfoStatus(ctx, csiVolumeID, statusPatchBytes,
+	if err := patchCNSVolumeInfoStatusWithRetry(ctx, cnsClient, cvi, statusPatchBytes,
 		migrationPatchRetries); err != nil {
 		return fmt.Errorf("failed to patch CNSVolumeInfo status: %w", err)
 	}
@@ -498,34 +504,53 @@ func propagateMigrationSuccess(ctx context.Context, metadataSyncer *metadataSync
 		newVAC, newStoragePolicyID,
 		oldCVI.Spec.StorageClassName)
 
-	// Quota update: deduct from OLD SPU (keyed by old VAC, or StorageClassName
-	// when no prior VAC) and add to NEW SPU (keyed by new VAC). We invoke the
-	// existing helper directly (Option 1 - single handler does both jobs)
-	// rather than relying on the cnsVolumeInfoCRUpdated informer cascade.
-	//
-	// `metadataSyncer.cnsOperatorClient` is only populated in Guest mode; in
-	// WCP mode it's nil. We therefore construct a fresh CnsOperator client
-	// from the in-cluster config here, mirroring what cnsVolumeInfoCRUpdated
-	// does. Failure to build the client is logged but does NOT fail the whole
-	// migration - the CNSVolumeInfo spec/status PATCHes have already landed;
-	// the quota rebalance is best-effort and full-sync will reconcile it later.
-	quotaClient := metadataSyncer.cnsOperatorClient
-	if quotaClient == nil {
-		restConfig, err := config.GetConfig()
-		if err != nil {
-			log.Errorf("propagateMigrationSuccess: failed to get kube config "+
-				"for quota update on volume %s: %v", csiVolumeID, err)
-			return nil
-		}
-		quotaClient, err = k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-		if err != nil {
-			log.Errorf("propagateMigrationSuccess: failed to create CnsOperator client "+
-				"for quota update on volume %s: %v", csiVolumeID, err)
-			return nil
-		}
-	}
-	migrationHandleStoragePolicyChange(ctx, quotaClient, *oldCVI, newCVI)
+	// Quota update: rebalance StoragePolicyUsage CRs from the OLD policy's SPU
+	// to the NEW policy's SPU.
+	migrationHandleStoragePolicyChange(ctx, cnsClient, *oldCVI, newCVI)
 	return nil
+}
+
+// cnsVolumeInfoObj builds a minimal CNSVolumeInfo object suitable as the
+// target of a client.Patch or client.Status().Patch call. For merge
+// patches the API server only needs the name, namespace, and GroupVersionKind; the full
+// object body is not required.
+func cnsVolumeInfoObj(volumeID string) *cnsvolumeinfov1alpha1.CNSVolumeInfo {
+	return &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cnsvolumeinfo.GetCnsVolumeInfoCrName(volumeID),
+			Namespace: common.GetCSINamespace(),
+		},
+	}
+}
+
+// patchCNSVolumeInfoSpecWithRetry patches the spec of a
+// CNSVolumeInfo object, retrying up to maxRetries times on transient failures.
+func patchCNSVolumeInfoSpecWithRetry(ctx context.Context, c client.Client,
+	obj *cnsvolumeinfov1alpha1.CNSVolumeInfo, patchBytes []byte, maxRetries int) error {
+	rawPatch := client.RawPatch(k8stypes.MergePatchType, patchBytes)
+	var err error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err = c.Patch(ctx, obj, rawPatch); err == nil || attempt == maxRetries {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
+}
+
+// patchCNSVolumeInfoStatusWithRetry patches the status subresource of a
+// CNSVolumeInfo object, retrying up to maxRetries times on transient failures.
+func patchCNSVolumeInfoStatusWithRetry(ctx context.Context, c client.Client,
+	obj *cnsvolumeinfov1alpha1.CNSVolumeInfo, patchBytes []byte, maxRetries int) error {
+	rawPatch := client.RawPatch(k8stypes.MergePatchType, patchBytes)
+	var err error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err = c.Status().Patch(ctx, obj, rawPatch); err == nil || attempt == maxRetries {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
 }
 
 // buildMigrationSuccessPatches is the pure / side-effect-free portion of
