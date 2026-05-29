@@ -283,7 +283,7 @@ func validatePvCSIServiceAccount(username string) (bool, error) {
 	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
 	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
 		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
-		return validateProviderServiceAccount(ctx, serviceAccountName)
+		return validateProviderServiceAccount(ctx, namespace, serviceAccountName)
 	}
 
 	log.Infof("Service account doesn't match any PvCSI patterns, returning false")
@@ -301,9 +301,9 @@ func getClusterAPIClient(ctx context.Context) (client.Client, error) {
 }
 
 // validateProviderServiceAccount validates the service account name against all available clusters
-func validateProviderServiceAccount(ctx context.Context, serviceAccountName string) (bool, error) {
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string) (bool, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("Validating provider service account: %s", serviceAccountName)
+	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
 
 	// Extract expected cluster name from service account name
 	// serviceAccountName format: "{cluster-name}-pvcsi"
@@ -318,40 +318,37 @@ func validateProviderServiceAccount(ctx context.Context, serviceAccountName stri
 		return false, nil
 	}
 
-	log.Infof("Extracted cluster name '%s' from service account '%s'", clusterName, serviceAccountName)
+	log.Infof("Extracted cluster name '%s' from service account '%s', searching in namespace '%s'", 
+		clusterName, serviceAccountName, namespace)
 
 	k8sClient, err := getClusterAPIClient(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to create cluster API client: %w", err)
 	}
 
-	// Search for cluster with specific name across all namespaces
-	clusterList := &ccV1beta2.ClusterList{}
-	err = k8sClient.List(ctx, clusterList, client.MatchingFields{
-		"metadata.name": clusterName,
-	})
+	// Search for cluster with specific name in the specified namespace only
+	cluster := &ccV1beta2.Cluster{}
+	err = k8sClient.Get(ctx, client.ObjectKey{
+		Name:      clusterName,
+		Namespace: namespace,
+	}, cluster)
 
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Infof("Cluster '%s' not found in namespace '%s', service account '%s' is not valid", 
+				clusterName, namespace, serviceAccountName)
+			return false, nil
+		}
+		
 		if errors.IsForbidden(err) {
-			log.Warnf("Access denied when searching for cluster '%s' across namespaces", clusterName)
+			log.Warnf("Access denied when checking cluster '%s' in namespace '%s'", clusterName, namespace)
 			return false, fmt.Errorf("insufficient permissions to validate cluster: %w", err)
 		}
-		return false, fmt.Errorf("failed to search for cluster '%s': %w", clusterName, err)
+		
+		return false, fmt.Errorf("failed to get cluster '%s' in namespace '%s': %w", clusterName, namespace, err)
 	}
 
-	// Check if we found any clusters with the matching name
-	if len(clusterList.Items) == 0 {
-		log.Infof("Cluster '%s' not found in any namespace, service account '%s' is not valid", 
-			clusterName, serviceAccountName)
-		return false, nil
-	}
-
-	// Log found clusters for debugging
-	log.Infof("Found %d cluster(s) named '%s' for service account validation", len(clusterList.Items), clusterName)
-	for i, cluster := range clusterList.Items {
-		log.Infof("Cluster %d: Name='%s', Namespace='%s'", i+1, cluster.Name, cluster.Namespace)
-	}
-
-	log.Infof("Cluster '%s' found, service account '%s' is valid", clusterName, serviceAccountName)
+	log.Infof("Found cluster '%s' in namespace '%s', service account '%s' is valid", 
+		clusterName, namespace, serviceAccountName)
 	return true, nil
 }
