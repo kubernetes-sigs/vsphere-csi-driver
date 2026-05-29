@@ -55,7 +55,7 @@ func createTestClusters() []ccV1beta2.Cluster {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-cluster-e2e-script-95jxs-pvcsi",
+				Name:      "test-cluster-e2e-script-95jxs",
 				Namespace: "test-gc-e2e-demo-ns",
 			},
 		},
