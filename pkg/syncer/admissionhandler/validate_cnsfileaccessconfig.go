@@ -318,7 +318,7 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 		return false, nil
 	}
 
-	log.Infof("Extracted cluster name '%s' from service account '%s', searching in namespace '%s'", 
+	log.Infof("Extracted cluster name '%s' from service account '%s', searching in namespace '%s'",
 		clusterName, serviceAccountName, namespace)
 
 	k8sClient, err := getClusterAPIClient(ctx)
@@ -335,20 +335,20 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Infof("Cluster '%s' not found in namespace '%s', service account '%s' is not valid", 
+			log.Infof("Cluster '%s' not found in namespace '%s', service account '%s' is not valid",
 				clusterName, namespace, serviceAccountName)
 			return false, nil
 		}
-		
+
 		if errors.IsForbidden(err) {
 			log.Warnf("Access denied when checking cluster '%s' in namespace '%s'", clusterName, namespace)
 			return false, fmt.Errorf("insufficient permissions to validate cluster: %w", err)
 		}
-		
+
 		return false, fmt.Errorf("failed to get cluster '%s' in namespace '%s': %w", clusterName, namespace, err)
 	}
 
-	log.Infof("Found cluster '%s' in namespace '%s', service account '%s' is valid", 
+	log.Infof("Found cluster '%s' in namespace '%s', service account '%s' is valid",
 		clusterName, namespace, serviceAccountName)
 	return true, nil
 }
