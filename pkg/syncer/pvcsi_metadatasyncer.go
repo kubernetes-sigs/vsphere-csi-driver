@@ -18,6 +18,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
@@ -28,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	commonco "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -103,12 +106,45 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 		svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
 			Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
 		if err == nil {
-			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+			labelKey := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-			if _, ok := svPVC.Labels[key]; ok {
-				original := svPVC.DeepCopy()
-				delete(svPVC.Labels, key)
 
+			// Check if we need to clean up labels or annotations
+			needsCleanup := false
+			original := svPVC.DeepCopy()
+			// Remove guest cluster label if it exists
+			if _, ok := svPVC.Labels[labelKey]; ok {
+				delete(svPVC.Labels, labelKey)
+				needsCleanup = true
+			}
+
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+				if annVal, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
+					// Selectively remove PVC-specific fields from the JSON annotation so
+					// that cluster-identity fields (clusterId, clusterName) are preserved
+					// for auditing only name and namespace are cleared.
+					var annMap map[string]string
+					if jsonErr := json.Unmarshal([]byte(annVal), &annMap); jsonErr == nil {
+						delete(annMap, "name")
+						delete(annMap, "namespace")
+						updated, marshalErr := json.Marshal(annMap)
+						if marshalErr == nil {
+							svPVC.Annotations[common.AnnKeyGuestClusterPvc] = string(updated)
+						} else {
+							log.Warnf("failed to re-marshal %s on PVC %q: %v; removing annotation entirely",
+								common.AnnKeyGuestClusterPvc, svPVC.Name, marshalErr)
+						}
+					} else {
+						log.Warnf("failed to unmarshal %s on PVC %q: %v; removing annotation entirely",
+							common.AnnKeyGuestClusterPvc, svPVC.Name, jsonErr)
+						delete(svPVC.Annotations, common.AnnKeyGuestClusterPvc)
+					}
+					needsCleanup = true
+				}
+			}
+
+			if needsCleanup {
+				log.Infof("PVC %q deleted from guest cluster, Removing annotation and label from supervisor", svPVC.Name)
 				// Create controller-runtime client for supervisor cluster
 				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
 					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)

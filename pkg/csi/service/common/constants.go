@@ -364,6 +364,10 @@ const (
 	// the request parameters
 	VolumeSnapshotNamespaceKey = "csi.storage.k8s.io/volumesnapshot/namespace"
 
+	// VolumeSnapshotContentNameKey represents the volumesnapshotcontent CR name within
+	// the request parameters
+	VolumeSnapshotContentNameKey = "csi.storage.k8s.io/volumesnapshotcontent/name"
+
 	// VolumeSnapshotInfoKey represents the annotation key of the fcd-id + snapshot-id
 	// on the VolumeSnapshot CR
 	VolumeSnapshotInfoKey = "csi.vsphere.volume/snapshot"
@@ -413,6 +417,12 @@ const (
 
 	// AnnKeyLinkedClone is the linked clone annotation on the PVC
 	AnnKeyLinkedClone = "csi.vsphere.volume/fast-provisioning"
+
+	// AnnKeyGuestCluster is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
+	AnnKeyGuestClusterPvc = "csi.vsphere.volume/guest-cluster-pvc"
+
+	// AnnKeyGuestClusterSnapshot is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
+	AnnKeyGuestClusterSnapshot = "csi.vsphere.volume/guest-cluster-snapshot"
 
 	// AnnKeyBackingDiskType is the type of the backing disk.
 	// It is added on the PVC during static volume provisioning
@@ -594,6 +604,12 @@ const (
 	// roll-out can be staged per cluster and so individual environments
 	// can disable the additional API traffic if needed.
 	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
+
+	// ImprovedVolumeVisiblity is the FSS that gates improved volume
+	// visibility in guest cluster, when enable it enabled guest cluster
+	// related annotations and other visiblity enhanchment for better
+	// visiblity of the guest cluster resources in the supervisor.
+	ImprovedVolumeVisiblity = "improved-volume-visibility"
 
 	// VMPVCStoragePolicyMutability is the WCP capability for the DevOps storage-policy
 	// change feature on VMs and PVCs. When enabled on the supervisor, the CSI driver
