@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	fvv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume/v1alpha1"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
@@ -691,14 +692,22 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 }
 
 // shouldProvisionVsanFileVolumeViaFVS encapsulates routing to the FVS CR workflow.
-func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName string) (bool, error) {
+//
+// The reserved vsan-file-service-policy / vsan-file-service-policy-latebinding storage classes
+// require the NSX_VPC network provider. The provider is resolved either per-namespace (from the
+// PVC namespace's NetworkSettings CR) when supports_per_namespace_network_providers is on, or from
+// the cached global wcp-network-config value resolved once at controller.Init when the per-
+// namespace capability is off. Non-reserved storage classes return useFVS=false without consulting
+// the network provider.
+func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, dc dynamic.Interface,
+	pvcNamespace, storageClassName string) (bool, error) {
 	if !isVsanFileVolumeServiceFSSEnabled {
 		return false, nil
 	}
 	if !isVsanFileServicePolicyStorageClass(storageClassName) {
 		return false, nil
 	}
-	np, err := cnsoperatorutil.GetNetworkProvider(ctx)
+	np, err := resolveNetworkProviderForFVS(ctx, dc, pvcNamespace)
 	if err != nil {
 		return false, err
 	}
@@ -708,6 +717,33 @@ func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, storageClassName s
 			storageClassName, np)
 	}
 	return true, nil
+}
+
+// resolveNetworkProviderForFVS reads the per-namespace NetworkSettings CR when
+// supports_per_namespace_network_providers is on, otherwise returns the global provider value
+// cached during controller.Init (no per-call wcp-network-config read).
+func resolveNetworkProviderForFVS(ctx context.Context, dc dynamic.Interface,
+	pvcNamespace string) (string, error) {
+	if isPerNamespaceNetworkProvidersFSSEnabled {
+		if dc == nil {
+			return "", status.Errorf(codes.FailedPrecondition,
+				"dynamic client unavailable; required when %s is enabled",
+				common.SupportsPerNamespaceNetworkProviders)
+		}
+		np, err := cnsoperatorutil.GetNetworkProviderFromNetworkSettings(ctx, dc, pvcNamespace)
+		if err != nil {
+			return "", status.Errorf(codes.FailedPrecondition,
+				"failed to resolve network provider from NetworkSettings in namespace %q: %v",
+				pvcNamespace, err)
+		}
+		return np, nil
+	}
+	if cachedGlobalNetworkProvider == "" {
+		return "", status.Errorf(codes.FailedPrecondition,
+			"global network provider was not resolved at controller startup; "+
+				"restart the CSI controller with a readable wcp-network-config to use reserved FVS storage classes")
+	}
+	return cachedGlobalNetworkProvider, nil
 }
 
 // shouldDeleteFileVolumeViaFVS encapsulates routing to the FVS CR workflow on DeleteVolume,
