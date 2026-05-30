@@ -132,6 +132,12 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeinfoes/status"]
     verbs: ["patch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos/status"]
+    verbs: ["update", "patch"]
   - apiGroups: ["crd.nsx.vmware.com"]
     resources: ["networkinfos"]
     verbs: ["get", "watch", "list"]
@@ -790,6 +796,9 @@ rules:
     verbs: ["get", "list", "update"]
   - apiGroups: ["vmoperator.vmware.com"]
     resources: ["virtualmachines"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos"]
     verbs: ["get", "list"]
 ---
 kind: ClusterRoleBinding
