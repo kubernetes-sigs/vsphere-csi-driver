@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -86,6 +87,16 @@ type CsiVolumeInfoService interface {
 	// error when no matching CR is found.
 	GetCsiVolumeInfoByPVCName(ctx context.Context, namespace, pvcName string) (
 		*csivolumeinfov1alpha1.CsiVolumeInfo, error)
+
+	// AddCVIProtectionFinalizer adds the cvi-protection finalizer to the
+	// CsiVolumeInfo for the given volumeID in namespace. It is idempotent:
+	// if the finalizer is already present, the call is a no-op.
+	AddCVIProtectionFinalizer(ctx context.Context, namespace, volumeID string) error
+
+	// RemoveCVIProtectionFinalizer removes the cvi-protection finalizer from the
+	// CsiVolumeInfo for the given volumeID in namespace. It is idempotent:
+	// if the finalizer is absent, the call is a no-op.
+	RemoveCVIProtectionFinalizer(ctx context.Context, namespace, volumeID string) error
 }
 
 // csiVolumeInfoSvc is the concrete singleton implementing CsiVolumeInfoService.
@@ -335,6 +346,72 @@ func (s *csiVolumeInfoSvc) CsiVolumeInfoExists(
 		return false, fmt.Errorf("CsiVolumeInfoExists: %w", err)
 	}
 	return cvi != nil, nil
+}
+
+// AddCVIProtectionFinalizer adds the cvi-protection finalizer to the CsiVolumeInfo
+// identified by volumeID / namespace. The operation is idempotent.
+func (s *csiVolumeInfoSvc) AddCVIProtectionFinalizer(
+	ctx context.Context, namespace, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	name := GetCsiVolumeInfoCRName(volumeID)
+
+	cvi, err := s.GetCsiVolumeInfo(ctx, namespace, volumeID)
+	if err != nil {
+		return fmt.Errorf("AddCVIProtectionFinalizer: failed to fetch CsiVolumeInfo %s/%s: %w",
+			namespace, name, err)
+	}
+	if cvi == nil {
+		return fmt.Errorf("AddCVIProtectionFinalizer: CsiVolumeInfo %s/%s not found",
+			namespace, name)
+	}
+	if controllerutil.ContainsFinalizer(cvi, csivolumeinfov1alpha1.CVIProtectionFinalizer) {
+		log.Infof("AddCVIProtectionFinalizer: finalizer already present on CsiVolumeInfo %s/%s",
+			namespace, name)
+		return nil
+	}
+
+	patch := client.MergeFrom(cvi.DeepCopy())
+	controllerutil.AddFinalizer(cvi, csivolumeinfov1alpha1.CVIProtectionFinalizer)
+	if err := s.k8sClient.Patch(ctx, cvi, patch); err != nil {
+		return fmt.Errorf("AddCVIProtectionFinalizer: failed to patch CsiVolumeInfo %s/%s: %w",
+			namespace, name, err)
+	}
+	log.Infof("AddCVIProtectionFinalizer: added finalizer on CsiVolumeInfo %s/%s", namespace, name)
+	return nil
+}
+
+// RemoveCVIProtectionFinalizer removes the cvi-protection finalizer from the
+// CsiVolumeInfo identified by volumeID / namespace. The operation is idempotent.
+func (s *csiVolumeInfoSvc) RemoveCVIProtectionFinalizer(
+	ctx context.Context, namespace, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	name := GetCsiVolumeInfoCRName(volumeID)
+
+	cvi, err := s.GetCsiVolumeInfo(ctx, namespace, volumeID)
+	if err != nil {
+		return fmt.Errorf("RemoveCVIProtectionFinalizer: failed to fetch CsiVolumeInfo %s/%s: %w",
+			namespace, name, err)
+	}
+	if cvi == nil {
+		log.Infof("RemoveCVIProtectionFinalizer: CsiVolumeInfo %s/%s not found; no-op",
+			namespace, name)
+		return nil
+	}
+	if !controllerutil.ContainsFinalizer(cvi, csivolumeinfov1alpha1.CVIProtectionFinalizer) {
+		log.Infof("RemoveCVIProtectionFinalizer: finalizer absent on CsiVolumeInfo %s/%s; no-op",
+			namespace, name)
+		return nil
+	}
+
+	patch := client.MergeFrom(cvi.DeepCopy())
+	controllerutil.RemoveFinalizer(cvi, csivolumeinfov1alpha1.CVIProtectionFinalizer)
+	if err := s.k8sClient.Patch(ctx, cvi, patch); err != nil {
+		return fmt.Errorf("RemoveCVIProtectionFinalizer: failed to patch CsiVolumeInfo %s/%s: %w",
+			namespace, name, err)
+	}
+	log.Infof("RemoveCVIProtectionFinalizer: removed finalizer from CsiVolumeInfo %s/%s",
+		namespace, name)
+	return nil
 }
 
 // GetCsiVolumeInfoByPVCName lists all CsiVolumeInfo CRs in the given namespace

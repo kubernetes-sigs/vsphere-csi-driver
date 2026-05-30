@@ -133,6 +133,7 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 
 			// Block deletion of snapshot-retained PVCs tracked by CsiVolumeInfo.
 			if req.Operation == admissionv1.Delete &&
+				commonco.ContainerOrchestratorUtility != nil &&
 				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
 				if cviDenied, cviMsg := checkCVISnapshotRetained(ctx, oldPVC.Namespace, oldPVC.Name); cviDenied {
 					return &admissionv1.AdmissionResponse{
