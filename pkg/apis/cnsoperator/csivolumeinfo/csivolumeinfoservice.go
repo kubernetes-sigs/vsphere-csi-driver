@@ -27,7 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
@@ -61,7 +61,7 @@ type CsiVolumeInfoService interface {
 	// cns.vmware.com/disk-uuid label in the given namespace. Uses an
 	// API-server-indexed label selector for O(1) lookup.
 	// Returns nil and no error if not found.
-	GetCsiVolumeInfoByDiskUUID(ctx context.Context, namespace, diskUUID string) (*csivolumeinfov1alpha1.CsiVolumeInfo, error)
+	GetCsiVolumeInfoByDiskUUID(ctx context.Context, namespace, diskUUID string) (*csivolumeinfov1alpha1.CsiVolumeInfo, error) //nolint:lll
 
 	// UpdateCsiVolumeInfoStatus replaces the status subresource of the given
 	// CsiVolumeInfo object. The object must have been fetched from the API
@@ -80,6 +80,12 @@ type CsiVolumeInfoService interface {
 	// CsiVolumeInfoExists reports whether a CsiVolumeInfo CR exists for the
 	// given volumeID in the given namespace.
 	CsiVolumeInfoExists(ctx context.Context, namespace, volumeID string) (bool, error)
+
+	// GetCsiVolumeInfoByPVCName returns the CsiVolumeInfo whose spec.pvcName
+	// matches the given PVC name in the given namespace. Returns nil and no
+	// error when no matching CR is found.
+	GetCsiVolumeInfoByPVCName(ctx context.Context, namespace, pvcName string) (
+		*csivolumeinfov1alpha1.CsiVolumeInfo, error)
 }
 
 // csiVolumeInfoSvc is the concrete singleton implementing CsiVolumeInfoService.
@@ -135,6 +141,50 @@ func GetCsiVolumeInfoCRName(volumeID string) string {
 	return cviNamePrefix + volumeID
 }
 
+// BuildCsiVolumeInfo constructs a CsiVolumeInfo object ready for creation.
+// When pvUID is empty, no ownerReference is set; the caller is expected to
+// patch it once the PersistentVolume is available.
+// No cvi-protection finalizer is set because the volume starts in the
+// CSI_MANAGED steady state where none is required.
+func BuildCsiVolumeInfo(
+	volumeID, pvcName, pvcNamespace, pvName, pvUID, diskUUID, diskPath string,
+) *csivolumeinfov1alpha1.CsiVolumeInfo {
+	cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      GetCsiVolumeInfoCRName(volumeID),
+			Namespace: pvcNamespace,
+			Labels: map[string]string{
+				csivolumeinfov1alpha1.LabelDiskUUID: diskUUID,
+			},
+		},
+		Spec: csivolumeinfov1alpha1.CsiVolumeInfoSpec{
+			VolumeID: volumeID,
+			PVCName:  pvcName,
+			PVName:   pvName,
+		},
+		Status: csivolumeinfov1alpha1.CsiVolumeInfoStatus{
+			OwnershipState: csivolumeinfov1alpha1.OwnershipStateCSIManaged,
+			DiskUUID:       diskUUID,
+			DiskPath:       diskPath,
+		},
+	}
+	if pvUID != "" {
+		controller := true
+		blockOwnerDeletion := true
+		cvi.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion:         "v1",
+				Kind:               "PersistentVolume",
+				Name:               pvName,
+				UID:                k8stypes.UID(pvUID),
+				Controller:         &controller,
+				BlockOwnerDeletion: &blockOwnerDeletion,
+			},
+		}
+	}
+	return cvi
+}
+
 // CreateCsiVolumeInfo creates a new CsiVolumeInfo CR.
 // AlreadyExists errors are treated as success (idempotent).
 func (s *csiVolumeInfoSvc) CreateCsiVolumeInfo(
@@ -160,7 +210,7 @@ func (s *csiVolumeInfoSvc) GetCsiVolumeInfo(
 	log := logger.GetLogger(ctx)
 	name := GetCsiVolumeInfoCRName(volumeID)
 	cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{}
-	if err := s.k8sClient.Get(ctx, types.NamespacedName{
+	if err := s.k8sClient.Get(ctx, k8stypes.NamespacedName{
 		Namespace: namespace,
 		Name:      name,
 	}, cvi); err != nil {
@@ -236,7 +286,7 @@ func (s *csiVolumeInfoSvc) PatchCsiVolumeInfo(
 	var lastErr error
 	for attempt := 1; attempt <= allowedRetries; attempt++ {
 		err := s.k8sClient.Patch(ctx, cvi,
-			client.RawPatch(types.MergePatchType, patchBytes))
+			client.RawPatch(k8stypes.MergePatchType, patchBytes))
 		if err == nil {
 			log.Infof("attempt %d: successfully patched CsiVolumeInfo %s/%s",
 				attempt, namespace, name)
@@ -285,4 +335,37 @@ func (s *csiVolumeInfoSvc) CsiVolumeInfoExists(
 		return false, fmt.Errorf("CsiVolumeInfoExists: %w", err)
 	}
 	return cvi != nil, nil
+}
+
+// GetCsiVolumeInfoByPVCName lists all CsiVolumeInfo CRs in the given namespace
+// and returns the one whose spec.pvcName matches pvcName. Returns nil and no
+// error when no matching CR is found. If multiple CRs match (data integrity
+// anomaly), the first is returned and the discrepancy is logged.
+func (s *csiVolumeInfoSvc) GetCsiVolumeInfoByPVCName(
+	ctx context.Context, namespace, pvcName string) (
+	*csivolumeinfov1alpha1.CsiVolumeInfo, error) {
+	log := logger.GetLogger(ctx)
+
+	list := &csivolumeinfov1alpha1.CsiVolumeInfoList{}
+	if err := s.k8sClient.List(ctx, list, &client.ListOptions{Namespace: namespace}); err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to list CsiVolumeInfo in namespace %q: %v", namespace, err)
+	}
+
+	var matches []csivolumeinfov1alpha1.CsiVolumeInfo
+	for i := range list.Items {
+		if list.Items[i].Spec.PVCName == pvcName {
+			matches = append(matches, list.Items[i])
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	if len(matches) > 1 {
+		log.Errorf("found %d CsiVolumeInfo CRs with pvcName=%q in namespace %q; "+
+			"using first match. This is a data integrity issue.",
+			len(matches), pvcName, namespace)
+	}
+	return &matches[0], nil
 }
