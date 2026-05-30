@@ -410,3 +410,85 @@ func TestCsiVolumeInfoSpec_Immutability(t *testing.T) {
 		t.Errorf("DeepCopy changed PVName")
 	}
 }
+
+// TestBuildCsiVolumeInfo verifies that BuildCsiVolumeInfo produces a correctly
+// populated CsiVolumeInfo object.
+func TestBuildCsiVolumeInfo(t *testing.T) {
+	cvi := BuildCsiVolumeInfo("vol-1", "pvc-1", "ns-1", "pv-1", "uid-123", "disk-uuid-1", "[ds] path/disk.vmdk")
+
+	if cvi.Name != GetCsiVolumeInfoCRName("vol-1") {
+		t.Errorf("expected name %q, got %q", GetCsiVolumeInfoCRName("vol-1"), cvi.Name)
+	}
+	if cvi.Namespace != "ns-1" {
+		t.Errorf("expected namespace ns-1, got %q", cvi.Namespace)
+	}
+	if cvi.Labels[csivolumeinfov1alpha1.LabelDiskUUID] != "disk-uuid-1" {
+		t.Errorf("expected disk-uuid label disk-uuid-1, got %q",
+			cvi.Labels[csivolumeinfov1alpha1.LabelDiskUUID])
+	}
+	if cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+		t.Errorf("expected ownershipState CSI_MANAGED, got %q", cvi.Status.OwnershipState)
+	}
+	if cvi.Status.DiskUUID != "disk-uuid-1" {
+		t.Errorf("expected diskUUID disk-uuid-1, got %q", cvi.Status.DiskUUID)
+	}
+	if cvi.Status.DiskPath != "[ds] path/disk.vmdk" {
+		t.Errorf("expected diskPath '[ds] path/disk.vmdk', got %q", cvi.Status.DiskPath)
+	}
+	if cvi.Status.VMName != "" {
+		t.Errorf("expected empty vmName, got %q", cvi.Status.VMName)
+	}
+	if len(cvi.Finalizers) != 0 {
+		t.Errorf("expected no finalizers, got %v", cvi.Finalizers)
+	}
+	if len(cvi.OwnerReferences) != 1 {
+		t.Fatalf("expected 1 ownerReference, got %d", len(cvi.OwnerReferences))
+	}
+	ref := cvi.OwnerReferences[0]
+	if ref.Kind != "PersistentVolume" || ref.Name != "pv-1" || string(ref.UID) != "uid-123" {
+		t.Errorf("unexpected ownerReference: %+v", ref)
+	}
+}
+
+// TestBuildCsiVolumeInfo_NoOwnerRef verifies that BuildCsiVolumeInfo omits
+// the ownerReference when pvUID is empty.
+func TestBuildCsiVolumeInfo_NoOwnerRef(t *testing.T) {
+	cvi := BuildCsiVolumeInfo("vol-2", "pvc-2", "ns-2", "pv-2", "", "disk-uuid-2", "")
+	if len(cvi.OwnerReferences) != 0 {
+		t.Errorf("expected no ownerReferences when pvUID is empty, got %v", cvi.OwnerReferences)
+	}
+}
+
+// TestGetCsiVolumeInfoByPVCName_Found verifies the lookup by pvcName returns
+// the correct CsiVolumeInfo.
+func TestGetCsiVolumeInfoByPVCName_Found(t *testing.T) {
+	ctx := context.Background()
+	existing := buildCVI("ns-3", "vol-3", "disk-3", "pvc-3", "pv-3")
+	svc := newTestService(t, existing)
+
+	result, err := svc.GetCsiVolumeInfoByPVCName(ctx, "ns-3", "pvc-3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected a result, got nil")
+	}
+	if result.Spec.VolumeID != "vol-3" {
+		t.Errorf("expected volumeID vol-3, got %q", result.Spec.VolumeID)
+	}
+}
+
+// TestGetCsiVolumeInfoByPVCName_NotFound verifies that a missing PVC returns
+// nil without error.
+func TestGetCsiVolumeInfoByPVCName_NotFound(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+
+	result, err := svc.GetCsiVolumeInfoByPVCName(ctx, "ns-4", "pvc-missing")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil, got %+v", result)
+	}
+}

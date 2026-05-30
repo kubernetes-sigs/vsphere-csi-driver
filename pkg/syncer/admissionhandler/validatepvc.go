@@ -19,6 +19,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -125,6 +128,19 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 					Result: &metav1.Status{
 						Reason: "Namespace is being deleted",
 					},
+				}
+			}
+
+			// Block deletion of snapshot-retained PVCs tracked by CsiVolumeInfo.
+			if req.Operation == admissionv1.Delete &&
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+				if cviDenied, cviMsg := checkCVISnapshotRetained(ctx, oldPVC.Namespace, oldPVC.Name); cviDenied {
+					return &admissionv1.AdmissionResponse{
+						Allowed: false,
+						Result: &metav1.Status{
+							Message: cviMsg,
+						},
+					}
 				}
 			}
 
@@ -658,4 +674,34 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 	return &admissionv1.AdmissionResponse{
 		Allowed: true,
 	}
+}
+
+// checkCVISnapshotRetained returns (true, errorMessage) when the PVC is
+// tracked by a CsiVolumeInfo CR that is in the snapshot-retained state
+// (VM_MANAGED with vmName empty). It returns (false, "") otherwise, including
+// when the feature gate is off, the CVI lookup fails, or no CVI exists.
+func checkCVISnapshotRetained(ctx context.Context, namespace, pvcName string) (bool, string) {
+	log := logger.GetLogger(ctx)
+
+	cviSvc, err := csivolumeinfo.InitCsiVolumeInfoService(ctx)
+	if err != nil {
+		log.Warnf("checkCVISnapshotRetained: failed to get CsiVolumeInfo service: %v", err)
+		return false, ""
+	}
+
+	cvi, err := cviSvc.GetCsiVolumeInfoByPVCName(ctx, namespace, pvcName)
+	if err != nil {
+		log.Warnf("checkCVISnapshotRetained: failed to look up CsiVolumeInfo for PVC %s/%s: %v",
+			namespace, pvcName, err)
+		return false, ""
+	}
+	if cvi == nil {
+		return false, ""
+	}
+	if cvi.Status.OwnershipState == csivolumeinfov1alpha1.OwnershipStateVMManaged &&
+		cvi.Status.VMName == "" {
+		return true, fmt.Sprintf("cannot delete PVC %s/%s: retained by VirtualMachineSnapshot(s); "+
+			"delete the retaining snapshot(s) first", namespace, pvcName)
+	}
+	return false, ""
 }

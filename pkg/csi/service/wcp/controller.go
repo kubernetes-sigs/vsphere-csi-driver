@@ -51,6 +51,8 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -164,6 +166,7 @@ type controller struct {
 	fileVolumeClient ctrlclient.Client
 	manager          *common.Manager
 	snapshotLockMgr  *snapshotLockManager
+	cviService       csivolumeinfo.CsiVolumeInfoService
 }
 
 // New creates a CNS controller.
@@ -280,6 +283,13 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if !isVMOwnedVolumesFSSEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.VMOwnedVolumes, "", "")
+	} else {
+		cviSvc, cviErr := csivolumeinfo.InitCsiVolumeInfoService(ctx)
+		if cviErr != nil {
+			log.Errorf("failed to initialize CsiVolumeInfo service: %v", cviErr)
+		} else {
+			c.cviService = cviSvc
+		}
 	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
@@ -1271,6 +1281,23 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
+	if isVMOwnedVolumesFSSEnabled && c.cviService != nil && pvcNamespace != "" && pvcName != "" {
+		diskUUID, diskPath, fcdErr := common.QueryFCDBackingInfo(ctx, c.manager.VolumeManager, volumeInfo.VolumeID.Id)
+		if fcdErr != nil {
+			log.Warnf("failed to query FCD backing info for volume %q, CsiVolumeInfo will be "+
+				"created on PV bind: %v", volumeInfo.VolumeID.Id, fcdErr)
+		} else {
+			cvi := csivolumeinfo.BuildCsiVolumeInfo(
+				volumeInfo.VolumeID.Id, pvcName, pvcNamespace,
+				req.Name, "", diskUUID, diskPath,
+			)
+			if cviErr := c.cviService.CreateCsiVolumeInfo(ctx, cvi); cviErr != nil {
+				log.Warnf("failed to create CsiVolumeInfo for volume %q, will be created on PV bind: %v",
+					volumeInfo.VolumeID.Id, cviErr)
+			}
+		}
+	}
+
 	if isCSIBackupAPIEnabled {
 		// It's the best effort scenario to enable the CBT before create volume.
 		// If any error occurs during CBT enablement, it may be deferred to attachment or
@@ -2006,6 +2033,23 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
 					"volume: %s with existing snapshots %v cannot be deleted, "+
 						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
+			}
+		}
+		if isVMOwnedVolumesFSSEnabled && c.cviService != nil {
+			_, pvcNS, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(req.VolumeId)
+			if ok && pvcNS != "" {
+				cvi, cviErr := c.cviService.GetCsiVolumeInfo(ctx, pvcNS, req.VolumeId)
+				if cviErr != nil {
+					log.Warnf("failed to check CsiVolumeInfo for volume %q: %v",
+						req.VolumeId, cviErr)
+				} else if cvi != nil &&
+					cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+					return nil, csifault.CSIInternalFault,
+						logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+							"cannot delete volume %q: volume ownership state is %q, "+
+								"detach the volume or delete retaining snapshots first",
+							req.VolumeId, cvi.Status.OwnershipState)
+				}
 			}
 		}
 		faultType, err := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager, req.VolumeId, true)

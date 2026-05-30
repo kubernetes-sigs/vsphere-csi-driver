@@ -54,6 +54,13 @@ const (
 	ReasonDetachFailed = "DetachFailed"
 	// ReasonFailed reflects that the CR instance is not yet ready.
 	ReasonFailed = "Failed"
+	// ReasonDroppedBySnapshotRevert reflects that the volume was removed from the VM
+	// as part of a snapshot revert operation. vSphere has already removed the disk;
+	// no ReconfigVM call is needed.
+	ReasonDroppedBySnapshotRevert = "DroppedBySnapshotRevert"
+	// ReasonDetachBlocked reflects that a ReconfigVM remove was blocked, typically
+	// because a vSphere snapshot still retains the disk.
+	ReasonDetachBlocked = "DetachBlocked"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
