@@ -455,17 +455,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				}
 			}
 		}
-		guestPvcAnnot := make(map[string]string)
-
-		guestPvcAnnot["clusterId"] = c.tanzukubernetesClusterUID
-		guestPvcAnnot["clusterName"] = c.tanzukubernetesClusterName
-		// Add guest PVC information to the same JSON structure
-		if pvcName != "" {
-			guestPvcAnnot["name"] = pvcName
-		}
-		if pvcNamespace != "" {
-			guestPvcAnnot["namespace"] = pvcNamespace
-		}
+		// The bound supervisor volume name is not known yet; it is added below
+		// once the supervisor PVC is bound (see ImprovedVolumeVisiblity patch).
+		guestPvcAnnot := common.BuildGuestPvcAnnotation(c.tanzukubernetesClusterUID,
+			c.tanzukubernetesClusterName, pvcName, pvcNamespace, "")
 
 		accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
 		pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -625,7 +618,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
-			guestPvcAnnot["volumeName"] = boundPVC.Spec.VolumeName
+			guestPvcAnnot[common.GuestClusterPvcAnnotKeyVolumeName] = boundPVC.Spec.VolumeName
 			err := patchSupervisorPVCAnnotation(ctx, c.supervisorClient, guestPvcAnnot, supervisorPVCName, c.supervisorNamespace)
 			if err != nil {
 				log.Error("failed to patch supervisor PVC annotation: %v", err.Error())

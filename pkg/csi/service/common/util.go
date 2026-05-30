@@ -676,3 +676,29 @@ func IsFVSPersistentVolumeClaim(pvc *corev1.PersistentVolumeClaim) bool {
 	}
 	return IsFVSStorageClassName(*pvc.Spec.StorageClassName)
 }
+
+// BuildGuestPvcAnnotation constructs the value map stored on a supervisor PVC
+// under the AnnKeyGuestClusterPvc annotation. It records the originating guest
+// cluster identity (clusterId, clusterName) and, when known, the guest PVC name,
+// namespace, and the bound supervisor volume name. Empty optional fields are
+// omitted so the serialized annotation never carries blank values.
+//
+// This is the single source of truth for the annotation's key set; both the
+// CreateVolume provisioning path and the full-sync upgrade backfill build their
+// annotation through this helper so the two cannot drift.
+func BuildGuestPvcAnnotation(clusterID, clusterName, pvcName, pvcNamespace, volumeName string) map[string]string {
+	annot := map[string]string{
+		GuestClusterPvcAnnotKeyClusterID:   clusterID,
+		GuestClusterPvcAnnotKeyClusterName: clusterName,
+	}
+	if pvcName != "" {
+		annot[GuestClusterPvcAnnotKeyName] = pvcName
+	}
+	if pvcNamespace != "" {
+		annot[GuestClusterPvcAnnotKeyNamespace] = pvcNamespace
+	}
+	if volumeName != "" {
+		annot[GuestClusterPvcAnnotKeyVolumeName] = volumeName
+	}
+	return annot
+}

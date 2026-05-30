@@ -516,13 +516,37 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
 			val, ok := svPVC.Labels[key]
+			original := svPVC.DeepCopy()
+			patchNeeded := false
 			if !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
-				original := svPVC.DeepCopy()
+				patchNeeded = true
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
 				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+			}
 
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; !ok {
+					guestPvcAnnot := common.BuildGuestPvcAnnotation(
+						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
+						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+						pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, svPVC.Spec.VolumeName)
+					// Marshal the guest cluster annotation to JSON
+					jsonAnnotation, err := json.Marshal(guestPvcAnnot)
+					if err != nil {
+						log.Errorf("failed to marshal guest cluster annotation: %+v", err)
+					} else {
+						if svPVC.Annotations == nil {
+							svPVC.Annotations = make(map[string]string)
+						}
+						svPVC.Annotations[common.AnnKeyGuestClusterPvc] = string(jsonAnnotation)
+						patchNeeded = true
+					}
+				}
+			}
+
+			if patchNeeded {
 				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
 				if err != nil {
 					msg := fmt.Sprintf("failed to patch supervisor PVC: %q with guest cluster labels in %q namespace."+

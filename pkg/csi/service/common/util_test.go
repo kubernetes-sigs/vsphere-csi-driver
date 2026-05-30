@@ -1007,3 +1007,65 @@ func TestSyncVolumeCBTState(t *testing.T) {
 		assert.True(t, vm.clearCalled)
 	})
 }
+
+func TestBuildGuestPvcAnnotation(t *testing.T) {
+	tests := []struct {
+		name         string
+		clusterID    string
+		clusterName  string
+		pvcName      string
+		pvcNamespace string
+		volumeName   string
+		expected     map[string]string
+	}{
+		{
+			name:         "all fields populated",
+			clusterID:    "tkc-uid",
+			clusterName:  "my-tkc",
+			pvcName:      "guest-pvc",
+			pvcNamespace: "guest-ns",
+			volumeName:   "sv-pv-1",
+			expected: map[string]string{
+				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
+				GuestClusterPvcAnnotKeyName:        "guest-pvc",
+				GuestClusterPvcAnnotKeyNamespace:   "guest-ns",
+				GuestClusterPvcAnnotKeyVolumeName:  "sv-pv-1",
+			},
+		},
+		{
+			name:        "only cluster identity (provision time, before binding)",
+			clusterID:   "tkc-uid",
+			clusterName: "my-tkc",
+			expected: map[string]string{
+				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
+			},
+		},
+		{
+			name:         "empty optional fields are omitted, not blank",
+			clusterID:    "tkc-uid",
+			clusterName:  "my-tkc",
+			pvcName:      "",
+			pvcNamespace: "guest-ns",
+			volumeName:   "",
+			expected: map[string]string{
+				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
+				GuestClusterPvcAnnotKeyNamespace:   "guest-ns",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildGuestPvcAnnotation(tt.clusterID, tt.clusterName,
+				tt.pvcName, tt.pvcNamespace, tt.volumeName)
+			assert.Equal(t, tt.expected, got)
+			// No optional key should ever carry a blank value.
+			for k, v := range got {
+				assert.NotEmpty(t, v, "key %q must not have a blank value", k)
+			}
+		})
+	}
+}
