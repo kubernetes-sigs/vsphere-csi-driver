@@ -230,3 +230,13 @@ func (m MockManager) QueryFCDChangedBlocks(ctx context.Context,
 	//TODO implement me
 	panic("implement me")
 }
+
+// QueryPendingUnregisters returns an empty list for the mock manager.
+func (m MockManager) QueryPendingUnregisters(_ context.Context) ([]PendingUnregisterRecord, error) {
+	return nil, nil
+}
+
+// AckUnregister is a no-op for the mock manager.
+func (m MockManager) AckUnregister(_ context.Context, _ string) error {
+	return nil
+}

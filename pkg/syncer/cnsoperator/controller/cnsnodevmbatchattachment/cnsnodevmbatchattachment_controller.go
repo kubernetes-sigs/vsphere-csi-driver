@@ -56,6 +56,7 @@ import (
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -178,6 +179,22 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			log.Warnf("CsiVolumeInfo service initialisation failed; VMOwnedVolumes attach path will be skipped. Err: %v",
 				cviErr)
 			cviSvc = nil
+		}
+
+		// Run startup crash recovery for any PENDING_UNREGISTER records that
+		// were left behind by a previous CSI crash. This runs asynchronously
+		// so it does not block controller startup. The BA reconcile-time check
+		// (Layer 2) provides defense-in-depth for any records missed here.
+		if cviSvc != nil {
+			mgrClient := mgr.GetClient()
+			go func() {
+				recoveryCtx, _ := logger.GetNewContextWithLogger()
+				if recErr := RecoverPendingUnregisters(recoveryCtx, volumeManager, cviSvc,
+					mgrClient); recErr != nil {
+					logger.GetLogger(recoveryCtx).Errorf(
+						"PENDING_UNREGISTER startup recovery failed: %v", recErr)
+				}
+			}()
 		}
 	}
 
@@ -355,7 +372,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
 
-		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client, k8sClient, r.cnsOperatorClient)
+		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client, k8sClient, r.cnsOperatorClient,
+			r.cviService)
 		if patchErr != nil {
 			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", instance.Name, patchErr)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, patchErr)
@@ -428,7 +446,8 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	}
 
 	// CR is being deleted and all volumes were detached successfully.
-	return removeFinalizerFromCRDInstance(ctx, instance, r.client, k8sClient, r.cnsOperatorClient)
+	return removeFinalizerFromCRDInstance(ctx, instance, r.client, k8sClient, r.cnsOperatorClient,
+		r.cviService)
 }
 
 // reconcileInstanceWithoutDeletionTimestamp calls CNS batch attach for all volumes in instance spec
@@ -456,6 +475,18 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance, volumesToAttach)
 	if attachErr != nil {
 		log.Errorf("failed to attach all volumes. Err: %+v", attachErr)
+	}
+
+	// Run the stale CVI safety reconciler to detect and heal any CVIs that are
+	// stuck in a transient state (e.g., after a VM deletion or a crash that the
+	// Layer-1 startup scan and Layer-2 attach checks did not handle).
+	if r.cviService != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+		if staleErr := reconcileStaleCVIs(ctx, r.cviService, r.volumeManager,
+			r.vmOperatorClient, r.client, instance); staleErr != nil {
+			log.Warnf("reconcileInstanceWithoutDeletionTimestamp: stale CVI reconciler "+
+				"encountered an error: %v", staleErr)
+		}
 	}
 
 	return errors.Join(attachErr, detachErr)
@@ -667,6 +698,28 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 							break
 						}
 					}
+
+					// Layer-2 crash recovery: if CVI is already TRANSFERRING_TO_VM but
+					// BA status does not yet have AttachMethod=Reconfig, resume from
+					// A.4 by writing BA status directly. The FCD has already been
+					// unregistered; no need to call UnregisterVolume again.
+					cvi, cviLookupErr := r.cviService.GetCsiVolumeInfo(ctx,
+						instance.Namespace, volumeID)
+					if cviLookupErr == nil && cvi != nil &&
+						cvi.Status.OwnershipState == csivolumeinfov1alpha1.OwnershipStateTransferringToVM {
+						if !hasAttachMethodReconfig(instance, volumeName) {
+							log.Infof("processBatchAttach: Layer-2 crash recovery for volume %q: "+
+								"CVI is TRANSFERRING_TO_VM but BA status missing AttachMethod=Reconfig; "+
+								"resuming from A.4", volumeID)
+							setBAVolumeAttachMethodReconfig(ctx, instance, volumeName, pvcName,
+								volumeID, cvi.Status.DiskUUID, cvi.Status.DiskPath)
+						} else {
+							log.Infof("processBatchAttach: volume %q is TRANSFERRING_TO_VM with "+
+								"AttachMethod=Reconfig already set; no action needed", volumeID)
+						}
+						continue
+					}
+
 					if attachErr := processVMOwnedVolumesAttach(ctx,
 						r.cviService, r.vmOperatorClient, r.volumeManager,
 						instance, vmName, instance.Spec.InstanceUUID,

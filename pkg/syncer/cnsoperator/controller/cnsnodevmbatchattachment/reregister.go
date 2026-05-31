@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
@@ -32,6 +33,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 // ReregisterVolumeAsFCD re-registers a formerly VM-managed VMDK as a
@@ -176,6 +178,23 @@ func ReregisterVolumeAsFCD(ctx context.Context,
 	}
 	log.Infof("ReregisterVolumeAsFCD: labeled PVC %s/%s as %q",
 		cvi.Namespace, cvi.Spec.PVCName, csivolumeinfov1alpha1.OwnershipLabelCSIOwned)
+
+	// Defense-in-depth: if the PVC entered Terminating while snapshot-retained
+	// (admission webhook was bypassed), release the PVC protection finalizer so
+	// the standard CSI delete path can now proceed. The volume is a registered
+	// FCD again and the DeleteVolume guard will allow deletion.
+	if pvc.DeletionTimestamp != nil {
+		log.Infof("ReregisterVolumeAsFCD: PVC %s/%s is Terminating; "+
+			"releasing PVC protection finalizer", pvc.Namespace, pvc.Name)
+		pvcPatch := client.MergeFrom(pvc.DeepCopy())
+		controllerutil.RemoveFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer)
+		if patchErr := k8sClient.Patch(ctx, pvc, pvcPatch); patchErr != nil {
+			return fmt.Errorf("ReregisterVolumeAsFCD: failed to remove PVC protection "+
+				"finalizer from %s/%s: %w", pvc.Namespace, pvc.Name, patchErr)
+		}
+		log.Infof("ReregisterVolumeAsFCD: released PVC protection finalizer from %s/%s",
+			pvc.Namespace, pvc.Name)
+	}
 
 	return nil
 }

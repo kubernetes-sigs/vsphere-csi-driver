@@ -75,6 +75,28 @@ func IsVMOwnedVolumesVM(ctx context.Context, vmOperatorClient client.Client,
 	return result, nil
 }
 
+// VMExistsInK8s returns true if a VirtualMachine CR with the given name exists
+// in the given namespace. Returns false on NotFound; returns true (conservative)
+// on any other error to avoid false-positive stale-CVI recovery.
+func VMExistsInK8s(ctx context.Context, vmOperatorClient client.Client,
+	namespace, vmName string) bool {
+	log := logger.GetLogger(ctx)
+	vm := &vmoperatortypes.VirtualMachine{}
+	err := vmOperatorClient.Get(ctx, k8stypes.NamespacedName{
+		Namespace: namespace,
+		Name:      vmName,
+	}, vm)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false
+		}
+		log.Warnf("VMExistsInK8s: error checking VM %s/%s: %v; treating as existing",
+			namespace, vmName, err)
+		return true
+	}
+	return true
+}
+
 // PatchPVCOwnershipLabel applies the cns.vmware.com/volume-ownership label to
 // the named PVC in the given namespace. This is idempotent — setting a label
 // to the value it already has is a no-op.

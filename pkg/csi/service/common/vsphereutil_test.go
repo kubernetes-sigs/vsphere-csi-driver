@@ -150,6 +150,13 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
 	return nil
 }
+func (m *mockVolumeManager) QueryPendingUnregisters(
+	_ context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *mockVolumeManager) AckUnregister(_ context.Context, _ string) error {
+	return nil
+}
 
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	// Skip test on ARM64 due to gomonkey limitations

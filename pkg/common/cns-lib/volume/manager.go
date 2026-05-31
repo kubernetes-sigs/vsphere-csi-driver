@@ -164,6 +164,14 @@ type Manager interface {
 	// UnregisterVolume unregisters a volume from CNS.
 	// If unregisterDisk is true, it will also unregister the disk from FCD.
 	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error)
+	// QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records
+	// from the CNS database. This is used on CSI restart to recover in-flight
+	// two-phase unregister operations that were interrupted by a crash.
+	// Protected by the VMOwnedVolumes feature state switch on the server side.
+	QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error)
+	// AckUnregister acknowledges the completion of a two-phase unregister operation
+	// by deleting the PENDING_UNREGISTER row for the given volumeID.
+	AckUnregister(ctx context.Context, volumeID string) error
 	// SyncVolume returns the aggregated capacity for volumes
 	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
 	// ReRegisterVolume re-registers a volume to CNS when CnsNotRegisteredFault is encountered
@@ -174,6 +182,18 @@ type Manager interface {
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
 	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
 		maxResults uint32) ([]ChangedArea, uint64, error)
+}
+
+// PendingUnregisterRecord holds the data returned by the CNS QueryPendingUnregisters API.
+// Each record represents an FCD unregister operation that was started (PENDING_UNREGISTER state)
+// but whose completion acknowledgement has not yet been sent by CSI.
+type PendingUnregisterRecord struct {
+	// VolumeID is the CNS volume ID of the unregistered FCD.
+	VolumeID string
+	// BackingDiskPath is the datastore path to the VMDK file.
+	BackingDiskPath string
+	// DiskUUID is the stable identifier for the virtual disk.
+	DiskUUID string
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4492,4 +4512,33 @@ func TranslateVslmError(ctx context.Context, err error) error {
 	}
 
 	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+}
+
+// QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records from
+// the CNS database. This is called once at CSI startup to resume any two-phase
+// FCD unregister operations that were interrupted by a crash.
+//
+// The underlying CNS API (VolumeManager::QueryPendingUnregisters) is gated on the
+// VMOwnedVolumes feature state switch on the vCenter side. The govmomi CNS client
+// binding for this API will be added when the API is promoted to a released
+// interface; until then, this implementation returns an empty list so that the
+// Layer-2 BA-reconcile-time crash recovery path (the defense-in-depth check) takes
+// over.
+func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("QueryPendingUnregisters: CNS API not yet available in govmomi client; " +
+		"returning empty list (Layer-2 reconcile-time recovery will handle any pending records)")
+	return nil, nil
+}
+
+// AckUnregister acknowledges the completion of a two-phase unregister operation by
+// deleting the PENDING_UNREGISTER row for the given volumeID from the CNS database.
+//
+// Like QueryPendingUnregisters, this depends on a govmomi CNS client binding that is
+// not yet released. The implementation is a no-op until the binding is available.
+func (m *defaultManager) AckUnregister(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	log.Infof("AckUnregister: CNS API not yet available in govmomi client; "+
+		"no-op for volumeID %q", volumeID)
+	return nil
 }

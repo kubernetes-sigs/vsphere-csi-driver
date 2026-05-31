@@ -2745,6 +2745,28 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 		volumeID := req.GetSourceVolumeId()
 		volumeType = prometheus.PrometheusBlockVolumeType
+
+		// Block snapshot creation for volumes that are not CSI-managed. When a
+		// volume is VM-owned or snapshot-retained, no FCD exists in CNS and
+		// creating a CSI VolumeSnapshot is invalid; the user should use
+		// VirtualMachineSnapshot for VM-level snapshots instead.
+		if isVMOwnedVolumesFSSEnabled && c.cviService != nil {
+			_, pvcNS, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+			if ok && pvcNS != "" {
+				cvi, cviErr := c.cviService.GetCsiVolumeInfo(ctx, pvcNS, volumeID)
+				if cviErr != nil {
+					log.Warnf("CreateSnapshot: failed to check CsiVolumeInfo for volume %q: %v",
+						volumeID, cviErr)
+				} else if cvi != nil &&
+					cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+					return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+						"cannot create snapshot for volume %q: volume ownership state is %q "+
+							"(expected CSI_MANAGED); use VirtualMachineSnapshot for VM-level snapshots",
+						volumeID, cvi.Status.OwnershipState)
+				}
+			}
+		}
+
 		// Query capacity in MB for block volume snapshot
 		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
@@ -3052,6 +3074,27 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
+		// Block expansion of volumes that are not CSI-managed. When a volume is
+		// VM-owned or snapshot-retained, no FCD exists in CNS and expansion is
+		// semantically invalid. Check this before any CNS call.
+		if isVMOwnedVolumesFSSEnabled && c.cviService != nil {
+			_, pvcNS, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(req.VolumeId)
+			if ok && pvcNS != "" {
+				cvi, cviErr := c.cviService.GetCsiVolumeInfo(ctx, pvcNS, req.VolumeId)
+				if cviErr != nil {
+					log.Warnf("ControllerExpandVolume: failed to check CsiVolumeInfo for volume %q: %v",
+						req.VolumeId, cviErr)
+				} else if cvi != nil &&
+					cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+					return nil, csifault.CSIInternalFault,
+						logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+							"cannot expand volume %q: volume ownership state is %q, "+
+								"detach the volume or delete retaining snapshots first",
+							req.VolumeId, cvi.Status.OwnershipState)
+				}
+			}
+		}
+
 		// Check if the volume contains CNS snapshots only for block volumes.
 		if cnsVolumeType == common.UnknownVolumeType {
 			cnsVolumeType = common.GetCnsVolumeType(ctx, req.VolumeId)
@@ -3073,8 +3116,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 					"volume: %s with existing snapshots %v cannot be expanded, "+
 						"please delete snapshots before deleting the volume", req.VolumeId, snapshots)
 			}
-
 		}
+
 		// FVS-backed file volumes carry the "fv:<instance-namespace>:<filevolume-name>" id
 		// (not considered for migrated volumes yet) and are resized by patching spec.size on the
 		// FileVolume CR; the FVS controllers reconcile the underlying vDFS volume and bump

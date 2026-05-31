@@ -228,3 +228,22 @@ func patchBAStatus(ctx context.Context, c client.Client,
 	return c.Status().Patch(ctx, instance,
 		client.RawPatch(k8stypes.MergePatchType, patch))
 }
+
+// hasAttachMethodReconfig returns true if the BA status for the given volume
+// already has the AttachMethod=Reconfig condition set. This is used by the
+// Layer-2 crash recovery check in processBatchAttach to avoid re-writing BA
+// status when recovery has already completed.
+func hasAttachMethodReconfig(instance *bav1alpha1.CnsNodeVMBatchAttachment, volumeName string) bool {
+	for _, vs := range instance.Status.VolumeStatus {
+		if vs.Name != volumeName {
+			continue
+		}
+		for _, cond := range vs.PersistentVolumeClaim.Conditions {
+			if cond.Type == bav1alpha1.ConditionAttachMethod &&
+				cond.Reason == bav1alpha1.ReasonReconfig {
+				return true
+			}
+		}
+	}
+	return false
+}

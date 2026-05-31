@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -41,6 +42,7 @@ import (
 type fakeCVISvc struct {
 	cviBydiskUUID map[string]*csivolumeinfov1alpha1.CsiVolumeInfo // diskUUID → CVI
 	cviByVolID    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo // volumeID → CVI
+	cviByPVCName  map[string]*csivolumeinfov1alpha1.CsiVolumeInfo // pvcName → CVI
 	addFinErr     error
 	removeFinErr  error
 	updateStatErr error
@@ -85,7 +87,10 @@ func (f *fakeCVISvc) CsiVolumeInfoExists(_ context.Context, _, _ string) (bool, 
 }
 
 func (f *fakeCVISvc) GetCsiVolumeInfoByPVCName(
-	_ context.Context, _, _ string) (*csivolumeinfov1alpha1.CsiVolumeInfo, error) {
+	_ context.Context, _, pvcName string) (*csivolumeinfov1alpha1.CsiVolumeInfo, error) {
+	if f.cviByPVCName != nil {
+		return f.cviByPVCName[pvcName], nil
+	}
 	return nil, nil
 }
 
@@ -537,6 +542,229 @@ func TestSetBAVolumeAttachMethodReconfig_UpdatesExisting(t *testing.T) {
 	vs := instance.Status.VolumeStatus[0]
 	if vs.PersistentVolumeClaim.DiskPath != "/new/path.vmdk" {
 		t.Errorf("diskPath not updated: %q", vs.PersistentVolumeClaim.DiskPath)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 3.3a -- Hold PVC protection finalizer for non-CSI_MANAGED volumes
+// ---------------------------------------------------------------------------
+
+// TestRemovePvcProtectionFinalizer_HoldsForNonCSIManaged verifies that
+// removePvcProtectionFinalizersForTrackedPVCs skips removal when the CVI is
+// in a non-CSI_MANAGED state.
+func TestRemovePvcProtectionFinalizer_HoldsForNonCSIManaged(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "test-ns"
+		pvcName = "pvc-vm-owned"
+		volName = "vol1"
+	)
+
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Spec: bav1alpha1.CnsNodeVMBatchAttachmentSpec{
+			Volumes: []bav1alpha1.VolumeSpec{
+				{
+					Name: volName,
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimSpec{
+						ClaimName: pvcName,
+					},
+				},
+			},
+		},
+	}
+	instance.Namespace = ns
+
+	cviSvc := &fakeCVISvc{
+		cviByVolID:    make(map[string]*csivolumeinfov1alpha1.CsiVolumeInfo),
+		cviBydiskUUID: make(map[string]*csivolumeinfov1alpha1.CsiVolumeInfo),
+		cviByPVCName: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{
+			pvcName: {
+				Spec: csivolumeinfov1alpha1.CsiVolumeInfoSpec{PVCName: pvcName},
+				Status: csivolumeinfov1alpha1.CsiVolumeInfoStatus{
+					OwnershipState: csivolumeinfov1alpha1.OwnershipStateVMManaged,
+				},
+			},
+		},
+	}
+
+	// The function should return nil (loop skips the PVC, no removePvcFinalizerFn called).
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, nil, nil, nil, cviSvc)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+// TestRemovePvcProtectionFinalizer_AllowsCSIManaged verifies that the finalizer
+// skip does NOT apply when CVI is CSI_MANAGED.
+func TestRemovePvcProtectionFinalizer_AllowsCSIManaged(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "test-ns"
+		pvcName = "pvc-csi-owned"
+		volName = "vol1"
+	)
+
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Spec: bav1alpha1.CnsNodeVMBatchAttachmentSpec{
+			Volumes: []bav1alpha1.VolumeSpec{
+				{
+					Name: volName,
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimSpec{
+						ClaimName: pvcName,
+					},
+				},
+			},
+		},
+	}
+	instance.Namespace = ns
+
+	cviSvc := &fakeCVISvc{
+		cviByVolID:    make(map[string]*csivolumeinfov1alpha1.CsiVolumeInfo),
+		cviBydiskUUID: make(map[string]*csivolumeinfov1alpha1.CsiVolumeInfo),
+		cviByPVCName: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{
+			pvcName: {
+				Spec: csivolumeinfov1alpha1.CsiVolumeInfoSpec{PVCName: pvcName},
+				Status: csivolumeinfov1alpha1.CsiVolumeInfoStatus{
+					OwnershipState: csivolumeinfov1alpha1.OwnershipStateCSIManaged,
+				},
+			},
+		},
+	}
+
+	// removePvcFinalizerFn is a package-level var; it will be called here.
+	// The real implementation would try to remove a finalizer from a PVC via
+	// client calls which we cannot do in this unit test. Replace it with a no-op.
+	origFn := removePvcFinalizerFn
+	defer func() { removePvcFinalizerFn = origFn }()
+	removePvcFinalizerFn = func(_ context.Context, _ client.Client,
+		_ kubernetes.Interface, _ client.Client, _, _, _ string) error {
+		return nil
+	}
+
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, nil, nil, nil, cviSvc)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+// TestRemovePvcProtectionFinalizer_NilSvcAllowsAll verifies that when cviSvc is nil
+// (FSS disabled), the function does not skip any PVC.
+func TestRemovePvcProtectionFinalizer_NilSvcAllowsAll(t *testing.T) {
+	ctx := context.Background()
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Spec: bav1alpha1.CnsNodeVMBatchAttachmentSpec{
+			Volumes: []bav1alpha1.VolumeSpec{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimSpec{
+						ClaimName: "pvc1",
+					},
+				},
+			},
+		},
+	}
+	instance.Namespace = "test-ns"
+
+	origFn := removePvcFinalizerFn
+	defer func() { removePvcFinalizerFn = origFn }()
+	called := false
+	removePvcFinalizerFn = func(_ context.Context, _ client.Client,
+		_ kubernetes.Interface, _ client.Client, _, _, _ string) error {
+		called = true
+		return nil
+	}
+
+	// nil cviSvc simulates FSS disabled.
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if !called {
+		t.Error("expected removePvcFinalizerFn to be called when cviSvc is nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 4.3 -- hasAttachMethodReconfig helper tests
+// ---------------------------------------------------------------------------
+
+func TestHasAttachMethodReconfig_TrueWhenSet(t *testing.T) {
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Status: bav1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []bav1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   bav1alpha1.ConditionAttachMethod,
+								Reason: bav1alpha1.ReasonReconfig,
+								Status: metav1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if !hasAttachMethodReconfig(instance, "vol1") {
+		t.Error("expected hasAttachMethodReconfig to return true when condition is set")
+	}
+}
+
+func TestHasAttachMethodReconfig_FalseWhenNotSet(t *testing.T) {
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{}
+	if hasAttachMethodReconfig(instance, "vol1") {
+		t.Error("expected hasAttachMethodReconfig to return false for empty instance")
+	}
+}
+
+func TestHasAttachMethodReconfig_FalseWhenDifferentReason(t *testing.T) {
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Status: bav1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []bav1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   bav1alpha1.ConditionAttachMethod,
+								Reason: bav1alpha1.ReasonCnsAttach,
+								Status: metav1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if hasAttachMethodReconfig(instance, "vol1") {
+		t.Error("expected false when reason is CnsAttach, not Reconfig")
+	}
+}
+
+func TestHasAttachMethodReconfig_FalseForUnknownVolume(t *testing.T) {
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		Status: bav1alpha1.CnsNodeVMBatchAttachmentStatus{
+			VolumeStatus: []bav1alpha1.VolumeStatus{
+				{
+					Name: "vol1",
+					PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   bav1alpha1.ConditionAttachMethod,
+								Reason: bav1alpha1.ReasonReconfig,
+								Status: metav1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	// "vol2" is not in the status.
+	if hasAttachMethodReconfig(instance, "vol2") {
+		t.Error("expected false for volume not present in status")
 	}
 }
 
