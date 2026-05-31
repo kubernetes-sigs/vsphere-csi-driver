@@ -1359,6 +1359,35 @@ func QueryVolumeCryptoKeyByID(
 	return diskFileBackingInfo.KeyId, nil
 }
 
+// QueryFCDBackingInfo retrieves the diskUUID and datastore path for a block volume
+// by querying its CNS backing metadata.
+func QueryFCDBackingInfo(
+	ctx context.Context,
+	volumeManager cnsvolume.Manager,
+	volumeID string) (diskUUID string, diskPath string, err error) {
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	}
+	querySelection := cnstypes.CnsQuerySelection{
+		Names: []string{string(cnstypes.QuerySelectionNameTypeBackingObjectDetails)},
+	}
+	queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, &querySelection)
+	if err != nil {
+		return "", "", err
+	}
+	if queryResult == nil || len(queryResult.Volumes) == 0 {
+		return "", "", fmt.Errorf("volume %q not found in CNS", volumeID)
+	}
+
+	blockBacking, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	if !ok {
+		return "", "", fmt.Errorf("volume %q is not a block volume", volumeID)
+	}
+
+	return blockBacking.BackingDiskObjectId, blockBacking.BackingDiskPath, nil
+}
+
 // createCryptoSpec creates a crypto spec based on the requested encryption operation.
 //
 // - Encrypt: Source is not encrypted, target is encrypted.

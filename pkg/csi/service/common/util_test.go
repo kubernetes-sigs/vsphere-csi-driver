@@ -941,6 +941,11 @@ func (m *cbtFlagsMockVolumeManager) UnregisterVolume(context.Context,
 	string, bool) (string, error) {
 	return "", nil
 }
+
+func (m *cbtFlagsMockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *cbtFlagsMockVolumeManager) BatchAttachVolumes(context.Context,
 	*cnsvsphere.VirtualMachine, []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
 	return nil, "", nil
@@ -959,6 +964,13 @@ func (m *cbtFlagsMockVolumeManager) QueryFCDAllocatedBlocks(context.Context,
 func (m *cbtFlagsMockVolumeManager) QueryFCDChangedBlocks(context.Context,
 	string, string, string, uint64, uint32) ([]cnsvolume.ChangedArea, uint64, error) {
 	return nil, 0, nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryPendingUnregisters(
+	_ context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) AckUnregister(_ context.Context, _ string) error {
+	return nil
 }
 
 func TestSyncVolumeCBTState(t *testing.T) {

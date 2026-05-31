@@ -122,6 +122,10 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
+// Local govmomi with CnsUnregisterVolumeEx / AcknowledgeUnregister / QueryPendingUnregisters APIs.
+// TODO: Remove once govmomi upstream merges vmware/govmomi#4027.
+replace github.com/vmware/govmomi => github.com/deepakkinni/govmomi v0.24.1-0.20260531062728-bccc2167ced2
+
 // k8s.io/kubernetes declares staging module deps as v0.0.0 with local
 // replace directives. Consumers must supply their own replaces to real
 // published versions.

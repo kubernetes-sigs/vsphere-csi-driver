@@ -164,6 +164,20 @@ type Manager interface {
 	// UnregisterVolume unregisters a volume from CNS.
 	// If unregisterDisk is true, it will also unregister the disk from FCD.
 	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error)
+	// UnregisterVolumeEx executes phase 1 of the two-phase FCD unregister protocol.
+	// It calls CnsUnregisterVolumeEx with targetType=LEGACY_DISK, which removes the FCD
+	// catalog entry and marks the CNS DB row as PENDING_UNREGISTER. The row is not deleted
+	// until AckUnregister is called. The returned backingDiskPath and diskUUID are sourced
+	// from the CNS unregister result and must be persisted by the caller before ACKing.
+	UnregisterVolumeEx(ctx context.Context, volumeID string) (backingDiskPath, diskUUID string, err error)
+	// QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records
+	// from the CNS database. This is used on CSI restart to recover in-flight
+	// two-phase unregister operations that were interrupted by a crash.
+	// Protected by the VMOwnedVolumes feature state switch on the server side.
+	QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error)
+	// AckUnregister acknowledges the completion of a two-phase unregister operation
+	// by deleting the PENDING_UNREGISTER row for the given volumeID.
+	AckUnregister(ctx context.Context, volumeID string) error
 	// SyncVolume returns the aggregated capacity for volumes
 	SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error)
 	// ReRegisterVolume re-registers a volume to CNS when CnsNotRegisteredFault is encountered
@@ -174,6 +188,18 @@ type Manager interface {
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
 	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
 		maxResults uint32) ([]ChangedArea, uint64, error)
+}
+
+// PendingUnregisterRecord holds the data returned by the CNS QueryPendingUnregisters API.
+// Each record represents an FCD unregister operation that was started (PENDING_UNREGISTER state)
+// but whose completion acknowledgement has not yet been sent by CSI.
+type PendingUnregisterRecord struct {
+	// VolumeID is the CNS volume ID of the unregistered FCD.
+	VolumeID string
+	// BackingDiskPath is the datastore path to the VMDK file.
+	BackingDiskPath string
+	// DiskUUID is the stable identifier for the virtual disk.
+	DiskUUID string
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4229,6 +4255,83 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 	return "", nil
 }
 
+// UnregisterVolumeEx executes phase 1 of the two-phase FCD unregister protocol.
+// It calls CnsUnregisterVolumeEx with targetType=LEGACY_DISK, marks the CNS DB row as
+// PENDING_UNREGISTER, and returns the backingDiskPath and diskUUID from the result.
+// The PENDING_UNREGISTER row persists until AckUnregister is called, enabling crash recovery
+// via QueryPendingUnregisters on restart.
+func (m *defaultManager) UnregisterVolumeEx(ctx context.Context,
+	volumeID string) (backingDiskPath, diskUUID string, err error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	log := logger.GetLogger(ctx).With("volumeID", volumeID)
+
+	if m.virtualCenter == nil {
+		return "", "", errors.New("virtual Center connection not established")
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		return "", "", fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	spec := []cnstypes.CnsUnregisterVolumeSpec{
+		{
+			VolumeId:         cnstypes.CnsVolumeId{Id: volumeID},
+			TargetVolumeType: "LEGACY_DISK",
+		},
+	}
+	task, err := m.virtualCenter.CnsClient.UnregisterVolumeEx(ctx, spec)
+	if err != nil {
+		log.Errorf("CNS UnregisterVolumeEx failed from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+
+	taskInfo, err := m.waitOnTask(ctx, task.Reference())
+	if err != nil {
+		log.Errorf("failed to wait for UnregisterVolumeEx task from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+	if taskInfo == nil {
+		msg := "taskInfo is nil for UnregisterVolumeEx task"
+		log.Errorf("%s from vCenter %q", msg, m.virtualCenter.Config.Host)
+		return "", "", errors.New(msg)
+	}
+
+	log.Infof("processing UnregisterVolumeEx task: %q, opId: %q",
+		taskInfo.Task.Value, taskInfo.ActivationId)
+	res, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for UnregisterVolumeEx from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+	if res == nil {
+		msg := "task result is nil for UnregisterVolumeEx task"
+		log.Errorf("%s from vCenter %q, opId: %q", msg, m.virtualCenter.Config.Host, taskInfo.ActivationId)
+		return "", "", errors.New(msg)
+	}
+
+	volOpRes := res.GetCnsVolumeOperationResult()
+	if volOpRes.Fault != nil {
+		fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
+		log.Errorf("UnregisterVolumeEx result contains fault %q for volume %q, opId: %q",
+			fault, volumeID, taskInfo.ActivationId)
+		return "", "", fmt.Errorf("UnregisterVolumeEx fault %q for volume %q", fault, volumeID)
+	}
+
+	unregResult, ok := res.(*cnstypes.CnsUnregisterVolumeResult)
+	if !ok {
+		msg := "unexpected task result type for UnregisterVolumeEx; expected CnsUnregisterVolumeResult"
+		log.Errorf("%s for volume %q", msg, volumeID)
+		return "", "", errors.New(msg)
+	}
+
+	log.Infof("UnregisterVolumeEx: volume %q unregistered; backingDiskPath=%q diskUUID=%q",
+		volumeID, unregResult.BackingDiskPath, unregResult.DiskUUID)
+	return unregResult.BackingDiskPath, unregResult.DiskUUID, nil
+}
+
 // vslmNewClientFunc creates a VSLM client (overridable in unit tests).
 var vslmNewClientFunc = vslm.NewClient
 
@@ -4492,4 +4595,66 @@ func TranslateVslmError(ctx context.Context, err error) error {
 	}
 
 	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+}
+
+// QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records from
+// the CNS database. This is called once at CSI startup to resume any two-phase
+// FCD unregister operations that were interrupted by a crash.
+func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	log := logger.GetLogger(ctx)
+
+	if m.virtualCenter == nil {
+		return nil, errors.New("virtual Center connection not established")
+	}
+	err := m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	results, err := m.virtualCenter.CnsClient.QueryPendingUnregisters(ctx)
+	if err != nil {
+		log.Errorf("CNS QueryPendingUnregisters failed from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
+
+	records := make([]PendingUnregisterRecord, 0, len(results))
+	for _, r := range results {
+		records = append(records, PendingUnregisterRecord{
+			VolumeID:        r.VolumeId.Id,
+			BackingDiskPath: r.BackingDiskPath,
+			DiskUUID:        r.DiskUUID,
+		})
+	}
+	log.Infof("QueryPendingUnregisters: found %d pending records", len(records))
+	return records, nil
+}
+
+// AckUnregister acknowledges the completion of a two-phase unregister operation by
+// deleting the PENDING_UNREGISTER row for the given volumeID from the CNS database.
+// The call is idempotent.
+func (m *defaultManager) AckUnregister(ctx context.Context, volumeID string) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	log := logger.GetLogger(ctx)
+
+	if m.virtualCenter == nil {
+		return errors.New("virtual Center connection not established")
+	}
+	err := m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		return fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	err = m.virtualCenter.CnsClient.AcknowledgeUnregister(ctx,
+		[]cnstypes.CnsVolumeId{{Id: volumeID}})
+	if err != nil {
+		log.Errorf("CNS AcknowledgeUnregister failed for volume %q from vCenter %q: %v",
+			volumeID, m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("AcknowledgeUnregister: successfully acknowledged volume %q", volumeID)
+	return nil
 }

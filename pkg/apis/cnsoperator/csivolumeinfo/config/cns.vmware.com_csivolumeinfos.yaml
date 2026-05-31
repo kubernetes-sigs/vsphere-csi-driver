@@ -1,0 +1,176 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  creationTimestamp: null
+  name: csivolumeinfos.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CsiVolumeInfo
+    listKind: CsiVolumeInfoList
+    plural: csivolumeinfos
+    shortNames:
+    - cvi
+    singular: csivolumeinfo
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ownershipState
+      name: OwnershipState
+      type: string
+    - jsonPath: .status.vmName
+      name: VMName
+      type: string
+    - jsonPath: .status.diskUUID
+      name: diskUUID
+      type: string
+    - jsonPath: .status.diskPath
+      name: diskPath
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: CsiVolumeInfo tracks the per-volume ownership lifecycle for
+          the VM-owned volume attach/detach model. One CR exists per PVC (in the
+          PVC's namespace) from the moment it is provisioned (while VMOwnedVolumes
+          FSS is enabled) until its owning PV is deleted.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CsiVolumeInfoSpec defines the desired (immutable) state
+              of CsiVolumeInfo. All fields are set at creation time and must not change
+              except pvcName on Retain-reclaim rebind.
+            properties:
+              pvName:
+                description: PVName is the bound PV name. The CVI carries a PV ownerReference
+                  so PV deletion cascades CVI deletion via K8s GC.
+                type: string
+              pvcName:
+                description: PVCName is the bound PVC name at CVI creation (or last
+                  bind update on Retain-reclaim rebind). Together with metadata.namespace,
+                  uniquely identifies the PVC.
+                type: string
+              volumeID:
+                description: VolumeID is the CNS volume ID. Immutable after creation.
+                  Matches PV.spec.csi.volumeHandle.
+                minLength: 1
+                type: string
+            required:
+            - pvName
+            - pvcName
+            - volumeID
+            type: object
+          status:
+            description: CsiVolumeInfoStatus defines the observed state of CsiVolumeInfo.
+              All writes go through the /status subresource endpoint.
+            properties:
+              conditions:
+                description: Conditions is a standard K8s condition array for extensible
+                  status.
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource."
+                  properties:
+                    lastTransitionTime:
+                      description: lastTransitionTime is the last time the condition
+                        transitioned from one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: message is a human readable message indicating
+                        details about the transition.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: observedGeneration represents the .metadata.generation
+                        that the condition was set based upon.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: reason contains a programmatic identifier indicating
+                        the reason for the condition's last transition.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              diskPath:
+                description: DiskPath is the datastore path to the VMDK file. An
+                  informational JIT cache — may be stale at rest. Refreshed at each
+                  consumption point (attach, detach, snapshot-delete, revert).
+                type: string
+              diskUUID:
+                description: DiskUUID is the stable identifier for the virtual disk
+                  (VirtualDisk.Backing.Uuid). Populated at CVI creation from the FCD's
+                  backing VMDK. Immutable after creation.
+                type: string
+              ownershipState:
+                description: OwnershipState is the current ownership lifecycle state
+                  of the volume. One of CSI_MANAGED, TRANSFERRING_TO_VM, VM_MANAGED,
+                  TRANSFERRING_TO_CSI.
+                enum:
+                - CSI_MANAGED
+                - TRANSFERRING_TO_VM
+                - VM_MANAGED
+                - TRANSFERRING_TO_CSI
+                type: string
+              vmInstanceUUID:
+                description: VMInstanceUUID is the instance UUID of the VM identified
+                  by VMName. Empty when CSI-owned or snapshot-retained.
+                type: string
+              vmName:
+                description: VMName is the name of the VirtualMachine CR this volume
+                  is attached to. Empty when CSI-owned or snapshot-retained.
+                type: string
+            required:
+            - diskUUID
+            - ownershipState
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

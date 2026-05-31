@@ -29,6 +29,10 @@ func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID strin
 	return "", nil
 }
 
+func (m *mockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *mockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 	extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	if m.createVolumeFunc != nil {
@@ -148,6 +152,13 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 }
 
 func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	return nil
+}
+func (m *mockVolumeManager) QueryPendingUnregisters(
+	_ context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *mockVolumeManager) AckUnregister(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -436,5 +447,104 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 			// Run the test case specific validation
 			tc.validateFunc(t, capturedCreateSpec.Datastores)
 		})
+	}
+}
+
+// mockVolumeManagerWithQuery extends mockVolumeManager to provide a
+// configurable QueryVolumeAsync response for QueryFCDBackingInfo tests.
+type mockVolumeManagerWithQuery struct {
+	mockVolumeManager
+	queryAsyncFunc func(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
+		querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
+	queryFunc func(ctx context.Context,
+		queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error)
+}
+
+func (m *mockVolumeManagerWithQuery) QueryVolumeAsync(ctx context.Context,
+	queryFilter cnstypes.CnsQueryFilter,
+	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	if m.queryAsyncFunc != nil {
+		return m.queryAsyncFunc(ctx, queryFilter, querySelection)
+	}
+	return nil, nil
+}
+
+func (m *mockVolumeManagerWithQuery) QueryVolume(ctx context.Context,
+	queryFilter cnstypes.CnsQueryFilter) (*cnstypes.CnsQueryResult, error) {
+	if m.queryFunc != nil {
+		return m.queryFunc(ctx, queryFilter)
+	}
+	return nil, nil
+}
+
+// TestQueryFCDBackingInfo_Success verifies that diskUUID and diskPath are
+// extracted correctly from a CNS query result.
+func TestQueryFCDBackingInfo_Success(t *testing.T) {
+	ctx := context.Background()
+	mgr := &mockVolumeManagerWithQuery{
+		queryAsyncFunc: func(_ context.Context, _ cnstypes.CnsQueryFilter,
+			_ *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+			return &cnstypes.CnsQueryResult{
+				Volumes: []cnstypes.CnsVolume{
+					{
+						VolumeId: cnstypes.CnsVolumeId{Id: "vol-1"},
+						BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+							BackingDiskObjectId: "disk-uuid-abc",
+							BackingDiskPath:     "[ds1] vms/disk.vmdk",
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	diskUUID, diskPath, err := QueryFCDBackingInfo(ctx, mgr, "vol-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diskUUID != "disk-uuid-abc" {
+		t.Errorf("expected diskUUID disk-uuid-abc, got %q", diskUUID)
+	}
+	if diskPath != "[ds1] vms/disk.vmdk" {
+		t.Errorf("expected diskPath '[ds1] vms/disk.vmdk', got %q", diskPath)
+	}
+}
+
+// TestQueryFCDBackingInfo_NotFound verifies that a missing volume returns an
+// error.
+func TestQueryFCDBackingInfo_NotFound(t *testing.T) {
+	ctx := context.Background()
+	mgr := &mockVolumeManagerWithQuery{
+		queryAsyncFunc: func(_ context.Context, _ cnstypes.CnsQueryFilter,
+			_ *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+			return &cnstypes.CnsQueryResult{Volumes: nil}, nil
+		},
+	}
+	_, _, err := QueryFCDBackingInfo(ctx, mgr, "vol-missing")
+	if err == nil {
+		t.Error("expected error for missing volume, got nil")
+	}
+}
+
+// TestQueryFCDBackingInfo_NotBlockVolume verifies that a file volume returns
+// an error because its backing is not CnsBlockBackingDetails.
+func TestQueryFCDBackingInfo_NotBlockVolume(t *testing.T) {
+	ctx := context.Background()
+	mgr := &mockVolumeManagerWithQuery{
+		queryAsyncFunc: func(_ context.Context, _ cnstypes.CnsQueryFilter,
+			_ *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+			return &cnstypes.CnsQueryResult{
+				Volumes: []cnstypes.CnsVolume{
+					{
+						VolumeId:             cnstypes.CnsVolumeId{Id: "vol-file"},
+						BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{},
+					},
+				},
+			}, nil
+		},
+	}
+	_, _, err := QueryFCDBackingInfo(ctx, mgr, "vol-file")
+	if err == nil {
+		t.Error("expected error for non-block volume, got nil")
 	}
 }

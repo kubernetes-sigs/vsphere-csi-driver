@@ -49,6 +49,9 @@ import (
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
+
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 )
 
 var (
@@ -96,14 +99,38 @@ func trimMessage(err error) error {
 // spec and status (see getPvcsFromSpecAndStatus). For each, it calls removePvcFinalizer, which
 // handles missing PVCs (NotFound) and whether cns.vmware.com/pvc-protection is present.
 // Volume status is updated to detached on success or detach-failed on error.
+//
+// When cviSvc is non-nil (VMOwnedVolumes FSS is enabled), the finalizer is not removed for any
+// PVC whose CsiVolumeInfo is in a non-CSI_MANAGED state. This prevents premature PVC deletion
+// when a BA is finalized while a volume is still VM-owned or snapshot-retained. When the CVI is
+// eventually gone (PV deleted, CVI cascade-GC'd), the check passes and the finalizer is removed.
 func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	c client.Client,
 	k8sClient kubernetes.Interface,
-	cnsOperatorClient client.Client) error {
+	cnsOperatorClient client.Client,
+	cviSvc csivolumeinfo.CsiVolumeInfoService) error {
 	log := logger.GetLogger(ctx)
 
 	for pvcName, volumeName := range getPvcsFromSpecAndStatus(ctx, instance) {
+		// When the VMOwnedVolumes path is active, do not remove the finalizer
+		// while the volume is still VM-owned, in-flight, or snapshot-retained.
+		// The finalizer will be released by ReregisterVolumeAsFCD (or naturally
+		// when the CVI is garbage-collected via PV ownerRef).
+		if cviSvc != nil {
+			cvi, cviErr := cviSvc.GetCsiVolumeInfoByPVCName(ctx, instance.Namespace, pvcName)
+			if cviErr != nil {
+				log.Warnf("removePvcProtectionFinalizersForTrackedPVCs: failed to check CVI "+
+					"for PVC %s/%s: %v", instance.Namespace, pvcName, cviErr)
+			} else if cvi != nil &&
+				cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+				log.Infof("removePvcProtectionFinalizersForTrackedPVCs: skipping PVC %s/%s: "+
+					"CVI ownership state is %q",
+					instance.Namespace, pvcName, cvi.Status.OwnershipState)
+				continue
+			}
+		}
+
 		err := removePvcFinalizerFn(ctx, c, k8sClient, cnsOperatorClient,
 			pvcName, instance.Namespace, instance.Spec.InstanceUUID)
 		if err != nil {
@@ -122,15 +149,20 @@ func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
 // from a given nodevmbatchattachment instance only after attempting to clear
 // cns.vmware.com/pvc-protection from every PVC listed in spec and status.
+// cviSvc must be non-nil when the VMOwnedVolumes FSS is enabled; it is used to
+// skip the PVC protection finalizer removal for volumes still in a non-CSI_MANAGED
+// ownership state.
 func removeFinalizerFromCRDInstance(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	c client.Client,
 	k8sClient kubernetes.Interface,
-	cnsOperatorClient client.Client) error {
+	cnsOperatorClient client.Client,
+	cviSvc csivolumeinfo.CsiVolumeInfoService) error {
 	log := logger.GetLogger(ctx)
 
 	// First ensure that none of the PVCs have CNS PVC protection finalizer.
-	if err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, c, k8sClient, cnsOperatorClient); err != nil {
+	if err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, c,
+		k8sClient, cnsOperatorClient, cviSvc); err != nil {
 		return err
 	}
 

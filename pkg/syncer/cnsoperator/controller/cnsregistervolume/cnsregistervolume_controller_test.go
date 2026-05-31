@@ -76,6 +76,10 @@ func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID strin
 	return "", nil
 }
 
+func (m *mockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *mockVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
 	volumeID string, checkNVMeController bool) (string, string, error) {
 	//TODO implement me
@@ -254,6 +258,13 @@ func (m *mockVolumeManager) SyncVolume(ctx context.Context,
 }
 
 func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
+	return nil
+}
+func (m *mockVolumeManager) QueryPendingUnregisters(
+	_ context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *mockVolumeManager) AckUnregister(_ context.Context, _ string) error {
 	return nil
 }
 

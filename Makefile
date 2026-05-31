@@ -64,11 +64,13 @@ deps:
 #
 # So we only use the commit id as the version for the binaries built from master branch,
 # and use the tag as the version for any release branches.
-ifeq ($(shell git rev-parse --abbrev-ref HEAD), master)
-VERSION := $(shell git log -1 --format=%h)
-else
-VERSION := $(shell git describe --dirty --always 2>/dev/null)
-endif
+VERSION ?= $(shell \
+  if [ "$$(git rev-parse --abbrev-ref HEAD)" = "master" ]; then \
+    git log -1 --format=%h; \
+  else \
+    git describe --dirty --always 2>/dev/null; \
+  fi)
+export VERSION
 
 .PHONY: version
 version:
@@ -400,6 +402,13 @@ vet:
 ################################################################################
 ##                                 BUILD IMAGES                               ##
 ################################################################################
+ifdef CSI_IMAGE_NAME
+export CSI_IMAGE_NAME
+endif
+ifdef SYNCER_IMAGE_NAME
+export SYNCER_IMAGE_NAME
+endif
+
 .PHONY: images
 images: | $(DOCKER_SOCK)
 	hack/release.sh

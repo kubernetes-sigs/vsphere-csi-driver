@@ -205,6 +205,14 @@ func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unre
 	return "", nil
 }
 
+// UnregisterVolumeEx is a no-op mock that returns empty backing info.
+func (m MockManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	if m.failRequest {
+		return "", "", m.err
+	}
+	return "", "", nil
+}
+
 func (m MockManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	//TODO implement me
 	panic("implement me")
@@ -229,4 +237,14 @@ func (m MockManager) QueryFCDChangedBlocks(ctx context.Context,
 	[]ChangedArea, uint64, error) {
 	//TODO implement me
 	panic("implement me")
+}
+
+// QueryPendingUnregisters returns an empty list for the mock manager.
+func (m MockManager) QueryPendingUnregisters(_ context.Context) ([]PendingUnregisterRecord, error) {
+	return nil, nil
+}
+
+// AckUnregister is a no-op for the mock manager.
+func (m MockManager) AckUnregister(_ context.Context, _ string) error {
+	return nil
 }
