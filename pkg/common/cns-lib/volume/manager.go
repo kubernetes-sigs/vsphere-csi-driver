@@ -4517,28 +4517,61 @@ func TranslateVslmError(ctx context.Context, err error) error {
 // QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records from
 // the CNS database. This is called once at CSI startup to resume any two-phase
 // FCD unregister operations that were interrupted by a crash.
-//
-// The underlying CNS API (VolumeManager::QueryPendingUnregisters) is gated on the
-// VMOwnedVolumes feature state switch on the vCenter side. The govmomi CNS client
-// binding for this API will be added when the API is promoted to a released
-// interface; until then, this implementation returns an empty list so that the
-// Layer-2 BA-reconcile-time crash recovery path (the defense-in-depth check) takes
-// over.
 func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	log := logger.GetLogger(ctx)
-	log.Infof("QueryPendingUnregisters: CNS API not yet available in govmomi client; " +
-		"returning empty list (Layer-2 reconcile-time recovery will handle any pending records)")
-	return nil, nil
+
+	if m.virtualCenter == nil {
+		return nil, errors.New("virtual Center connection not established")
+	}
+	err := m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	results, err := m.virtualCenter.CnsClient.QueryPendingUnregisters(ctx)
+	if err != nil {
+		log.Errorf("CNS QueryPendingUnregisters failed from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return nil, err
+	}
+
+	records := make([]PendingUnregisterRecord, 0, len(results))
+	for _, r := range results {
+		records = append(records, PendingUnregisterRecord{
+			VolumeID:        r.VolumeId.Id,
+			BackingDiskPath: r.BackingDiskPath,
+			DiskUUID:        r.DiskUUID,
+		})
+	}
+	log.Infof("QueryPendingUnregisters: found %d pending records", len(records))
+	return records, nil
 }
 
 // AckUnregister acknowledges the completion of a two-phase unregister operation by
 // deleting the PENDING_UNREGISTER row for the given volumeID from the CNS database.
-//
-// Like QueryPendingUnregisters, this depends on a govmomi CNS client binding that is
-// not yet released. The implementation is a no-op until the binding is available.
+// The call is idempotent.
 func (m *defaultManager) AckUnregister(ctx context.Context, volumeID string) error {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
 	log := logger.GetLogger(ctx)
-	log.Infof("AckUnregister: CNS API not yet available in govmomi client; "+
-		"no-op for volumeID %q", volumeID)
+
+	if m.virtualCenter == nil {
+		return errors.New("virtual Center connection not established")
+	}
+	err := m.virtualCenter.ConnectCns(ctx)
+	if err != nil {
+		return fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	err = m.virtualCenter.CnsClient.AcknowledgeUnregister(ctx,
+		[]cnstypes.CnsVolumeId{{Id: volumeID}})
+	if err != nil {
+		log.Errorf("CNS AcknowledgeUnregister failed for volume %q from vCenter %q: %v",
+			volumeID, m.virtualCenter.Config.Host, err)
+		return err
+	}
+	log.Infof("AcknowledgeUnregister: successfully acknowledged volume %q", volumeID)
 	return nil
 }
