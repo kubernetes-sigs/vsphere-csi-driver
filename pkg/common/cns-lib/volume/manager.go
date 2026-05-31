@@ -164,6 +164,12 @@ type Manager interface {
 	// UnregisterVolume unregisters a volume from CNS.
 	// If unregisterDisk is true, it will also unregister the disk from FCD.
 	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error)
+	// UnregisterVolumeEx executes phase 1 of the two-phase FCD unregister protocol.
+	// It calls CnsUnregisterVolumeEx with targetType=LEGACY_DISK, which removes the FCD
+	// catalog entry and marks the CNS DB row as PENDING_UNREGISTER. The row is not deleted
+	// until AckUnregister is called. The returned backingDiskPath and diskUUID are sourced
+	// from the CNS unregister result and must be persisted by the caller before ACKing.
+	UnregisterVolumeEx(ctx context.Context, volumeID string) (backingDiskPath, diskUUID string, err error)
 	// QueryPendingUnregisters returns all outstanding PENDING_UNREGISTER records
 	// from the CNS database. This is used on CSI restart to recover in-flight
 	// two-phase unregister operations that were interrupted by a crash.
@@ -4247,6 +4253,83 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 
 	log.Infof("volume %q unregistered successfully", volumeID)
 	return "", nil
+}
+
+// UnregisterVolumeEx executes phase 1 of the two-phase FCD unregister protocol.
+// It calls CnsUnregisterVolumeEx with targetType=LEGACY_DISK, marks the CNS DB row as
+// PENDING_UNREGISTER, and returns the backingDiskPath and diskUUID from the result.
+// The PENDING_UNREGISTER row persists until AckUnregister is called, enabling crash recovery
+// via QueryPendingUnregisters on restart.
+func (m *defaultManager) UnregisterVolumeEx(ctx context.Context,
+	volumeID string) (backingDiskPath, diskUUID string, err error) {
+	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
+	defer cancelFunc()
+	log := logger.GetLogger(ctx).With("volumeID", volumeID)
+
+	if m.virtualCenter == nil {
+		return "", "", errors.New("virtual Center connection not established")
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		return "", "", fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	spec := []cnstypes.CnsUnregisterVolumeSpec{
+		{
+			VolumeId:         cnstypes.CnsVolumeId{Id: volumeID},
+			TargetVolumeType: "LEGACY_DISK",
+		},
+	}
+	task, err := m.virtualCenter.CnsClient.UnregisterVolumeEx(ctx, spec)
+	if err != nil {
+		log.Errorf("CNS UnregisterVolumeEx failed from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+
+	taskInfo, err := m.waitOnTask(ctx, task.Reference())
+	if err != nil {
+		log.Errorf("failed to wait for UnregisterVolumeEx task from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+	if taskInfo == nil {
+		msg := "taskInfo is nil for UnregisterVolumeEx task"
+		log.Errorf("%s from vCenter %q", msg, m.virtualCenter.Config.Host)
+		return "", "", errors.New(msg)
+	}
+
+	log.Infof("processing UnregisterVolumeEx task: %q, opId: %q",
+		taskInfo.Task.Value, taskInfo.ActivationId)
+	res, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("failed to get task result for UnregisterVolumeEx from vCenter %q: %v",
+			m.virtualCenter.Config.Host, err)
+		return "", "", err
+	}
+	if res == nil {
+		msg := "task result is nil for UnregisterVolumeEx task"
+		log.Errorf("%s from vCenter %q, opId: %q", msg, m.virtualCenter.Config.Host, taskInfo.ActivationId)
+		return "", "", errors.New(msg)
+	}
+
+	volOpRes := res.GetCnsVolumeOperationResult()
+	if volOpRes.Fault != nil {
+		fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
+		log.Errorf("UnregisterVolumeEx result contains fault %q for volume %q, opId: %q",
+			fault, volumeID, taskInfo.ActivationId)
+		return "", "", fmt.Errorf("UnregisterVolumeEx fault %q for volume %q", fault, volumeID)
+	}
+
+	unregResult, ok := res.(*cnstypes.CnsUnregisterVolumeResult)
+	if !ok {
+		msg := "unexpected task result type for UnregisterVolumeEx; expected CnsUnregisterVolumeResult"
+		log.Errorf("%s for volume %q", msg, volumeID)
+		return "", "", errors.New(msg)
+	}
+
+	log.Infof("UnregisterVolumeEx: volume %q unregistered; backingDiskPath=%q diskUUID=%q",
+		volumeID, unregResult.BackingDiskPath, unregResult.DiskUUID)
+	return unregResult.BackingDiskPath, unregResult.DiskUUID, nil
 }
 
 // vslmNewClientFunc creates a VSLM client (overridable in unit tests).

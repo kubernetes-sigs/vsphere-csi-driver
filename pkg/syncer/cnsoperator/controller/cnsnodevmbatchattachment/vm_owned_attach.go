@@ -39,11 +39,16 @@ import (
 //
 // Steps:
 //  1. Validate the CVI is in CSI_MANAGED state.
-//  2. Call CnsUnregisterVolume to deregister the FCD, preserving the VMDK.
-//  3. Transition the CVI to TRANSFERRING_TO_VM and record the target VM.
+//  2. Call CnsUnregisterVolumeEx (phase 1 of two-phase unregister) to deregister
+//     the FCD, preserving the VMDK. The CNS DB row is marked PENDING_UNREGISTER
+//     and the backing disk path and UUID are returned for durable recording.
+//  3. Transition the CVI to TRANSFERRING_TO_VM, refreshing diskPath and diskUUID
+//     from the unregister result.
 //  4. Add the cvi-protection finalizer to the CVI.
 //  5. Write diskPath, diskUUID, and the AttachMethod=Reconfig condition to
 //     the BA volume status so vm-operator knows to use ReconfigVM.
+//  6. ACK CNS (AckUnregister) to delete the PENDING_UNREGISTER row. A failure
+//     here is non-fatal; the startup scan (QueryPendingUnregisters) will recover.
 func processVMOwnedVolumesAttach(ctx context.Context,
 	cviSvc csivolumeinfo.CsiVolumeInfoService,
 	vmOperatorClient client.Client,
@@ -79,24 +84,42 @@ func processVMOwnedVolumesAttach(ctx context.Context,
 		return fmt.Errorf("processVMOwnedVolumesAttach: %s", msg)
 	}
 
-	log.Infof("processVMOwnedVolumesAttach: unregistering FCD for volume %q", volumeID)
+	log.Infof("processVMOwnedVolumesAttach: unregistering FCD for volume %q (two-phase)", volumeID)
 
-	// Unregister the FCD, preserving the VMDK file as a plain disk.
-	faultType, unregErr := volumeManager.UnregisterVolume(ctx, volumeID, true)
+	// Phase 1: Unregister the FCD. The CNS DB row is marked PENDING_UNREGISTER
+	// and the authoritative backingDiskPath and diskUUID are returned. These
+	// values are persisted to CVI and BA status before the ACK so a crash between
+	// this call and the ACK is recoverable via QueryPendingUnregisters on restart.
+	backingDiskPath, diskUUID, unregErr := volumeManager.UnregisterVolumeEx(ctx, volumeID)
 	if unregErr != nil {
-		msg := fmt.Sprintf("CnsUnregisterVolume failed for volume %q (fault=%q): %v",
-			volumeID, faultType, unregErr)
+		msg := fmt.Sprintf("CnsUnregisterVolumeEx failed for volume %q: %v", volumeID, unregErr)
 		log.Errorf("processVMOwnedVolumesAttach: %s", msg)
 		updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, volumeID, "",
 			fmt.Errorf("%s", msg), bav1alpha1.ConditionAttached, bav1alpha1.ReasonAttachFailed)
 		return fmt.Errorf("processVMOwnedVolumesAttach: %s", msg)
 	}
-	log.Infof("processVMOwnedVolumesAttach: FCD unregistered for volume %q", volumeID)
+	log.Infof("processVMOwnedVolumesAttach: FCD unregistered for volume %q "+
+		"(backingDiskPath=%q diskUUID=%q)", volumeID, backingDiskPath, diskUUID)
 
-	// Transition CVI to TRANSFERRING_TO_VM. diskPath and diskUUID are taken
-	// from the CVI (populated at provisioning time) — they remain valid
-	// because no storage relocation can occur between provisioning and the
-	// first attach.
+	// Cross-check the returned diskUUID against the CVI's recorded value. They
+	// must match; a mismatch would indicate a data integrity issue.
+	if cvi.Status.DiskUUID != "" && diskUUID != "" && cvi.Status.DiskUUID != diskUUID {
+		log.Warnf("processVMOwnedVolumesAttach: diskUUID mismatch for volume %q: "+
+			"CVI has %q, unregister returned %q; using CNS value",
+			volumeID, cvi.Status.DiskUUID, diskUUID)
+	}
+	// Prefer the CNS-returned values; fall back to CVI's stored values if CNS
+	// returned empty strings (should not happen in practice).
+	if diskUUID != "" {
+		cvi.Status.DiskUUID = diskUUID
+	}
+	if backingDiskPath != "" {
+		cvi.Status.DiskPath = backingDiskPath
+	}
+
+	// Transition CVI to TRANSFERRING_TO_VM with the freshly confirmed diskPath
+	// and diskUUID before writing BA status, so vm-operator cannot race into A.5
+	// with a stale CVI state.
 	cvi.Status.OwnershipState = csivolumeinfov1alpha1.OwnershipStateTransferringToVM
 	cvi.Status.VMName = vmName
 	cvi.Status.VMInstanceUUID = vmInstanceUUID
@@ -121,9 +144,20 @@ func processVMOwnedVolumesAttach(ctx context.Context,
 	// vm-operator knows to use ReconfigVM_Task with the plain-disk path.
 	setBAVolumeAttachMethodReconfig(ctx, instance, volumeName, pvcName, volumeID,
 		cvi.Status.DiskUUID, cvi.Status.DiskPath)
-
 	log.Infof("processVMOwnedVolumesAttach: BA status updated for PVC %s (diskUUID=%s, diskPath=%s)",
 		pvcName, cvi.Status.DiskUUID, cvi.Status.DiskPath)
+
+	// Phase 2: ACK the unregister to delete the PENDING_UNREGISTER row. This is
+	// non-fatal; if it fails the startup scan (QueryPendingUnregisters) will pick
+	// up the record and re-ACK on the next restart.
+	if ackErr := volumeManager.AckUnregister(ctx, volumeID); ackErr != nil {
+		log.Warnf("processVMOwnedVolumesAttach: AckUnregister failed for volume %q: %v; "+
+			"PENDING_UNREGISTER row will be cleaned up on next startup scan",
+			volumeID, ackErr)
+	} else {
+		log.Infof("processVMOwnedVolumesAttach: AckUnregister succeeded for volume %q", volumeID)
+	}
+
 	return nil
 }
 
@@ -212,7 +246,12 @@ func getVMNameByInstanceUUID(ctx context.Context, vmOperatorClient client.Client
 // VMOwnedVolumes attach path. Defined as an interface so tests can provide a
 // targeted mock.
 type volumeManagerForAttach interface {
-	UnregisterVolume(ctx context.Context, volumeID string, unregisterDisk bool) (string, error)
+	// UnregisterVolumeEx executes phase 1 of the two-phase FCD unregister:
+	// removes the FCD catalog entry, marks the CNS DB row PENDING_UNREGISTER,
+	// and returns the authoritative backingDiskPath and diskUUID.
+	UnregisterVolumeEx(ctx context.Context, volumeID string) (backingDiskPath, diskUUID string, err error)
+	// AckUnregister executes phase 2: deletes the PENDING_UNREGISTER row.
+	AckUnregister(ctx context.Context, volumeID string) error
 }
 
 // patchBAStatus writes the instance status to the API server using a JSON

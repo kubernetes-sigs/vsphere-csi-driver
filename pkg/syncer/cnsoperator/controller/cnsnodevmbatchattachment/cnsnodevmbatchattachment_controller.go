@@ -690,13 +690,27 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 				log.Infof("processBatchAttach: VM %s/%s uses ownership-transfer attach path",
 					instance.Namespace, vmName)
 				for pvcName, volumeID := range volumesToAttach {
-					// Derive volumeName for status updates from the spec.
+					// Derive volumeName and disk mode from the spec entry.
 					var volumeName string
+					var diskMode v1alpha1.DiskMode
 					for _, v := range instance.Spec.Volumes {
 						if v.PersistentVolumeClaim.ClaimName == pvcName {
 							volumeName = v.Name
+							diskMode = v.PersistentVolumeClaim.DiskMode
 							break
 						}
+					}
+
+					// Defense-in-depth: independent-mode disks stay as registered FCDs
+					// and must not go through the ownership-transfer path. The primary
+					// enforcement is at the VM webhook level, but CSI adds this guard to
+					// prevent misrouting if the BA spec is ever populated unexpectedly
+					// with an independent-mode entry on a greenfield VM.
+					if isIndependentDiskMode(diskMode) {
+						log.Infof("processBatchAttach: skipping ownership-transfer for PVC %s "+
+							"(disk mode %q is independent; legacy path applies)",
+							pvcName, diskMode)
+						continue
 					}
 
 					// Layer-2 crash recovery: if CVI is already TRANSFERRING_TO_VM but

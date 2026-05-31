@@ -205,6 +205,14 @@ func (m MockManager) UnregisterVolume(ctx context.Context, volumeID string, unre
 	return "", nil
 }
 
+// UnregisterVolumeEx is a no-op mock that returns empty backing info.
+func (m MockManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	if m.failRequest {
+		return "", "", m.err
+	}
+	return "", "", nil
+}
+
 func (m MockManager) SyncVolume(ctx context.Context, syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
 	//TODO implement me
 	panic("implement me")

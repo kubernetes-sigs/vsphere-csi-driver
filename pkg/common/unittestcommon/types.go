@@ -117,6 +117,11 @@ func (m *MockVolumeManager) UnregisterVolume(ctx context.Context, volumeID strin
 	return "", nil
 }
 
+// UnregisterVolumeEx is a no-op stub for the mock.
+func (m *MockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *MockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 	extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	if m.createVolumeFunc != nil {

@@ -61,3 +61,53 @@ func TestIsSnapshotRevertInducedDetach_Empty(t *testing.T) {
 		t.Error("expected false for nil conditions")
 	}
 }
+
+// TestIsSnapshotRevertInducedDetach_WrongType ensures that a condition with the
+// DroppedBySnapshotRevert reason but the wrong type is not matched.
+func TestIsSnapshotRevertInducedDetach_WrongType(t *testing.T) {
+	conditions := []metav1.Condition{
+		{
+			Type:   "SomeOtherCondition",
+			Status: "True",
+			Reason: bav1alpha1.ReasonDroppedBySnapshotRevert,
+		},
+	}
+	if IsSnapshotRevertInducedDetach(conditions) {
+		t.Error("expected false when condition type does not match")
+	}
+}
+
+// TestIsSnapshotRevertInducedDetach_StatusFalse ensures that a matching type and
+// reason with Status=False is not treated as a revert-induced detach.
+func TestIsSnapshotRevertInducedDetach_StatusFalse(t *testing.T) {
+	conditions := []metav1.Condition{
+		{
+			Type:   bav1alpha1.ConditionDetached,
+			Status: "False",
+			Reason: bav1alpha1.ReasonDroppedBySnapshotRevert,
+		},
+	}
+	if IsSnapshotRevertInducedDetach(conditions) {
+		t.Error("expected false when Status is False")
+	}
+}
+
+// TestIsSnapshotRevertInducedDetach_MultipleConditions verifies correct detection
+// when the revert condition is mixed with other conditions.
+func TestIsSnapshotRevertInducedDetach_MultipleConditions(t *testing.T) {
+	conditions := []metav1.Condition{
+		{
+			Type:   bav1alpha1.ConditionAttached,
+			Status: "True",
+			Reason: bav1alpha1.ReasonAttachFailed, // using a real constant
+		},
+		{
+			Type:   bav1alpha1.ConditionDetached,
+			Status: "True",
+			Reason: bav1alpha1.ReasonDroppedBySnapshotRevert,
+		},
+	}
+	if !IsSnapshotRevertInducedDetach(conditions) {
+		t.Error("expected true when DroppedBySnapshotRevert condition is present alongside others")
+	}
+}

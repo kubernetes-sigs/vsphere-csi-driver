@@ -941,6 +941,11 @@ func (m *cbtFlagsMockVolumeManager) UnregisterVolume(context.Context,
 	string, bool) (string, error) {
 	return "", nil
 }
+
+func (m *cbtFlagsMockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *cbtFlagsMockVolumeManager) BatchAttachVolumes(context.Context,
 	*cnsvsphere.VirtualMachine, []cnsvolume.BatchAttachRequest) ([]cnsvolume.BatchAttachResult, string, error) {
 	return nil, "", nil

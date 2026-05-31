@@ -27,6 +27,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	bav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -150,6 +151,15 @@ func PatchPVCOwnershipLabel(ctx context.Context, k8sClient client.Client,
 	log.Infof("PatchPVCOwnershipLabel: set label %q=%q on PVC %s/%s",
 		csivolumeinfov1alpha1.LabelVolumeOwnership, labelValue, namespace, pvcName)
 	return nil
+}
+
+// isIndependentDiskMode reports whether the given DiskMode is an independent
+// mode (independent_persistent or independent_nonpersistent). Independent-mode
+// disks are not captured in snapshots and must use the legacy CnsAttachVolume
+// path; they must not go through the ownership-transfer path.
+func isIndependentDiskMode(mode bav1alpha1.DiskMode) bool {
+	return mode == bav1alpha1.IndependentPersistent ||
+		mode == bav1alpha1.DiskMode(bav1alpha1.IndependentNonPersistent)
 }
 
 // GetRetainedDiskUUIDs queries the vCenter snapshot tree of the given VM once

@@ -961,6 +961,11 @@ func (m *mockVolumeManagerForFullSync) UnregisterVolume(
 ) (string, error) {
 	return "", nil
 }
+
+func (m *mockVolumeManagerForFullSync) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *mockVolumeManagerForFullSync) QueryPendingUnregisters(
 	_ context.Context) ([]volumes.PendingUnregisterRecord, error) {
 	return nil, nil

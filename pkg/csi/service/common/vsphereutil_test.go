@@ -29,6 +29,10 @@ func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID strin
 	return "", nil
 }
 
+func (m *mockVolumeManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
+	return "", "", nil
+}
+
 func (m *mockVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 	extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
 	if m.createVolumeFunc != nil {

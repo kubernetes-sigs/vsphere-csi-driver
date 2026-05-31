@@ -279,24 +279,36 @@ func TestPatchPVCOwnershipLabel_PVCNotFound(t *testing.T) {
 type fakeUnregisterManager struct {
 	unregisterErr    error
 	unregisterCalled bool
+	ackErr           error
+	ackCalled        bool
+	// returnDiskPath and returnDiskUUID are returned by UnregisterVolumeEx.
+	returnDiskPath string
+	returnDiskUUID string
 }
 
-func (f *fakeUnregisterManager) UnregisterVolume(_ context.Context, _ string, _ bool) (string, error) {
+func (f *fakeUnregisterManager) UnregisterVolumeEx(_ context.Context, _ string) (string, string, error) {
 	f.unregisterCalled = true
-	return "", f.unregisterErr
+	return f.returnDiskPath, f.returnDiskUUID, f.unregisterErr
+}
+
+func (f *fakeUnregisterManager) AckUnregister(_ context.Context, _ string) error {
+	f.ackCalled = true
+	return f.ackErr
 }
 
 func TestProcessVMOwnedVolumesAttach_Success(t *testing.T) {
 	ctx := context.Background()
 	const (
-		ns         = "ns"
-		vmName     = "vm1"
-		instanceID = "instance-1"
-		pvcName    = "pvc-1"
-		volumeID   = "vol-1"
-		volName    = "disk-1"
-		diskUUID   = "uuid-disk-1"
-		diskPath   = "[ds] foo.vmdk"
+		ns          = "ns"
+		vmName      = "vm1"
+		instanceID  = "instance-1"
+		pvcName     = "pvc-1"
+		volumeID    = "vol-1"
+		volName     = "disk-1"
+		diskUUID    = "uuid-disk-1"
+		diskPath    = "[ds] foo.vmdk"
+		cnsDiskPath = "[ds] foo-fresh.vmdk"
+		cnsDiskUUID = "uuid-disk-1"
 	)
 
 	cvi := makeCVI(ns, volumeID, pvcName, diskUUID, csivolumeinfov1alpha1.OwnershipStateCSIManaged)
@@ -306,7 +318,8 @@ func TestProcessVMOwnedVolumesAttach_Success(t *testing.T) {
 		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volumeID: cvi},
 		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
 	}
-	mgr := &fakeUnregisterManager{}
+	// UnregisterVolumeEx returns fresh diskPath and diskUUID from CNS.
+	mgr := &fakeUnregisterManager{returnDiskPath: cnsDiskPath, returnDiskUUID: cnsDiskUUID}
 
 	s := makeVMScheme()
 	c := fake.NewClientBuilder().WithScheme(s).Build()
@@ -321,7 +334,10 @@ func TestProcessVMOwnedVolumesAttach_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !mgr.unregisterCalled {
-		t.Error("expected UnregisterVolume to be called")
+		t.Error("expected UnregisterVolumeEx to be called")
+	}
+	if !mgr.ackCalled {
+		t.Error("expected AckUnregister to be called")
 	}
 	updatedCVI := svc.cviByVolID[volumeID]
 	if updatedCVI.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateTransferringToVM {
@@ -329,6 +345,82 @@ func TestProcessVMOwnedVolumesAttach_Success(t *testing.T) {
 	}
 	if updatedCVI.Status.VMName != vmName {
 		t.Errorf("expected vmName=%q, got %q", vmName, updatedCVI.Status.VMName)
+	}
+	// diskPath should be refreshed to the CNS-returned value.
+	if updatedCVI.Status.DiskPath != cnsDiskPath {
+		t.Errorf("expected diskPath %q from CNS result, got %q", cnsDiskPath, updatedCVI.Status.DiskPath)
+	}
+}
+
+func TestProcessVMOwnedVolumesAttach_AckFails_NonFatal(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns       = "ns"
+		volumeID = "vol-ack-fail"
+		pvcName  = "pvc-ack-fail"
+	)
+	cvi := makeCVI(ns, volumeID, pvcName, "duuid", csivolumeinfov1alpha1.OwnershipStateCSIManaged)
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volumeID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+	// ACK failure must not cause the overall attach to fail.
+	mgr := &fakeUnregisterManager{
+		returnDiskPath: "[ds] d.vmdk",
+		returnDiskUUID: "duuid",
+		ackErr:         errors.New("ack timeout"),
+	}
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: "ba1", Namespace: ns},
+	}
+	c := fake.NewClientBuilder().WithScheme(makeVMScheme()).Build()
+
+	err := processVMOwnedVolumesAttach(ctx, svc, c, mgr, instance,
+		"vm1", "inst1", pvcName, volumeID, "disk1")
+
+	if err != nil {
+		t.Errorf("ACK failure must be non-fatal; got error: %v", err)
+	}
+	if !mgr.ackCalled {
+		t.Error("expected AckUnregister to be called even on failure")
+	}
+	// CVI should still be transitioned.
+	if svc.cviByVolID[volumeID].Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateTransferringToVM {
+		t.Errorf("expected TRANSFERRING_TO_VM even when ACK fails")
+	}
+}
+
+func TestProcessVMOwnedVolumesAttach_DiskUUIDRefreshedFromCNS(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns               = "ns"
+		volumeID         = "vol-uuid-refresh"
+		pvcName          = "pvc-uuid-refresh"
+		originalDiskUUID = "old-uuid"
+		cnsDiskUUID      = "new-uuid-from-cns"
+		cnsDiskPath      = "[ds2] moved.vmdk"
+	)
+	cvi := makeCVI(ns, volumeID, pvcName, originalDiskUUID, csivolumeinfov1alpha1.OwnershipStateCSIManaged)
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volumeID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+	mgr := &fakeUnregisterManager{returnDiskPath: cnsDiskPath, returnDiskUUID: cnsDiskUUID}
+	instance := &bav1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: "ba1", Namespace: ns},
+	}
+	c := fake.NewClientBuilder().WithScheme(makeVMScheme()).Build()
+
+	if err := processVMOwnedVolumesAttach(ctx, svc, c, mgr, instance,
+		"vm1", "inst1", pvcName, volumeID, "disk1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// CVI diskUUID must be updated to the CNS-returned value.
+	if svc.cviByVolID[volumeID].Status.DiskUUID != cnsDiskUUID {
+		t.Errorf("expected DiskUUID %q from CNS, got %q", cnsDiskUUID, svc.cviByVolID[volumeID].Status.DiskUUID)
+	}
+	if svc.cviByVolID[volumeID].Status.DiskPath != cnsDiskPath {
+		t.Errorf("expected DiskPath %q from CNS, got %q", cnsDiskPath, svc.cviByVolID[volumeID].Status.DiskPath)
 	}
 }
 
@@ -353,7 +445,7 @@ func TestProcessVMOwnedVolumesAttach_NoCVI_Error(t *testing.T) {
 		t.Fatal("expected error when CVI is absent on a VMOwnedVolumes VM")
 	}
 	if mgr.unregisterCalled {
-		t.Error("expected UnregisterVolume NOT to be called")
+		t.Error("expected UnregisterVolumeEx NOT to be called")
 	}
 }
 
@@ -380,7 +472,7 @@ func TestProcessVMOwnedVolumesAttach_CVINotCSIManaged_Error(t *testing.T) {
 		t.Fatal("expected error when CVI is not CSI_MANAGED")
 	}
 	if mgr.unregisterCalled {
-		t.Error("expected UnregisterVolume NOT called when CVI in wrong state")
+		t.Error("expected UnregisterVolumeEx NOT called when CVI in wrong state")
 	}
 }
 
@@ -404,7 +496,7 @@ func TestProcessVMOwnedVolumesAttach_UnregisterFails(t *testing.T) {
 		"vm1", "inst1", "pvc1", volumeID, "disk1")
 
 	if err == nil {
-		t.Fatal("expected error when UnregisterVolume fails")
+		t.Fatal("expected error when UnregisterVolumeEx fails")
 	}
 	if svc.cviByVolID[volumeID].Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
 		t.Errorf("CVI should remain CSI_MANAGED on error, got %q",
@@ -768,6 +860,34 @@ func TestHasAttachMethodReconfig_FalseForUnknownVolume(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Task 5.10 -- isIndependentDiskMode tests
+// ---------------------------------------------------------------------------
+
+func TestIsIndependentDiskMode_IndependentPersistent(t *testing.T) {
+	if !isIndependentDiskMode(bav1alpha1.IndependentPersistent) {
+		t.Error("expected independent_persistent to be independent")
+	}
+}
+
+func TestIsIndependentDiskMode_IndependentNonPersistent(t *testing.T) {
+	if !isIndependentDiskMode(bav1alpha1.DiskMode(bav1alpha1.IndependentNonPersistent)) {
+		t.Error("expected independent_nonpersistent to be independent")
+	}
+}
+
+func TestIsIndependentDiskMode_Persistent(t *testing.T) {
+	if isIndependentDiskMode(bav1alpha1.Persistent) {
+		t.Error("expected persistent to NOT be independent")
+	}
+}
+
+func TestIsIndependentDiskMode_Empty(t *testing.T) {
+	if isIndependentDiskMode("") {
+		t.Error("expected empty disk mode to NOT be independent")
+	}
+}
+
 // Verify the fakes satisfy their interfaces at compile time.
 var _ interface {
 	GetCsiVolumeInfo(context.Context, string, string) (*csivolumeinfov1alpha1.CsiVolumeInfo, error)
@@ -781,3 +901,176 @@ var _ volumeManagerForAttach = (*fakeUnregisterManager)(nil)
 
 // Suppress unused import linting.
 var _ client.Client = (client.Client)(nil)
+
+// ---------------------------------------------------------------------------
+// Task 5.9 -- reconcileStaleCVIs tests
+// ---------------------------------------------------------------------------
+
+// makeBAWithStatusAndSpec creates a CnsNodeVMBatchAttachment with the given
+// PVC names in status and (optionally) in spec.
+func makeBAWithStatusAndSpec(ns string,
+	statusPVCs []struct{ name, volID string },
+	specPVCs []string,
+) *bav1alpha1.CnsNodeVMBatchAttachment {
+	ba := &bav1alpha1.CnsNodeVMBatchAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: "ba-stale", Namespace: ns},
+	}
+	for _, pvc := range statusPVCs {
+		ba.Status.VolumeStatus = append(ba.Status.VolumeStatus,
+			bav1alpha1.VolumeStatus{
+				Name: "vol-" + pvc.name,
+				PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimStatus{
+					ClaimName:   pvc.name,
+					CnsVolumeID: pvc.volID,
+				},
+			})
+	}
+	for _, pvcName := range specPVCs {
+		ba.Spec.Volumes = append(ba.Spec.Volumes,
+			bav1alpha1.VolumeSpec{
+				Name: "vol-" + pvcName,
+				PersistentVolumeClaim: bav1alpha1.PersistentVolumeClaimSpec{
+					ClaimName: pvcName,
+				},
+			})
+	}
+	return ba
+}
+
+// TestReconcileStaleCVIs_CSIManagedIsNoop verifies that a CSI_MANAGED CVI whose
+// volume is no longer in BA spec does not trigger any state change.
+func TestReconcileStaleCVIs_CSIManagedIsNoop(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "ns-stale"
+		pvcName = "pvc-csi"
+		volID   = "vol-csi"
+	)
+	cvi := makeCVI(ns, volID, pvcName, "uuid", csivolumeinfov1alpha1.OwnershipStateCSIManaged)
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+
+	ba := makeBAWithStatusAndSpec(ns,
+		[]struct{ name, volID string }{{pvcName, volID}},
+		nil) // volume NOT in spec
+
+	scheme := makeVMScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	err := reconcileStaleCVIs(ctx, svc, nil, c, c, ba)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// CVI must remain CSI_MANAGED (no update should have been called).
+	if cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateCSIManaged {
+		t.Errorf("expected CSI_MANAGED to be unchanged, got %q", cvi.Status.OwnershipState)
+	}
+}
+
+// TestReconcileStaleCVIs_VolumeInSpecIsNoop verifies that a volume still present
+// in BA spec is not processed by the stale reconciler.
+func TestReconcileStaleCVIs_VolumeInSpecIsNoop(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "ns-stale-inspec"
+		pvcName = "pvc-inspec"
+		volID   = "vol-inspec"
+	)
+	cvi := makeCVI(ns, volID, pvcName, "uuid", csivolumeinfov1alpha1.OwnershipStateTransferringToVM)
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+
+	ba := makeBAWithStatusAndSpec(ns,
+		[]struct{ name, volID string }{{pvcName, volID}},
+		[]string{pvcName}) // volume IS in spec
+
+	scheme := makeVMScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	err := reconcileStaleCVIs(ctx, svc, nil, c, c, ba)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// TRANSFERRING_TO_VM must remain unchanged (volume is in spec; stale reconciler must not touch it).
+	if cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateTransferringToVM {
+		t.Errorf("expected TRANSFERRING_TO_VM unchanged, got %q", cvi.Status.OwnershipState)
+	}
+}
+
+// TestReconcileStaleCVIs_VMDeletedAdvancesToTransferringToCSI verifies that a
+// VM_MANAGED CVI whose volume is not in spec and whose VM no longer exists is
+// advanced to TRANSFERRING_TO_CSI.
+func TestReconcileStaleCVIs_VMDeletedAdvancesToTransferringToCSI(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "ns-stale-vmdel"
+		pvcName = "pvc-vmdel"
+		volID   = "vol-vmdel"
+		vmName  = "deleted-vm"
+	)
+	cvi := makeCVI(ns, volID, pvcName, "uuid", csivolumeinfov1alpha1.OwnershipStateVMManaged)
+	cvi.Status.VMName = vmName
+
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+
+	ba := makeBAWithStatusAndSpec(ns,
+		[]struct{ name, volID string }{{pvcName, volID}},
+		nil) // volume NOT in spec
+
+	// VM does NOT exist in K8s.
+	scheme := makeVMScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	err := reconcileStaleCVIs(ctx, svc, nil, c, c, ba)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// CVI should be advanced to TRANSFERRING_TO_CSI.
+	if cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateTransferringToCSI {
+		t.Errorf("expected TRANSFERRING_TO_CSI, got %q", cvi.Status.OwnershipState)
+	}
+}
+
+// TestReconcileStaleCVIs_SnapshotRetainedIsNoop verifies that a snapshot-retained
+// CVI (VM_MANAGED + vmName="") is not touched.
+func TestReconcileStaleCVIs_SnapshotRetainedIsNoop(t *testing.T) {
+	ctx := context.Background()
+	const (
+		ns      = "ns-stale-snap"
+		pvcName = "pvc-snap"
+		volID   = "vol-snap"
+	)
+	cvi := makeCVI(ns, volID, pvcName, "uuid", csivolumeinfov1alpha1.OwnershipStateVMManaged)
+	cvi.Status.VMName = "" // snapshot-retained
+
+	svc := &fakeCVISvc{
+		cviByVolID:    map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{volID: cvi},
+		cviBydiskUUID: map[string]*csivolumeinfov1alpha1.CsiVolumeInfo{},
+	}
+
+	ba := makeBAWithStatusAndSpec(ns,
+		[]struct{ name, volID string }{{pvcName, volID}},
+		nil)
+
+	scheme := makeVMScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	err := reconcileStaleCVIs(ctx, svc, nil, c, c, ba)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// VM_MANAGED with empty vmName must remain unchanged.
+	if cvi.Status.OwnershipState != csivolumeinfov1alpha1.OwnershipStateVMManaged {
+		t.Errorf("expected VM_MANAGED unchanged, got %q", cvi.Status.OwnershipState)
+	}
+	if cvi.Status.VMName != "" {
+		t.Errorf("expected empty vmName, got %q", cvi.Status.VMName)
+	}
+}
