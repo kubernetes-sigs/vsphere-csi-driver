@@ -746,6 +746,7 @@ data:
   "linked-clone-support": "true"
   "vsan-file-volume-service-support": "false"
   "CSI_Backup_API": "false"
+  "improved-volume-visibility": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
