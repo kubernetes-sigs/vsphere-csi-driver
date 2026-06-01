@@ -32,6 +32,8 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
 	"github.com/vmware/govmomi/vslm"
+	vslmmethods "github.com/vmware/govmomi/vslm/methods"
+	vslmtypes "github.com/vmware/govmomi/vslm/types"
 	"google.golang.org/grpc/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -133,6 +135,10 @@ type Manager interface {
 	RetrieveVStorageObject(ctx context.Context, volumeID string) (*vim25types.VStorageObject, error)
 	// ProtectVolumeFromVMDeletion sets keepAfterDeleteVm control flag on migrated volume
 	ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
+	// UnprotectVolumeFromVMDeletion clears the keepAfterDeleteVm control flag for
+	// the given volumeID using the VSLM endpoint. Unlike ClearVolumeControlFlags
+	// (CNS API, vSphere 9.2+), this works on older vSphere too.
+	UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error
 	// SetVolumeControlFlags sets control flags for a given volume.
 	SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error
 	// ClearVolumeControlFlags clears control flags for a given volume.
@@ -3680,6 +3686,39 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 		log.Infof("Successfully re-registered volume to set control flag to " +
 			"protect volume from vm deletion")
 	}
+	return nil
+}
+
+// UnprotectVolumeFromVMDeletion clears the keepAfterDeleteVm control flag for
+// the given volumeID using the VSLM endpoint. Unlike ClearVolumeControlFlags
+// (CNS API, vSphere 9.2+), VSLM is broadly available on older vSphere too.
+//
+// This is the inverse of ProtectVolumeFromVMDeletion's pre-8.0u3 path. We call
+// methods.VslmClearVStorageObjectControlFlags directly (rather than the
+// govmomi GlobalObjectManager.ClearControlFlags wrapper) because the wrapper
+// does not accept a control-flags slice and would clear ALL flags on the FCD,
+// including enableChangedBlockTracking when CBT is on.
+func (m *defaultManager) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	if err := validateManager(ctx, m); err != nil {
+		log.Errorf("failed to validate volume manager with err: %+v", err)
+		return err
+	}
+	if err := m.virtualCenter.ConnectVslm(ctx); err != nil {
+		log.Errorf("ConnectVslm failed with err: %+v", err)
+		return err
+	}
+	globalObjectManager := vslm.NewGlobalObjectManager(m.virtualCenter.VslmClient)
+	req := vslmtypes.VslmClearVStorageObjectControlFlags{
+		This:         globalObjectManager.Reference(),
+		Id:           vim25types.ID{Id: volumeID},
+		ControlFlags: []string{string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)},
+	}
+	if _, err := vslmmethods.VslmClearVStorageObjectControlFlags(ctx, m.virtualCenter.VslmClient, &req); err != nil {
+		log.Errorf("failed to clear keepAfterDeleteVm for volumeID %q with err: %v", volumeID, err)
+		return err
+	}
+	log.Infof("Successfully cleared keepAfterDeleteVm control flag for volumeID: %q", volumeID)
 	return nil
 }
 
