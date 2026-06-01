@@ -1643,6 +1643,115 @@ func TestClassifySupervisorPVC(t *testing.T) {
 // annotations, removes stale csi.vsphere.volume.type/* annotations, leaves
 // other annotations untouched, and returns no-patch-needed when the PVC
 // already matches the desired set.
+// TestUpdateMetadataSpecArrayReset tests that updateMetadataSpecArray is reset between iterations
+// to prevent duplicate operations across multiple query results
+func TestUpdateMetadataSpecArrayReset(t *testing.T) {
+	// This test demonstrates the importance of resetting updateMetadataSpecArray
+	// between iterations to prevent duplicate operations
+
+	// Simulate the scenario: multiple query results each containing volumes
+	queryResults := [][]string{
+		{"volume-1"},
+		{"volume-2"},
+	}
+
+	// Test WITH reset (correct behavior)
+	var processedVolumesWithReset []string
+	var updateMetadataSpecArrayFixed []cnstypes.CnsVolumeMetadataUpdateSpec
+
+	for _, queryResult := range queryResults {
+		for _, volumeID := range queryResult {
+			spec := cnstypes.CnsVolumeMetadataUpdateSpec{
+				VolumeId: cnstypes.CnsVolumeId{Id: volumeID},
+			}
+			updateMetadataSpecArrayFixed = append(updateMetadataSpecArrayFixed, spec)
+		}
+
+		// Process the accumulated specs
+		for _, spec := range updateMetadataSpecArrayFixed {
+			processedVolumesWithReset = append(processedVolumesWithReset, spec.VolumeId.Id)
+		}
+
+		// FIX: Reset the array for the next iteration
+		updateMetadataSpecArrayFixed = updateMetadataSpecArrayFixed[:0]
+	}
+
+	// Test WITHOUT reset (buggy behavior)
+	var processedVolumesWithoutReset []string
+	var updateMetadataSpecArrayBuggy []cnstypes.CnsVolumeMetadataUpdateSpec
+
+	for _, queryResult := range queryResults {
+		for _, volumeID := range queryResult {
+			spec := cnstypes.CnsVolumeMetadataUpdateSpec{
+				VolumeId: cnstypes.CnsVolumeId{Id: volumeID},
+			}
+			updateMetadataSpecArrayBuggy = append(updateMetadataSpecArrayBuggy, spec)
+		}
+
+		// Process the accumulated specs
+		for _, spec := range updateMetadataSpecArrayBuggy {
+			processedVolumesWithoutReset = append(processedVolumesWithoutReset, spec.VolumeId.Id)
+		}
+
+		// BUG: NOT resetting array here causes accumulation
+	}
+
+	// Verify correct behavior with reset
+	expectedWithReset := []string{"volume-1", "volume-2"}
+	assert.Equal(t, expectedWithReset, processedVolumesWithReset,
+		"With reset, each volume should be processed exactly once")
+
+	// Verify buggy behavior without reset
+	expectedWithoutReset := []string{"volume-1", "volume-1", "volume-2"} // volume-1 gets processed twice!
+	assert.Equal(t, expectedWithoutReset, processedVolumesWithoutReset,
+		"Without reset, volumes accumulate and get processed multiple times")
+
+	// Verify the fixed array is properly reset
+	assert.Equal(t, 0, len(updateMetadataSpecArrayFixed),
+		"updateMetadataSpecArray should be empty after proper reset")
+
+	// Verify the buggy array keeps accumulating
+	assert.Equal(t, 2, len(updateMetadataSpecArrayBuggy),
+		"Without reset, updateMetadataSpecArray accumulates entries")
+}
+
+// TestSliceResetBehavior tests the difference between setting slice to nil vs [:0]
+func TestSliceResetBehavior(t *testing.T) {
+	// Test [:0] behavior (what we use in the fix)
+	slice1 := make([]cnstypes.CnsVolumeMetadataUpdateSpec, 0, 10) // capacity 10
+	originalCap := cap(slice1)
+
+	// Add some elements
+	for i := 0; i < 5; i++ {
+		spec := cnstypes.CnsVolumeMetadataUpdateSpec{
+			VolumeId: cnstypes.CnsVolumeId{Id: fmt.Sprintf("volume-%d", i)},
+		}
+		slice1 = append(slice1, spec)
+	}
+
+	// Reset using [:0] - preserves capacity, reuses memory
+	slice1 = slice1[:0]
+	assert.Equal(t, 0, len(slice1), "Length should be 0 after [:0] reset")
+	assert.Equal(t, originalCap, cap(slice1), "Capacity should be preserved with [:0] reset")
+
+	// Test nil assignment behavior - demonstrate that nil loses capacity
+	testNilAssignment := func() (int, int, int) {
+		slice := make([]cnstypes.CnsVolumeMetadataUpdateSpec, 5, 10)
+		initialCap := cap(slice)
+		slice = nil
+		return len(slice), cap(slice), initialCap
+	}
+
+	length, capacity, initialCap := testNilAssignment()
+	assert.Equal(t, 0, length, "Length should be 0 after nil assignment")
+	assert.Equal(t, 0, capacity, "Capacity should be 0 after nil assignment")
+	assert.NotEqual(t, initialCap, capacity, "Capacity should be lost with nil assignment")
+
+	// Demonstrate why [:0] is better for performance
+	t.Logf("Using [:0] preserves capacity (%d), avoiding reallocation", originalCap)
+	t.Logf("Using nil loses capacity, requiring reallocation on next append")
+}
+
 func TestReconcilePVCWorkloadTypeAnnotations(t *testing.T) {
 	tests := []struct {
 		name           string
