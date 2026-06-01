@@ -79,6 +79,7 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 			// From `wcp-cluster-capabilities` configmap in supervisor
 			"Workload_Domain_Isolation_Supported": "false",
 			"supports_CSI_Backup_API":             "false",
+			"supports_vm_owned_volumes":           "false",
 		}
 
 		fakeCO := &FakeK8SOrchestrator{

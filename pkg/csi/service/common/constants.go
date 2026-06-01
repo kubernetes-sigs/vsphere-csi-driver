@@ -620,6 +620,12 @@ const (
 	// on the supervisor.
 	VMPVCStoragePolicyMutabilityFSS = "VM_PVC_STORAGE_POLICY_MUTABILITY"
 
+	// VMOwnedVolumes is the WCP capability that gates the VM-owned volume
+	// attach/detach path. When enabled, the CSI driver creates CsiVolumeInfo
+	// CRs for new PVCs and uses FCD unregister/re-register instead of
+	// CnsAttachVolume/CnsDetachVolume for greenfield VMs.
+	VMOwnedVolumes = "supports_vm_owned_volumes"
+
 	// AnnMigrationCRKind is the SV PVC annotation set by the Mobility Operator that
 	// names the kind of the migration CR it created (one of MigrationCRKindVMInfra
 	// or MigrationCRKindVolume). The CSI Syncer uses this annotation, together with
@@ -664,6 +670,7 @@ var WCPFeatureStates = map[string]struct{}{
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
+	VMOwnedVolumes:                          {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -683,6 +690,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
+	VMOwnedVolumes:                          {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
