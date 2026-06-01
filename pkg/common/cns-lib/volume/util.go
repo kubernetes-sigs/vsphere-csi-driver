@@ -614,7 +614,7 @@ func IsNotSupportedFault(ctx context.Context, fault *types.LocalizedMethodFault)
 			log.Errorf("observed fault with nil cause")
 		}
 	} else {
-		log.Errorf("can not typecast fault to CnsFault")
+		log.Errorf("cannot typecast fault to CnsFault")
 	}
 	return false
 }
