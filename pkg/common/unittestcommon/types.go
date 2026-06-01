@@ -175,12 +175,12 @@ func (m *MockVolumeManager) ResetManager(ctx context.Context, vcenter *vsphere.V
 	return nil
 }
 func (m *MockVolumeManager) QueryFCDAllocatedBlocks(ctx context.Context,
-	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) ([]cnsvolume.AllocatedArea, uint64, error) {
+	volumeID, snapshotID string, startingOffset uint64) ([]cnsvolume.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 func (m *MockVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
-	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
-	[]cnsvolume.ChangedArea, uint64, error) {
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64) (
+	[]cnsvolume.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 func (m *MockVolumeManager) ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error {

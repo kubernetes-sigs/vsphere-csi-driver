@@ -144,14 +144,14 @@ func (m *mockVolumeManager) ResetManager(ctx context.Context, vcenter *cnsvspher
 }
 
 func (m *mockVolumeManager) QueryFCDAllocatedBlocks(ctx context.Context,
-	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) ([]cnsvolume.AllocatedArea, uint64, error) {
+	volumeID, snapshotID string, startingOffset uint64) ([]cnsvolume.DiskArea, uint64, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 func (m *mockVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
-	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
-	[]cnsvolume.ChangedArea, uint64, error) {
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64) (
+	[]cnsvolume.DiskArea, uint64, error) {
 	//TODO implement me
 	panic("implement me")
 }
