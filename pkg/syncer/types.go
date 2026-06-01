@@ -70,10 +70,14 @@ const (
 )
 
 var (
-	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s
-	// If a volume exists in this map across two fullsync cycles,
-	// the volume is deleted from CNS
-	// A separate map is maintained for each VC.
+	// cnsDeletionMap tracks volumes that exist in CNS but not in K8s.
+	// It serves as the pv_missing grace tracker: if a volume exists in this
+	// map across two fullsync cycles, it is labeled with `pv_missing=true` on
+	// its existing CNS PV-type entity metadata (it is NOT deleted/unregistered
+	// from CNS — that legacy behaviour was removed per the cns-health-
+	// initiative design). A separate map is maintained for each VC.
+	// The historical name is preserved to minimize churn in the syncer code
+	// and tests.
 	cnsDeletionMap map[string]map[string]bool
 
 	// cnsCreationMap tracks volumes that exist in K8s but not in CNS

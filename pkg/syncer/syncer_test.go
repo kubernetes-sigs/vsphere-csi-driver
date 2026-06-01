@@ -40,6 +40,7 @@ import (
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -655,8 +656,10 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 	cnsDeletionMap = make(map[string]map[string]bool)
 	cnsDeletionMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
-	// PV does not exist in K8S, but volume exist in CNS cache.
-	// FullSync should delete this volume from CNS cache after two cycles.
+	// PV does not exist in K8S, but volume exists in CNS cache.
+	// Per the cns-health-initiative design, fullsync no longer unregisters
+	// such volumes; instead it labels them with pv_missing=true on their
+	// PV-type CnsKubernetesEntityMetadata after a two-cycle grace period.
 	waitForListerSync()
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
@@ -667,14 +670,39 @@ func runTestFullSyncWorkflows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify if volume has been deleted from cache.
+	// Verify the volume is still registered in CNS and now carries the
+	// pv_missing=true label on a PV-type entity.
 	queryResult, err = virtualCenter.CnsClient.QueryVolume(ctx, &queryFilter)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(queryResult.Volumes) != 0 {
-		t.Fatalf("Full sync failed to remove volume")
+	if len(queryResult.Volumes) != 1 {
+		t.Fatalf("Full sync should have retained the volume; got %d volume(s)", len(queryResult.Volumes))
+	}
+	foundPVMissing := false
+	for _, baseEm := range queryResult.Volumes[0].Metadata.EntityMetadata {
+		em, ok := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok {
+			continue
+		}
+		if em.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		for _, kv := range em.Labels {
+			if kv.Key == prometheus.PrometheusPVMissingLabelKey &&
+				kv.Value == prometheus.PrometheusPVMissingLabelValue {
+				foundPVMissing = true
+				break
+			}
+		}
+		if foundPVMissing {
+			break
+		}
+	}
+	if !foundPVMissing {
+		t.Fatalf("Full sync did not apply pv_missing=true label after two cycles; queryResult: %+v",
+			spew.Sdump(queryResult))
 	}
 
 	// PV and PVC exist in K8S, but does not exist in CNS cache.

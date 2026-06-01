@@ -540,6 +540,12 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Static PV deletion no longer drives CNS unregister via full-sync
+		// (cns-health-initiative). Explicitly unregister the CNS volume
+		// while keeping the FCD so PV-2 below can re-register against it.
+		ginkgo.By("Explicitly unregistering CNS volume (deleteDisk=false) so the same FCD can back PV-2")
+		err = e2eVSphere.cnsDeleteVolume(ctx, pv.Spec.CSI.VolumeHandle, false)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -554,8 +560,13 @@ var _ = ginkgo.Describe("Basic Static Provisioning", func() {
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Final cleanup: unregister and delete the underlying FCD as well.
+		ginkgo.By("Explicitly deleting CNS volume + FCD for PV-2 (cns-health-initiative cleanup)")
+		err = e2eVSphere.cnsDeleteVolume(ctx, pv2.Spec.CSI.VolumeHandle, true)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		deleteFCDRequired = false
 		pv = nil
 	})
 

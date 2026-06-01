@@ -641,6 +641,13 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration create/delete tests"
 			if !isPvDeleted {
 				err = client.CoreV1().PersistentVolumes().Delete(ctx, pv.Name, *metav1.NewDeleteOptions(0))
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				// PV is statically-provisioned with no PVC binding by the
+				// time this defer fires; the controller-side DeleteVolume
+				// RPC will not be invoked, and per the cns-health-initiative
+				// change full-sync only labels the volume pv_missing=true
+				// instead of unregistering it. Drive the cleanup explicitly.
+				err = e2eVSphere.cnsDeleteVolume(ctx, fcdID, true)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = e2eVSphere.waitForCNSVolumeToBeDeleted(fcdID)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
