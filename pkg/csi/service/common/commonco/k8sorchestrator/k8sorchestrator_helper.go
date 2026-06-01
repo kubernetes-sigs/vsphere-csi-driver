@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
 // getPVCAnnotations fetches annotations from PVC bound to passed volumeID and
@@ -93,9 +94,30 @@ func (c *K8sOrchestrator) updatePVCAnnotations(ctx context.Context,
 				log.Debugf("Updating annotation %s on pvc %s/%s to value: %s", key, pvcNamespace, pvcName, val)
 			}
 		}
-		_, err = c.k8sClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Update(ctx, pvcObj, metav1.UpdateOptions{})
+		
+		// Patch PVC with updated annotations
+		restClientConfig, err := k8s.GetKubeConfig(ctx)
 		if err != nil {
-			log.Errorf("failed to update pvc annotations %s/%s with err:%+v", pvcNamespace, pvcName, err)
+			log.Errorf("failed to get kubeconfig with err:%+v", err)
+			return err
+		}
+		coreV1Client, err := k8s.NewClientForGroup(ctx, restClientConfig, v1.SchemeGroupVersion.Group)
+		if err != nil {
+			log.Errorf("failed to create client with err:%+v", err)
+			return err
+		}
+		originalPVC := pvcObj.DeepCopy()
+		// Reset modified annotations to create proper patch
+		for key, val := range annotations {
+			if val == "" {
+				originalPVC.Annotations[key] = "placeholder"
+			} else {
+				delete(originalPVC.Annotations, key)
+			}
+		}
+		err = k8s.PatchObject(ctx, coreV1Client, originalPVC, pvcObj)
+		if err != nil {
+			log.Errorf("failed to patch pvc annotations %s/%s with err:%+v", pvcNamespace, pvcName, err)
 			return err
 		}
 		return nil

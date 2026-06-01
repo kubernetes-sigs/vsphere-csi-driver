@@ -632,7 +632,9 @@ func protectInstance(ctx context.Context, c client.Client, obj *v1a1.CnsUnregist
 	}
 
 	log.Info("adding finalizer to instance")
-	return c.Update(ctx, obj)
+	original := obj.DeepCopy()
+	controllerutil.RemoveFinalizer(original, cnsoptypes.CNSUnregisterVolumeFinalizer)
+	return c.Patch(ctx, obj, client.MergeFrom(original))
 }
 
 // removeFinalizer removes finalizer from the CnsUnregisterVolume instance to allow deletion.
@@ -643,7 +645,9 @@ func removeFinalizer(ctx context.Context, c client.Client, obj *v1a1.CnsUnregist
 
 	if controllerutil.RemoveFinalizer(obj, cnsoptypes.CNSUnregisterVolumeFinalizer) {
 		log.Info("removing finalizer from instance")
-		return c.Update(ctx, obj)
+		original := obj.DeepCopy()
+		controllerutil.AddFinalizer(original, cnsoptypes.CNSUnregisterVolumeFinalizer)
+		return c.Patch(ctx, obj, client.MergeFrom(original))
 	}
 
 	log.Info("finalizer does not exist on instance")
