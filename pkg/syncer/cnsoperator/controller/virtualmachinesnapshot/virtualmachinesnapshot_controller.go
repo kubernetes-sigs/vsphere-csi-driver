@@ -42,7 +42,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -137,14 +140,39 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: apis.GroupName})
+
+	// Initialise the CsiVolumeInfo service and vCenter connection when the
+	// VM-owned volumes FSS is enabled.
+	var cviSvc csivolumeinfo.CsiVolumeInfoService
+	var vc *cnsvsphere.VirtualCenter
+	if coCommonInterface.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+		var cviErr error
+		cviSvc, cviErr = csivolumeinfo.InitCsiVolumeInfoService(ctx)
+		if cviErr != nil {
+			log.Warnf("CsiVolumeInfo service init failed in VMSnapshot controller; "+
+				"snapshot deletion reconciliation will be skipped. Err: %v", cviErr)
+			cviSvc = nil
+		}
+		vcm := cnsvsphere.GetVirtualCenterManager(ctx)
+		var vcErr error
+		vc, vcErr = vcm.GetVirtualCenter(ctx, configInfo.Cfg.Global.VCenterIP)
+		if vcErr != nil {
+			log.Warnf("failed to get VirtualCenter in VMSnapshot controller; "+
+				"vCenter snapshot tree queries will be skipped. Err: %v", vcErr)
+			vc = nil
+		}
+	}
+
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager,
-		recorder, vmSnapVMOperatorClient, volumeInfoService))
+		recorder, vmSnapVMOperatorClient, volumeInfoService, cviSvc, vc))
 }
 
 // newReconciler returns a new reconcile.Reconciler.
 func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationInfo,
 	volumeManager volumes.Manager, recorder record.EventRecorder, vmSnapVMOperatorClient client.Client,
-	volumeInfoService cnsvolumeinfo.VolumeInfoService) reconcile.Reconciler {
+	volumeInfoService cnsvolumeinfo.VolumeInfoService,
+	cviSvc csivolumeinfo.CsiVolumeInfoService,
+	vc *cnsvsphere.VirtualCenter) reconcile.Reconciler {
 	return &ReconcileVirtualMachineSnapshot{
 		client:                 mgr.GetClient(),
 		scheme:                 mgr.GetScheme(),
@@ -153,6 +181,8 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 		recorder:               recorder,
 		vmSnapVMOperatorClient: vmSnapVMOperatorClient,
 		volumeInfoService:      volumeInfoService,
+		cviService:             cviSvc,
+		vcenter:                vc,
 	}
 }
 
@@ -190,6 +220,11 @@ type ReconcileVirtualMachineSnapshot struct {
 	recorder               record.EventRecorder
 	volumeInfoService      cnsvolumeinfo.VolumeInfoService
 	vmSnapVMOperatorClient client.Client
+	// cviService provides CRUD operations for CsiVolumeInfo CRs.
+	// Set when VMOwnedVolumes FSS is enabled; used in snapshot deletion reconciliation.
+	cviService csivolumeinfo.CsiVolumeInfoService
+	// vcenter is the primary vCenter connection used for vCenter snapshot tree queries.
+	vcenter *cnsvsphere.VirtualCenter
 }
 
 // Reconcile reads that state of the cluster for a VirtualMachineSnapshot object and
@@ -256,19 +291,64 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 	deleteVMSnapshot := false
 	if vmsnapshot.DeletionTimestamp.IsZero() {
 		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
-		// If the finalizer is not present, add it.
+		// Track whether any finalizer was added in this iteration.
+		addedFinalizer := false
+
+		// If the SyncVolume finalizer is not present, add it.
 		if controllerutil.AddFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 			log.Infof("reconcileNormal: Adding finalizer %s on virtualmachinesnapshot cr %s/%s",
 				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
+			addedFinalizer = true
+		}
+
+		// When VMOwnedVolumes FSS is enabled, also ensure the CSI snapshot
+		// finalizer is present. This gates the Phase 2 PVC re-evaluation
+		// (snapshot deletion workflow) so that we can process disks before
+		// the VMSnap object is garbage-collected.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) &&
+			r.cviService != nil {
+			if controllerutil.AddFinalizer(vmsnapshot, csivolumeinfov1alpha1.SnapshotFinalizer) {
+				log.Infof("reconcileNormal: Adding CSI snapshot finalizer %s on "+
+					"virtualmachinesnapshot %s/%s",
+					csivolumeinfov1alpha1.SnapshotFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
+				addedFinalizer = true
+			}
+		}
+
+		if addedFinalizer {
 			err := r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 			if err != nil {
-				log.Errorf("reconcileNormal: error while add finalizer to "+
-					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Name, vmsnapshot.Name, err)
+				log.Errorf("reconcileNormal: error while adding finalizer(s) to "+
+					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Namespace, vmsnapshot.Name, err)
 				return err
 			}
 			return nil
 		}
 	}
+
+	// Handle CSI snapshot finalizer deletion path (Phase 2 PVC re-evaluation):
+	// Process volumes when the CSI snapshot finalizer is present but the
+	// vm-operator VMSnapshot finalizer has already been removed, meaning vCenter
+	// snapshot deletion is complete and we can now re-evaluate which disks
+	// are still retained by other snapshots.
+	if !vmsnapshot.DeletionTimestamp.IsZero() &&
+		controllerutil.ContainsFinalizer(vmsnapshot, csivolumeinfov1alpha1.SnapshotFinalizer) &&
+		!controllerutil.ContainsFinalizer(vmsnapshot, VMSnapshotFinalizer) &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) &&
+		r.cviService != nil {
+		log.Infof("reconcileNormal: processing CSI snapshot finalizer deletion for "+
+			"virtualmachinesnapshot %s/%s", vmsnapshot.Namespace, vmsnapshot.Name)
+		if err := r.reconcileSnapshotDeletion(ctx, log, vmsnapshot); err != nil {
+			return err
+		}
+		// All disks processed. Remove the CSI snapshot finalizer.
+		vmSnapshotPatch := client.MergeFrom(vmsnapshot.DeepCopy())
+		controllerutil.RemoveFinalizer(vmsnapshot, csivolumeinfov1alpha1.SnapshotFinalizer)
+		log.Infof("reconcileNormal: removing CSI snapshot finalizer from "+
+			"virtualmachinesnapshot %s/%s", vmsnapshot.Namespace, vmsnapshot.Name)
+		return r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
+	}
+
 	if !vmsnapshot.DeletionTimestamp.IsZero() &&
 		controllerutil.ContainsFinalizer(vmsnapshot, SyncVolumeFinalizer) {
 		if !controllerutil.ContainsFinalizer(vmsnapshot, VMSnapshotFinalizer) {

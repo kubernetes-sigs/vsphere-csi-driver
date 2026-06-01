@@ -859,7 +859,7 @@ func TestRemovePvcProtectionFinalizersForTrackedPVCs_AllSucceed(t *testing.T) {
 		return nil
 	}
 
-	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient, nil)
 	assert.NoError(t, err)
 
 	for _, vol := range instance.Status.VolumeStatus {
@@ -890,7 +890,7 @@ func TestRemovePvcProtectionFinalizersForTrackedPVCs_RemoveFinalizerErrorUpdates
 		return wantErr
 	}
 
-	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient, nil)
 	assert.ErrorIs(t, err, wantErr)
 
 	require.Len(t, instance.Status.VolumeStatus, 1)
@@ -922,7 +922,7 @@ func TestRemovePvcProtectionFinalizersForTrackedPVCs_NoTrackedPVCs(t *testing.T)
 		return nil
 	})
 
-	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient)
+	err := removePvcProtectionFinalizersForTrackedPVCs(ctx, instance, crClient, clientset, cnsOperatorClient, nil)
 	assert.NoError(t, err)
 	assert.False(t, called, "removePvcFinalizer should not run when there are no tracked PVCs")
 }

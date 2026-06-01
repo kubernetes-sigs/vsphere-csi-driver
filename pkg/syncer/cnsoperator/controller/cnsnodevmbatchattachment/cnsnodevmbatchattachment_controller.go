@@ -37,6 +37,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -54,6 +55,8 @@ import (
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -164,14 +167,46 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
+
+	// Initialise the CsiVolumeInfo service when the VM-owned volumes FSS is
+	// enabled. The service is a package-level singleton; errors are non-fatal
+	// here — the reconciler will fall back to the legacy attach path.
+	var cviSvc csivolumeinfo.CsiVolumeInfoService
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+		var cviErr error
+		cviSvc, cviErr = csivolumeinfo.InitCsiVolumeInfoService(ctx)
+		if cviErr != nil {
+			log.Warnf("CsiVolumeInfo service initialisation failed; VMOwnedVolumes attach path will be skipped. Err: %v",
+				cviErr)
+			cviSvc = nil
+		}
+
+		// Run startup crash recovery for any PENDING_UNREGISTER records that
+		// were left behind by a previous CSI crash. This runs asynchronously
+		// so it does not block controller startup. The BA reconcile-time check
+		// (Layer 2) provides defense-in-depth for any records missed here.
+		if cviSvc != nil {
+			mgrClient := mgr.GetClient()
+			go func() {
+				recoveryCtx, _ := logger.GetNewContextWithLogger()
+				if recErr := RecoverPendingUnregisters(recoveryCtx, volumeManager, cviSvc,
+					mgrClient); recErr != nil {
+					logger.GetLogger(recoveryCtx).Errorf(
+						"PENDING_UNREGISTER startup recovery failed: %v", recErr)
+				}
+			}()
+		}
+	}
+
 	return add(mgr, newReconciler(mgr, configInfo, volumeManager, vmOperatorClient, cnsOperatorClient,
-		recorder, cbtClient))
+		recorder, cbtClient, cviSvc))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	volumeManager volumes.Manager, vmOperatorClient client.Client,
 	cnsOperatorClient client.Client,
-	recorder record.EventRecorder, cbtClient client.Client) reconcile.Reconciler {
+	recorder record.EventRecorder, cbtClient client.Client,
+	cviSvc csivolumeinfo.CsiVolumeInfoService) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
 		configInfo: *configInfo, volumeManager: volumeManager,
@@ -179,6 +214,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		cnsOperatorClient: cnsOperatorClient,
 		recorder:          recorder,
 		cbtClient:         cbtClient,
+		cviService:        cviSvc,
 		instanceLock:      sync.Map{}}
 }
 
@@ -221,6 +257,10 @@ type Reconciler struct {
 	// cbtClient is set when isCSIBackupAPIEnabled (CSI_Backup_API FSS on); used for
 	// namespace-scoped CBTConfig lookups before batch attach.
 	cbtClient client.Client
+	// cviService provides CRUD operations for CsiVolumeInfo CRs.
+	// It is set when the VMOwnedVolumes FSS is enabled and is used by the
+	// ownership-transfer attach and detach paths.
+	cviService csivolumeinfo.CsiVolumeInfoService
 	// instanceLock to ensure that for an instance we have only
 	// one reconciliation at a time.
 	instanceLock sync.Map
@@ -332,7 +372,8 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil && vm == nil {
 		log.Infof("Instance %s is being deleted and VM object is also deleted from VC", request.NamespacedName.String())
 
-		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client, k8sClient, r.cnsOperatorClient)
+		patchErr := removeFinalizerFromCRDInstance(batchAttachCtx, instance, r.client, k8sClient, r.cnsOperatorClient,
+			r.cviService)
 		if patchErr != nil {
 			log.Errorf("failed to update CnsNodeVMBatchAttachment %s. Err: %s", instance.Name, patchErr)
 			return r.completeReconciliationWithError(batchAttachCtx, instance, request.NamespacedName, timeout, patchErr)
@@ -405,7 +446,8 @@ func (r *Reconciler) reconcileInstanceWithDeletionTimestamp(ctx context.Context,
 	}
 
 	// CR is being deleted and all volumes were detached successfully.
-	return removeFinalizerFromCRDInstance(ctx, instance, r.client, k8sClient, r.cnsOperatorClient)
+	return removeFinalizerFromCRDInstance(ctx, instance, r.client, k8sClient, r.cnsOperatorClient,
+		r.cviService)
 }
 
 // reconcileInstanceWithoutDeletionTimestamp calls CNS batch attach for all volumes in instance spec
@@ -433,6 +475,18 @@ func (r *Reconciler) reconcileInstanceWithoutDeletionTimestamp(ctx context.Conte
 	attachErr := r.processBatchAttach(ctx, k8sClient, vm, instance, volumesToAttach)
 	if attachErr != nil {
 		log.Errorf("failed to attach all volumes. Err: %+v", attachErr)
+	}
+
+	// Run the stale CVI safety reconciler to detect and heal any CVIs that are
+	// stuck in a transient state (e.g., after a VM deletion or a crash that the
+	// Layer-1 startup scan and Layer-2 attach checks did not handle).
+	if r.cviService != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+		if staleErr := reconcileStaleCVIs(ctx, r.cviService, r.volumeManager,
+			r.vmOperatorClient, r.client, instance); staleErr != nil {
+			log.Warnf("reconcileInstanceWithoutDeletionTimestamp: stale CVI reconciler "+
+				"encountered an error: %v", staleErr)
+		}
 	}
 
 	return errors.Join(attachErr, detachErr)
@@ -469,9 +523,51 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 
 	volumesThatFailedToDetach := make([]string, 0)
 
+	// When the VMOwnedVolumes FSS is enabled, resolve the VM name once and
+	// check whether the VM uses the ownership-transfer detach path.
+	var vmName string
+	var isVMOwnedVolumesVM bool
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) &&
+		r.cviService != nil {
+		var vmNameErr error
+		vmName, vmNameErr = getVMNameByInstanceUUID(ctx, r.vmOperatorClient,
+			instance.Spec.InstanceUUID, instance.Namespace)
+		if vmNameErr != nil {
+			log.Warnf("detachVolumes: failed to resolve VM name for instanceUUID %q; "+
+				"using legacy detach path for all volumes. Err: %v",
+				instance.Spec.InstanceUUID, vmNameErr)
+		} else if vmName != "" {
+			var checkErr error
+			isVMOwnedVolumesVM, checkErr = IsVMOwnedVolumesVM(ctx, r.vmOperatorClient,
+				instance.Namespace, vmName)
+			if checkErr != nil {
+				log.Warnf("detachVolumes: IsVMOwnedVolumesVM check failed for %s/%s; "+
+					"falling back to legacy detach. Err: %v",
+					instance.Namespace, vmName, checkErr)
+				isVMOwnedVolumesVM = false
+			}
+		}
+	}
+
 	for pvc, volumeId := range volumesToDetach {
 		log.Infof("Detach call started for PVC %s with volumeID %s in namespace %s for instance %s",
 			pvc, volumeId, instance.Namespace, instance.Name)
+
+		// For VMs with the VMOwnedVolumes annotation all volumes use the
+		// ownership-transfer detach path — the legacy CNS DetachVolume is
+		// never called for these VMs.
+		if isVMOwnedVolumesVM {
+			if detachErr := reconcileVMOwnedVolumesDetach(ctx,
+				r.cviService, r.volumeManager, r.client,
+				vm, instance, pvc, volumeId, &r.configInfo); detachErr != nil {
+				log.Errorf("detachVolumes: VMOwnedVolumes detach failed for PVC %s: %v",
+					pvc, detachErr)
+				updateInstanceVolumeStatus(ctx, instance, "", pvc, "", "", detachErr,
+					v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
+				volumesThatFailedToDetach = append(volumesThatFailedToDetach, pvc)
+			}
+			continue
+		}
 
 		// Call CNS DetachVolume
 		faulttype, detachErr := r.volumeManager.DetachVolume(ctx, vm, volumeId)
@@ -495,6 +591,11 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			// Remove finalizer from the PVC as the detach was successful.
 			volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient, r.cnsOperatorClient,
 				instance, pvc, volumesThatFailedToDetach)
+			// Attempt lazy CVI creation for volumes provisioned before the VMOwnedVolumes FSS was enabled.
+			go MaybeLazilyCreateCVI(ctx, vm, r.volumeManager,
+				instance.Namespace,
+				volumeId, pvc, "", "",
+				getVolumeStatusConditions(instance, pvc))
 		}
 		log.Infof("Detach call ended for PVC %s in namespace %s for instance %s",
 			pvc, instance.Namespace, instance.Name)
@@ -502,6 +603,18 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 
 	// Send back list of volumes which failed to attach.
 	return volumesThatFailedToDetach
+}
+
+// getVolumeStatusConditions returns the conditions for the given PVC from the
+// instance status. Returns nil if no matching status entry is found.
+func getVolumeStatusConditions(
+	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcName string) []metav1.Condition {
+	for _, vs := range instance.Status.VolumeStatus {
+		if vs.PersistentVolumeClaim.ClaimName == pvcName {
+			return vs.PersistentVolumeClaim.Conditions
+		}
+	}
+	return nil
 }
 
 // removeFinalizerAndStatusEntry removes finalizer from the given PVC and
@@ -555,12 +668,84 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 			instance.Namespace)
 	}
 
+	// When the VMOwnedVolumes FSS is enabled, check once whether this VM
+	// carries the annotation. If it does, all volumes use the
+	// ownership-transfer attach path and BatchAttachVolumes is not called.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) &&
+		r.cviService != nil {
+		vmName, vmNameErr := getVMNameByInstanceUUID(ctx, r.vmOperatorClient,
+			instance.Spec.InstanceUUID, instance.Namespace)
+		if vmNameErr != nil {
+			log.Warnf("processBatchAttach: failed to resolve VM name for instanceUUID %q; "+
+				"falling back to legacy attach path. Err: %v",
+				instance.Spec.InstanceUUID, vmNameErr)
+		} else if vmName != "" {
+			isVMOwned, checkErr := IsVMOwnedVolumesVM(ctx, r.vmOperatorClient,
+				instance.Namespace, vmName)
+			if checkErr != nil {
+				log.Warnf("processBatchAttach: IsVMOwnedVolumesVM check failed for %s/%s; "+
+					"falling back to legacy attach path. Err: %v",
+					instance.Namespace, vmName, checkErr)
+			} else if isVMOwned {
+				log.Infof("processBatchAttach: VM %s/%s uses ownership-transfer attach path",
+					instance.Namespace, vmName)
+				for pvcName, volumeID := range volumesToAttach {
+					// Derive volumeName for status updates from the spec.
+					var volumeName string
+					for _, v := range instance.Spec.Volumes {
+						if v.PersistentVolumeClaim.ClaimName == pvcName {
+							volumeName = v.Name
+							break
+						}
+					}
+
+					// Layer-2 crash recovery: if CVI is already TRANSFERRING_TO_VM but
+					// BA status does not yet have AttachMethod=Reconfig, resume from
+					// A.4 by writing BA status directly. The FCD has already been
+					// unregistered; no need to call UnregisterVolume again.
+					cvi, cviLookupErr := r.cviService.GetCsiVolumeInfo(ctx,
+						instance.Namespace, volumeID)
+					if cviLookupErr == nil && cvi != nil &&
+						cvi.Status.OwnershipState == csivolumeinfov1alpha1.OwnershipStateTransferringToVM {
+						if !hasAttachMethodReconfig(instance, volumeName) {
+							log.Infof("processBatchAttach: Layer-2 crash recovery for volume %q: "+
+								"CVI is TRANSFERRING_TO_VM but BA status missing AttachMethod=Reconfig; "+
+								"resuming from A.4", volumeID)
+							setBAVolumeAttachMethodReconfig(ctx, instance, volumeName, pvcName,
+								volumeID, cvi.Status.DiskUUID, cvi.Status.DiskPath)
+						} else {
+							log.Infof("processBatchAttach: volume %q is TRANSFERRING_TO_VM with "+
+								"AttachMethod=Reconfig already set; no action needed", volumeID)
+						}
+						continue
+					}
+
+					if attachErr := processVMOwnedVolumesAttach(ctx,
+						r.cviService, r.vmOperatorClient, r.volumeManager,
+						instance, vmName, instance.Spec.InstanceUUID,
+						pvcName, volumeID, volumeName); attachErr != nil {
+						log.Errorf("processBatchAttach: VMOwnedVolumes attach failed for PVC %s: %v",
+							pvcName, attachErr)
+						err = errors.Join(err, attachErr)
+					}
+				}
+				// Persist BA status changes and return — this path never
+				// falls through to BatchAttachVolumes.
+				if patchErr := patchBAStatus(ctx, r.client, instance); patchErr != nil {
+					log.Errorf("processBatchAttach: failed to patch BA status: %v", patchErr)
+					err = errors.Join(err, patchErr)
+				}
+				return err
+			}
+		}
+	}
+
 	// Construct batch attach request
-	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, err := constructBatchAttachRequest(ctx,
+	pvcsInAttachList, volumeIdsInAttachList, batchAttachRequest, batchErr := constructBatchAttachRequest(ctx,
 		volumesToAttach, instance)
-	if err != nil {
-		log.Errorf("failed to construct batch attach request. Err: %s", err)
-		return err
+	if batchErr != nil {
+		log.Errorf("failed to construct batch attach request. Err: %s", batchErr)
+		return errors.Join(err, batchErr)
 	}
 
 	// Manage CBT for each volume before batch attach.
@@ -601,10 +786,11 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		if result.Error == nil {
 			reason = ""
 			// Add finalizer on PVC as attach was successful.
-			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.InstanceUUID)
-			if err != nil {
+			finalizerErr := addPvcFinalizer(ctx, r.client, k8sClient, pvcName,
+				instance.Namespace, instance.Spec.InstanceUUID)
+			if finalizerErr != nil {
 				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
-				result.Error = err
+				result.Error = finalizerErr
 				attachErr = errors.Join(attachErr,
 					fmt.Errorf("failure during attach of PVC %s", pvcName))
 			}
@@ -614,7 +800,7 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 			v1alpha1.ConditionAttached, reason)
 
 	}
-	return attachErr
+	return errors.Join(err, attachErr)
 }
 
 // recordEvent records the event, sets the backOffDuration for the instance

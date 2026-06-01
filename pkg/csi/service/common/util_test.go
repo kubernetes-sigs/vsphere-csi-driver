@@ -960,6 +960,13 @@ func (m *cbtFlagsMockVolumeManager) QueryFCDChangedBlocks(context.Context,
 	string, string, string, uint64, uint32) ([]cnsvolume.ChangedArea, uint64, error) {
 	return nil, 0, nil
 }
+func (m *cbtFlagsMockVolumeManager) QueryPendingUnregisters(
+	_ context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) AckUnregister(_ context.Context, _ string) error {
+	return nil
+}
 
 func TestSyncVolumeCBTState(t *testing.T) {
 	ctx := context.Background()

@@ -54,6 +54,27 @@ const (
 	ReasonDetachFailed = "DetachFailed"
 	// ReasonFailed reflects that the CR instance is not yet ready.
 	ReasonFailed = "Failed"
+	// ReasonDroppedBySnapshotRevert reflects that the volume was removed from the VM
+	// as part of a snapshot revert operation. vSphere has already removed the disk;
+	// no ReconfigVM call is needed.
+	ReasonDroppedBySnapshotRevert = "DroppedBySnapshotRevert"
+	// ReasonDetachBlocked reflects that a ReconfigVM remove was blocked, typically
+	// because a vSphere snapshot still retains the disk.
+	ReasonDetachBlocked = "DetachBlocked"
+
+	// ConditionAttachMethod is the condition type set by CSI on a per-volume basis
+	// to communicate to vm-operator which attach mechanism was used.
+	// "Reconfig" means CSI unregistered the FCD and vm-operator should use
+	// ReconfigVM_Task with a file-backed disk. "CnsAttach" means CSI used the
+	// legacy CNS attach path.
+	ConditionAttachMethod = "AttachMethod"
+	// ReasonReconfig is the condition reason for ConditionAttachMethod when CSI
+	// has unregistered the FCD and placed diskPath + diskUUID on the volume
+	// status for vm-operator to use in ReconfigVM_Task.
+	ReasonReconfig = "Reconfig"
+	// ReasonCnsAttach is the condition reason for ConditionAttachMethod when CSI
+	// followed the legacy BatchAttachVolumes path (brownfield or FSS disabled).
+	ReasonCnsAttach = "CnsAttach"
 )
 
 // SharingMode is the sharing mode of the virtual disk.
@@ -145,8 +166,15 @@ type PersistentVolumeClaimStatus struct {
 	CnsVolumeID string `json:"cnsVolumeId,omitempty"`
 	// +optional
 
-	// DiskUUID is the ID obtained when volume is attached to a VM.
+	// DiskUUID is the stable identifier for the virtual disk
+	// (VirtualDisk.Backing.Uuid). Populated by CSI on greenfield attach so
+	// that vm-operator can verify the disk matches after ReconfigVM_Task.
 	DiskUUID string `json:"diskUUID,omitempty"`
+	// +optional
+
+	// DiskPath is the datastore path for the VMDK (populated by CSI on
+	// greenfield attach for vm-operator to use in ReconfigVM_Task).
+	DiskPath string `json:"diskPath,omitempty"`
 	// +optional
 
 	// Conditions describes any conditions associated with this volume.

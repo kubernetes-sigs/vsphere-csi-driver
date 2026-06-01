@@ -961,6 +961,13 @@ func (m *mockVolumeManagerForFullSync) UnregisterVolume(
 ) (string, error) {
 	return "", nil
 }
+func (m *mockVolumeManagerForFullSync) QueryPendingUnregisters(
+	_ context.Context) ([]volumes.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *mockVolumeManagerForFullSync) AckUnregister(_ context.Context, _ string) error {
+	return nil
+}
 
 // TestCNSQueryBatching tests CNS query batching logic
 func TestCNSQueryBatching_VaryingBatchSizes(t *testing.T) {

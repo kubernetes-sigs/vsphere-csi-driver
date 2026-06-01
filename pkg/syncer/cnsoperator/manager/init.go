@@ -38,6 +38,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
+	csivolumeinfocfg "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/config"
 	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -228,6 +229,17 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					}
 				}
 			}()
+		}
+
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+			// Create CsiVolumeInfo CRD for the VM-owned volume lifecycle model.
+			if err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				csivolumeinfocfg.EmbedCsiVolumeInfoFile,
+				csivolumeinfocfg.EmbedCsiVolumeInfoFileName); err != nil {
+				log.Errorf("failed to create CsiVolumeInfo CRD. Err: %+v", err)
+				return err
+			}
+			log.Info("CsiVolumeInfo CRD created (VMOwnedVolumes FSS enabled)")
 		}
 
 		// Create CnsVolumeMetadata CRD

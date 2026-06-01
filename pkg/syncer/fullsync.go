@@ -58,6 +58,9 @@ import (
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1csi "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 )
 
 const (
@@ -176,6 +179,55 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 				vc, skipped)
 		}
 		k8sPVs = filteredPVs
+	}
+
+	// Filter out PVs whose volumes are tracked by CsiVolumeInfo and are in a
+	// non-CSI_MANAGED state. When a volume is VM-owned, in-flight, or
+	// snapshot-retained, its FCD has been unregistered from CNS; any attempt
+	// to update CNS metadata for such a volume will fail with NotFound and
+	// produce unnecessary log noise.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+		commonco.ContainerOrchestratorUtility != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+		cviSvc, cviSvcErr := csivolumeinfo.InitCsiVolumeInfoService(ctx)
+		if cviSvcErr != nil {
+			log.Warnf("FullSync for VC %s: failed to get CsiVolumeInfo service; "+
+				"skipping VM-owned volume filter: %v", vc, cviSvcErr)
+		} else {
+			filteredPVs := make([]*v1.PersistentVolume, 0, len(k8sPVs))
+			skippedVMOwned := 0
+			for _, pv := range k8sPVs {
+				if pv.Spec.CSI == nil {
+					filteredPVs = append(filteredPVs, pv)
+					continue
+				}
+				volumeID := pv.Spec.CSI.VolumeHandle
+				_, pvcNS, ok := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+				if !ok || pvcNS == "" {
+					filteredPVs = append(filteredPVs, pv)
+					continue
+				}
+				cvi, cviErr := cviSvc.GetCsiVolumeInfo(ctx, pvcNS, volumeID)
+				if cviErr != nil {
+					log.Warnf("FullSync for VC %s: failed to check CVI for volume %q: %v; "+
+						"including in sync", vc, volumeID, cviErr)
+					filteredPVs = append(filteredPVs, pv)
+					continue
+				}
+				if cvi != nil && cvi.Status.OwnershipState != csivolumeinfov1alpha1csi.OwnershipStateCSIManaged {
+					log.Infof("FullSync for VC %s: skipping volume %q (CVI ownership state %q)",
+						vc, volumeID, cvi.Status.OwnershipState)
+					skippedVMOwned++
+					continue
+				}
+				filteredPVs = append(filteredPVs, pv)
+			}
+			if skippedVMOwned > 0 {
+				log.Infof("FullSync for VC %s: filtered out %d VM-owned/snapshot-retained "+
+					"volume(s) from CNS metadata reconciliation", vc, skippedVMOwned)
+			}
+			k8sPVs = filteredPVs
+		}
 	}
 
 	// k8sPVMap is useful for clean and quicker look up.
