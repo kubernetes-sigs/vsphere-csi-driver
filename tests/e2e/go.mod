@@ -1,6 +1,6 @@
 module sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -19,7 +19,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.36.1
 	k8s.io/apimachinery v0.36.1
-	k8s.io/client-go v1.5.2
+	k8s.io/client-go v0.36.1
 	k8s.io/kubectl v0.36.1
 	k8s.io/kubernetes v1.36.1
 	k8s.io/pod-security-admission v0.36.1
@@ -199,7 +199,7 @@ replace (
 	k8s.io/apimachinery => k8s.io/apimachinery v0.36.0
 	k8s.io/apiserver => k8s.io/apiserver v0.36.0
 	k8s.io/cli-runtime => k8s.io/cli-runtime v0.36.0
-	k8s.io/client-go => k8s.io/client-go v0.36.0
+	k8s.io/client-go => k8s.io/client-go v0.36.1
 	k8s.io/cloud-provider => k8s.io/cloud-provider v0.36.0
 	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.36.0
 	k8s.io/code-generator => k8s.io/code-generator v0.36.0
