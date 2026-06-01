@@ -79,10 +79,14 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 
-	getMetadataAllocatedInternal := func() (*csi.GetMetadataAllocatedResponse, error) {
+	// getMetadataAllocatedInternal performs the full streaming loop: it queries
+	// allocated blocks in batches (each bounded by maxResults) and sends each
+	// batch to the client via server.Send.  The loop continues until
+	// QueryFCDAllocatedBlocks signals completion by returning nextOffset == 0.
+	getMetadataAllocatedInternal := func() error {
 		// Validate request
 		if err := validateGetMetadataAllocatedRequest(ctx, req); err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"validation for GetMetadataAllocated Request: %+v has failed. Error: %v", req, err)
 		}
 
@@ -98,7 +102,7 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 		// CSI snapshot ID format: "volumeID+snapshotID"
 		volumeID, cnsSnapshotID, err := common.ParseCSISnapshotID(snapshotID)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"failed to parse snapshot ID %s: %v", snapshotID, err)
 		}
 
@@ -113,72 +117,91 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 
 		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, cnsQueryFilter)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to query volume %s: %v", volumeID, err)
 		}
 
 		if len(queryResult.Volumes) == 0 {
-			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+			return logger.LogNewErrorCodef(log, codes.NotFound,
 				"volume %s not found", volumeID)
 		}
 
 		// Verify volume type
 		cnsVolumeType := queryResult.Volumes[0].VolumeType
 		if cnsVolumeType != common.BlockVolumeType {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"GetMetadataAllocated is only supported for block volumes, got volume type: %s",
 				cnsVolumeType)
 		}
 
 		blockBacking, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 		if !ok {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return logger.LogNewErrorCodef(log, codes.Internal,
 				"volume %s does not have block backing details", volumeID)
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
-		allocatedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDAllocatedBlocks(
-			ctx, volumeID, cnsSnapshotID, uint64(startingOffset), uint32(maxResults))
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, vslmErrorToCSICode(err),
-				"failed to query allocated blocks: %v", err)
+		// GetMetadataAllocated is a server-streaming RPC. The CSI spec requires
+		// the plugin to stream ALL allocated blocks from startingOffset until the
+		// data is exhausted, sending each batch (bounded by maxResults) as a
+		// separate server.Send() message.
+		//
+		// QueryFCDAllocatedBlocks signals that a batch is not the last one by
+		// returning nextOffset > 0. We loop and re-query from nextOffset until
+		// nextOffset == 0 (all blocks delivered).
+		currentOffset := uint64(startingOffset)
+		totalBlocks := 0
+		for {
+			allocatedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDAllocatedBlocks(
+				ctx, volumeID, cnsSnapshotID, currentOffset, uint32(maxResults))
+			if err != nil {
+				return logger.LogNewErrorCodef(log, vslmErrorToCSICode(err),
+					"failed to query allocated blocks: %v", err)
+			}
+
+			if len(allocatedAreas) > 0 {
+				// Convert to CSI response format
+				blockMetadata := make([]*csi.BlockMetadata, 0, len(allocatedAreas))
+				for _, area := range allocatedAreas {
+					blockMetadata = append(blockMetadata, &csi.BlockMetadata{
+						ByteOffset: int64(area.Offset),
+						SizeBytes:  int64(area.Length),
+					})
+				}
+
+				resp := &csi.GetMetadataAllocatedResponse{
+					BlockMetadata:       blockMetadata,
+					VolumeCapacityBytes: int64(volumeCapacityBytes),
+					BlockMetadataType:   csi.BlockMetadataType_VARIABLE_LENGTH,
+				}
+				if err := server.Send(resp); err != nil {
+					return logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to send allocated metadata to client: %v", err)
+				}
+				totalBlocks += len(blockMetadata)
+			}
+
+			if nextOffset == 0 {
+				// All blocks from startingOffset have been streamed.
+				break
+			}
+			currentOffset = nextOffset
 		}
 
-		// Convert to CSI response format
-		var blockMetadata []*csi.BlockMetadata
-		for _, area := range allocatedAreas {
-			blockMetadata = append(blockMetadata, &csi.BlockMetadata{
-				ByteOffset: int64(area.Offset),
-				SizeBytes:  int64(area.Length),
-			})
-		}
-
-		response := &csi.GetMetadataAllocatedResponse{
-			BlockMetadata:       blockMetadata,
-			VolumeCapacityBytes: int64(volumeCapacityBytes),
-			BlockMetadataType:   csi.BlockMetadataType_VARIABLE_LENGTH,
-		}
-
-		// Note: CSI spec doesn't have StartingOffset in response for pagination.
-		// Clients should track nextOffset from the number of results returned.
-		// If fewer results than maxResults are returned, pagination is complete.
-
-		log.Infof("GetMetadataAllocated succeeded for snapshot %s, returned %d allocated blocks, next offset %d",
-			snapshotID, len(blockMetadata), nextOffset)
-
-		return response, nil
+		log.Infof("GetMetadataAllocated succeeded for snapshot %s, streamed %d allocated blocks total",
+			snapshotID, totalBlocks)
+		return nil
 	}
 
-	resp, err := getMetadataAllocatedInternal()
+	err := getMetadataAllocatedInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataAllocated",
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 		return err
-	} else {
-		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataAllocated",
-			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
-	return server.Send(resp)
+	prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataAllocated",
+		prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
+	return nil
 }
 
 // GetMetadataDelta returns the metadata for the changed blocks between two snapshots using
@@ -215,10 +238,14 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	start := time.Now()
 	volumeType := prometheus.PrometheusBlockVolumeType
 
-	getMetadataDeltaInternal := func() (*csi.GetMetadataDeltaResponse, error) {
+	// getMetadataDeltaInternal performs the full streaming loop: it queries
+	// changed blocks in batches (each bounded by maxResults) and sends each
+	// batch to the client via server.Send.  The loop continues until
+	// QueryFCDChangedBlocks signals completion by returning nextOffset == 0.
+	getMetadataDeltaInternal := func() error {
 		// Validate request
 		if err := validateGetMetadataDeltaRequest(ctx, req); err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"validation for GetMetadataDelta Request: %+v has failed. Error: %v", req, err)
 		}
 
@@ -237,7 +264,7 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		// must exist on the Supervisor for VSLM to query its blocks.
 		volumeID, targetCnsSnapshotID, err := common.ParseCSISnapshotID(targetSnapshotID)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"failed to parse target snapshot ID %s: %v", targetSnapshotID, err)
 		}
 
@@ -253,74 +280,91 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 
 		queryResult, err := c.manager.VolumeManager.QueryVolume(ctx, cnsQueryFilter)
 		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to query volume %s: %v", volumeID, err)
 		}
 
 		if len(queryResult.Volumes) == 0 {
-			return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+			return logger.LogNewErrorCodef(log, codes.NotFound,
 				"volume %s not found", volumeID)
 		}
 
 		// Verify volume type
 		cnsVolumeType := queryResult.Volumes[0].VolumeType
 		if cnsVolumeType != common.BlockVolumeType {
-			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
 				"GetMetadataDelta is only supported for block volumes, got volume type: %s",
 				cnsVolumeType)
 		}
 
 		blockBacking, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 		if !ok {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return logger.LogNewErrorCodef(log, codes.Internal,
 				"volume %s does not have block backing details", volumeID)
 		}
 		volumeCapacityBytes := blockBacking.CapacityInMb * common.MbInBytes
 
-		// Query changed blocks via volume manager (FCD/VSLM). baseChangeID is supplied by the caller.
-		changedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDChangedBlocks(
-			ctx, volumeID, targetCnsSnapshotID, baseChangeID, uint64(startingOffset), uint32(maxResults))
-		if err != nil {
-			return nil, logger.LogNewErrorCodef(log, vslmErrorToCSICode(err),
-				"failed to query changed blocks: %v", err)
+		// GetMetadataDelta is a server-streaming RPC. The CSI spec requires the
+		// plugin to stream ALL changed blocks from startingOffset until the data
+		// is exhausted, sending each batch (bounded by maxResults) as a separate
+		// server.Send() message.
+		//
+		// QueryFCDChangedBlocks signals that a batch is not the last one by
+		// returning nextOffset > 0. We loop and re-query from nextOffset until
+		// nextOffset == 0 (all blocks delivered).
+		currentOffset := uint64(startingOffset)
+		totalBlocks := 0
+		for {
+			changedAreas, nextOffset, err := c.manager.VolumeManager.QueryFCDChangedBlocks(
+				ctx, volumeID, targetCnsSnapshotID, baseChangeID, currentOffset, uint32(maxResults))
+			if err != nil {
+				return logger.LogNewErrorCodef(log, vslmErrorToCSICode(err),
+					"failed to query changed blocks: %v", err)
+			}
+
+			if len(changedAreas) > 0 {
+				// Convert to CSI response format
+				blockMetadata := make([]*csi.BlockMetadata, 0, len(changedAreas))
+				for _, area := range changedAreas {
+					blockMetadata = append(blockMetadata, &csi.BlockMetadata{
+						ByteOffset: int64(area.Offset),
+						SizeBytes:  int64(area.Length),
+					})
+				}
+
+				resp := &csi.GetMetadataDeltaResponse{
+					BlockMetadata:       blockMetadata,
+					VolumeCapacityBytes: int64(volumeCapacityBytes),
+					BlockMetadataType:   csi.BlockMetadataType_VARIABLE_LENGTH,
+				}
+				if err := server.Send(resp); err != nil {
+					return logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to send delta metadata to client: %v", err)
+				}
+				totalBlocks += len(blockMetadata)
+			}
+
+			if nextOffset == 0 {
+				// All blocks from startingOffset have been streamed.
+				break
+			}
+			currentOffset = nextOffset
 		}
 
-		// Convert to CSI response format
-		var blockMetadata []*csi.BlockMetadata
-		for _, area := range changedAreas {
-			blockMetadata = append(blockMetadata, &csi.BlockMetadata{
-				ByteOffset: int64(area.Offset),
-				SizeBytes:  int64(area.Length),
-			})
-		}
-
-		response := &csi.GetMetadataDeltaResponse{
-			BlockMetadata:       blockMetadata,
-			VolumeCapacityBytes: int64(volumeCapacityBytes),
-			BlockMetadataType:   csi.BlockMetadataType_VARIABLE_LENGTH,
-		}
-
-		// Note: CSI spec doesn't have StartingOffset in response for pagination.
-		// Clients should track nextOffset from the number of results returned.
-		// If fewer results than maxResults are returned, pagination is complete.
-
-		log.Infof("GetMetadataDelta succeeded for target snapshot %s, "+
-			"returned %d changed blocks, next offset %d",
-			targetSnapshotID, len(blockMetadata), nextOffset)
-
-		return response, nil
+		log.Infof("GetMetadataDelta succeeded for target snapshot %s, streamed %d changed blocks total",
+			targetSnapshotID, totalBlocks)
+		return nil
 	}
 
-	resp, err := getMetadataDeltaInternal()
+	err := getMetadataDeltaInternal()
 	if err != nil {
 		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataDelta",
 			prometheus.PrometheusFailStatus, "NotComputed").Observe(time.Since(start).Seconds())
 		return err
-	} else {
-		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataDelta",
-			prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
 	}
-	return server.Send(resp)
+	prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, "GetMetadataDelta",
+		prometheus.PrometheusPassStatus, "").Observe(time.Since(start).Seconds())
+	return nil
 }
 
 // validateGetMetadataAllocatedRequest validates the GetMetadataAllocated request

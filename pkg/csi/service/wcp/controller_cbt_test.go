@@ -39,8 +39,10 @@ import (
 
 type mockAllocatedServer struct {
 	grpc.ServerStream
-	ctx context.Context
-	t   *testing.T
+	ctx       context.Context
+	t         *testing.T
+	sendCount int
+	allBlocks []*csi.BlockMetadata
 }
 
 func (m *mockAllocatedServer) Context() context.Context {
@@ -48,6 +50,8 @@ func (m *mockAllocatedServer) Context() context.Context {
 }
 
 func (m *mockAllocatedServer) Send(resp *csi.GetMetadataAllocatedResponse) error {
+	m.sendCount++
+	m.allBlocks = append(m.allBlocks, resp.BlockMetadata...)
 	if m.t != nil && resp.BlockMetadataType != csi.BlockMetadataType_VARIABLE_LENGTH {
 		m.t.Errorf("Expected BlockMetadataType to be %v, got %v",
 			csi.BlockMetadataType_VARIABLE_LENGTH, resp.BlockMetadataType)
@@ -57,8 +61,10 @@ func (m *mockAllocatedServer) Send(resp *csi.GetMetadataAllocatedResponse) error
 
 type mockDeltaServer struct {
 	grpc.ServerStream
-	ctx context.Context
-	t   *testing.T
+	ctx       context.Context
+	t         *testing.T
+	sendCount int
+	allBlocks []*csi.BlockMetadata
 }
 
 func (m *mockDeltaServer) Context() context.Context {
@@ -66,6 +72,8 @@ func (m *mockDeltaServer) Context() context.Context {
 }
 
 func (m *mockDeltaServer) Send(resp *csi.GetMetadataDeltaResponse) error {
+	m.sendCount++
+	m.allBlocks = append(m.allBlocks, resp.BlockMetadata...)
 	if m.t != nil && resp.BlockMetadataType != csi.BlockMetadataType_VARIABLE_LENGTH {
 		m.t.Errorf("Expected BlockMetadataType to be %v, got %v",
 			csi.BlockMetadataType_VARIABLE_LENGTH, resp.BlockMetadataType)
@@ -474,12 +482,19 @@ func TestGetMetadataAllocated_Success(t *testing.T) {
 
 	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
 		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
-		return &types.DiskChangeInfo{
-			ChangedArea: []types.DiskChangeExtent{
-				{Start: 0, Length: 4096},
-				{Start: 4096, Length: 8192},
-			},
-		}, nil
+		// Only return areas that start at or after startingOffset so the
+		// pagination loop terminates correctly (nextOffset → 0 on the last batch).
+		all := []types.DiskChangeExtent{
+			{Start: 0, Length: 4096},
+			{Start: 4096, Length: 8192},
+		}
+		var filtered []types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+		return &types.DiskChangeInfo{ChangedArea: filtered}, nil
 	}
 
 	req := &csi.GetMetadataAllocatedRequest{
@@ -531,11 +546,18 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 
 	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
 		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
-		return &types.DiskChangeInfo{
-			ChangedArea: []types.DiskChangeExtent{
-				{Start: 8192, Length: 4096},
-			},
-		}, nil
+		// Only return areas at or after startingOffset so the pagination loop
+		// terminates correctly (nextOffset → 0 on the last batch).
+		all := []types.DiskChangeExtent{
+			{Start: 8192, Length: 4096},
+		}
+		var filtered []types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+		return &types.DiskChangeInfo{ChangedArea: filtered}, nil
 	}
 
 	// BaseSnapshotId is the vSphere CBT change-id supplied by backup software (read from the
@@ -727,4 +749,149 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 
 	runVSLMErrorPropagationCase(t, "NotFound_FCD",
 		&types.NotFound{}, "", true, codes.NotFound)
+}
+
+// TestGetMetadataAllocated_Pagination verifies that GetMetadataAllocated streams
+// multiple server.Send() messages when the total allocated blocks exceed maxResults
+// per batch. This is the core bug that caused tc_008 to fail: the old code called
+// server.Send once and ignored nextOffset, truncating the result stream.
+func TestGetMetadataAllocated_Pagination(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
+
+	origVolumeManager := ct.controller.manager.VolumeManager
+	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
+	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-alloc-pagination",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("Failed to create volume: %v", err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
+
+	// Stub the hook to return 3 contiguous areas regardless of startingOffset.
+	// With maxResults=1 the controller must call the hook 3 times (one area per
+	// batch) and issue 3 separate server.Send() calls.
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
+		// Return only the areas that start at or after startingOffset so that
+		// the pagination math matches what the real VSLM API would produce.
+		all := []types.DiskChangeExtent{
+			{Start: 0, Length: 4096},
+			{Start: 4096, Length: 4096},
+			{Start: 8192, Length: 4096},
+		}
+		var filtered []types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+		return &types.DiskChangeInfo{ChangedArea: filtered}, nil
+	}
+
+	srv := &mockAllocatedServer{ctx: ctx, t: t}
+	req := &csi.GetMetadataAllocatedRequest{
+		SnapshotId: volID + "+snapshot-pagination",
+		MaxResults: 1, // force one area per Send() call
+	}
+
+	if err := ct.controller.GetMetadataAllocated(req, srv); err != nil {
+		t.Fatalf("GetMetadataAllocated returned unexpected error: %v", err)
+	}
+
+	if srv.sendCount != 3 {
+		t.Errorf("Expected 3 server.Send() calls (one per block batch), got %d", srv.sendCount)
+	}
+	if len(srv.allBlocks) != 3 {
+		t.Errorf("Expected 3 total BlockMetadata entries, got %d", len(srv.allBlocks))
+	}
+}
+
+// TestGetMetadataDelta_Pagination is the equivalent pagination test for
+// GetMetadataDelta: verifies that multiple server.Send() calls are issued
+// when changed blocks span more than one maxResults-sized batch.
+func TestGetMetadataDelta_Pagination(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
+
+	origVolumeManager := ct.controller.manager.VolumeManager
+	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
+	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-delta-pagination",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("Failed to create volume: %v", err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
+
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
+		all := []types.DiskChangeExtent{
+			{Start: 0, Length: 4096},
+			{Start: 4096, Length: 4096},
+			{Start: 8192, Length: 4096},
+		}
+		var filtered []types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+		return &types.DiskChangeInfo{ChangedArea: filtered}, nil
+	}
+
+	srv := &mockDeltaServer{ctx: ctx, t: t}
+	req := &csi.GetMetadataDeltaRequest{
+		BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+		TargetSnapshotId: volID + "+snapshot-pagination",
+		MaxResults:       1, // force one area per Send() call
+	}
+
+	if err := ct.controller.GetMetadataDelta(req, srv); err != nil {
+		t.Fatalf("GetMetadataDelta returned unexpected error: %v", err)
+	}
+
+	if srv.sendCount != 3 {
+		t.Errorf("Expected 3 server.Send() calls (one per block batch), got %d", srv.sendCount)
+	}
+	if len(srv.allBlocks) != 3 {
+		t.Errorf("Expected 3 total BlockMetadata entries, got %d", len(srv.allBlocks))
+	}
 }
