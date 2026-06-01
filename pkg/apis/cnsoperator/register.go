@@ -32,6 +32,7 @@ import (
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	infrastoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -206,6 +207,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfo{},
 		&infrastoragepolicyinfov1alpha1.InfraStoragePolicyInfoList{},
+	)
+
+	scheme.AddKnownTypes(
+		csivolumeinfov1alpha1.SchemeGroupVersion,
+		&csivolumeinfov1alpha1.CsiVolumeInfo{},
+		&csivolumeinfov1alpha1.CsiVolumeInfoList{},
 	)
 
 	scheme.AddKnownTypes(
