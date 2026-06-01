@@ -405,6 +405,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 							"with supervisorID. Error: %+v", vc, err)
 					}
 				}
+				// Reset the array for the next queryResult iteration to prevent duplicate operations
+				updateMetadataSpecArray = updateMetadataSpecArray[:0]
 			}
 		}
 		querySelection := cnstypes.CnsQuerySelection{
