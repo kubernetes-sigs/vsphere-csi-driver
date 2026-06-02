@@ -1026,11 +1026,11 @@ func TestBuildGuestPvcAnnotation(t *testing.T) {
 			pvcNamespace: "guest-ns",
 			volumeName:   "sv-pv-1",
 			expected: map[string]string{
-				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
-				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
-				GuestClusterPvcAnnotKeyName:        "guest-pvc",
-				GuestClusterPvcAnnotKeyNamespace:   "guest-ns",
-				GuestClusterPvcAnnotKeyVolumeName:  "sv-pv-1",
+				GuestClusterAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterAnnotKeyClusterName: "my-tkc",
+				GuestClusterAnnotKeyName:        "guest-pvc",
+				GuestClusterAnnotKeyNamespace:   "guest-ns",
+				GuestClusterAnnotKeyVolumeName:  "sv-pv-1",
 			},
 		},
 		{
@@ -1038,8 +1038,8 @@ func TestBuildGuestPvcAnnotation(t *testing.T) {
 			clusterID:   "tkc-uid",
 			clusterName: "my-tkc",
 			expected: map[string]string{
-				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
-				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
+				GuestClusterAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterAnnotKeyClusterName: "my-tkc",
 			},
 		},
 		{
@@ -1050,9 +1050,9 @@ func TestBuildGuestPvcAnnotation(t *testing.T) {
 			pvcNamespace: "guest-ns",
 			volumeName:   "",
 			expected: map[string]string{
-				GuestClusterPvcAnnotKeyClusterID:   "tkc-uid",
-				GuestClusterPvcAnnotKeyClusterName: "my-tkc",
-				GuestClusterPvcAnnotKeyNamespace:   "guest-ns",
+				GuestClusterAnnotKeyClusterID:   "tkc-uid",
+				GuestClusterAnnotKeyClusterName: "my-tkc",
+				GuestClusterAnnotKeyNamespace:   "guest-ns",
 			},
 		},
 	}
@@ -1063,6 +1063,60 @@ func TestBuildGuestPvcAnnotation(t *testing.T) {
 				tt.pvcName, tt.pvcNamespace, tt.volumeName)
 			assert.Equal(t, tt.expected, got)
 			// No optional key should ever carry a blank value.
+			for k, v := range got {
+				assert.NotEmpty(t, v, "key %q must not have a blank value", k)
+			}
+		})
+	}
+}
+
+func TestBuildGuestSnapshotAnnotation(t *testing.T) {
+	tests := []struct {
+		name              string
+		clusterName       string
+		snapshotName      string
+		snapshotNamespace string
+		vscName           string
+		expected          map[string]string
+	}{
+		{
+			name:              "all fields populated",
+			clusterName:       "my-tkc",
+			snapshotName:      "guest-snap",
+			snapshotNamespace: "guest-ns",
+			vscName:           "snapcontent-abc",
+			expected: map[string]string{
+				GuestClusterAnnotKeyClusterName: "my-tkc",
+				GuestClusterAnnotKeyName:        "guest-snap",
+				GuestClusterAnnotKeyNamespace:   "guest-ns",
+				GuestClusterAnnotKeyVSCName:     "snapcontent-abc",
+			},
+		},
+		{
+			name:        "only cluster name",
+			clusterName: "my-tkc",
+			expected: map[string]string{
+				GuestClusterAnnotKeyClusterName: "my-tkc",
+			},
+		},
+		{
+			name:              "empty optional fields are omitted, not blank",
+			clusterName:       "my-tkc",
+			snapshotName:      "guest-snap",
+			snapshotNamespace: "",
+			vscName:           "",
+			expected: map[string]string{
+				GuestClusterAnnotKeyClusterName: "my-tkc",
+				GuestClusterAnnotKeyName:        "guest-snap",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildGuestSnapshotAnnotation(tt.clusterName, tt.snapshotName,
+				tt.snapshotNamespace, tt.vscName)
+			assert.Equal(t, tt.expected, got)
 			for k, v := range got {
 				assert.NotEmpty(t, v, "key %q must not have a blank value", k)
 			}

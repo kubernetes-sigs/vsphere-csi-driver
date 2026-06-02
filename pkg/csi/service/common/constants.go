@@ -421,18 +421,23 @@ const (
 	// AnnKeyGuestCluster is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
 	AnnKeyGuestClusterPvc = "csi.vsphere.volume/guest-cluster-pvc"
 
-	// The following constants are the field keys inside the JSON value stored under
-	// the AnnKeyGuestClusterPvc annotation on a supervisor PVC. They are the single
-	// source of truth shared by the provisioning path, the full-sync backfill, and
-	// the metadata-syncer cleanup so the key set cannot drift between them.
-	GuestClusterPvcAnnotKeyClusterID   = "clusterId"
-	GuestClusterPvcAnnotKeyClusterName = "clusterName"
-	GuestClusterPvcAnnotKeyName        = "name"
-	GuestClusterPvcAnnotKeyNamespace   = "namespace"
-	GuestClusterPvcAnnotKeyVolumeName  = "volumeName"
-
 	// AnnKeyGuestClusterSnapshot is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
 	AnnKeyGuestClusterSnapshot = "csi.vsphere.volume/guest-cluster-snapshot"
+
+	// The following constants are the field keys inside the JSON value stored under
+	// the guest-cluster annotations on supervisor resources: AnnKeyGuestClusterPvc
+	// on a supervisor PVC and AnnKeyGuestClusterSnapshot on a supervisor
+	// VolumeSnapshot. They are the single source of truth shared by the provisioning
+	// paths, the full-sync backfill, and the metadata-syncer cleanup so the key set
+	// cannot drift between them. clusterId/volumeName apply to PVCs and
+	// volumeSnapshotContentName applies to snapshots; clusterName/name/namespace are
+	// common to both.
+	GuestClusterAnnotKeyClusterID   = "clusterId"
+	GuestClusterAnnotKeyClusterName = "clusterName"
+	GuestClusterAnnotKeyName        = "name"
+	GuestClusterAnnotKeyNamespace   = "namespace"
+	GuestClusterAnnotKeyVolumeName  = "volumeName"
+	GuestClusterAnnotKeyVSCName     = "volumeSnapshotContentName"
 
 	// AnnKeyBackingDiskType is the type of the backing disk.
 	// It is added on the PVC during static volume provisioning

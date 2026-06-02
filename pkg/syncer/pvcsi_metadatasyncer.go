@@ -125,8 +125,8 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 					// for auditing only name and namespace are cleared.
 					var annMap map[string]string
 					if jsonErr := json.Unmarshal([]byte(annVal), &annMap); jsonErr == nil {
-						delete(annMap, common.GuestClusterPvcAnnotKeyName)
-						delete(annMap, common.GuestClusterPvcAnnotKeyNamespace)
+						delete(annMap, common.GuestClusterAnnotKeyName)
+						delete(annMap, common.GuestClusterAnnotKeyNamespace)
 						updated, marshalErr := json.Marshal(annMap)
 						if marshalErr == nil {
 							svPVC.Annotations[common.AnnKeyGuestClusterPvc] = string(updated)

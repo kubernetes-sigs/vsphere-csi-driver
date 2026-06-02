@@ -1327,11 +1327,11 @@ func TestSetGuestClusterDetailsOnSupervisorPVC_AnnotationBackfill(t *testing.T) 
 		var got map[string]string
 		require.NoError(t, json.Unmarshal([]byte(annots[common.AnnKeyGuestClusterPvc]), &got))
 		assert.Equal(t, map[string]string{
-			common.GuestClusterPvcAnnotKeyClusterID:   clusterUID,
-			common.GuestClusterPvcAnnotKeyClusterName: clusterName,
-			common.GuestClusterPvcAnnotKeyName:        guestPVCName,
-			common.GuestClusterPvcAnnotKeyNamespace:   guestPVCNS,
-			common.GuestClusterPvcAnnotKeyVolumeName:  svPVCVolName,
+			common.GuestClusterAnnotKeyClusterID:   clusterUID,
+			common.GuestClusterAnnotKeyClusterName: clusterName,
+			common.GuestClusterAnnotKeyName:        guestPVCName,
+			common.GuestClusterAnnotKeyNamespace:   guestPVCNS,
+			common.GuestClusterAnnotKeyVolumeName:  svPVCVolName,
 		}, got)
 	})
 
@@ -1345,6 +1345,105 @@ func TestSetGuestClusterDetailsOnSupervisorPVC_AnnotationBackfill(t *testing.T) 
 		annots := getUpdatedAnnot(t, fakeClient)
 		// Pre-existing annotation must be preserved untouched.
 		assert.Equal(t, existing, annots[common.AnnKeyGuestClusterPvc],
+			"pre-existing annotation must not be overwritten")
+	})
+}
+
+// TestSetGuestClusterDetailsOnSupervisorSnapshot_AnnotationBackfill tests the
+// upgrade-path annotation backfill added in setGuestClusterDetailsOnSupervisorSnapshot.
+// As with the PVC backfill, the private processor builds its own controller-runtime
+// client, so we drive the same patch sequence through the shared
+// common.BuildGuestSnapshotAnnotation helper plus k8s.PatchObject. The pure
+// key/value logic is covered directly by TestBuildGuestSnapshotAnnotation in the
+// common package.
+func TestSetGuestClusterDetailsOnSupervisorSnapshot_AnnotationBackfill(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		svVSName     = "sv-snap-1"
+		svNamespace  = "vmware-system-csi"
+		clusterName  = "my-tkc"
+		guestVSName  = "guest-snap-1"
+		guestVSNs    = "guest-ns"
+		guestVSCName = "snapcontent-guest-1"
+	)
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, snapv1.AddToScheme(scheme))
+
+	// VSC whose VolumeSnapshotRef points at the guest VolumeSnapshot.
+	vsc := &snapv1.VolumeSnapshotContent{
+		ObjectMeta: metav1.ObjectMeta{Name: guestVSCName},
+		Spec: snapv1.VolumeSnapshotContentSpec{
+			VolumeSnapshotRef: v1.ObjectReference{Name: guestVSName, Namespace: guestVSNs},
+		},
+	}
+
+	makeSVVS := func(annots map[string]string) *snapv1.VolumeSnapshot {
+		return &snapv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        svVSName,
+				Namespace:   svNamespace,
+				Annotations: annots,
+			},
+		}
+	}
+
+	// runBackfill mirrors the ImprovedVolumeVisiblity block from
+	// setGuestClusterDetailsOnSupervisorSnapshot's processFunc.
+	runBackfill := func(t *testing.T, svVS *snapv1.VolumeSnapshot, fakeClient client.Client) {
+		t.Helper()
+		if _, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]; ok {
+			return
+		}
+		guestSnapAnnot := common.BuildGuestSnapshotAnnotation(clusterName,
+			vsc.Spec.VolumeSnapshotRef.Name, vsc.Spec.VolumeSnapshotRef.Namespace, vsc.Name)
+		jsonAnnotation, err := json.Marshal(guestSnapAnnot)
+		require.NoError(t, err)
+		original := svVS.DeepCopy()
+		if svVS.Annotations == nil {
+			svVS.Annotations = make(map[string]string)
+		}
+		svVS.Annotations[common.AnnKeyGuestClusterSnapshot] = string(jsonAnnotation)
+		require.NoError(t, k8s.PatchObject(ctx, fakeClient, original, svVS))
+	}
+
+	getUpdatedAnnot := func(t *testing.T, c client.Client) map[string]string {
+		t.Helper()
+		updated := &snapv1.VolumeSnapshot{}
+		require.NoError(t, c.Get(ctx, client.ObjectKey{
+			Name: svVSName, Namespace: svNamespace,
+		}, updated))
+		return updated.Annotations
+	}
+
+	t.Run("backfills annotation when absent", func(t *testing.T) {
+		svVS := makeSVVS(nil) // nil annotations — exercises the nil-map guard
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svVS).Build()
+
+		runBackfill(t, svVS, fakeClient)
+
+		annots := getUpdatedAnnot(t, fakeClient)
+		require.Contains(t, annots, common.AnnKeyGuestClusterSnapshot)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal([]byte(annots[common.AnnKeyGuestClusterSnapshot]), &got))
+		assert.Equal(t, map[string]string{
+			common.GuestClusterAnnotKeyClusterName: clusterName,
+			common.GuestClusterAnnotKeyName:        guestVSName,
+			common.GuestClusterAnnotKeyNamespace:   guestVSNs,
+			common.GuestClusterAnnotKeyVSCName:     guestVSCName,
+		}, got)
+	})
+
+	t.Run("idempotent: skips when annotation already present", func(t *testing.T) {
+		existing := `{"clusterName":"old-name"}`
+		svVS := makeSVVS(map[string]string{common.AnnKeyGuestClusterSnapshot: existing})
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svVS).Build()
+
+		runBackfill(t, svVS, fakeClient)
+
+		annots := getUpdatedAnnot(t, fakeClient)
+		assert.Equal(t, existing, annots[common.AnnKeyGuestClusterSnapshot],
 			"pre-existing annotation must not be overwritten")
 	})
 }

@@ -688,17 +688,42 @@ func IsFVSPersistentVolumeClaim(pvc *corev1.PersistentVolumeClaim) bool {
 // annotation through this helper so the two cannot drift.
 func BuildGuestPvcAnnotation(clusterID, clusterName, pvcName, pvcNamespace, volumeName string) map[string]string {
 	annot := map[string]string{
-		GuestClusterPvcAnnotKeyClusterID:   clusterID,
-		GuestClusterPvcAnnotKeyClusterName: clusterName,
+		GuestClusterAnnotKeyClusterID:   clusterID,
+		GuestClusterAnnotKeyClusterName: clusterName,
 	}
 	if pvcName != "" {
-		annot[GuestClusterPvcAnnotKeyName] = pvcName
+		annot[GuestClusterAnnotKeyName] = pvcName
 	}
 	if pvcNamespace != "" {
-		annot[GuestClusterPvcAnnotKeyNamespace] = pvcNamespace
+		annot[GuestClusterAnnotKeyNamespace] = pvcNamespace
 	}
 	if volumeName != "" {
-		annot[GuestClusterPvcAnnotKeyVolumeName] = volumeName
+		annot[GuestClusterAnnotKeyVolumeName] = volumeName
+	}
+	return annot
+}
+
+// BuildGuestSnapshotAnnotation constructs the value map stored on a supervisor
+// VolumeSnapshot under the AnnKeyGuestClusterSnapshot annotation. It records the
+// originating guest cluster name and, when known, the guest VolumeSnapshot name,
+// namespace, and the guest VolumeSnapshotContent name. Empty optional fields are
+// omitted so the serialized annotation never carries blank values.
+//
+// This is the single source of truth for the annotation's key set; both the
+// CreateSnapshot provisioning path and the full-sync upgrade backfill build their
+// annotation through this helper so the two cannot drift.
+func BuildGuestSnapshotAnnotation(clusterName, snapshotName, snapshotNamespace, vscName string) map[string]string {
+	annot := map[string]string{
+		GuestClusterAnnotKeyClusterName: clusterName,
+	}
+	if snapshotName != "" {
+		annot[GuestClusterAnnotKeyName] = snapshotName
+	}
+	if snapshotNamespace != "" {
+		annot[GuestClusterAnnotKeyNamespace] = snapshotNamespace
+	}
+	if vscName != "" {
+		annot[GuestClusterAnnotKeyVSCName] = vscName
 	}
 	return annot
 }
