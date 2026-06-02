@@ -1385,7 +1385,15 @@ func QueryFCDBackingInfo(
 		return "", "", fmt.Errorf("volume %q is not a block volume", volumeID)
 	}
 
-	return blockBacking.BackingDiskObjectId, blockBacking.BackingDiskPath, nil
+	// BackingDiskObjectId is set for vVol/vSAN volumes.
+	// BackingDiskId is set for VMFS/NFS-backed FCDs.
+	// Return the first non-empty identifier.
+	diskUUID = blockBacking.BackingDiskObjectId
+	if diskUUID == "" {
+		diskUUID = blockBacking.BackingDiskId
+	}
+
+	return diskUUID, blockBacking.BackingDiskPath, nil
 }
 
 // createCryptoSpec creates a crypto spec based on the requested encryption operation.

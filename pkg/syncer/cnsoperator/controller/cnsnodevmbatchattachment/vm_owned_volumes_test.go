@@ -78,6 +78,10 @@ func (f *fakeCVISvc) PatchCsiVolumeInfo(_ context.Context, _, _ string, _ []byte
 	return nil
 }
 
+func (f *fakeCVISvc) PatchCsiVolumeInfoStatus(_ context.Context, _, _ string, _ []byte) error {
+	return nil
+}
+
 func (f *fakeCVISvc) DeleteCsiVolumeInfo(_ context.Context, _, _ string) error {
 	return nil
 }

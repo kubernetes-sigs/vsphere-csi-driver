@@ -113,34 +113,92 @@ func reconcileCVIOnPVBind(ctx context.Context, oldPV, newPV *v1.PersistentVolume
 		return
 	}
 
-	// CVI exists — check whether ownerReference and pvcName are up to date.
+	// CVI exists — check whether ownerReference, pvcName, or status fields need
+	// updating. The status.diskUUID may be empty if QueryFCDBackingInfo raced
+	// at provisioning time or if the status subresource write was skipped.
 	needsOwnerRef := !hasPVOwnerReference(existing, pvUID)
 	needsPVCName := existing.Spec.PVCName != newPVCName
+	needsStatus := existing.Status.DiskUUID == ""
 
-	if !needsOwnerRef && !needsPVCName {
+	// Fetch FCD backing info only when the status needs to be filled in.
+	var diskUUID, diskPath string
+	if needsStatus {
+		var fcdErr error
+		diskUUID, diskPath, fcdErr = common.QueryFCDBackingInfo(ctx, volumeManager, volumeID)
+		if fcdErr != nil {
+			log.Warnf("reconcileCVIOnPVBind: failed to query FCD backing info for volume %q "+
+				"(status will remain incomplete): %v", volumeID, fcdErr)
+			needsStatus = false
+		}
+	}
+
+	if !needsOwnerRef && !needsPVCName && !needsStatus {
 		return
 	}
 
-	patch := map[string]interface{}{}
-	if needsOwnerRef {
-		patch["metadata"] = map[string]interface{}{
-			"ownerReferences": []metav1.OwnerReference{ownerRef},
+	// Apply spec/metadata patch first (ownerRef, pvcName).
+	if needsOwnerRef || needsPVCName {
+		patch := map[string]interface{}{}
+		if needsOwnerRef {
+			patch["metadata"] = map[string]interface{}{
+				"ownerReferences": []metav1.OwnerReference{ownerRef},
+			}
+		}
+		if needsPVCName {
+			patch["spec"] = map[string]interface{}{
+				"pvcName": newPVCName,
+			}
+		}
+		patchBytes, marshalErr := json.Marshal(patch)
+		if marshalErr != nil {
+			log.Errorf("reconcileCVIOnPVBind: failed to marshal patch for CsiVolumeInfo %q/%q: %v",
+				newNS, existing.Name, marshalErr)
+			return
+		}
+		if patchErr := cviSvc.PatchCsiVolumeInfo(ctx, newNS, volumeID, patchBytes); patchErr != nil {
+			log.Errorf("reconcileCVIOnPVBind: failed to patch CsiVolumeInfo for volume %q: %v",
+				volumeID, patchErr)
 		}
 	}
-	if needsPVCName {
-		patch["spec"] = map[string]interface{}{
-			"pvcName": newPVCName,
+
+	// Backfill status when diskUUID was empty at provisioning time.
+	// Use a status patch (not Update) to avoid resourceVersion conflicts caused
+	// by the spec/metadata patch that may have just incremented the version above.
+	if needsStatus {
+		ownershipState := existing.Status.OwnershipState
+		if ownershipState == "" {
+			ownershipState = csivolumeinfov1alpha1.OwnershipStateCSIManaged
 		}
-	}
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		log.Errorf("reconcileCVIOnPVBind: failed to marshal patch for CsiVolumeInfo %q/%q: %v",
-			newNS, existing.Name, err)
-		return
-	}
-	if patchErr := cviSvc.PatchCsiVolumeInfo(ctx, newNS, volumeID, patchBytes); patchErr != nil {
-		log.Errorf("reconcileCVIOnPVBind: failed to patch CsiVolumeInfo for volume %q: %v",
-			volumeID, patchErr)
+		statusPatch := map[string]interface{}{
+			"status": map[string]interface{}{
+				"diskUUID":       diskUUID,
+				"diskPath":       diskPath,
+				"ownershipState": string(ownershipState),
+			},
+		}
+		statusBytes, marshalErr := json.Marshal(statusPatch)
+		if marshalErr != nil {
+			log.Warnf("reconcileCVIOnPVBind: failed to marshal status patch for CsiVolumeInfo %q/%q: %v",
+				newNS, existing.Name, marshalErr)
+		} else if statusErr := cviSvc.PatchCsiVolumeInfoStatus(ctx, newNS, volumeID, statusBytes); statusErr != nil {
+			log.Warnf("reconcileCVIOnPVBind: failed to backfill status for CsiVolumeInfo %q/%q: %v",
+				newNS, existing.Name, statusErr)
+		}
+		// Patch the disk-uuid label in metadata to keep the API-server index consistent.
+		labelPatch := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels": map[string]string{
+					csivolumeinfov1alpha1.LabelDiskUUID: diskUUID,
+				},
+			},
+		}
+		labelBytes, marshalErr := json.Marshal(labelPatch)
+		if marshalErr == nil {
+			if patchErr := cviSvc.PatchCsiVolumeInfo(ctx, newNS, volumeID, labelBytes); patchErr != nil {
+				log.Warnf("reconcileCVIOnPVBind: failed to patch disk-uuid label for CsiVolumeInfo %q/%q: %v",
+					newNS, existing.Name, patchErr)
+			}
+		}
 	}
 }
 

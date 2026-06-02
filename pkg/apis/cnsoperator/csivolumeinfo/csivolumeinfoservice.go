@@ -21,6 +21,7 @@ package csivolumeinfo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -73,6 +74,12 @@ type CsiVolumeInfoService interface {
 	// (not status) of the CsiVolumeInfo identified by volumeID / namespace.
 	// Retries up to allowedRetries times on conflict.
 	PatchCsiVolumeInfo(ctx context.Context, namespace, volumeID string, patchBytes []byte) error
+
+	// PatchCsiVolumeInfoStatus applies a JSON merge-patch to the status
+	// subresource of the CsiVolumeInfo identified by volumeID / namespace.
+	// Unlike UpdateCsiVolumeInfoStatus, this does not require a current
+	// ResourceVersion and retries up to allowedRetries times on conflict.
+	PatchCsiVolumeInfoStatus(ctx context.Context, namespace, volumeID string, patchBytes []byte) error
 
 	// DeleteCsiVolumeInfo deletes the CsiVolumeInfo for the given volumeID in
 	// the given namespace. Returns nil if the CR is already gone (idempotent).
@@ -198,6 +205,9 @@ func BuildCsiVolumeInfo(
 
 // CreateCsiVolumeInfo creates a new CsiVolumeInfo CR.
 // AlreadyExists errors are treated as success (idempotent).
+// Because the CRD declares a status subresource, the API server strips the
+// status block on Create; a follow-up status patch is required to persist
+// status.ownershipState, status.diskUUID, and status.diskPath.
 func (s *csiVolumeInfoSvc) CreateCsiVolumeInfo(
 	ctx context.Context, cvi *csivolumeinfov1alpha1.CsiVolumeInfo) error {
 	log := logger.GetLogger(ctx)
@@ -211,6 +221,27 @@ func (s *csiVolumeInfoSvc) CreateCsiVolumeInfo(
 		return logger.LogNewErrorf(log,
 			"failed to create CsiVolumeInfo %s/%s: %v", cvi.Namespace, cvi.Name, err)
 	}
+
+	// Write status via patch — the Create call above silently drops the status
+	// block because the CRD uses a status subresource. Using patch (not Update)
+	// avoids any resourceVersion conflict if the object is touched concurrently.
+	statusPatch := map[string]interface{}{
+		"status": map[string]interface{}{
+			"ownershipState": string(cvi.Status.OwnershipState),
+			"diskUUID":       cvi.Status.DiskUUID,
+			"diskPath":       cvi.Status.DiskPath,
+		},
+	}
+	patchBytes, marshalErr := json.Marshal(statusPatch)
+	if marshalErr != nil {
+		log.Warnf("CsiVolumeInfo %s/%s created but failed to marshal status patch "+
+			"(will be reconciled on PV bind): %v", cvi.Namespace, cvi.Name, marshalErr)
+	} else if statusErr := s.PatchCsiVolumeInfoStatus(ctx, cvi.Namespace,
+		cvi.Spec.VolumeID, patchBytes); statusErr != nil {
+		log.Warnf("CsiVolumeInfo %s/%s created but status patch failed "+
+			"(will be reconciled on PV bind): %v", cvi.Namespace, cvi.Name, statusErr)
+	}
+
 	log.Infof("Successfully created CsiVolumeInfo %s/%s", cvi.Namespace, cvi.Name)
 	return nil
 }
@@ -310,6 +341,42 @@ func (s *csiVolumeInfoSvc) PatchCsiVolumeInfo(
 	}
 	return logger.LogNewErrorf(log,
 		"failed to patch CsiVolumeInfo %s/%s after %d retries: %v",
+		namespace, name, allowedRetries, lastErr)
+}
+
+// PatchCsiVolumeInfoStatus applies a JSON merge-patch to the status subresource
+// of the CsiVolumeInfo for the given volumeID/namespace. Retries on conflict
+// up to allowedRetries times. Because it targets the /status subresource
+// directly, it does not require an up-to-date ResourceVersion for the main
+// object body and avoids conflicts from concurrent spec/metadata patches.
+func (s *csiVolumeInfoSvc) PatchCsiVolumeInfoStatus(
+	ctx context.Context, namespace, volumeID string, patchBytes []byte) error {
+	log := logger.GetLogger(ctx)
+	name := GetCsiVolumeInfoCRName(volumeID)
+
+	cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= allowedRetries; attempt++ {
+		err := s.k8sClient.Status().Patch(ctx, cvi,
+			client.RawPatch(k8stypes.MergePatchType, patchBytes))
+		if err == nil {
+			log.Infof("attempt %d: successfully patched status of CsiVolumeInfo %s/%s",
+				attempt, namespace, name)
+			return nil
+		}
+		lastErr = err
+		log.Warnf("attempt %d: failed to patch status of CsiVolumeInfo %s/%s: %v",
+			attempt, namespace, name, err)
+		time.Sleep(100 * time.Millisecond)
+	}
+	return logger.LogNewErrorf(log,
+		"failed to patch status of CsiVolumeInfo %s/%s after %d retries: %v",
 		namespace, name, allowedRetries, lastErr)
 }
 

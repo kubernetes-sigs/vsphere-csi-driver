@@ -510,6 +510,39 @@ func TestQueryFCDBackingInfo_Success(t *testing.T) {
 	}
 }
 
+// TestQueryFCDBackingInfo_SuccessVMFS verifies that BackingDiskId is used as the
+// diskUUID fallback when BackingDiskObjectId is empty (VMFS-backed FCDs).
+func TestQueryFCDBackingInfo_SuccessVMFS(t *testing.T) {
+	ctx := context.Background()
+	mgr := &mockVolumeManagerWithQuery{
+		queryAsyncFunc: func(_ context.Context, _ cnstypes.CnsQueryFilter,
+			_ *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+			return &cnstypes.CnsQueryResult{
+				Volumes: []cnstypes.CnsVolume{
+					{
+						VolumeId: cnstypes.CnsVolumeId{Id: "vol-vmfs"},
+						BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+							BackingDiskId:   "vmfs-disk-id-xyz",
+							BackingDiskPath: "[sharedVmfs-0] fcd/abc.vmdk",
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	diskUUID, diskPath, err := QueryFCDBackingInfo(ctx, mgr, "vol-vmfs")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diskUUID != "vmfs-disk-id-xyz" {
+		t.Errorf("expected diskUUID vmfs-disk-id-xyz, got %q", diskUUID)
+	}
+	if diskPath != "[sharedVmfs-0] fcd/abc.vmdk" {
+		t.Errorf("expected diskPath '[sharedVmfs-0] fcd/abc.vmdk', got %q", diskPath)
+	}
+}
+
 // TestQueryFCDBackingInfo_NotFound verifies that a missing volume returns an
 // error.
 func TestQueryFCDBackingInfo_NotFound(t *testing.T) {

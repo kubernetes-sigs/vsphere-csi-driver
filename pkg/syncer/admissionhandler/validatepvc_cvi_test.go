@@ -68,6 +68,10 @@ func (f *fakeCVISvcForWebhook) UpdateCsiVolumeInfoStatus(
 func (f *fakeCVISvcForWebhook) PatchCsiVolumeInfo(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
+
+func (f *fakeCVISvcForWebhook) PatchCsiVolumeInfoStatus(_ context.Context, _, _ string, _ []byte) error {
+	return nil
+}
 func (f *fakeCVISvcForWebhook) DeleteCsiVolumeInfo(_ context.Context, _, _ string) error {
 	return nil
 }
