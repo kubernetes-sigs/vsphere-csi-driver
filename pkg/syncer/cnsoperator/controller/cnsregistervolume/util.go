@@ -175,12 +175,11 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 	}
 	pvcCopy.Annotations[common.AnnVMDeleteProtectionCleared] = "true"
 	if err := c.Update(ctx, pvcCopy); err != nil {
-		log.Warnf("Failed to set %s annotation on PVC %s/%s: %v",
+		return fmt.Errorf("failed to set %s annotation on PVC %s/%s: %v",
 			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name, err)
-	} else {
-		log.Infof("Set %s annotation on PVC %s/%s",
-			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
 	}
+	log.Infof("Set %s annotation on PVC %s/%s",
+		common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
 	return nil
 }
 
