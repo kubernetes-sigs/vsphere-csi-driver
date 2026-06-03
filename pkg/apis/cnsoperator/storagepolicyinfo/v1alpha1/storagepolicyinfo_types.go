@@ -17,9 +17,18 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// VolumeCapability describes capabilities of the volume created with the given policy.
+// The supported capabilities are:
+//   - SupportsPersistentVolumeBlock: Volume Mode Block is supported.
+//   - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
+//   - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
+//   - SupportsLinkedClone: LinkedClone is supported.
+//
+// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone
+type VolumeCapability string
 
 // Topology describes topology accessibility for the storage policy within a namespace.
 type Topology struct {
@@ -38,26 +47,17 @@ type Topology struct {
 	AccessibleZones []string `json:"accessibleZones,omitempty"`
 }
 
-// StoragePolicyInfoSpec defines the desired state of StoragePolicyInfo.
-type StoragePolicyInfoSpec struct {
-	// ClusterStoragePolicyInfoRef points to the corresponding cluster-scoped
-	// ClusterStoragePolicyInfo resource that contains non-topology attributes
-	// (encryption, performance, volume capabilities) for the same storage policy.
-	ClusterStoragePolicyInfoRef corev1.ObjectReference `json:"clusterStoragePolicyInfoRef"`
-}
-
 // StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
 // +k8s:openapi-gen=true
 type StoragePolicyInfoStatus struct {
-	// StoragePolicyDeleted indicates whether the underlying storage policy
-	// has been deleted on the vCenter.
-	// +optional
-	StoragePolicyDeleted bool `json:"storagePolicyDeleted"`
-
 	// TopologyInfo contains observed topology for this storage policy filtered
 	// to the zones accessible within this namespace.
 	// +optional
 	TopologyInfo *Topology `json:"topologyInfo,omitempty"`
+
+	// VolumeCapabilities describes the supported volume capabilities.
+	// +optional
+	VolumeCapabilities map[VolumeCapability]bool `json:"volumeCapabilities,omitempty"`
 
 	// Error describes a failure condition when resolving topology for this
 	// storage policy. Empty string indicates no error.
@@ -81,7 +81,6 @@ type StoragePolicyInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   StoragePolicyInfoSpec   `json:"spec,omitempty"`
 	Status StoragePolicyInfoStatus `json:"status,omitempty"`
 }
 
