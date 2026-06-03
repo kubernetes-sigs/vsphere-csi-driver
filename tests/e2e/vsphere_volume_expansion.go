@@ -2787,13 +2787,19 @@ func increaseOnlineVolumeMultipleTimes(ctx context.Context, f *framework.Framewo
 	for i := 0; i < 10; i++ {
 		newSize.Add(resource.MustParse("1Gi"))
 		ginkgo.By(fmt.Sprintf("Expanding pvc to new size: %v", newSize))
-		pvclaim, err := expandPVCSize(pvclaim, newSize, client)
+		pvclaim, err = expandPVCSize(pvclaim, newSize, client)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(pvclaim).NotTo(gomega.BeNil())
 
 		ginkgo.By("Waiting for controller volume resize to finish")
 		err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if i < 9 {
+			ginkgo.By("Waiting for file system resize to finish")
+			pvclaim, err = waitForFSResize(pvclaim, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 
 		pvcSize := pvclaim.Spec.Resources.Requests[v1.ResourceStorage]
 		if pvcSize.Cmp(newSize) != 0 {
