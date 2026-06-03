@@ -43,7 +43,7 @@ type Topology struct {
 	// +listType=set
 	// +kubebuilder:validation:items:MinLength=1
 	// +optional
-	AccessibleZones []string `json:"accessibleZones,omitempty"`
+	AccessibleZones []string `json:"accessibleZones"`
 }
 
 // InfraStoragePolicyInfoStatus defines the observed state of InfraStoragePolicyInfo.
