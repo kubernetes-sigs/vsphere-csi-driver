@@ -915,6 +915,10 @@ func (m *cbtFlagsMockVolumeManager) RetrieveVStorageObject(context.Context,
 func (m *cbtFlagsMockVolumeManager) ProtectVolumeFromVMDeletion(context.Context, string) error {
 	return nil
 }
+
+func (m *cbtFlagsMockVolumeManager) UnprotectVolumeFromVMDeletion(context.Context, string) error {
+	return nil
+}
 func (m *cbtFlagsMockVolumeManager) CreateSnapshot(context.Context, string, string,
 	interface{}) (*cnsvolume.CnsSnapshotInfo, error) {
 	return nil, nil

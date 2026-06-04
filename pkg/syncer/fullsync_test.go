@@ -40,6 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
@@ -739,6 +740,10 @@ type mockVolumeManagerForFullSync struct {
 	mu             sync.Mutex
 	// cnsVolumes is the full set of CNS volumes, keyed by VolumeId.Id
 	cnsVolumeIndex map[string]cnstypes.CnsVolume
+	// unprotectVolumeFromVMDeletionFunc allows tests to customize the behavior
+	unprotectVolumeFromVMDeletionFunc func(ctx context.Context, volumeID string) error
+	// protectVolumeFromVMDeletionFunc allows tests to customize the behavior
+	protectVolumeFromVMDeletionFunc func(ctx context.Context, volumeID string) error
 }
 
 func (m *mockVolumeManagerForFullSync) CreateVolume(
@@ -915,6 +920,16 @@ func (m *mockVolumeManagerForFullSync) MonitorCreateVolumeTask(
 }
 
 func (m *mockVolumeManagerForFullSync) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	if m.protectVolumeFromVMDeletionFunc != nil {
+		return m.protectVolumeFromVMDeletionFunc(ctx, volumeID)
+	}
+	return nil
+}
+
+func (m *mockVolumeManagerForFullSync) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	if m.unprotectVolumeFromVMDeletionFunc != nil {
+		return m.unprotectVolumeFromVMDeletionFunc(ctx, volumeID)
+	}
 	return nil
 }
 
@@ -1855,4 +1870,188 @@ func TestReconcilePVCWorkloadTypeAnnotations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestReconcileKeepAfterDeleteVmFlags tests that fullsync performs bidirectional
+// reconciliation of keepAfterDeleteVm flags:
+// - Clears flag for PVCs with VM ownerRef but no annotation
+// - Restores flag for PVCs with annotation but no VM ownerRef
+func TestReconcileKeepAfterDeleteVmFlags(t *testing.T) {
+	ctx := context.Background()
+
+	// Case 1: PVC with VM ownerRef but no annotation (needs flag cleared)
+	pvcNeedsClear := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pvc-needs-clear",
+			Namespace: "test-ns",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "vmoperator.vmware.com/v1alpha2",
+					Kind:       "VirtualMachine",
+					Name:       "test-vm",
+				},
+			},
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-1",
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: v1.ClaimBound,
+		},
+	}
+
+	// Case 2: PVC with annotation but no VM ownerRef (needs flag restored)
+	pvcNeedsRestore := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pvc-needs-restore",
+			Namespace: "test-ns",
+			Annotations: map[string]string{
+				common.AnnVMDeleteProtectionCleared: "true",
+			},
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-2",
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: v1.ClaimBound,
+		},
+	}
+
+	// Case 3: PVC with VM ownerRef AND annotation (already processed - skip)
+	pvcAlreadyProcessed := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pvc-already-processed",
+			Namespace: "test-ns",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "vmoperator.vmware.com/v1alpha2",
+					Kind:       "VirtualMachine",
+					Name:       "test-vm-2",
+				},
+			},
+			Annotations: map[string]string{
+				common.AnnVMDeleteProtectionCleared: "true",
+			},
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-3",
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: v1.ClaimBound,
+		},
+	}
+
+	// Case 4: PVC without VM ownerRef and no annotation (no action needed)
+	pvcNoAction := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pvc-no-action",
+			Namespace: "test-ns",
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-4",
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: v1.ClaimBound,
+		},
+	}
+
+	// Create corresponding PVs
+	pv1 := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pv-1"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       csitypes.Name,
+					VolumeHandle: "vol-1",
+				},
+			},
+		},
+	}
+	pv2 := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pv-2"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       csitypes.Name,
+					VolumeHandle: "vol-2",
+				},
+			},
+		},
+	}
+	pv3 := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pv-3"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       csitypes.Name,
+					VolumeHandle: "vol-3",
+				},
+			},
+		},
+	}
+	pv4 := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "pv-4"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       csitypes.Name,
+					VolumeHandle: "vol-4",
+				},
+			},
+		},
+	}
+
+	// Create fake k8s client with PVCs and PVs
+	k8sClient := k8sfake.NewSimpleClientset(
+		pvcNeedsClear, pvcNeedsRestore, pvcAlreadyProcessed, pvcNoAction,
+		pv1, pv2, pv3, pv4,
+	)
+
+	// Create fake informer manager with listers using a fresh factory to avoid singleton caching
+	factory := informers.NewSharedInformerFactory(k8sClient, 0)
+	informerManager := k8s.NewInformerFromFactory(ctx, k8sClient, factory)
+	// Register listeners so Listen() waits for the cache to sync
+	err := informerManager.AddPVCListener(
+		ctx, func(interface{}) {}, func(interface{}, interface{}) {}, func(interface{}) {},
+	)
+	assert.NoError(t, err, "Failed to add PVC listener")
+	err = informerManager.AddPVListener(
+		ctx, func(interface{}) {}, func(interface{}, interface{}) {}, func(interface{}) {},
+	)
+	assert.NoError(t, err, "Failed to add PV listener")
+	informerManager.Listen()
+
+	// Track VSLM calls
+	protectCalls := []string{}
+	unprotectCalls := []string{}
+	mockVolMgr := &mockVolumeManagerForFullSync{
+		protectVolumeFromVMDeletionFunc: func(_ context.Context, volumeID string) error {
+			protectCalls = append(protectCalls, volumeID)
+			return nil
+		},
+		unprotectVolumeFromVMDeletionFunc: func(_ context.Context, volumeID string) error {
+			unprotectCalls = append(unprotectCalls, volumeID)
+			return nil
+		},
+	}
+
+	// Create metadataSyncer
+	ms := &metadataSyncInformer{
+		clusterFlavor:    cnstypes.CnsClusterFlavorWorkload,
+		volumeManager:    mockVolMgr,
+		pvLister:         informerManager.GetPVLister(),
+		pvcLister:        informerManager.GetPVCLister(),
+		supervisorClient: k8sClient,
+	}
+
+	// Run the reconciliation
+	reconcileKeepAfterDeleteVmFlags(ctx, ms)
+
+	// Verify that PVC with VM ownerRef and no annotation had flag cleared
+	assert.Equal(t, []string{"vol-1"}, unprotectCalls,
+		"Only vol-1 should have UnprotectVolumeFromVMDeletion called")
+
+	// Verify that PVC with annotation but no VM ownerRef had flag restored
+	assert.Equal(t, []string{"vol-2"}, protectCalls,
+		"Only vol-2 should have ProtectVolumeFromVMDeletion called")
 }

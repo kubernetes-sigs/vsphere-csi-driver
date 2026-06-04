@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -137,6 +138,13 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SupervisorPVCWorkloadTypeAnnotation) {
 			annotateSupervisorPVCsWithWorkloadType(ctx, metadataSyncer)
 		}
+	}
+
+	// On Supervisor cluster, reconcile keepAfterDeleteVm flags for PVCs with VM
+	// ownerRefs that may have been missed by pvcAdded (upgrade, informer gaps,
+	// transient failures). The annotation check ensures idempotency.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		reconcileKeepAfterDeleteVmFlags(ctx, metadataSyncer)
 	}
 
 	defer func() {
@@ -2357,4 +2365,77 @@ func setChangeIDAnnotationOnSupervisorSnapshots(ctx context.Context, metadataSyn
 		"setChangeIDAnnotationOnSupervisorSnapshots: Completed. Annotated %d VolumeSnapshots with change-id",
 		totalAnnotatedCount)
 	log.Debugf("setChangeIDAnnotationOnSupervisorSnapshots: End for VC: %s", vc)
+}
+
+// reconcileKeepAfterDeleteVmFlags performs bidirectional reconciliation of the
+// keepAfterDeleteVm control flag for PVCs on Supervisor cluster:
+//
+//  1. Clear flag: PVCs with VM ownerRef but missing annotation → clear flag + set annotation
+//     (handles missed pvcAdded events during upgrade, informer gaps, transient failures)
+//
+//  2. Restore flag: PVCs with annotation but no VM ownerRef → restore flag + remove annotation
+//     (handles missed pvcUpdated events when VM ownerRef was removed)
+//
+// This function only runs on Supervisor cluster (CnsClusterFlavorWorkload).
+func reconcileKeepAfterDeleteVmFlags(ctx context.Context, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("reconcileKeepAfterDeleteVmFlags: Start")
+
+	// List all PVCs
+	allPVCs, err := metadataSyncer.pvcLister.List(labels.Everything())
+	if err != nil {
+		log.Errorf("reconcileKeepAfterDeleteVmFlags: Failed to list PVCs: %v", err)
+		return
+	}
+
+	clearedCount := 0
+	restoredCount := 0
+	for _, pvc := range allPVCs {
+		// Skip if PVC is not bound
+		if pvc.Status.Phase != v1.ClaimBound {
+			continue
+		}
+
+		// Get PV to retrieve volumeID (needed for both directions)
+		pv, err := metadataSyncer.pvLister.Get(pvc.Spec.VolumeName)
+		if err != nil {
+			log.Warnf("reconcileKeepAfterDeleteVmFlags: Failed to get PV %s for PVC %s/%s: %v",
+				pvc.Spec.VolumeName, pvc.Namespace, pvc.Name, err)
+			continue
+		}
+
+		// Only process vSphere CSI volumes
+		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name {
+			continue
+		}
+
+		volumeID := pv.Spec.CSI.VolumeHandle
+		hasAnnotation := pvc.Annotations != nil && pvc.Annotations[common.AnnVMDeleteProtectionCleared] == "true"
+		hasVMOwner := hasVMOwnerRef(pvc)
+
+		// Case 1: PVC has VM ownerRef but no annotation → clear flag + set annotation
+		if hasVMOwner && !hasAnnotation {
+			if clearKeepAfterDeleteVmForExistingPVC(ctx, pvc, volumeID,
+				metadataSyncer.volumeManager, metadataSyncer.supervisorClient) {
+				clearedCount++
+			}
+			continue
+		}
+
+		// Case 2: PVC has annotation but no VM ownerRef → restore flag + remove annotation
+		if hasAnnotation && !hasVMOwner {
+			if restoreKeepAfterDeleteVmForDetachedPVC(ctx, pvc, volumeID,
+				metadataSyncer.volumeManager, metadataSyncer.supervisorClient) {
+				restoredCount++
+			}
+		}
+	}
+
+	if clearedCount > 0 {
+		log.Infof("reconcileKeepAfterDeleteVmFlags: Cleared keepAfterDeleteVm flag for %d PVCs", clearedCount)
+	}
+	if restoredCount > 0 {
+		log.Infof("reconcileKeepAfterDeleteVmFlags: Restored keepAfterDeleteVm flag for %d PVCs", restoredCount)
+	}
+	log.Debugf("reconcileKeepAfterDeleteVmFlags: End")
 }

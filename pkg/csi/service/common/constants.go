@@ -643,6 +643,11 @@ const (
 	MobilityOperatorVMInfraResource = "virtualmachineinframigrations"
 	// MobilityOperatorVolumeResource is the plural name of the VolumeMigration CR.
 	MobilityOperatorVolumeResource = "volumemigrations"
+
+	// AnnVMDeleteProtectionCleared is set on a PVC after the keepAfterDeleteVm
+	// control flag has been cleared due to VM ownerRef presence. This prevents
+	// redundant VSLM calls on syncer restarts or during periodic resyncs.
+	AnnVMDeleteProtectionCleared = "cns.vmware.com/vm-delete-protection-cleared"
 )
 
 var WCPFeatureStates = map[string]struct{}{

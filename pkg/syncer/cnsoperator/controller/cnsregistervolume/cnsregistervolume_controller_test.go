@@ -29,6 +29,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -46,7 +47,9 @@ import (
 	restclient "k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/record"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -66,6 +69,7 @@ type mockVolumeManager struct {
 		ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
 	unregisterVolume func(ctx context.Context, volumeID string,
 		unregisterDisk bool) (string, error)
+	unprotectVolumeFromVMDeletionFunc func(ctx context.Context, volumeID string) error
 }
 
 func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
@@ -171,6 +175,13 @@ func (m *mockVolumeManager) RetrieveVStorageObject(ctx context.Context,
 func (m *mockVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
 	//TODO implement me
 	panic("implement me")
+}
+
+func (m *mockVolumeManager) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	if m.unprotectVolumeFromVMDeletionFunc != nil {
+		return m.unprotectVolumeFromVMDeletionFunc(ctx, volumeID)
+	}
+	return nil
 }
 
 func (m *mockVolumeManager) SetVolumeControlFlags(ctx context.Context, volumeID string, controlFlags []string) error {
@@ -3254,4 +3265,276 @@ func TestReconcileDelete(t *testing.T) {
 		_, err = k8sclient.CoreV1().PersistentVolumes().Get(ctx, "test-pv-unbound", metav1.GetOptions{})
 		assert.True(t, apierrors.IsNotFound(err), "Expected PV to be deleted (NotFound error)")
 	})
+}
+
+// clearKeepAfterDeleteVmIfNonRemovable tests
+//
+// These tests cover the helper that, after FCD registration, clears the
+// keepAfterDeleteVm control flag on the FCD via the VSLM endpoint
+// (UnprotectVolumeFromVMDeletion) when:
+//   - the PVC has a DataSourceRef pointing at vmoperator.vmware.com/VirtualMachine, AND
+//   - the matching volume entry on the VM has removable=false.
+
+// vmImportTestSetup constructs a fake controller-runtime client with the
+// vm-operator scheme registered, optionally seeded with the supplied VM and PVC, plus
+// a mockVolumeManager whose UnprotectVolumeFromVMDeletion hook records calls.
+func vmImportTestSetup(t *testing.T, vm *vmoperatortypes.VirtualMachine, pvc *corev1.PersistentVolumeClaim,
+	clearErr error) (ctrlclient.Client, *mockVolumeManager, *[]string) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	assert.NoError(t, clientgoscheme.AddToScheme(scheme))
+	assert.NoError(t, vmoperatortypes.AddToScheme(scheme))
+
+	builder := fake.NewClientBuilder().WithScheme(scheme)
+	if vm != nil {
+		builder = builder.WithObjects(vm)
+	}
+	if pvc != nil {
+		builder = builder.WithObjects(pvc)
+	}
+	c := builder.Build()
+
+	calls := &[]string{}
+	mockVM := &mockVolumeManager{
+		unprotectVolumeFromVMDeletionFunc: func(_ context.Context, volumeID string) error {
+			*calls = append(*calls, volumeID)
+			return clearErr
+		},
+	}
+	return c, mockVM, calls
+}
+
+func vmWithVolume(vmName, namespace, claimName string, removable *bool) *vmoperatortypes.VirtualMachine {
+	return &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName, Namespace: namespace},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			Volumes: []vmoperatortypes.VirtualMachineVolume{
+				{
+					Name: claimName,
+					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: claimName,
+							},
+						},
+					},
+					Removable: removable,
+				},
+			},
+		},
+	}
+}
+
+func vmImportPVC(pvcName, namespace, vmName string) *corev1.PersistentVolumeClaim {
+	apiGroup := "vmoperator.vmware.com"
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: pvcName, Namespace: namespace},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &apiGroup,
+				Kind:     "VirtualMachine",
+				Name:     vmName,
+			},
+		},
+	}
+}
+
+func TestClearKeepAfterDeleteVm_RemovableFalse_ClearCalled(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	removable := false
+	vm := vmWithVolume(vmName, ns, pvcName, &removable)
+	pvc := vmImportPVC(pvcName, ns, vmName)
+	c, mockVM, calls := vmImportTestSetup(t, vm, pvc, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Equal(t, []string{"vol-1"}, *calls,
+		"UnprotectVolumeFromVMDeletion must be called exactly once for the registered volume")
+}
+
+func TestClearKeepAfterDeleteVm_RemovableTrue_NoOp(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	removable := true
+	vm := vmWithVolume(vmName, ns, pvcName, &removable)
+	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when removable=true")
+}
+
+func TestClearKeepAfterDeleteVm_RemovableNil_NoOp(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	vm := vmWithVolume(vmName, ns, pvcName, nil)
+	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when removable is nil (default true)")
+}
+
+func TestClearKeepAfterDeleteVm_NoDataSourceRef_NoOp(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: pvcName, Namespace: ns},
+		Spec:       corev1.PersistentVolumeClaimSpec{DataSourceRef: nil},
+	}
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called without DataSourceRef")
+}
+
+func TestClearKeepAfterDeleteVm_NilPVC_NoOp(t *testing.T) {
+	ctx := context.Background()
+	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, nil, "test-ns", "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when pvc is nil")
+}
+
+func TestClearKeepAfterDeleteVm_NonVMDataSourceRef_NoOp(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
+
+	otherGroup := "snapshot.storage.k8s.io"
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: pvcName, Namespace: ns},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSourceRef: &corev1.TypedObjectReference{
+				APIGroup: &otherGroup,
+				Kind:     "VolumeSnapshot",
+				Name:     "snap-1",
+			},
+		},
+	}
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called for non-VirtualMachine DataSourceRef")
+}
+
+func TestClearKeepAfterDeleteVm_VMNotFound_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "missing-vm"
+	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
+	assert.Error(t, err, "missing VM CR must surface as an error so the reconciler requeues")
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when VM lookup fails")
+}
+
+func TestClearKeepAfterDeleteVm_ClearAPIError_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	removable := false
+	vm := vmWithVolume(vmName, ns, pvcName, &removable)
+	c, mockVM, calls := vmImportTestSetup(t, vm, nil, fmt.Errorf("boom"))
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
+	assert.Error(t, err, "underlying VSLM error must surface so the reconciler requeues")
+
+	assert.Len(t, *calls, 1, "UnprotectVolumeFromVMDeletion must have been attempted exactly once")
+}
+
+func TestClearKeepAfterDeleteVm_PVCClaimNameMismatch_NoOp(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	// VM has a non-removable volume but for a different PVC; our PVC is not on the VM
+	// (e.g. multi-volume VM). The helper must only react to the matching entry.
+	removable := false
+	vm := vmWithVolume(vmName, ns, "other-pvc", &removable)
+	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
+	assert.NoError(t, err)
+
+	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when no VM volume matches the PVC")
+}
+
+func TestClearKeepAfterDeleteVm_AnnotationUpdateFailure_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	removable := false
+	vm := vmWithVolume(vmName, ns, pvcName, &removable)
+
+	// Create scheme with required types
+	scheme := runtime.NewScheme()
+	assert.NoError(t, clientgoscheme.AddToScheme(scheme))
+	assert.NoError(t, vmoperatortypes.AddToScheme(scheme))
+
+	pvc := vmImportPVC(pvcName, ns, vmName)
+
+	// Create a fake client with an interceptor that fails on PVC Update
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(vm, pvc).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(
+				ctx context.Context,
+				client ctrlclient.WithWatch,
+				obj ctrlclient.Object,
+				opts ...ctrlclient.UpdateOption,
+			) error {
+				if _, ok := obj.(*corev1.PersistentVolumeClaim); ok {
+					return fmt.Errorf("simulated update failure")
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	calls := &[]string{}
+	mockVM := &mockVolumeManager{
+		unprotectVolumeFromVMDeletionFunc: func(_ context.Context, volumeID string) error {
+			*calls = append(*calls, volumeID)
+			return nil
+		},
+	}
+
+	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+
+	// The error should be returned so the reconciler can retry
+	assert.Error(t, err, "annotation update failure must return an error")
+	assert.Contains(t, err.Error(), "simulated update failure")
+
+	// VSLM call should have been made before the annotation update failed
+	assert.Equal(t, []string{"vol-1"}, *calls,
+		"UnprotectVolumeFromVMDeletion should be called before annotation update")
 }

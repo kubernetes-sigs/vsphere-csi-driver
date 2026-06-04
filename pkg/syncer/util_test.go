@@ -2,9 +2,12 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
 
@@ -475,4 +479,362 @@ func TestHasClusterDistributionSet(t *testing.T) {
 			assert.Equal(t, test.expectedResult, result)
 		})
 	}
+}
+
+func TestHasVMOwnerRef(t *testing.T) {
+	tests := []struct {
+		name     string
+		pvc      *corev1.PersistentVolumeClaim
+		expected bool
+	}{
+		{
+			name:     "nil PVC",
+			pvc:      nil,
+			expected: false,
+		},
+		{
+			name: "PVC with no owner references",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-pvc",
+					Namespace:       "test-ns",
+					OwnerReferences: nil,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PVC with empty owner references",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-pvc",
+					Namespace:       "test-ns",
+					OwnerReferences: []metav1.OwnerReference{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PVC with VM ownerRef (v1alpha3)",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "vmoperator.vmware.com/v1alpha3",
+							Kind:       "VirtualMachine",
+							Name:       "my-vm",
+							UID:        "vm-uid-123",
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "PVC with VM ownerRef (v1alpha5)",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "vmoperator.vmware.com/v1alpha5",
+							Kind:       "VirtualMachine",
+							Name:       "my-vm",
+							UID:        "vm-uid-123",
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "PVC with non-VM ownerRef",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "my-sts",
+							UID:        "sts-uid-123",
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PVC with VirtualMachine kind but wrong API group",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "other.vmware.com/v1",
+							Kind:       "VirtualMachine",
+							Name:       "my-vm",
+							UID:        "vm-uid-123",
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PVC with multiple ownerRefs including VM",
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "my-sts",
+							UID:        "sts-uid-123",
+						},
+						{
+							APIVersion: "vmoperator.vmware.com/v1alpha5",
+							Kind:       "VirtualMachine",
+							Name:       "my-vm",
+							UID:        "vm-uid-456",
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := hasVMOwnerRef(tc.pvc)
+			assert.Equal(t, tc.expected, result, "hasVMOwnerRef result mismatch")
+		})
+	}
+}
+
+// vmOwnerRefTestVolumeManager is a mock volume manager for testing handleVMOwnerRefChange.
+// It tracks calls to ProtectVolumeFromVMDeletion and UnprotectVolumeFromVMDeletion.
+type vmOwnerRefTestVolumeManager struct {
+	*unittestcommon.MockVolumeManager
+
+	mu             sync.Mutex
+	protectCalls   []string
+	unprotectCalls []string
+	protectErr     error
+	unprotectErr   error
+}
+
+func (m *vmOwnerRefTestVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.protectCalls = append(m.protectCalls, volumeID)
+	return m.protectErr
+}
+
+func (m *vmOwnerRefTestVolumeManager) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unprotectCalls = append(m.unprotectCalls, volumeID)
+	return m.unprotectErr
+}
+
+func (m *vmOwnerRefTestVolumeManager) getProtectCalls() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.protectCalls...)
+}
+
+func (m *vmOwnerRefTestVolumeManager) getUnprotectCalls() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.unprotectCalls...)
+}
+
+func TestHandleVMOwnerRefChange(t *testing.T) {
+	ctx := context.Background()
+	volumeID := "test-volume-id"
+
+	basePVC := func() *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+		}
+	}
+
+	vmOwnerRef := metav1.OwnerReference{
+		APIVersion: "vmoperator.vmware.com/v1alpha5",
+		Kind:       "VirtualMachine",
+		Name:       "my-vm",
+		UID:        "vm-uid-123",
+	}
+
+	tests := []struct {
+		name            string
+		oldPvc          *corev1.PersistentVolumeClaim
+		newPvc          *corev1.PersistentVolumeClaim
+		expectProtect   bool
+		expectUnprotect bool
+	}{
+		{
+			name:            "No change - neither has VM ownerRef",
+			oldPvc:          basePVC(),
+			newPvc:          basePVC(),
+			expectProtect:   false,
+			expectUnprotect: false,
+		},
+		{
+			name: "No change - both have VM ownerRef",
+			oldPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				p.OwnerReferences = []metav1.OwnerReference{vmOwnerRef}
+				return p
+			}(),
+			newPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				p.OwnerReferences = []metav1.OwnerReference{vmOwnerRef}
+				return p
+			}(),
+			expectProtect:   false,
+			expectUnprotect: false,
+		},
+		{
+			name:   "VM ownerRef added - should unprotect (clear keepAfterDeleteVm)",
+			oldPvc: basePVC(),
+			newPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				p.OwnerReferences = []metav1.OwnerReference{vmOwnerRef}
+				return p
+			}(),
+			expectProtect:   false,
+			expectUnprotect: true,
+		},
+		{
+			name: "VM ownerRef removed - should protect (set keepAfterDeleteVm)",
+			oldPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				p.OwnerReferences = []metav1.OwnerReference{vmOwnerRef}
+				return p
+			}(),
+			newPvc:          basePVC(),
+			expectProtect:   true,
+			expectUnprotect: false,
+		},
+		{
+			name: "VM ownerRef removed but PVC has deletion timestamp - skip protect",
+			oldPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				p.OwnerReferences = []metav1.OwnerReference{vmOwnerRef}
+				return p
+			}(),
+			newPvc: func() *corev1.PersistentVolumeClaim {
+				p := basePVC()
+				now := metav1.NewTime(time.Now())
+				p.DeletionTimestamp = &now
+				return p
+			}(),
+			expectProtect:   false,
+			expectUnprotect: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockMgr := &vmOwnerRefTestVolumeManager{
+				MockVolumeManager: &unittestcommon.MockVolumeManager{},
+			}
+
+			// Pass nil for k8sClient since we're only testing the protect/unprotect logic,
+			// not the annotation update (which requires a real k8s client).
+			handleVMOwnerRefChange(ctx, tc.oldPvc, tc.newPvc, volumeID, mockMgr, nil)
+
+			protectCalls := mockMgr.getProtectCalls()
+			unprotectCalls := mockMgr.getUnprotectCalls()
+
+			if tc.expectProtect {
+				assert.Len(t, protectCalls, 1, "Expected exactly 1 protect call")
+				assert.Equal(t, volumeID, protectCalls[0], "Protect called with wrong volumeID")
+			} else {
+				assert.Empty(t, protectCalls, "Expected no protect calls")
+			}
+
+			if tc.expectUnprotect {
+				assert.Len(t, unprotectCalls, 1, "Expected exactly 1 unprotect call")
+				assert.Equal(t, volumeID, unprotectCalls[0], "Unprotect called with wrong volumeID")
+			} else {
+				assert.Empty(t, unprotectCalls, "Expected no unprotect calls")
+			}
+		})
+	}
+}
+
+func TestHandleVMOwnerRefChange_ErrorCases(t *testing.T) {
+	ctx := context.Background()
+	volumeID := "test-volume-id"
+
+	vmOwnerRef := metav1.OwnerReference{
+		APIVersion: "vmoperator.vmware.com/v1alpha5",
+		Kind:       "VirtualMachine",
+		Name:       "my-vm",
+		UID:        "vm-uid-123",
+	}
+
+	t.Run("Protect error is logged but does not panic", func(t *testing.T) {
+		oldPvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-pvc",
+				Namespace:       "test-ns",
+				OwnerReferences: []metav1.OwnerReference{vmOwnerRef},
+			},
+		}
+		newPvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+		}
+
+		mockMgr := &vmOwnerRefTestVolumeManager{
+			MockVolumeManager: &unittestcommon.MockVolumeManager{},
+			protectErr:        errors.New("protect failed"),
+		}
+
+		// Should not panic (pass nil for k8sClient)
+		handleVMOwnerRefChange(ctx, oldPvc, newPvc, volumeID, mockMgr, nil)
+		assert.Len(t, mockMgr.getProtectCalls(), 1, "Protect should have been called")
+	})
+
+	t.Run("Unprotect error is logged but does not panic", func(t *testing.T) {
+		oldPvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-pvc",
+				Namespace: "test-ns",
+			},
+		}
+		newPvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-pvc",
+				Namespace:       "test-ns",
+				OwnerReferences: []metav1.OwnerReference{vmOwnerRef},
+			},
+		}
+
+		mockMgr := &vmOwnerRefTestVolumeManager{
+			MockVolumeManager: &unittestcommon.MockVolumeManager{},
+			unprotectErr:      errors.New("unprotect failed"),
+		}
+
+		// Should not panic (pass nil for k8sClient)
+		handleVMOwnerRefChange(ctx, oldPvc, newPvc, volumeID, mockMgr, nil)
+		assert.Len(t, mockMgr.getUnprotectCalls(), 1, "Unprotect should have been called")
+	})
 }
