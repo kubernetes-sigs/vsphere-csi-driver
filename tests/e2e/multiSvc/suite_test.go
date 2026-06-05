@@ -24,6 +24,7 @@ import (
 	gomega "github.com/onsi/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/env"
 	_ "k8s.io/kubernetes/test/e2e/framework/debug/init"
 	"sigs.k8s.io/vsphere-csi-driver/v3/tests/e2e/constants"
 )
@@ -41,6 +42,7 @@ func TestE2E(t *testing.T) {
 }
 
 func handleFlags() {
+	env.ReplaceSupervisorKubeconfig()
 	config.CopyFlags(config.Flags, flag.CommandLine)
 	framework.RegisterCommonFlags(flag.CommandLine)
 	framework.TestContext.KubeConfig = os.Getenv(constants.KubeconfigEnvVar)
