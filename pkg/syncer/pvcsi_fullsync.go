@@ -174,9 +174,11 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	if err != nil {
 		log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorPVC. Err: %v", err)
 	}
-	// Set csi.vsphere-volume labels and CNS finalizer on the Supervisor VolumeSnapshot which is
-	// requested from TKC Cluster, if SVPVCSnapshotProtectionFinalizer FSS enabled
-	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
+	// Set csi.vsphere-volume labels and CNS finalizer (SVPVCSnapshotProtectionFinalizer FSS) and/or
+	// backfill the guest-cluster-snapshot annotation (ImprovedVolumeVisiblity FSS) on the Supervisor
+	// VolumeSnapshot which is requested from the TKC Cluster.
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) ||
+		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
 		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
 		if err != nil {
 			log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
@@ -516,13 +518,37 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
 				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
 			val, ok := svPVC.Labels[key]
+			original := svPVC.DeepCopy()
+			patchNeeded := false
 			if !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
-				original := svPVC.DeepCopy()
+				patchNeeded = true
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
 				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+			}
 
+			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; !ok {
+					guestPvcAnnot := common.BuildGuestPvcAnnotation(
+						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
+						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+						pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, svPVC.Spec.VolumeName)
+					// Marshal the guest cluster annotation to JSON
+					jsonAnnotation, err := json.Marshal(guestPvcAnnot)
+					if err != nil {
+						log.Errorf("failed to marshal guest cluster annotation: %+v", err)
+					} else {
+						if svPVC.Annotations == nil {
+							svPVC.Annotations = make(map[string]string)
+						}
+						svPVC.Annotations[common.AnnKeyGuestClusterPvc] = string(jsonAnnotation)
+						patchNeeded = true
+					}
+				}
+			}
+
+			if patchNeeded {
 				err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svPVC)
 				if err != nil {
 					msg := fmt.Sprintf("failed to patch supervisor PVC: %q with guest cluster labels in %q namespace."+
@@ -694,28 +720,59 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 		return err
 	}
 
-	// Define the processor for supervisor snapshots
-	processFunc := func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent, svVS *snapv1.VolumeSnapshot) error {
-		// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
-		tkcLabelPresent := true
-		key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-			metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-		if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
-			if svVS.Labels == nil {
-				svVS.Labels = make(map[string]string)
-			}
-			svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-			tkcLabelPresent = false
-		}
-		// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present already,
-		// to prevent accidental deletion from supervisor cluster
-		cnsFinalizerPresent := slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-		if !cnsFinalizerPresent || !tkcLabelPresent {
-			original := svVS.DeepCopy()
-			if !cnsFinalizerPresent {
-				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-			}
+	snapshotProtectionEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+		common.SVPVCSnapshotProtectionFinalizer)
+	improvedVisibilityEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
+		common.ImprovedVolumeVisiblity)
 
+	// Define the processor for supervisor snapshots. Label and finalizer mutations
+	// are gated by SVPVCSnapshotProtectionFinalizer; the guest-cluster annotation
+	// backfill is gated by ImprovedVolumeVisiblity. All applicable mutations are
+	// batched into a single PatchObject call.
+	processFunc := func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent, svVS *snapv1.VolumeSnapshot) error {
+		original := svVS.DeepCopy()
+		patchNeeded := false
+
+		if snapshotProtectionEnabled {
+			// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
+			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+			if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+				if svVS.Labels == nil {
+					svVS.Labels = make(map[string]string)
+				}
+				svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+				patchNeeded = true
+			}
+			// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present
+			// already, to prevent accidental deletion from supervisor cluster.
+			if !slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
+				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+				patchNeeded = true
+			}
+		}
+
+		// Backfill the guest-cluster-snapshot annotation on the supervisor VolumeSnapshot
+		// for snapshots created before the feature was enabled (upgrade path).
+		if improvedVisibilityEnabled {
+			if _, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]; !ok {
+				guestSnapAnnot := common.BuildGuestSnapshotAnnotation(
+					metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+					vsc.Spec.VolumeSnapshotRef.Name, vsc.Spec.VolumeSnapshotRef.Namespace, vsc.Name)
+				jsonAnnotation, err := json.Marshal(guestSnapAnnot)
+				if err != nil {
+					log.Errorf("failed to marshal guest cluster snapshot annotation: %v", err)
+				} else {
+					if svVS.Annotations == nil {
+						svVS.Annotations = make(map[string]string)
+					}
+					svVS.Annotations[common.AnnKeyGuestClusterSnapshot] = string(jsonAnnotation)
+					patchNeeded = true
+				}
+			}
+		}
+
+		if patchNeeded {
 			supervisorRuntimeClient, err := newRuntimeClientWithSnapshotScheme(supervisorRestConfig)
 			if err != nil {
 				return fmt.Errorf("failed to create controller-runtime client for supervisor cluster. Error: %w", err)
@@ -723,7 +780,7 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 
 			err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS)
 			if err != nil {
-				return fmt.Errorf("failed to patch supervisor Snapshot %q with guest cluster labels in %q namespace. Error: %w",
+				return fmt.Errorf("failed to patch supervisor Snapshot %q with guest cluster details in %q namespace. Error: %w",
 					*vsc.Status.SnapshotHandle, supervisorNamespace, err)
 			}
 		}

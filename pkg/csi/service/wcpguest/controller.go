@@ -455,17 +455,10 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				}
 			}
 		}
-		guestPvcAnnot := make(map[string]string)
-
-		guestPvcAnnot["clusterId"] = c.tanzukubernetesClusterUID
-		guestPvcAnnot["clusterName"] = c.tanzukubernetesClusterName
-		// Add guest PVC information to the same JSON structure
-		if pvcName != "" {
-			guestPvcAnnot["name"] = pvcName
-		}
-		if pvcNamespace != "" {
-			guestPvcAnnot["namespace"] = pvcNamespace
-		}
+		// The bound supervisor volume name is not known yet; it is added below
+		// once the supervisor PVC is bound (see ImprovedVolumeVisiblity patch).
+		guestPvcAnnot := common.BuildGuestPvcAnnotation(c.tanzukubernetesClusterUID,
+			c.tanzukubernetesClusterName, pvcName, pvcNamespace, "")
 
 		accessMode := req.GetVolumeCapabilities()[0].GetAccessMode().GetMode()
 		pvc, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -625,7 +618,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
-			guestPvcAnnot["volumeName"] = boundPVC.Spec.VolumeName
+			guestPvcAnnot[common.GuestClusterAnnotKeyVolumeName] = boundPVC.Spec.VolumeName
 			err := patchSupervisorPVCAnnotation(ctx, c.supervisorClient, guestPvcAnnot, supervisorPVCName, c.supervisorNamespace)
 			if err != nil {
 				log.Error("failed to patch supervisor PVC annotation: %v", err.Error())
@@ -1835,16 +1828,12 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				annotation := make(map[string]string)
 				annotation[common.SupervisorVolumeSnapshotAnnotationKey] = "true"
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
-					guestSnapAnnot := make(map[string]string)
-					guestSnapAnnot["name"] = volumeSnapshotName
-					guestSnapAnnot["namespace"] = volumeSnapshotNamespace
-					guestSnapAnnot["clusterName"] = c.tanzukubernetesClusterName
-					// Record the guest-cluster VolumeSnapshotContent name, injected into the
-					// CreateSnapshot parameters by the external-snapshotter sidecar running in
-					// the guest cluster.
-					if _, ok := req.Parameters[common.VolumeSnapshotContentNameKey]; ok {
-						guestSnapAnnot["volumeSnapshotContentName"] = req.Parameters[common.VolumeSnapshotContentNameKey]
-					}
+					// The guest-cluster VolumeSnapshotContent name is injected into the
+					// CreateSnapshot parameters by the external-snapshotter sidecar running
+					// in the guest cluster.
+					guestSnapAnnot := common.BuildGuestSnapshotAnnotation(c.tanzukubernetesClusterName,
+						volumeSnapshotName, volumeSnapshotNamespace,
+						req.Parameters[common.VolumeSnapshotContentNameKey])
 
 					guestSnapAnnotJSON, err := json.Marshal(guestSnapAnnot)
 					if err != nil {
