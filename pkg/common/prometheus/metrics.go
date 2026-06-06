@@ -95,6 +95,13 @@ const (
 	// PrometheusUnregisterVolumeOpType represents UnregisterVolume operation.
 	PrometheusUnregisterVolumeOpType = "unregister-volume"
 
+	// PrometheusPVMissingLabelKey is the CNS metadata label key set on a CNS
+	// volume whose matching Kubernetes PV is not found during full sync.
+	PrometheusPVMissingLabelKey = "pv_missing"
+	// PrometheusPVMissingLabelValue is the value associated with
+	// PrometheusPVMissingLabelKey when the K8s PV is missing.
+	PrometheusPVMissingLabelValue = "true"
+
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
 	// PrometheusFailStatus represents an unsuccessful API run.
@@ -169,4 +176,17 @@ var (
 		Help:    "Histogram vector for individual request to vCenter",
 		Buckets: []float64{2, 5, 10, 15, 20, 25, 30, 60, 120, 180},
 	}, []string{"request", "client", "status"})
+
+	// CnsVolumePVMissingGaugeVec is a gauge metric that tracks, per vCenter,
+	// the number of CNS volumes whose matching Kubernetes PV was not found in
+	// the most recent full-sync cycle. It is reset to the new count at the end
+	// of each cycle, so it always reflects the current observation rather than
+	// a cumulative tally. A non-zero value indicates volumes that have been
+	// labeled with pv_missing=true on the CNS side and may need VI Admin
+	// inspection (typically the result of force-deleted PVs with Retain
+	// reclaim policy).
+	CnsVolumePVMissingGaugeVec = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vsphere_cns_volume_pv_missing",
+		Help: "Number of CNS volumes whose corresponding Kubernetes PV was not found during the last full sync, per vCenter.",
+	}, []string{"vc"})
 )
