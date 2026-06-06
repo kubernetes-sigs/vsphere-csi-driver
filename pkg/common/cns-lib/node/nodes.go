@@ -49,7 +49,7 @@ func (nodes *Nodes) Initialize(ctx context.Context) error {
 		return err
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
-	nodes.informMgr = k8s.NewInformer(ctx, k8sclient, true)
+	nodes.informMgr = k8s.NewInformer(ctx, k8sclient)
 	err = nodes.informMgr.AddCSINodeListener(ctx, nodes.csiNodeAdd,
 		nodes.csiNodeUpdate, nodes.csiNodeDelete)
 	if err != nil {
