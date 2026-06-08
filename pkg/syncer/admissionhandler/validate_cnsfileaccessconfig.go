@@ -25,7 +25,6 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -64,7 +63,7 @@ func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// This validation is not required for PVCSI service account.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username)
 	if err != nil {
 		// return AdmissionResponse result
 		return &admissionv1.AdmissionResponse{
@@ -201,7 +200,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// Check if user is allowed to delete this CR.
-	allowed, err := isUserAllowedForDeletion(req.UserInfo.Username)
+	allowed, err := isUserAllowedForDeletion(ctx, req.UserInfo.Username)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
@@ -227,14 +226,14 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 
 // isUserAllowedForDeletion returns true if user is either a PVCSI service account or
 // K8s' namespace-cotnroller.
-func isUserAllowedForDeletion(username string) (bool, error) {
+func isUserAllowedForDeletion(ctx context.Context, username string) (bool, error) {
 	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
 	if err != nil {
 		return false, err
 	}
 
 	// Check if user is a valid PVCSI service account using the new validation logic
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, username)
 	if err != nil {
 		return false, err
 	}
@@ -243,9 +242,8 @@ func isUserAllowedForDeletion(username string) (bool, error) {
 	}
 
 	// Allowed users are :
-	// 1. PVCSI service account (checked above using new validation logic)
-	// 2. K8s service account (like namespace-controller or generic-garbage-collector)
-	// 3. K8s admin
+	// 1. K8s service account (like namespace-controller or generic-garbage-collector)
+	// 2. K8s admin
 	if kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
 		return true, nil
 	}
@@ -253,8 +251,7 @@ func isUserAllowedForDeletion(username string) (bool, error) {
 	return false, nil
 }
 
-func validatePvCSIServiceAccount(username string) (bool, error) {
-	ctx := context.TODO()
+func validatePvCSIServiceAccount(ctx context.Context, username string) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Validating PvCSI service account: username=%s", username)
@@ -272,7 +269,7 @@ func validatePvCSIServiceAccount(username string) (bool, error) {
 	log.Infof("Parsed service account parts: %v (count: %d)", parts, len(parts))
 
 	if len(parts) != 2 {
-		log.Infof("Invalid service account format - expected 2 parts, got %d, returning false", len(parts))
+		log.Errorf("Invalid service account format - expected 2 parts, got %d, returning false", len(parts))
 		return false, nil
 	}
 
@@ -283,7 +280,7 @@ func validatePvCSIServiceAccount(username string) (bool, error) {
 	// For any namespace, check if service account follows guest cluster PvCSI pattern
 	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
 	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
-		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
+		log.Errorf("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
 		return validateProviderServiceAccount(ctx, namespace, serviceAccountName)
 	}
 
@@ -306,13 +303,6 @@ func getVSphereClusterClient(ctx context.Context) (client.Client, error) {
 func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
-
-	// Extract expected vsphere cluster name from service account name
-	// serviceAccountName format: "{vsphere-cluster-name}-pvcsi"
-	if !strings.HasSuffix(serviceAccountName, "-pvcsi") {
-		log.Infof("Service account '%s' does not follow cluster pattern (missing -pvcsi suffix)", serviceAccountName)
-		return false, nil
-	}
 
 	clusterName := strings.TrimSuffix(serviceAccountName, "-pvcsi")
 	if clusterName == "" {
@@ -362,16 +352,6 @@ func validateVSphereClusterResource(ctx context.Context, clusterName, namespace 
 	}, vsphereCluster)
 
 	if err != nil {
-		if errors.IsNotFound(err) {
-			log.Infof("VSphereCluster '%s' not found in namespace '%s'", clusterName, namespace)
-			return false, nil
-		}
-
-		if errors.IsForbidden(err) {
-			log.Warnf("Access denied when checking VSphereCluster '%s' in namespace '%s'", clusterName, namespace)
-			return false, fmt.Errorf("insufficient permissions to validate VSphere cluster: %w", err)
-		}
-
 		return false, fmt.Errorf("failed to get VSphereCluster '%s' in namespace '%s': %w", clusterName, namespace, err)
 	}
 
