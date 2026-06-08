@@ -229,7 +229,7 @@ func TestValidatePvCSIServiceAccount(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := validatePvCSIServiceAccount(tc.username)
+			result, err := validatePvCSIServiceAccount(context.TODO(), tc.username)
 			if err != nil {
 				t.Errorf("validatePvCSIServiceAccount() returned error: %v", err)
 				return
@@ -282,7 +282,7 @@ func TestIsUserAllowedForDeletion(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := isUserAllowedForDeletion(tc.username)
+			result, err := isUserAllowedForDeletion(context.TODO(), tc.username)
 			if err != nil {
 				t.Errorf("isUserAllowedForDeletion() returned error: %v", err)
 				return

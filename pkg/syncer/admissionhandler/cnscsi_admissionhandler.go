@@ -331,7 +331,7 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	}
 
 	// If CR is created by CSI service account, do not add devops label.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
