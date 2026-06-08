@@ -78,22 +78,27 @@ func NewInformer(ctx context.Context,
 	snapshotClient snapclientset.Interface) *InformerManager {
 	log := logger.GetLogger(ctx)
 
+	if informerManagerInstance != nil {
+		return informerManagerInstance
+	}
+
 	informerInstanceLock.Lock()
 	defer informerInstanceLock.Unlock()
 
-	if informerManagerInstance == nil {
-		informerManagerInstance = &InformerManager{
-			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
-			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-		}
-		if snapshotClient != nil {
-			informerManagerInstance.snapshotInformerFactory = externalversions.NewSharedInformerFactory(
-				snapshotClient, noResyncPeriodFunc())
-		}
-		log.Info("Created new informer factory")
+	if informerManagerInstance != nil {
+		return informerManagerInstance
 	}
 
+	informerManagerInstance = &InformerManager{
+		client:          client,
+		stopCh:          signals.SetupSignalHandler().Done(),
+		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+	}
+	if snapshotClient != nil {
+		informerManagerInstance.snapshotInformerFactory = externalversions.NewSharedInformerFactory(
+			snapshotClient, noResyncPeriodFunc())
+	}
+	log.Info("Created new informer factory")
 	return informerManagerInstance
 }
 
