@@ -723,7 +723,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Set up kubernetes resource listeners for metadata syncer.
-	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient, true)
+	metadataSyncer.k8sInformerManager = k8s.NewInformer(ctx, k8sClient)
 
 	// Initialize listers BEFORE registering listeners. This ensures that when
 	// pvcAdded is called, it can look up PVs via pvLister without nil panics.

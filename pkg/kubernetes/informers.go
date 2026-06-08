@@ -45,10 +45,8 @@ const (
 )
 
 var (
-	inClusterInformerManagerInstance  *InformerManager = nil
-	inClusterInformerInstanceLock                      = &sync.Mutex{}
-	supervisorInformerManagerInstance *InformerManager = nil
-	supervisorInformerInstanceLock                     = &sync.Mutex{}
+	informerManagerInstance *InformerManager = nil
+	informerInstanceLock                     = &sync.Mutex{}
 )
 
 func noResyncPeriodFunc() time.Duration {
@@ -73,39 +71,22 @@ func NewInformerFromFactory(
 // NOTE: This function expects caller function to pass appropriate client
 // as per config to be created Informer for.
 // This function creates shared informer factory against the client provided.
-func NewInformer(ctx context.Context, client clientset.Interface, inClusterClnt bool) *InformerManager {
-	var informerInstance *InformerManager
+func NewInformer(ctx context.Context, client clientset.Interface) *InformerManager {
 	log := logger.GetLogger(ctx)
 
-	if inClusterClnt {
-		inClusterInformerInstanceLock.Lock()
-		defer inClusterInformerInstanceLock.Unlock()
+	informerInstanceLock.Lock()
+	defer informerInstanceLock.Unlock()
 
-		informerInstance = inClusterInformerManagerInstance
-	} else {
-		supervisorInformerInstanceLock.Lock()
-		defer supervisorInformerInstanceLock.Unlock()
-
-		informerInstance = supervisorInformerManagerInstance
-	}
-
-	if informerInstance == nil {
-		informerInstance = &InformerManager{
+	if informerManagerInstance == nil {
+		informerManagerInstance = &InformerManager{
 			client:          client,
 			stopCh:          signals.SetupSignalHandler().Done(),
 			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 		}
-
-		if inClusterClnt {
-			inClusterInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for in-cluster client")
-		} else {
-			supervisorInformerManagerInstance = informerInstance
-			log.Info("Created new informer factory for supervisor client")
-		}
+		log.Info("Created new informer factory")
 	}
 
-	return informerInstance
+	return informerManagerInstance
 }
 
 // AddNodeListener hooks up add, update, delete callbacks.
