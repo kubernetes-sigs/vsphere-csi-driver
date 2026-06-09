@@ -112,6 +112,10 @@ var (
 	// capability is enabled on the supervisor; when true, FVS routing reads the namespace-scoped
 	// NetworkSettings CR per CreateVolume call instead of consulting the cached global provider.
 	isPerNamespaceNetworkProvidersFSSEnabled bool
+	// isVMOwnedVolumesFSSEnabled is true when the supports_VM_owned_volumes supervisor capability
+	// is enabled. When true, the CSI driver creates CsiVolumeInfo CRs at provisioning time and
+	// routes greenfield VM attach/detach through the FCD unregister/re-register path.
+	isVMOwnedVolumesFSSEnabled bool
 	// cachedGlobalNetworkProvider holds the value of wcp-network-config.network_provider resolved
 	// once during controller.Init when isPerNamespaceNetworkProvidersFSSEnabled is false. It is
 	// only consulted on the FVS routing path for the reserved vsan-file-service-policy /
@@ -271,6 +275,11 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if !isVMPVCStoragePolicyMutabilityEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.VMPVCStoragePolicyMutability, "", "")
+	}
+	isVMOwnedVolumesFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes)
+	if !isVMOwnedVolumesFSSEnabled {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.VMOwnedVolumes, "", "")
 	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
