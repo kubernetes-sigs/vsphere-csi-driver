@@ -2947,6 +2947,13 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 	}
 	log.Debugf("PVUpdated: PV Updated from %+v to %+v", oldPv, newPv)
 
+	// Reconcile CsiVolumeInfo ownerReference and pvcName whenever a vSphere CSI
+	// PV transitions to Bound. This is a no-op when the FSS is disabled.
+	if newPv.Spec.CSI != nil && newPv.Spec.CSI.Driver == csitypes.Name &&
+		newPv.Status.Phase == v1.VolumeBound {
+		go reconcileCVIOnPVBind(ctx, oldPv, newPv, metadataSyncer.volumeManager)
+	}
+
 	// Return if new PV status is Pending or Failed.
 	if newPv.Status.Phase == v1.VolumePending || newPv.Status.Phase == v1.VolumeFailed {
 		log.Debugf("PVUpdated: PV %s metadata is not updated since updated PV is in phase %s",
