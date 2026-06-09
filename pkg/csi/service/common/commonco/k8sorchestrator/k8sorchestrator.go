@@ -385,21 +385,25 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 				return nil, coInstanceErr
 			}
 
-			// Create a snapshotter client only for guest clusters where the
-			// PVC-to-snapshot informer cache is used.
-			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
-				if coInstanceErr != nil {
-					log.Errorf("Creating Snapshotter client failed. Err: %v", coInstanceErr)
-					return nil, coInstanceErr
-				}
+			// Create a snapshotter client - needed for snapshot API calls across all
+			// cluster flavors (e.g. GetVolumeSnapshotPVCSource, GetLinkedCloneSourceSnapshotUID).
+			snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
+			if coInstanceErr != nil {
+				log.Errorf("Creating Snapshotter client failed. Err: %v", coInstanceErr)
+				return nil, coInstanceErr
 			}
 
 			k8sOrchestratorInstance = &K8sOrchestrator{}
 			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
 			k8sOrchestratorInstance.k8sClient = k8sClient
 			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
-			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
+			// Pass snapshotterClient to the informer only for guest clusters to enable
+			// the PVC-to-snapshot informer cache. Other flavors do not use it.
+			var informerSnapshotClient snapshotterClientSet.Interface
+			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
+				informerSnapshotClient = snapshotterClient
+			}
+			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, informerSnapshotClient)
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
 				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
