@@ -399,11 +399,10 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
 			// Pass snapshotterClient to the informer only for guest clusters to enable
 			// the PVC-to-snapshot informer cache. Other flavors do not use it.
-			var informerSnapshotClient snapshotterClientSet.Interface
 			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				informerSnapshotClient = snapshotterClient
+				k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
 			}
-			k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, informerSnapshotClient)
+
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 			if coInstanceErr != nil {
 				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
