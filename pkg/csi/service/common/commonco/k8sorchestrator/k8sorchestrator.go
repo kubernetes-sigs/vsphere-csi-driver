@@ -401,6 +401,8 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			// the PVC-to-snapshot informer cache. Other flavors do not use it.
 			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
 				k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
+			} else {
+				k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, nil)
 			}
 
 			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
