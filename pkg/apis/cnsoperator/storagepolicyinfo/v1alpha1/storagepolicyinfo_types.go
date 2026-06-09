@@ -43,8 +43,7 @@ type Topology struct {
 	// not assigned to the namespace.
 	// +listType=set
 	// +kubebuilder:validation:items:MinLength=1
-	// +optional
-	AccessibleZones []string `json:"accessibleZones,omitempty"`
+	AccessibleZones []string `json:"accessibleZones"`
 }
 
 // StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.

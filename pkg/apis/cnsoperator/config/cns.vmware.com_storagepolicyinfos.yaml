@@ -73,6 +73,8 @@ spec:
                     - ""
                     - zonal
                     type: string
+                required:
+                - accessibleZones
                 type: object
               volumeCapabilities:
                 additionalProperties:
