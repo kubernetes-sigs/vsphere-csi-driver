@@ -577,8 +577,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 			8. Verify the PVC Size should increased by 10Gi
 			9. Make sure file system has increased
 	*/
-	ginkgo.It("[ef-wcp][csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-vks]"+
-		"[csi-supervisor] [csi-guest][csi-block-vanilla-parallelized][csi-vcp-mig][ef-vks-n1][ef-vks-n2] Verify"+
+	ginkgo.It("[csi-block-vanilla][cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]"+
+		"[csi-supervisor] [csi-guest][csi-block-vanilla-parallelized][csi-vcp-mig] Verify"+
 		" volume expansion multiple times on the same PVC", ginkgo.Label(p0, block, vanilla, wcp,
 		tkg, core, vc70), func() {
 
