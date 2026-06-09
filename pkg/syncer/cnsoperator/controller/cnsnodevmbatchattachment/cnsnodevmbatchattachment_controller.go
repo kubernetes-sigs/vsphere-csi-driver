@@ -37,6 +37,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -495,6 +496,11 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 			// Remove finalizer from the PVC as the detach was successful.
 			volumesThatFailedToDetach = removeFinalizerAndStatusEntry(ctx, r.client, k8sClient, r.cnsOperatorClient,
 				instance, pvc, volumesThatFailedToDetach)
+			// Attempt lazy CVI creation for brownfield volumes when preconditions are met.
+			go MaybeLazilyCreateCVI(ctx, vm, r.volumeManager,
+				instance.Namespace,
+				volumeId, pvc, "", "",
+				getVolumeStatusConditions(instance, pvc))
 		}
 		log.Infof("Detach call ended for PVC %s in namespace %s for instance %s",
 			pvc, instance.Namespace, instance.Name)
@@ -502,6 +508,18 @@ func (r *Reconciler) detachVolumes(ctx context.Context,
 
 	// Send back list of volumes which failed to attach.
 	return volumesThatFailedToDetach
+}
+
+// getVolumeStatusConditions returns the conditions for the given PVC from the
+// instance status. Returns nil if no matching status entry is found.
+func getVolumeStatusConditions(
+	instance *v1alpha1.CnsNodeVMBatchAttachment, pvcName string) []metav1.Condition {
+	for _, vs := range instance.Status.VolumeStatus {
+		if vs.PersistentVolumeClaim.ClaimName == pvcName {
+			return vs.PersistentVolumeClaim.Conditions
+		}
+	}
+	return nil
 }
 
 // removeFinalizerAndStatusEntry removes finalizer from the given PVC and
