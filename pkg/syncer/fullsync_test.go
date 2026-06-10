@@ -510,7 +510,7 @@ func setupMetadataSyncerForFullSync(
 	cfg.Cfg.Global.ClusterID = "test-cluster-id"
 
 	// Create fake informer manager with listers
-	informerManager := k8s.NewInformer(ctx, k8sClient, nil)
+	informerManager := k8s.NewInformer(ctx, k8sClient)
 	informerManager.Listen()
 
 	// Initialize volumeManagers map for multi-vCenter support

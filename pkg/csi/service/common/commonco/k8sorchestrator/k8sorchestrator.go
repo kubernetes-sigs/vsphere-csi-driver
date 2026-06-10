@@ -404,7 +404,7 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 	k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
 	k8sOrchestratorInstance.k8sClient = k8sClient
 	k8sOrchestratorInstance.snapshotterClient = snapshotterClient
-
+	k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient)
 	coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
 	if coInstanceErr != nil {
 		log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
@@ -434,13 +434,11 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 		return nil, fmt.Errorf("wrong orchestrator params type")
 	}
 
-	// Pass snapshotterClient to the informer only for guest clusters to enable
-	// the PVC-to-snapshot informer cache. Other flavors do not use it.
+	// Add the snapshot informer factory only for guest clusters where ImprovedVolumeVisibility is
+	// enabled. This must be done after initFSS so the FSS state is known.
 	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
 		k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
-		k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
-	} else {
-		k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, nil)
+		k8sOrchestratorInstance.informerManager.SetSnapshotInformerFactory(snapshotterClient)
 	}
 
 	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
@@ -2180,6 +2178,10 @@ func initPVCToSnapshotsMap(ctx context.Context, controllerClusterFlavor cnstypes
 	log := logger.GetLogger(ctx)
 	if controllerClusterFlavor != cnstypes.CnsClusterFlavorGuest {
 		log.Info("non-guest cluster detected; skipping PVC to snapshot cache initialisation.")
+		return nil
+	}
+	if !k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		log.Info("ImprovedVolumeVisibility FSS is disabled; skipping PVC to snapshot cache initialisation.")
 		return nil
 	}
 

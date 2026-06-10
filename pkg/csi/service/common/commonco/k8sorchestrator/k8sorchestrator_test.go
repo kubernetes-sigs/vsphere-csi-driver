@@ -588,9 +588,30 @@ func TestInitPVCToSnapshotsMap(t *testing.T) {
 		}
 	})
 
-	// since `k8sOrchestratorInstance.informerManager` is a struct type, testing the behaviour of
-	// AddSnapshotListener is not trivial. Since TestPVCToSnapshotsMapEventHandlers tests
-	// the event handlers, we're good for now.
+	t.Run("SkipForGuestClusterWithFSSDisabled", func(tt *testing.T) {
+		ctx := context.Background()
+		// Set up a guest orchestrator with ImprovedVolumeVisibility disabled in the internal FSS.
+		// IsFSSEnabled for Guest first checks IsPVCSIFSSEnabled (internal FSS); when absent/false it
+		// returns false immediately without hitting the supervisor, so no network calls are made.
+		prev := k8sOrchestratorInstance
+		k8sOrchestratorInstance = &K8sOrchestrator{
+			clusterFlavor: cnstypes.CnsClusterFlavorGuest,
+			internalFSS: FSSConfigMapInfo{
+				configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
+				configMapNamespace: cnsconfig.DefaultCSINamespace,
+				featureStates:      map[string]string{common.ImprovedVolumeVisibility: "false"},
+				featureStatesLock:  &sync.RWMutex{},
+			},
+		}
+		defer func() { k8sOrchestratorInstance = prev }()
+
+		err := initPVCToSnapshotsMap(ctx, cnstypes.CnsClusterFlavorGuest)
+		assert.NoError(tt, err, "expected no error when ImprovedVolumeVisibility FSS is disabled")
+	})
+
+	// The Guest+FSS-enabled path calls AddSnapshotListener on the live informer manager, which
+	// requires a real snapshot informer factory. That path is exercised by manual integration
+	// tests; TestPVCToSnapshotsMapEventHandlers covers the event-handler logic directly.
 }
 
 // Test the snapshot event handlers directly

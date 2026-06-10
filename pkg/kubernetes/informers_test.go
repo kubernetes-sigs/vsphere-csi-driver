@@ -14,89 +14,82 @@ import (
 )
 
 func TestNewInformer(t *testing.T) {
-	t.Run("CreateNewInformerManagerWithSnapshotClient", func(tt *testing.T) {
-		// Setup - Reset global state
+	t.Run("CreateNewInformerManager", func(tt *testing.T) {
+		// Reset global state.
 		informerInstanceLock.Lock()
 		informerManagerInstance = nil
 		informerInstanceLock.Unlock()
 
 		ctx := context.Background()
 		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
 
-		// Execute
-		informerMgr := NewInformer(ctx, k8sClient, snapshotClient)
+		informerMgr := NewInformer(ctx, k8sClient)
 
-		// Assert
 		assert.NotNil(tt, informerMgr)
 		assert.NotNil(tt, informerMgr.client)
 		assert.NotNil(tt, informerMgr.informerFactory)
-		assert.NotNil(tt, informerMgr.snapshotInformerFactory,
-			"snapshotInformerFactory should be set when snapshotClient is provided")
 		assert.NotNil(tt, informerMgr.stopCh)
 		assert.Equal(tt, k8sClient, informerMgr.client)
+		assert.Nil(tt, informerMgr.snapshotInformerFactory,
+			"snapshotInformerFactory should be nil until SetSnapshotInformerFactory is called")
 	})
 
-	t.Run("SnapshotFactoryNilWhenNoSnapshotClient", func(tt *testing.T) {
-		// Create an InformerManager without snapshot factory (bypass singleton/signal handler).
+	t.Run("SnapshotFactorySetViaSetSnapshotInformerFactory", func(tt *testing.T) {
 		im := &InformerManager{
 			client:          testclient.NewSimpleClientset(),
 			informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
 		}
+		assert.Nil(tt, im.snapshotInformerFactory)
 
-		// snapshotInformerFactory should be nil by default
-		assert.Nil(tt, im.snapshotInformerFactory,
-			"snapshotInformerFactory should be nil when no snapshotClient is provided")
+		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		assert.NotNil(tt, im.snapshotInformerFactory,
+			"snapshotInformerFactory should be set after SetSnapshotInformerFactory")
+	})
+
+	t.Run("SetSnapshotInformerFactoryNoOpIfAlreadySet", func(tt *testing.T) {
+		im := &InformerManager{
+			client:          testclient.NewSimpleClientset(),
+			informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
+		}
+		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		first := im.snapshotInformerFactory
+
+		// Second call should be a no-op.
+		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		assert.Equal(tt, first, im.snapshotInformerFactory, "factory should not be replaced on second call")
 	})
 
 	t.Run("ReturnExistingInformerManagerOnSecondCall", func(tt *testing.T) {
-		// Note: We cannot reset the global state here because signals.SetupSignalHandler()
-		// can only be called once per process. This test verifies the singleton behavior
-		// by calling NewInformer twice without resetting.
-
 		ctx := context.Background()
 		k8sClient1 := testclient.NewSimpleClientset()
-		snapshotClient1 := snapshotfake.NewSimpleClientset()
 
-		// Execute - First call (may reuse existing instance from previous test)
-		informerMgr1 := NewInformer(ctx, k8sClient1, snapshotClient1)
+		informerMgr1 := NewInformer(ctx, k8sClient1)
 
-		// Execute - Second call with different clients
 		k8sClient2 := testclient.NewSimpleClientset()
-		snapshotClient2 := snapshotfake.NewSimpleClientset()
-		informerMgr2 := NewInformer(ctx, k8sClient2, snapshotClient2)
+		informerMgr2 := NewInformer(ctx, k8sClient2)
 
-		// Assert - Should return the same instance (singleton pattern)
 		assert.Equal(tt, informerMgr1, informerMgr2, "Should return the same singleton instance")
 	})
 
 	t.Run("ThreadSafeInitialization", func(tt *testing.T) {
-		// Note: We cannot reset the global state because signals.SetupSignalHandler()
-		// can only be called once. This test verifies thread-safety by calling
-		// NewInformer concurrently and ensuring all calls return the same instance.
-
 		ctx := context.Background()
 		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
 
-		// Execute - Call NewInformer concurrently
 		const numGoroutines = 10
 		results := make([]*InformerManager, numGoroutines)
 		done := make(chan bool, numGoroutines)
 
 		for i := 0; i < numGoroutines; i++ {
 			go func(index int) {
-				results[index] = NewInformer(ctx, k8sClient, snapshotClient)
+				results[index] = NewInformer(ctx, k8sClient)
 				done <- true
 			}(i)
 		}
 
-		// Wait for all goroutines to complete
 		for i := 0; i < numGoroutines; i++ {
 			<-done
 		}
 
-		// Assert - All should return the same instance
 		firstInstance := results[0]
 		assert.NotNil(tt, firstInstance)
 		for i := 1; i < numGoroutines; i++ {
@@ -106,44 +99,37 @@ func TestNewInformer(t *testing.T) {
 	})
 
 	t.Run("VerifyInformerManagerFields", func(tt *testing.T) {
-		// This test verifies that the informer manager has all expected fields set
 		ctx := context.Background()
 		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
 
-		// Execute
-		informerMgr := NewInformer(ctx, k8sClient, snapshotClient)
+		informerMgr := NewInformer(ctx, k8sClient)
 
-		// Assert - Verify all fields are properly initialized
 		assert.NotNil(tt, informerMgr)
 		assert.NotNil(tt, informerMgr.client, "client should be set")
 		assert.NotNil(tt, informerMgr.informerFactory, "informerFactory should be set")
-		assert.NotNil(tt, informerMgr.snapshotInformerFactory, "snapshotInformerFactory should be set")
 		assert.NotNil(tt, informerMgr.stopCh, "stopCh should be set")
-
-		// Verify that the informer factories are usable
 		assert.NotNil(tt, informerMgr.informerFactory.Core(), "Core informer factory should be accessible")
+
+		// Attach snapshot factory and verify it is usable.
+		informerMgr.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		assert.NotNil(tt, informerMgr.snapshotInformerFactory, "snapshotInformerFactory should be set")
 		assert.NotNil(tt, informerMgr.snapshotInformerFactory.Snapshot(),
 			"Snapshot informer factory should be accessible")
 	})
 }
 
 func TestInformerManager_AddSnapshotListener_NilFactory(t *testing.T) {
-	// Create an InformerManager with nil snapshot factory (bypass singleton/signal handler).
 	im := &InformerManager{
 		client:          testclient.NewSimpleClientset(),
 		informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
 	}
 
-	// Execute - should return an error when factory is nil
 	err := im.AddSnapshotListener(context.Background(), nil, nil, nil)
 
-	// Assert
 	assert.Error(t, err, "AddSnapshotListener should fail when snapshot factory is nil")
 }
 
 func TestInformerManager_AddSnapshotListener(t *testing.T) {
-	// Helper to create a VolumeSnapshot object
 	createSnapshot := func(name, namespace, pvcName string) *snapshotv1.VolumeSnapshot {
 		return &snapshotv1.VolumeSnapshot{
 			ObjectMeta: metav1.ObjectMeta{
@@ -158,27 +144,27 @@ func TestInformerManager_AddSnapshotListener(t *testing.T) {
 		}
 	}
 
+	newInformerWithSnapshot := func(tt *testing.T) *InformerManager {
+		tt.Helper()
+		im := &InformerManager{
+			client:          testclient.NewSimpleClientset(),
+			informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
+		}
+		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		return im
+	}
+
 	t.Run("AddSnapshotListenerWithNilHandlers", func(tt *testing.T) {
-		// Setup
-		ctx := context.Background()
-		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
-		informerMgr := NewInformer(ctx, k8sClient, snapshotClient)
+		informerMgr := newInformerWithSnapshot(tt)
 
-		// Execute - Pass nil handlers (should be allowed)
-		err := informerMgr.AddSnapshotListener(ctx, nil, nil, nil)
+		err := informerMgr.AddSnapshotListener(context.Background(), nil, nil, nil)
 
-		// Assert
 		assert.NoError(tt, err)
 		assert.NotNil(tt, informerMgr.snapshotInformer, "snapshotInformer should be initialized")
 	})
 
 	t.Run("HandlersIgnoreInvalidObjectTypes", func(tt *testing.T) {
-		// Setup
-		ctx := context.Background()
-		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
-		informerMgr := NewInformer(ctx, k8sClient, snapshotClient)
+		informerMgr := newInformerWithSnapshot(tt)
 
 		processedCount := 0
 		addFunc := func(obj any) {
@@ -188,32 +174,22 @@ func TestInformerManager_AddSnapshotListener(t *testing.T) {
 			}
 		}
 
-		// Execute
-		err := informerMgr.AddSnapshotListener(ctx, addFunc, nil, nil)
+		err := informerMgr.AddSnapshotListener(context.Background(), addFunc, nil, nil)
 		assert.NoError(tt, err)
 
-		// Simulate events with invalid types
 		addFunc("not-a-snapshot")
 		addFunc(123)
 		addFunc(nil)
-
-		// Assert - Invalid objects should be ignored
 		assert.Equal(tt, 0, processedCount, "Handler should ignore invalid object types")
 
-		// Now send a valid snapshot
 		snap := createSnapshot("snap1", "default", "pvc1")
 		addFunc(snap)
 		assert.Equal(tt, 1, processedCount, "Handler should process valid snapshot")
 	})
 
 	t.Run("EventHandlersTrackSnapshots", func(tt *testing.T) {
-		// Setup
-		ctx := context.Background()
-		k8sClient := testclient.NewSimpleClientset()
-		snapshotClient := snapshotfake.NewSimpleClientset()
-		informerMgr := NewInformer(ctx, k8sClient, snapshotClient)
+		informerMgr := newInformerWithSnapshot(tt)
 
-		// Track events with dummy maps
 		addedSnapshots := make(map[string]*snapshotv1.VolumeSnapshot)
 		updatedSnapshots := make(map[string]*snapshotv1.VolumeSnapshot)
 		deletedSnapshots := make(map[string]*snapshotv1.VolumeSnapshot)
@@ -246,14 +222,11 @@ func TestInformerManager_AddSnapshotListener(t *testing.T) {
 			}
 		}
 
-		// Execute
-		err := informerMgr.AddSnapshotListener(ctx, addFunc, updateFunc, deleteFunc)
+		err := informerMgr.AddSnapshotListener(context.Background(), addFunc, updateFunc, deleteFunc)
 
-		// Assert
 		assert.NoError(tt, err)
 		assert.NotNil(tt, informerMgr.snapshotInformer)
 
-		// Verify handlers are properly set up by simulating events
 		snap1 := createSnapshot("snap1", "default", "pvc1")
 		addFunc(snap1)
 		mu.Lock()

@@ -72,10 +72,8 @@ func NewInformerFromFactory(
 // NewInformer creates a new K8S client based on a service account.
 // NOTE: This function expects caller function to pass appropriate client
 // as per config to be created Informer for.
-// This function creates shared informer factories against the clients provided.
-func NewInformer(ctx context.Context,
-	client clientset.Interface,
-	snapshotClient snapclientset.Interface) *InformerManager {
+// This function creates shared informer factory against the client provided.
+func NewInformer(ctx context.Context, client clientset.Interface) *InformerManager {
 	log := logger.GetLogger(ctx)
 
 	if informerManagerInstance != nil {
@@ -89,16 +87,10 @@ func NewInformer(ctx context.Context,
 		return informerManagerInstance
 	}
 
-	var snapshotInformerFactory externalversions.SharedInformerFactory
-	if snapshotClient != nil {
-		snapshotInformerFactory = externalversions.NewSharedInformerFactory(
-			snapshotClient, noResyncPeriodFunc())
-	}
 	informerManagerInstance = &InformerManager{
-		client:                  client,
-		stopCh:                  signals.SetupSignalHandler().Done(),
-		informerFactory:         informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-		snapshotInformerFactory: snapshotInformerFactory,
+		client:          client,
+		stopCh:          signals.SetupSignalHandler().Done(),
+		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
 	}
 
 	log.Info("Created new informer factory")
@@ -282,6 +274,16 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 			err)
 	}
 	return nil
+}
+
+// SetSnapshotInformerFactory initialises the snapshot informer factory on an existing
+// InformerManager. No-op if the factory is already set or snapshotClient is nil.
+// This allows callers to defer the snapshot factory setup until after the FSS state is known.
+func (im *InformerManager) SetSnapshotInformerFactory(snapshotClient snapclientset.Interface) {
+	if im.snapshotInformerFactory != nil || snapshotClient == nil {
+		return
+	}
+	im.snapshotInformerFactory = externalversions.NewSharedInformerFactory(snapshotClient, noResyncPeriodFunc())
 }
 
 // AddSnapshotListener hooks up add, update, delete callbacks.
