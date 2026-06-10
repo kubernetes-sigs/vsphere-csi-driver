@@ -75,6 +75,7 @@ spec:
                     type: string
                 required:
                 - accessibleZones
+                - topologyType
                 type: object
               volumeCapabilities:
                 additionalProperties:

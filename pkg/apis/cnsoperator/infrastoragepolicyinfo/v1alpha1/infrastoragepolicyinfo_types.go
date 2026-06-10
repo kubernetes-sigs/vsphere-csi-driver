@@ -36,7 +36,6 @@ type Topology struct {
 	// TopologyType describes the type of topology for the storage policy.
 	// Valid values are empty (no topology) or "zonal" (zone-based topology).
 	// +kubebuilder:validation:Enum="";zonal
-	// +optional
 	TopologyType string `json:"topologyType"`
 
 	// AccessibleZones lists zones where the policy is accessible for this cluster.
