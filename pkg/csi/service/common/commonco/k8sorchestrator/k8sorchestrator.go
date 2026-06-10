@@ -371,119 +371,126 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 		k8sClient         clientset.Interface
 		snapshotterClient snapshotterClientSet.Interface
 	)
-	if atomic.LoadUint32(&k8sOrchestratorInstanceInitialized) == 0 {
-		k8sOrchestratorInitMutex.Lock()
-		defer k8sOrchestratorInitMutex.Unlock()
-		if k8sOrchestratorInstanceInitialized == 0 {
-			log := logger.GetLogger(ctx)
-			log.Info("Initializing k8sOrchestratorInstance")
 
-			// Create a K8s client
-			k8sClient, coInstanceErr = k8s.NewClient(ctx)
-			if coInstanceErr != nil {
-				log.Errorf("Creating Kubernetes client failed. Err: %v", coInstanceErr)
-				return nil, coInstanceErr
-			}
+	if atomic.LoadUint32(&k8sOrchestratorInstanceInitialized) != 0 {
+		return k8sOrchestratorInstance, nil
+	}
 
-			// Create a snapshotter client - needed for snapshot API calls across all
-			// cluster flavors (e.g. GetVolumeSnapshotPVCSource, GetLinkedCloneSourceSnapshotUID).
-			snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
-			if coInstanceErr != nil {
-				log.Errorf("Creating Snapshotter client failed. Err: %v", coInstanceErr)
-				return nil, coInstanceErr
-			}
+	k8sOrchestratorInitMutex.Lock()
+	defer k8sOrchestratorInitMutex.Unlock()
+	if k8sOrchestratorInstanceInitialized != 0 {
+		return k8sOrchestratorInstance, nil
+	}
 
-			k8sOrchestratorInstance = &K8sOrchestrator{}
-			k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
-			k8sOrchestratorInstance.k8sClient = k8sClient
-			k8sOrchestratorInstance.snapshotterClient = snapshotterClient
-			// Pass snapshotterClient to the informer only for guest clusters to enable
-			// the PVC-to-snapshot informer cache. Other flavors do not use it.
-			if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
-			} else {
-				k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, nil)
-			}
+	log := logger.GetLogger(ctx)
+	log.Info("Initializing k8sOrchestratorInstance")
 
-			coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
-			if coInstanceErr != nil {
-				log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
-				return nil, coInstanceErr
-			}
+	// Create a K8s client
+	k8sClient, coInstanceErr = k8s.NewClient(ctx)
+	if coInstanceErr != nil {
+		log.Errorf("Creating Kubernetes client failed. Err: %v", coInstanceErr)
+		return nil, coInstanceErr
+	}
 
-			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				svInitParams, ok := params.(K8sSupervisorInitParams)
-				if !ok {
-					return nil, fmt.Errorf("expected orchestrator params of type K8sSupervisorInitParams, got %T instead", params)
-				}
-				operationMode = svInitParams.OperationMode
-			} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-				vanillaInitParams, ok := params.(K8sVanillaInitParams)
-				if !ok {
-					return nil, fmt.Errorf("expected orchestrator params of type K8sVanillaInitParams, got %T instead", params)
-				}
-				operationMode = vanillaInitParams.OperationMode
-				k8sOrchestratorInstance.releasedVanillaFSS = getReleasedVanillaFSS()
-			} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
-				guestInitParams, ok := params.(K8sGuestInitParams)
-				if !ok {
-					return nil, fmt.Errorf("expected orchestrator params of type K8sGuestInitParams, got %T instead", params)
-				}
-				operationMode = guestInitParams.OperationMode
-			} else {
-				return nil, fmt.Errorf("wrong orchestrator params type")
-			}
+	// Create a snapshotter client - needed for snapshot API calls across all
+	// cluster flavors (e.g. GetVolumeSnapshotPVCSource, GetLinkedCloneSourceSnapshotUID).
+	snapshotterClient, coInstanceErr = k8s.NewSnapshotterClient(ctx)
+	if coInstanceErr != nil {
+		log.Errorf("Creating Snapshotter client failed. Err: %v", coInstanceErr)
+		return nil, coInstanceErr
+	}
 
-			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
-				(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
-					k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
-				(operationMode != operationModeWebHookServer) {
-				err := initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create volume handle to PVC map. Error: %v", err)
-				}
-			}
+	k8sOrchestratorInstance = &K8sOrchestrator{}
+	k8sOrchestratorInstance.clusterFlavor = controllerClusterFlavor
+	k8sOrchestratorInstance.k8sClient = k8sClient
+	k8sOrchestratorInstance.snapshotterClient = snapshotterClient
 
-			// check capabilities CR reading for workload cluster
-			if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-				err := checkCapabilitiesCR(ctx, controllerClusterFlavor)
-				if err != nil {
-					log.Errorf("Failed to fetch the capabilities CR. Error: %v", err)
-					os.Exit(1)
-				}
-			}
+	coInstanceErr = initFSS(ctx, k8sClient, controllerClusterFlavor, params)
+	if coInstanceErr != nil {
+		log.Errorf("Failed to initialize the orchestrator. Error: %v", coInstanceErr)
+		return nil, coInstanceErr
+	}
 
-			if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
-				(operationMode != operationModeWebHookServer) {
-				// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
-				err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
-				}
-				err = initNodeIDToNameMap(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create node ID to name map. Error: %v", err)
-				}
-			} else if operationMode != operationModeWebHookServer {
-				// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
-				if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
-					err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
-					if err != nil {
-						return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
-					}
-				}
-			}
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		svInitParams, ok := params.(K8sSupervisorInitParams)
+		if !ok {
+			return nil, fmt.Errorf("expected orchestrator params of type K8sSupervisorInitParams, got %T instead", params)
+		}
+		operationMode = svInitParams.OperationMode
+	} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla {
+		vanillaInitParams, ok := params.(K8sVanillaInitParams)
+		if !ok {
+			return nil, fmt.Errorf("expected orchestrator params of type K8sVanillaInitParams, got %T instead", params)
+		}
+		operationMode = vanillaInitParams.OperationMode
+		k8sOrchestratorInstance.releasedVanillaFSS = getReleasedVanillaFSS()
+	} else if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		guestInitParams, ok := params.(K8sGuestInitParams)
+		if !ok {
+			return nil, fmt.Errorf("expected orchestrator params of type K8sGuestInitParams, got %T instead", params)
+		}
+		operationMode = guestInitParams.OperationMode
+	} else {
+		return nil, fmt.Errorf("wrong orchestrator params type")
+	}
 
-			err := initPVCToSnapshotsMap(ctx, controllerClusterFlavor)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create PVC to snapshots map. Error: %v", err)
-			}
+	// Pass snapshotterClient to the informer only for guest clusters to enable
+	// the PVC-to-snapshot informer cache. Other flavors do not use it.
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+		k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, snapshotterClient)
+	} else {
+		k8sOrchestratorInstance.informerManager = k8s.NewInformer(ctx, k8sClient, nil)
+	}
 
-			k8sOrchestratorInstance.informerManager.Listen()
-			atomic.StoreUint32(&k8sOrchestratorInstanceInitialized, 1)
-			log.Info("k8sOrchestratorInstance initialized")
+	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload ||
+		(controllerClusterFlavor == cnstypes.CnsClusterFlavorVanilla &&
+			k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes))) &&
+		(operationMode != operationModeWebHookServer) {
+		err := initVolumeHandleToPvcMap(ctx, controllerClusterFlavor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create volume handle to PVC map. Error: %v", err)
 		}
 	}
+
+	// check capabilities CR reading for workload cluster
+	if controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		err := checkCapabilitiesCR(ctx, controllerClusterFlavor)
+		if err != nil {
+			log.Errorf("Failed to fetch the capabilities CR. Error: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
+		(operationMode != operationModeWebHookServer) {
+		// Initialize the map for volumeName to nodes, as it is needed for WCP detach volume handling
+		err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
+		}
+		err = initNodeIDToNameMap(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create node ID to name map. Error: %v", err)
+		}
+	} else if operationMode != operationModeWebHookServer {
+		// Initialize the map for volumeName to nodes, for non-WCP flavors and when ListVolume FSS is on
+		if k8sOrchestratorInstance.IsFSSEnabled(ctx, common.ListVolumes) {
+			err := initVolumeNameToNodesMap(ctx, controllerClusterFlavor)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create PV name to node names map. Error: %v", err)
+			}
+		}
+	}
+
+	err := initPVCToSnapshotsMap(ctx, controllerClusterFlavor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PVC to snapshots map. Error: %v", err)
+	}
+
+	k8sOrchestratorInstance.informerManager.Listen()
+	atomic.StoreUint32(&k8sOrchestratorInstanceInitialized, 1)
+	log.Info("k8sOrchestratorInstance initialized")
 	return k8sOrchestratorInstance, nil
 }
 

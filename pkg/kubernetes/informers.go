@@ -89,15 +89,18 @@ func NewInformer(ctx context.Context,
 		return informerManagerInstance
 	}
 
-	informerManagerInstance = &InformerManager{
-		client:          client,
-		stopCh:          signals.SetupSignalHandler().Done(),
-		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-	}
+	var snapshotInformerFactory externalversions.SharedInformerFactory
 	if snapshotClient != nil {
-		informerManagerInstance.snapshotInformerFactory = externalversions.NewSharedInformerFactory(
+		snapshotInformerFactory = externalversions.NewSharedInformerFactory(
 			snapshotClient, noResyncPeriodFunc())
 	}
+	informerManagerInstance = &InformerManager{
+		client:                  client,
+		stopCh:                  signals.SetupSignalHandler().Done(),
+		informerFactory:         informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+		snapshotInformerFactory: snapshotInformerFactory,
+	}
+
 	log.Info("Created new informer factory")
 	return informerManagerInstance
 }

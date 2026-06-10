@@ -30,7 +30,7 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	commonco "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -118,7 +118,7 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 				needsCleanup = true
 			}
 
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisiblity) {
+			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
 				if annVal, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; ok {
 					// Selectively remove PVC-specific fields from the JSON annotation so
 					// that cluster-identity fields (clusterId, clusterName) are preserved
