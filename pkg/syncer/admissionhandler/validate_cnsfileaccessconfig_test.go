@@ -139,7 +139,7 @@ func TestValidatePvCSIServiceAccount(t *testing.T) {
 			username:       "system:serviceaccount:vmware-system-csi:test-cluster-pvcsi",
 			expected:       false,
 			expectError:    true,
-			errorSubstring: "failed to check VSphereCluster resource", // "test-cluster" VSphereCluster exists in "default" namespace, not "vmware-system-csi"
+			errorSubstring: "failed to check VSphereCluster resource", // Namespace mismatch expected
 		},
 		{
 			name:        "Valid VSphereCluster validation for test-cluster-e2e-script-95jxs",
