@@ -316,7 +316,7 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 	// validate VSphereCluster resource exists
 	found, err := validateVSphereClusterResource(ctx, clusterName, namespace)
 	if err != nil {
-		return false, fmt.Errorf("Failed to check VSphereCluster resource: %v", err)
+		return false, fmt.Errorf("failed to check VSphereCluster resource: %v", err)
 	}
 	if found {
 		log.Infof("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
