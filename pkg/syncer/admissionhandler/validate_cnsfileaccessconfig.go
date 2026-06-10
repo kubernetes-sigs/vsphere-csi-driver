@@ -280,7 +280,7 @@ func validatePvCSIServiceAccount(ctx context.Context, username string) (bool, er
 	// For any namespace, check if service account follows guest cluster PvCSI pattern
 	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
 	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
-		log.Errorf("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
+		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
 		return validateProviderServiceAccount(ctx, namespace, serviceAccountName)
 	}
 
@@ -316,7 +316,7 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 	// validate VSphereCluster resource exists
 	found, err := validateVSphereClusterResource(ctx, clusterName, namespace)
 	if err != nil {
-		log.Warnf("Failed to check VSphereCluster resource: %v", err)
+		return false, fmt.Errorf("Failed to check VSphereCluster resource: %v", err)
 	}
 	if found {
 		log.Infof("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
