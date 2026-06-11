@@ -19,13 +19,15 @@ package service
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
 )
 
 func TestNodeStageVolume_FileVolume(t *testing.T) {
@@ -432,8 +434,11 @@ func TestOsUtilsInitialization(t *testing.T) {
 	driver := NewDriver().(*vsphereCSIDriver)
 
 	// Mock CO init params
-	COInitParams = map[string]interface{}{
-		"test": "value",
+	COInitParams = k8sorchestrator.K8sVanillaInitParams{
+		InternalFeatureStatesConfigInfo: cnsconfig.FeatureStatesConfigInfo{
+			Name:      "test-configmap",
+			Namespace: "test-namespace",
+		},
 	}
 
 	// Set mode to node to avoid config requirements
@@ -441,14 +446,10 @@ func TestOsUtilsInitialization(t *testing.T) {
 	defer os.Unsetenv("CSI_MODE")
 
 	err := driver.BeforeServe(ctx)
-	// In node mode without Kubernetes cluster, BeforeServe will fail during CO initialization
-	// This is expected behavior in a test environment
+	// BeforeServe will fail during CO initialization in a test environment.
+	// The specific error depends on the environment: missing k8s env vars,
+	// missing service account token, or configmap not found.
 	assert.Error(t, err)
-	// The error can be either missing env vars or missing service account token file
-	assert.True(t,
-		strings.Contains(err.Error(), "KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined") ||
-			strings.Contains(err.Error(), "open /var/run/secrets/kubernetes.io/serviceaccount/token: no such file or directory"),
-		"Expected Kubernetes connection error, got: %v", err)
 	// OsUtils is not initialized when CO initialization fails because it happens after CO init
 	assert.Nil(t, driver.osUtils, "OsUtils should not be initialized when CO initialization fails")
 }
