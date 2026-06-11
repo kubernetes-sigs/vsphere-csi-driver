@@ -105,7 +105,7 @@ func TestValidatePvCSIServiceAccount(t *testing.T) {
 		errorSubstring string // Optional: partial error message to match
 	}{
 		{
-			name:        "Valid vsphere-csi-controller in valid namespace",
+			name:        "CSI controller service account (not PvCSI)",
 			username:    "system:serviceaccount:vmware-system-csi:vsphere-csi-controller",
 			expected:    false,
 			expectError: false,
@@ -285,7 +285,7 @@ func TestIsUserAllowedForDeletion(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "Valid PvCSI service account",
+			name:     "CSI controller service account (not PvCSI)",
 			username: "system:serviceaccount:vmware-system-csi:vsphere-csi-controller",
 			expected: false,
 		},

@@ -254,7 +254,7 @@ func isUserAllowedForDeletion(ctx context.Context, username string, k8sClient cl
 func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
 
-	log.Infof("Validating PvCSI service account: username=%s", username)
+	log.Debugf("Validating PvCSI service account: username=%s", username)
 
 	// Expected format: "system:serviceaccount:namespace:service-account-name"
 	// Parse the username to extract namespace and service account name
@@ -266,7 +266,7 @@ func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient
 
 	remaining := strings.TrimPrefix(username, prefix)
 	parts := strings.Split(remaining, ":")
-	log.Infof("Parsed service account parts: %v (count: %d)", parts, len(parts))
+	log.Debugf("Parsed service account parts: %v (count: %d)", parts, len(parts))
 
 	if len(parts) != 2 {
 		log.Errorf("Invalid service account format - expected 2 parts, got %d, returning false", len(parts))
@@ -275,21 +275,23 @@ func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient
 
 	namespace := parts[0]
 	serviceAccountName := parts[1]
-	log.Infof("Extracted namespace=%s, serviceAccountName=%s", namespace, serviceAccountName)
+	log.Debugf("Extracted namespace=%s, serviceAccountName=%s", namespace, serviceAccountName)
 
 	// For any namespace, check if service account follows guest cluster PvCSI pattern
 	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
 	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
-		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
+		log.Debugf("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
 		return validateProviderServiceAccount(ctx, namespace, serviceAccountName, k8sClient)
 	}
 
-	log.Infof("Service account doesn't match any PvCSI patterns, returning false")
+	log.Debugf("Service account doesn't match any PvCSI patterns, returning false")
 	return false, nil
 }
 
-// validateProviderServiceAccount validates the service account name against all available clusters
-func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string, k8sClient client.Client) (bool, error) {
+// validateProviderServiceAccount validates the service account name matches an existing
+// VSphereCluster
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string,
+	k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
 
@@ -319,14 +321,15 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 }
 
 // validateVSphereClusterResource checks if a VSphereCluster resource exists using dynamic client
-func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string, k8sClient client.Client) (bool, error) {
+func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string,
+	k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	// Use unstructured object to work with the actual VSphereCluster API group/version deployed in the cluster
 	vsphereCluster := &unstructured.Unstructured{}
 	vsphereCluster.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "vmware.infrastructure.cluster.x-k8s.io",
-		Version: "v1beta2", // Use the version we saw in kubectl api-resources
+		Version: "v1beta2",
 		Kind:    "VSphereCluster",
 	})
 
