@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package admissionhandler
 
 import (
@@ -5,11 +21,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 
@@ -21,14 +40,13 @@ import (
 
 const (
 	KubernetesServiceAccount = "system:serviceaccount:kube-system"
-	PvCsiServiceAccountregex = "^system:serviceaccount.*-pvcsi$"
 	KubernetesAdmin          = "kubernetes-admin"
 )
 
 // validateCreateCnsFileAccessConfig validates if a CnsFileAccessConfig CR with the same VM and PVC already exists.
 // If it already exists, do not allow creation of another CR.
 func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
-	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	req *admissionv1.AdmissionRequest, k8sClient client.Client) *admissionv1.AdmissionResponse {
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
@@ -45,7 +63,7 @@ func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// This validation is not required for PVCSI service account.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, k8sClient)
 	if err != nil {
 		// return AdmissionResponse result
 		return &admissionv1.AdmissionResponse{
@@ -132,7 +150,7 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
-		log.Errorf("failed to list CnsFileAccessConfigList CRs from %s namesapace. Error: %+v",
+		log.Errorf("failed to list CnsFileAccessConfigList CRs from %s namespace. Error: %+v",
 			namespace, err)
 		return "", err
 	}
@@ -155,7 +173,7 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 // devops label (indicates that it is a CR being used by guest cluster) if user deleting the instance
 // is a CSI or K8s system user or K8s admin.
 func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
-	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	req *admissionv1.AdmissionRequest, k8sClient client.Client) *admissionv1.AdmissionResponse {
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
@@ -182,7 +200,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// Check if user is allowed to delete this CR.
-	allowed, err := isUserAllowedForDeletion(req.UserInfo.Username)
+	allowed, err := isUserAllowedForDeletion(ctx, req.UserInfo.Username, k8sClient)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
@@ -207,35 +225,123 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 }
 
 // isUserAllowedForDeletion returns true if user is either a PVCSI service account or
-// K8s' namespace-cotnroller.
-func isUserAllowedForDeletion(username string) (bool, error) {
-	pvcCsiServiceAccountRegex, err := regexp.Compile(PvCsiServiceAccountregex)
-	if err != nil {
-		return false, err
-	}
-
+// K8s' namespace-controller.
+func isUserAllowedForDeletion(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
 	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
 	if err != nil {
 		return false, err
 	}
 
-	// Allowed users are :
-	// 1. PVCSI service account
-	// 2. K8s service account (like namespace-controller or generic-garbage-collector)
-	// 3. K8s admin
-	if pvcCsiServiceAccountRegex.MatchString(username) ||
-		kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
+	// Check if user is a valid PVCSI service account using the new validation logic
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, username, k8sClient)
+	if err != nil {
+		return false, err
+	}
+	if isPvCSIServiceAccount {
 		return true, nil
+	}
 
+	// Allowed users are :
+	// 1. K8s service account (like namespace-controller or generic-garbage-collector)
+	// 2. K8s admin
+	if kubernetesServiceAccount.MatchString(username) || username == KubernetesAdmin {
+		return true, nil
 	}
 
 	return false, nil
 }
 
-func validatePvCSIServiceAccount(username string) (bool, error) {
-	pvcCsiServiceAccountRegex, err := regexp.Compile(PvCsiServiceAccountregex)
-	if err != nil {
-		return false, err // fail open
+func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	log.Debugf("Validating PvCSI service account: username=%s", username)
+
+	// Expected format: "system:serviceaccount:namespace:service-account-name"
+	// Parse the username to extract namespace and service account name
+	const prefix = "system:serviceaccount:"
+	if !strings.HasPrefix(username, prefix) {
+		log.Infof("Username doesn't have service account prefix, returning false")
+		return false, nil
 	}
-	return pvcCsiServiceAccountRegex.MatchString(username), nil
+
+	remaining := strings.TrimPrefix(username, prefix)
+	parts := strings.Split(remaining, ":")
+	log.Debugf("Parsed service account parts: %v (count: %d)", parts, len(parts))
+
+	if len(parts) != 2 {
+		log.Errorf("Invalid service account format - expected 2 parts, got %d, returning false", len(parts))
+		return false, nil
+	}
+
+	namespace := parts[0]
+	serviceAccountName := parts[1]
+	log.Debugf("Extracted namespace=%s, serviceAccountName=%s", namespace, serviceAccountName)
+
+	// For any namespace, check if service account follows guest cluster PvCSI pattern
+	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
+	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
+		log.Debugf("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
+		return validateProviderServiceAccount(ctx, namespace, serviceAccountName, k8sClient)
+	}
+
+	log.Debugf("Service account doesn't match any PvCSI patterns, returning false")
+	return false, nil
+}
+
+// validateProviderServiceAccount validates the service account name matches an existing
+// VSphereCluster
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string,
+	k8sClient client.Client) (bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
+
+	clusterName := strings.TrimSuffix(serviceAccountName, "-pvcsi")
+	if clusterName == "" {
+		log.Warnf("Empty vsphere cluster name extracted from service account '%s'", serviceAccountName)
+		return false, nil
+	}
+
+	log.Infof("Extracted vsphere cluster name '%s' from service account '%s', searching in namespace '%s'",
+		clusterName, serviceAccountName, namespace)
+
+	// validate VSphereCluster resource exists
+	found, err := validateVSphereClusterResource(ctx, clusterName, namespace, k8sClient)
+	if err != nil {
+		return false, fmt.Errorf("failed to check VSphereCluster resource: %w", err)
+	}
+	if found {
+		log.Infof("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
+			clusterName, namespace, serviceAccountName)
+		return true, nil
+	}
+
+	log.Infof("VSphereCluster with name :'%s' not found in namespace '%s', So service account '%s' is not valid",
+		clusterName, namespace, serviceAccountName)
+	return false, nil
+}
+
+// validateVSphereClusterResource checks if a VSphereCluster resource exists using dynamic client
+func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string,
+	k8sClient client.Client) (bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Use unstructured object to work with the actual VSphereCluster API group/version deployed in the cluster
+	vsphereCluster := &unstructured.Unstructured{}
+	vsphereCluster.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "vmware.infrastructure.cluster.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "VSphereCluster",
+	})
+
+	err := k8sClient.Get(ctx, client.ObjectKey{
+		Name:      clusterName,
+		Namespace: namespace,
+	}, vsphereCluster)
+
+	if err != nil {
+		return false, fmt.Errorf("failed to get VSphereCluster '%s' in namespace '%s': %w", clusterName, namespace, err)
+	}
+
+	log.Infof("Found VSphereCluster '%s' in namespace '%s'", clusterName, namespace)
+	return true, nil
 }
