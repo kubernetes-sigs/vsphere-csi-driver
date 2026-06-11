@@ -18,11 +18,9 @@ package admissionhandler
 
 import (
 	"context"
-	goruntime "runtime"
 	"strings"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -81,11 +79,7 @@ func convertVSphereClustersToObjects(clusters []*unstructured.Unstructured) []cl
 
 // setupClusterAPIMocking sets up gomonkey patches for VSphere cluster validation with realistic test data
 // Returns patches that must be reset with defer patches.Reset()
-func setupClusterAPIMocking(t *testing.T) *gomonkey.Patches {
-	// Skip test on ARM64 due to gomonkey limitations
-	if goruntime.GOARCH == "arm64" {
-		t.Skip("Skipping test on ARM64 due to gomonkey function patching limitations")
-	}
+func setupClusterAPIMocking(t *testing.T) client.Client {
 
 	// Setup fake client with VSphere cluster test data
 	scheme := setupSchemeForTest()
@@ -96,19 +90,13 @@ func setupClusterAPIMocking(t *testing.T) *gomonkey.Patches {
 		WithObjects(convertVSphereClustersToObjects(testVSphereClusters)...).
 		Build()
 
-	// Mock getVSphereClusterClient to return our fake client with VSphere cluster test data
-	patches := gomonkey.ApplyFunc(getVSphereClusterClient,
-		func(ctx context.Context) (client.Client, error) {
-			return fakeClient, nil
-		})
-
-	return patches
+	// Return the fake client directly for use in tests
+	return fakeClient
 }
 
 func TestValidatePvCSIServiceAccount(t *testing.T) {
 	// Setup cluster API mocking with realistic test data
-	patches := setupClusterAPIMocking(t)
-	defer patches.Reset()
+	fakeClient := setupClusterAPIMocking(t)
 	testCases := []struct {
 		name           string
 		username       string
@@ -256,7 +244,7 @@ func TestValidatePvCSIServiceAccount(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := validatePvCSIServiceAccount(context.TODO(), tc.username)
+			result, err := validatePvCSIServiceAccount(context.TODO(), tc.username, fakeClient)
 
 			// Check error expectation
 			if tc.expectError {
@@ -289,8 +277,7 @@ func TestIsUserAllowedForDeletion(t *testing.T) {
 	// Setup cluster API mocking with realistic test data
 	// This is needed because isUserAllowedForDeletion() calls validatePvCSIServiceAccount()
 	// which requires cluster API access
-	patches := setupClusterAPIMocking(t)
-	defer patches.Reset()
+	fakeClient := setupClusterAPIMocking(t)
 
 	testCases := []struct {
 		name     string
@@ -326,7 +313,7 @@ func TestIsUserAllowedForDeletion(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := isUserAllowedForDeletion(context.TODO(), tc.username)
+			result, err := isUserAllowedForDeletion(context.TODO(), tc.username, fakeClient)
 			if err != nil {
 				t.Errorf("isUserAllowedForDeletion() returned error: %v", err)
 				return

@@ -46,7 +46,7 @@ const (
 // validateCreateCnsFileAccessConfig validates if a CnsFileAccessConfig CR with the same VM and PVC already exists.
 // If it already exists, do not allow creation of another CR.
 func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
-	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	req *admissionv1.AdmissionRequest, k8sClient client.Client) *admissionv1.AdmissionResponse {
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
@@ -63,7 +63,7 @@ func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// This validation is not required for PVCSI service account.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, k8sClient)
 	if err != nil {
 		// return AdmissionResponse result
 		return &admissionv1.AdmissionResponse{
@@ -173,7 +173,7 @@ func cnsFileAccessConfigAlreadyExists(ctx context.Context, clientConfig *rest.Co
 // devops label (indicates that it is a CR being used by guest cluster) if user deleting the instance
 // is a CSI or K8s system user or K8s admin.
 func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.Config,
-	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	req *admissionv1.AdmissionRequest, k8sClient client.Client) *admissionv1.AdmissionResponse {
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
@@ -200,7 +200,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	}
 
 	// Check if user is allowed to delete this CR.
-	allowed, err := isUserAllowedForDeletion(ctx, req.UserInfo.Username)
+	allowed, err := isUserAllowedForDeletion(ctx, req.UserInfo.Username, k8sClient)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
@@ -226,14 +226,14 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 
 // isUserAllowedForDeletion returns true if user is either a PVCSI service account or
 // K8s' namespace-cotnroller.
-func isUserAllowedForDeletion(ctx context.Context, username string) (bool, error) {
+func isUserAllowedForDeletion(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
 	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
 	if err != nil {
 		return false, err
 	}
 
 	// Check if user is a valid PVCSI service account using the new validation logic
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, username)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, username, k8sClient)
 	if err != nil {
 		return false, err
 	}
@@ -251,7 +251,7 @@ func isUserAllowedForDeletion(ctx context.Context, username string) (bool, error
 	return false, nil
 }
 
-func validatePvCSIServiceAccount(ctx context.Context, username string) (bool, error) {
+func validatePvCSIServiceAccount(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Validating PvCSI service account: username=%s", username)
@@ -281,26 +281,15 @@ func validatePvCSIServiceAccount(ctx context.Context, username string) (bool, er
 	// Guest cluster PvCSI service accounts follow the pattern: {cluster-name}-pvcsi
 	if strings.HasSuffix(serviceAccountName, "-pvcsi") {
 		log.Infof("Service account ends with -pvcsi, validating as guest cluster PvCSI account")
-		return validateProviderServiceAccount(ctx, namespace, serviceAccountName)
+		return validateProviderServiceAccount(ctx, namespace, serviceAccountName, k8sClient)
 	}
 
 	log.Infof("Service account doesn't match any PvCSI patterns, returning false")
 	return false, nil
 }
 
-// getVSphereClusterClient creates a Kubernetes client for VSphere cluster API operations using dynamic client
-func getVSphereClusterClient(ctx context.Context) (client.Client, error) {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	// Use a dynamic client that can work with any API group/version
-	return client.New(config, client.Options{})
-}
-
 // validateProviderServiceAccount validates the service account name against all available clusters
-func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string) (bool, error) {
+func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccountName string, k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("Validating provider service account '%s' in namespace '%s'", serviceAccountName, namespace)
 
@@ -314,7 +303,7 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 		clusterName, serviceAccountName, namespace)
 
 	// validate VSphereCluster resource exists
-	found, err := validateVSphereClusterResource(ctx, clusterName, namespace)
+	found, err := validateVSphereClusterResource(ctx, clusterName, namespace, k8sClient)
 	if err != nil {
 		return false, fmt.Errorf("failed to check VSphereCluster resource: %v", err)
 	}
@@ -330,13 +319,8 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 }
 
 // validateVSphereClusterResource checks if a VSphereCluster resource exists using dynamic client
-func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string) (bool, error) {
+func validateVSphereClusterResource(ctx context.Context, clusterName, namespace string, k8sClient client.Client) (bool, error) {
 	log := logger.GetLogger(ctx)
-
-	k8sClient, err := getVSphereClusterClient(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to create VSphere cluster API client: %w", err)
-	}
 
 	// Use unstructured object to work with the actual VSphereCluster API group/version deployed in the cluster
 	vsphereCluster := &unstructured.Unstructured{}
@@ -346,7 +330,7 @@ func validateVSphereClusterResource(ctx context.Context, clusterName, namespace 
 		Kind:    "VSphereCluster",
 	})
 
-	err = k8sClient.Get(ctx, client.ObjectKey{
+	err := k8sClient.Get(ctx, client.ObjectKey{
 		Name:      clusterName,
 		Namespace: namespace,
 	}, vsphereCluster)
