@@ -225,7 +225,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 }
 
 // isUserAllowedForDeletion returns true if user is either a PVCSI service account or
-// K8s' namespace-cotnroller.
+// K8s' namespace-controller.
 func isUserAllowedForDeletion(ctx context.Context, username string, k8sClient client.Client) (bool, error) {
 	kubernetesServiceAccount, err := regexp.Compile(KubernetesServiceAccount)
 	if err != nil {
@@ -307,7 +307,7 @@ func validateProviderServiceAccount(ctx context.Context, namespace, serviceAccou
 	// validate VSphereCluster resource exists
 	found, err := validateVSphereClusterResource(ctx, clusterName, namespace, k8sClient)
 	if err != nil {
-		return false, fmt.Errorf("failed to check VSphereCluster resource: %v", err)
+		return false, fmt.Errorf("failed to check VSphereCluster resource: %w", err)
 	}
 	if found {
 		log.Infof("Found VSphereCluster '%s' in namespace '%s', service account '%s' is valid",
