@@ -57,6 +57,10 @@ const (
 	// Default timeout for create snapshot, used unless overridden by user in
 	// csi-controller YAML.
 	defaultSnapshotTimeoutInMin = 4
+
+	// Default timeout for ModifyVolume, used unless overridden by user in
+	// csi-controller YAML.
+	defaultModifyVolumeTimeoutInMin = 4
 )
 
 // validateGuestClusterCreateVolumeRequest is the helper function to validate
@@ -535,6 +539,28 @@ func getAttacherTimeoutInMin(ctx context.Context) int {
 		}
 	}
 	return attacherTimeoutInMin
+}
+
+// getModifyVolumeTimeoutInMin returns the timeout for ModifyVolume completion.
+// If MODIFY_VOLUME_TIMEOUT_MINUTES is set and valid, that value is used.
+// Otherwise falls back to modifyVolumeTimeoutInMin (overridable in tests) or the default of 4 minutes.
+func getModifyVolumeTimeoutInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	if v := os.Getenv("MODIFY_VOLUME_TIMEOUT_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("modifyVolumeTimeout set in env variable MODIFY_VOLUME_TIMEOUT_MINUTES %s is equal or less than 0, "+
+					"will use the default timeout of %d minutes", v, modifyVolumeTimeoutInMin)
+			} else {
+				log.Infof("modifyVolumeTimeout is set to %d minutes", value)
+				return value
+			}
+		} else {
+			log.Warnf("modifyVolumeTimeout set in env variable MODIFY_VOLUME_TIMEOUT_MINUTES %s is invalid, "+
+				"will use the default timeout of %d minutes", v, modifyVolumeTimeoutInMin)
+		}
+	}
+	return modifyVolumeTimeoutInMin
 }
 
 func constructListSnapshotEntry(vs snap.VolumeSnapshot) *csi.ListSnapshotsResponse_Entry {

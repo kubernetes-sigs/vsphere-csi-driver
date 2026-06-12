@@ -74,6 +74,10 @@ import (
 )
 
 var (
+	// modifyVolumeTimeoutInMin is the default timeout for waiting for supervisor PVC modify volume completion.
+	// Declared as a var so it can be adjusted in tests.
+	modifyVolumeTimeoutInMin = defaultModifyVolumeTimeoutInMin
+
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
@@ -1763,7 +1767,19 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	log := logger.GetLogger(ctx)
 	log.Infof("ControllerGetCapabilities: called with args %+v", req)
 	var caps []*csi.ControllerServiceCapability
-	for _, cap := range controllerCaps {
+
+	// Create a local copy of controllerCaps and conditionally append MODIFY_VOLUME
+	localControllerCaps := make([]csi.ControllerServiceCapability_RPC_Type, len(controllerCaps))
+	copy(localControllerCaps, controllerCaps)
+
+	// MODIFY_VOLUME is only advertised when the VM_PVC_STORAGE_POLICY_MUTABILITY
+	// FSS is enabled (which also checks the supervisor capability). This way csi-resizer
+	// will not call ControllerModifyVolume against drivers that do not yet support it.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutabilityFSS) {
+		localControllerCaps = append(localControllerCaps, csi.ControllerServiceCapability_RPC_MODIFY_VOLUME)
+	}
+
+	for _, cap := range localControllerCaps {
 		c := &csi.ControllerServiceCapability{
 			Type: &csi.ControllerServiceCapability_Rpc{
 				Rpc: &csi.ControllerServiceCapability_RPC{
@@ -2121,7 +2137,220 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 
 func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (
 	*csi.ControllerModifyVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "")
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ControllerModifyVolume: called with args %+v", req)
+
+	// FSS gate: check if VM_PVC_STORAGE_POLICY_MUTABILITY FSS is enabled
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutabilityFSS) {
+		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,
+			"ControllerModifyVolume is not supported: VM_PVC_STORAGE_POLICY_MUTABILITY FSS is not enabled")
+	}
+
+	// Validate volumeID
+	volumeID := req.GetVolumeId()
+	if volumeID == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "Volume ID must be provided")
+	}
+
+	// Resolve target VAC from the guest PVC
+	targetVAC, err := c.getTargetVACForVolume(ctx, volumeID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to resolve target VAC for volume %s: %v", volumeID, err)
+	}
+
+	if targetVAC == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"no VolumeAttributesClass specified in guest PVC")
+	}
+
+	// Get the supervisor PVC
+	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+		ctx, volumeID, metav1.GetOptions{})
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get supervisor PVC %s in namespace %s: %v", volumeID, c.supervisorNamespace, err)
+	}
+
+	// Idempotency check: if already at target VAC and no modify operation in progress, return success
+	if svPVC.Status.CurrentVolumeAttributesClassName != nil &&
+		*svPVC.Status.CurrentVolumeAttributesClassName == targetVAC &&
+		svPVC.Status.ModifyVolumeStatus == nil {
+		log.Infof("Volume %s already has target VAC %q, returning success", volumeID, targetVAC)
+		return &csi.ControllerModifyVolumeResponse{}, nil
+	}
+
+	// Idempotency: a ModifyVolume to our target VAC is already in progress — skip patching and wait
+	if svPVC.Status.ModifyVolumeStatus != nil &&
+		svPVC.Status.ModifyVolumeStatus.TargetVolumeAttributesClassName == targetVAC {
+		log.Infof("Supervisor PVC %s already has a ModifyVolume in progress for VAC %q, waiting for completion",
+			volumeID, targetVAC)
+		timeout := time.Duration(getModifyVolumeTimeoutInMin(ctx)) * time.Minute
+		if err = c.waitForSupervisorPVCModifyVolume(ctx, volumeID, targetVAC, timeout); err != nil {
+			return nil, err
+		}
+		log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
+		return &csi.ControllerModifyVolumeResponse{}, nil
+	}
+
+	// Patch the supervisor PVC to set the target VAC
+	original := svPVC.DeepCopy()
+	clone := svPVC.DeepCopy()
+	clone.Spec.VolumeAttributesClassName = &targetVAC
+
+	// Get or create supervisor runtime client for patching
+	supervisorRuntimeClient := c.supervisorRuntimeClient
+	if supervisorRuntimeClient == nil {
+		rc, rcErr := client.New(c.restClientConfig, client.Options{})
+		if rcErr != nil {
+			return nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to create controller-runtime client for supervisor cluster: %v", rcErr)
+		}
+		supervisorRuntimeClient = rc
+	}
+
+	log.Infof("Patching supervisor PVC %s in namespace %s to set VAC to %q",
+		volumeID, c.supervisorNamespace, targetVAC)
+	err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, clone)
+	if err != nil {
+		if errors.IsForbidden(err) {
+			// Forbidden means there is insufficient quota in the target storage policy.
+			// Returning InvalidArgument causes csi-resizer to mark ModifyVolumeStatus.status = Infeasible,
+			// so the user can see the failure and retry with a different policy.
+			return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"storage quota webhook denied VAC change for volume %s: %v", volumeID, err)
+		}
+		// For other API failures (e.g. network errors, API server unavailable), returning Internal
+		// causes csi-resizer to keep retrying — the patch should eventually succeed after Kubernetes retries.
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to patch supervisor PVC %s: %v", volumeID, err)
+	}
+
+	// Wait for completion
+	timeout := time.Duration(getModifyVolumeTimeoutInMin(ctx)) * time.Minute
+	err = c.waitForSupervisorPVCModifyVolume(ctx, volumeID, targetVAC, timeout)
+	if err != nil {
+		// Error already has the appropriate gRPC code from waitForSupervisorPVCModifyVolume
+		return nil, err
+	}
+
+	log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
+	return &csi.ControllerModifyVolumeResponse{}, nil
+}
+
+// getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.
+// It uses the in-memory volumeID→PVC cache (maintained by the PV informer) to avoid an
+// expensive List call, then fetches the guest PVC to read spec.volumeAttributesClassName.
+func (c *controller) getTargetVACForVolume(ctx context.Context, volumeID string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Look up the guest PVC name/namespace from the cache. The cache is populated by the
+	// PV informer and maps CSI volumeHandle → guest PVC, matching how the supervisor does it.
+	pvcName, pvcNamespace, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+	if !exists {
+		return "", fmt.Errorf("no guest PVC found for volume %q", volumeID)
+	}
+
+	pvc, err := c.guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(
+		ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get guest PVC %s/%s: %v", pvcNamespace, pvcName, err)
+	}
+
+	if pvc.Spec.VolumeAttributesClassName == nil {
+		return "", nil // No VAC specified
+	}
+
+	log.Infof("Resolved target VAC %q for volume %q from guest PVC %s/%s",
+		*pvc.Spec.VolumeAttributesClassName, volumeID, pvcNamespace, pvcName)
+	return *pvc.Spec.VolumeAttributesClassName, nil
+}
+
+// waitForSupervisorPVCModifyVolume watches the supervisor PVC until modify volume completion or failure.
+// Returns nil on success, or a gRPC-coded error for different failure scenarios.
+func (c *controller) waitForSupervisorPVCModifyVolume(
+	ctx context.Context, pvcName, targetVAC string, timeout time.Duration,
+) error {
+	log := logger.GetLogger(ctx)
+
+	// Enforce the overall timeout via context; Watch TimeoutSeconds alone truncates
+	// sub-second values to 0, which disables the API-server timeout.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Round up to at least 1s so the Watch request also carries an API-server deadline.
+	timeoutSeconds := int64(timeout.Seconds())
+	if timeoutSeconds < 1 {
+		timeoutSeconds = 1
+	}
+
+	log.Infof("Waiting up to %d seconds for supervisor PVC %s in namespace %s to complete modify volume to VAC %q",
+		timeoutSeconds, pvcName, c.supervisorNamespace, targetVAC)
+
+	watchPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Watch(
+		ctx,
+		metav1.ListOptions{
+			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
+			TimeoutSeconds: &timeoutSeconds,
+			Watch:          true,
+		})
+	if err != nil {
+		log.Errorf("Failed to watch supervisor PVC %s in namespace %s: %v", pvcName, c.supervisorNamespace, err)
+		return status.Errorf(codes.Internal, "failed to watch supervisor PVC %s: %v", pvcName, err)
+	}
+	defer watchPVC.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Infof("Timeout waiting for supervisor PVC %s modify volume completion", pvcName)
+				return status.Errorf(codes.DeadlineExceeded,
+					"timeout waiting for volume %s modify volume completion", pvcName)
+			}
+			log.Infof("Context cancelled while waiting for supervisor PVC %s modify volume completion", pvcName)
+			return status.Errorf(codes.DeadlineExceeded,
+				"context cancelled while waiting for volume %s modify volume completion", pvcName)
+		case event, ok := <-watchPVC.ResultChan():
+			if !ok {
+				log.Infof("Watch channel closed for supervisor PVC %s, timeout reached", pvcName)
+				return status.Errorf(codes.DeadlineExceeded,
+					"timeout waiting for volume %s modify volume completion", pvcName)
+			}
+
+			pvc, ok := event.Object.(*corev1.PersistentVolumeClaim)
+			if !ok {
+				continue
+			}
+
+			// ModifyVolumeStatus == nil alone is not sufficient: it is also the initial PVC state
+			// before any modify begins. Only treat it as success if CurrentVolumeAttributesClassName
+			// has actually been updated to our targetVAC.
+			if pvc.Status.ModifyVolumeStatus == nil {
+				if pvc.Status.CurrentVolumeAttributesClassName != nil && *pvc.Status.CurrentVolumeAttributesClassName == targetVAC {
+					log.Infof("Supervisor PVC %s successfully completed modify volume to VAC %q", pvcName, targetVAC)
+					return nil
+				}
+			} else {
+				// Check for infeasible status
+				if pvc.Status.ModifyVolumeStatus.Status == corev1.PersistentVolumeClaimModifyVolumeInfeasible &&
+					pvc.Status.ModifyVolumeStatus.TargetVolumeAttributesClassName == targetVAC {
+					log.Errorf("Supervisor PVC %s modify volume marked as infeasible for VAC %q", pvcName, targetVAC)
+					// Supervisor PVC is Infeasible — the supervisor CSI driver rejected the policy change
+					// (e.g. Mobility Operator pre-check or migration failed). Returning InvalidArgument
+					// causes csi-resizer to mark guest PVC ModifyVolumeStatus.status = Infeasible,
+					// so the user can retry with a different policy.
+					return status.Errorf(codes.InvalidArgument,
+						"modify volume operation for volume %s marked as infeasible", pvcName)
+				}
+			}
+			// Neither condition matched (e.g. modify is still InProgress, or this event reflects a
+			// different VAC). Continue the loop and wait for the next watch event. The context
+			// timeout ensures we eventually exit if no terminal event arrives.
+		}
+	}
 }
 
 // mintSnapshotMetadataToken mints a fresh, audience-bound ServiceAccount
