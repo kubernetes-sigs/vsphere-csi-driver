@@ -30,59 +30,65 @@ import (
 // +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone
 type VolumeCapability string
 
-// Topology describes topology accessibility for the storage policy within the cluster.
+// Topology describes topology accessibility for the storage policy within a namespace.
 type Topology struct {
-
 	// TopologyType describes the type of topology for the storage policy.
-	// Valid values are empty (no topology) or "zonal" (zone-based topology).
+	// Valid values are empty string (no topology) or "zonal" (zone-based topology).
 	// +kubebuilder:validation:Enum="";zonal
 	TopologyType string `json:"topologyType"`
 
-	// AccessibleZones lists zones where the policy is accessible for this cluster.
+	// AccessibleZones lists zones where the policy is accessible for this namespace.
+	// For a marker policy (e.g. vSAN File Service), zones are shown even if they are
+	// not assigned to the namespace.
 	// +listType=set
 	// +kubebuilder:validation:items:MinLength=1
 	AccessibleZones []string `json:"accessibleZones"`
 }
 
-// InfraStoragePolicyInfoStatus defines the observed state of InfraStoragePolicyInfo.
+// StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
 // +k8s:openapi-gen=true
-type InfraStoragePolicyInfoStatus struct {
-	// Topology contains observed topology for this storage policy in the cluster.
+type StoragePolicyInfoStatus struct {
+	// TopologyInfo contains observed topology for this storage policy filtered
+	// to the zones accessible within this namespace.
 	// +optional
-	Topology *Topology `json:"topology,omitempty"`
+	TopologyInfo *Topology `json:"topologyInfo,omitempty"`
 
 	// VolumeCapabilities describes the supported volume capabilities.
 	// +optional
 	VolumeCapabilities map[VolumeCapability]bool `json:"volumeCapabilities,omitempty"`
 
-	// Error describes a failure condition when observing or reconciling this resource.
+	// Error describes a failure condition when resolving topology for this
+	// storage policy. Empty string indicates no error.
 	// +optional
 	Error string `json:"error,omitempty"`
 }
 
-// +genclient:nonNamespaced
+// +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:shortName=infraspi,scope=Cluster,path=infrastoragepolicyinfos
+// +kubebuilder:resource:scope=Namespaced,shortName=spi,path=storagepolicyinfos
 
-// InfraStoragePolicyInfo is the Schema for the infrastoragepolicyinfos API.
-// Name of this CR is same as the unique and immutable K8sCompliantName of the storage policy.
-type InfraStoragePolicyInfo struct {
+// StoragePolicyInfo is the Schema for the storagepolicyinfos API.
+// Name of this CR is the same as the unique and immutable K8sCompliantName of the
+// storage policy. One instance is created per namespace per storage policy that is
+// assigned to that namespace.
+type StoragePolicyInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Status InfraStoragePolicyInfoStatus `json:"status,omitempty"`
+	Status StoragePolicyInfoStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // +kubebuilder:object:root=true
-// InfraStoragePolicyInfoList contains a list of InfraStoragePolicyInfo.
-type InfraStoragePolicyInfoList struct {
+
+// StoragePolicyInfoList contains a list of StoragePolicyInfo.
+type StoragePolicyInfoList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []InfraStoragePolicyInfo `json:"items"`
+	Items           []StoragePolicyInfo `json:"items"`
 }

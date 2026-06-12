@@ -3,25 +3,27 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
-  name: infrastoragepolicyinfos.cns.vmware.com
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: storagepolicyinfos.cns.vmware.com
 spec:
   group: cns.vmware.com
   names:
-    kind: InfraStoragePolicyInfo
-    listKind: InfraStoragePolicyInfoList
-    plural: infrastoragepolicyinfos
+    kind: StoragePolicyInfo
+    listKind: StoragePolicyInfoList
+    plural: storagepolicyinfos
     shortNames:
-    - infraspi
-    singular: infrastoragepolicyinfo
-  scope: Cluster
+    - spi
+    singular: storagepolicyinfo
+  scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: |-
-          InfraStoragePolicyInfo is the Schema for the infrastoragepolicyinfos API.
-          Name of this CR is same as the unique and immutable K8sCompliantName of the storage policy.
+          StoragePolicyInfo is the Schema for the storagepolicyinfos API.
+          Name of this CR is the same as the unique and immutable K8sCompliantName of the
+          storage policy. One instance is created per namespace per storage policy that is
+          assigned to that namespace.
         properties:
           apiVersion:
             description: |-
@@ -41,20 +43,23 @@ spec:
           metadata:
             type: object
           status:
-            description: InfraStoragePolicyInfoStatus defines the observed state of
-              InfraStoragePolicyInfo.
+            description: StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
             properties:
               error:
-                description: Error describes a failure condition when observing or
-                  reconciling this resource.
+                description: |-
+                  Error describes a failure condition when resolving topology for this
+                  storage policy. Empty string indicates no error.
                 type: string
-              topology:
-                description: Topology contains observed topology for this storage
-                  policy in the cluster.
+              topologyInfo:
+                description: |-
+                  TopologyInfo contains observed topology for this storage policy filtered
+                  to the zones accessible within this namespace.
                 properties:
                   accessibleZones:
-                    description: AccessibleZones lists zones where the policy is accessible
-                      for this cluster.
+                    description: |-
+                      AccessibleZones lists zones where the policy is accessible for this namespace.
+                      For a marker policy (e.g. vSAN File Service), zones are shown even if they are
+                      not assigned to the namespace.
                     items:
                       minLength: 1
                       type: string
@@ -63,7 +68,7 @@ spec:
                   topologyType:
                     description: |-
                       TopologyType describes the type of topology for the storage policy.
-                      Valid values are empty (no topology) or "zonal" (zone-based topology).
+                      Valid values are empty string (no topology) or "zonal" (zone-based topology).
                     enum:
                     - ""
                     - zonal
@@ -83,9 +88,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
