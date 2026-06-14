@@ -25,6 +25,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,6 +55,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
+
+// zonesProvider is the narrow slice of COCommonInterface that this controller
+// actually needs. Declaring it here lets tests inject a minimal stub instead of
+// implementing the entire ~30-method COCommonInterface.
+type zonesProvider interface {
+	GetZonesForNamespace(ns string) map[string]struct{}
+}
 
 // backOffDuration is a map of StoragePolicyInfo NamespacedNames to the time after
 // which a request for this instance will be requeued.
@@ -100,17 +108,18 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, recorder, commonco.ContainerOrchestratorUtility))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
-	recorder record.EventRecorder) *ReconcileStoragePolicyInfo {
+	recorder record.EventRecorder, zp zonesProvider) *ReconcileStoragePolicyInfo {
 
 	return &ReconcileStoragePolicyInfo{
-		client:     mgr.GetClient(),
-		scheme:     mgr.GetScheme(),
-		configInfo: configInfo,
-		recorder:   recorder,
+		client:        mgr.GetClient(),
+		scheme:        mgr.GetScheme(),
+		configInfo:    configInfo,
+		recorder:      recorder,
+		zonesProvider: zp,
 	}
 }
 
@@ -162,8 +171,10 @@ func (r *ReconcileStoragePolicyInfo) mapSPQtoSPI(ctx context.Context,
 		return nil
 	}
 	spiName := strings.TrimSuffix(obj.GetName(), storagePolicyQuotaSuffix)
+	// If the name was unchanged, this object does not follow the expected
+	// "<policy>-storagepolicyquota" naming convention; skip it so we don't
+	// accidentally reconcile an unrelated StoragePolicyInfo.
 	if spiName == obj.GetName() {
-		// Name did not end with the expected suffix; not a quota CR we manage.
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: apitypes.NamespacedName{
@@ -176,10 +187,11 @@ var _ reconcile.Reconciler = &ReconcileStoragePolicyInfo{}
 
 // ReconcileStoragePolicyInfo reconciles StoragePolicyInfo objects.
 type ReconcileStoragePolicyInfo struct {
-	client     client.Client
-	scheme     *runtime.Scheme
-	configInfo *config.ConfigurationInfo
-	recorder   record.EventRecorder
+	client        client.Client
+	scheme        *runtime.Scheme
+	configInfo    *config.ConfigurationInfo
+	recorder      record.EventRecorder
+	zonesProvider zonesProvider
 }
 
 // Reconcile creates or updates the StoragePolicyInfo for the given namespace
@@ -201,30 +213,23 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
-	// Ensure the StoragePolicyInfo instance exists (create if absent).
-	instance, err := r.ensureSPIExists(ctx, request.Namespace, request.Name)
+	// Fetch or create the StoragePolicyInfo instance. If the CR was just
+	// created here, the creation event will trigger another reconcile automatically,
+	// so we return early and let the next reconcile populate its fields.
+	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name)
 	if err != nil {
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
-
-	if instance.DeletionTimestamp != nil {
-		log.Infof("StoragePolicyInfo %q is being deleted, skipping reconciliation",
+	if wasCreated {
+		log.Infof("StoragePolicyInfo %q was just created; creation event will trigger next reconcile",
 			request.NamespacedName)
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 
-	// Verify the corresponding StoragePolicyQuota exists for this namespace+policy.
-	spqName := request.Name + storagePolicyQuotaSuffix
-	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
-	if err := r.client.Get(ctx,
-		apitypes.NamespacedName{Namespace: request.Namespace, Name: spqName}, spq); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Infof("StoragePolicyQuota %s/%s not found; skipping topology sync",
-				request.Namespace, spqName)
-			return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
-		}
-		log.Errorf("Failed to get StoragePolicyQuota %s/%s: %v", request.Namespace, spqName, err)
-		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	if instance != nil && instance.DeletionTimestamp != nil {
+		log.Infof("StoragePolicyInfo %q is being deleted, skipping reconciliation",
+			request.NamespacedName)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 
 	// Fetch the cluster-scoped InfraStoragePolicyInfo (same name as StoragePolicyInfo)
@@ -241,23 +246,30 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
+	// Ensure SPI holds an owner reference to InfraStoragePolicyInfo so that the SPI
+	// is garbage-collected when the InfraStoragePolicyInfo is deleted.
+	if err := r.ensureInfraSPIOwnerReference(ctx, instance, infraSPI); err != nil {
+		log.Errorf("Failed to set owner reference on StoragePolicyInfo %q: %v",
+			request.NamespacedName, err)
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
 	// Populate TopologyInfo from InfraStoragePolicyInfo.
 	if err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI); err != nil {
 		log.Errorf("Failed to sync topology for StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
-		instance.Status.Error = fmt.Sprintf("Failed to sync topology: %v", err)
-		if updateErr := k8s.UpdateStatus(ctx, r.client, instance); updateErr != nil {
+		if setErr := r.setSPIError(ctx, instance,
+			fmt.Sprintf("Failed to sync topology: %v", err)); setErr != nil {
 			log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
-				request.NamespacedName, updateErr)
+				request.NamespacedName, setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	instance.Status.Error = ""
-	if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+	if setErr := r.setSPISuccess(ctx, instance, "Successfully synced topology"); setErr != nil {
 		log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
-			request.NamespacedName, err)
-		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+			request.NamespacedName, setErr)
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, setErr)
 	}
 
 	log.Infof("Successfully reconciled StoragePolicyInfo %q", request.NamespacedName)
@@ -265,19 +277,19 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 }
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given
-// namespace/name, creating it first if it does not exist.
+// namespace/name. If absent, it creates the CR and returns wasCreated=true.
 func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
-	namespace, name string) (*spiv1alpha1.StoragePolicyInfo, error) {
+	namespace, name string) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
 	log := logger.GetLogger(ctx)
 
 	instance := &spiv1alpha1.StoragePolicyInfo{}
 	err := r.client.Get(ctx,
 		apitypes.NamespacedName{Namespace: namespace, Name: name}, instance)
 	if err == nil {
-		return instance, nil
+		return instance, false, nil
 	}
 	if !apierrors.IsNotFound(err) {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Create the StoragePolicyInfo CR.
@@ -294,23 +306,54 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 	if err := r.client.Create(ctx, instance); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			log.Errorf("Failed to create StoragePolicyInfo %s/%s: %v", namespace, name, err)
-			return nil, err
+			return nil, false, err
 		}
 		// Race condition: another reconcile beat us; fetch the existing object.
 		if err := r.client.Get(ctx,
 			apitypes.NamespacedName{Namespace: namespace, Name: name}, instance); err != nil {
-			return nil, err
+			return nil, false, err
 		}
-	} else {
-		log.Infof("Created StoragePolicyInfo %s/%s", namespace, name)
+		// The object already existed, so treat it as not newly created.
+		return instance, false, nil
 	}
-	return instance, nil
+	log.Infof("Created StoragePolicyInfo %s/%s", namespace, name)
+	return instance, true, nil
+}
+
+// ensureInfraSPIOwnerReference sets an owner reference on the StoragePolicyInfo
+// pointing to the given InfraStoragePolicyInfo. This causes the SPI to be
+// garbage-collected when the InfraStoragePolicyInfo is deleted.
+func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Context,
+	instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+	log := logger.GetLogger(ctx)
+
+	ownerRef, err := generateOwnerReference(r.scheme, infraSPI)
+	if err != nil {
+		return fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
+			infraSPI.Name, err)
+	}
+
+	updatedRefs := mergeOwnerReference(instance.OwnerReferences, ownerRef)
+	if equality.Semantic.DeepEqual(instance.OwnerReferences, updatedRefs) {
+		return nil
+	}
+
+	base := instance.DeepCopy()
+	instance.OwnerReferences = updatedRefs
+	if err := r.client.Patch(ctx, instance, client.MergeFrom(base)); err != nil {
+		log.Errorf("Failed to patch StoragePolicyInfo %s/%s owner references: %v",
+			instance.Namespace, instance.Name, err)
+		return err
+	}
+	log.Infof("Set owner reference on StoragePolicyInfo %s/%s → InfraStoragePolicyInfo %q",
+		instance.Namespace, instance.Name, infraSPI.Name)
+	return nil
 }
 
 // syncTopologyFromInfraSPI copies topology information from the cluster-scoped
 // InfraStoragePolicyInfo into the namespace-scoped StoragePolicyInfo status,
 // filtering accessible zones down to only those assigned to the namespace.
-
 func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
@@ -343,7 +386,7 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 	namespace string, clusterZones []string) []string {
 	log := logger.GetLogger(ctx)
 
-	nsZones := commonco.ContainerOrchestratorUtility.GetZonesForNamespace(namespace)
+	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
 	if len(nsZones) == 0 {
 		// Non-zonal deployment or namespace has no zone constraints; expose all
 		// cluster-accessible zones.
@@ -362,6 +405,28 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 	log.Debugf("Namespace %q has zone assignments %v; filtered %d cluster zones → %d namespace-accessible zones",
 		namespace, nsZones, len(clusterZones), len(filtered))
 	return filtered
+}
+
+// setSPIError sets the error status and records a Warning event on the instance.
+func (r *ReconcileStoragePolicyInfo) setSPIError(ctx context.Context,
+	instance *spiv1alpha1.StoragePolicyInfo, errMsg string) error {
+	instance.Status.Error = errMsg
+	if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+		return err
+	}
+	r.recorder.Event(instance, v1.EventTypeWarning, "StoragePolicyInfoFailed", errMsg)
+	return nil
+}
+
+// setSPISuccess clears the error status and records a Normal event on the instance.
+func (r *ReconcileStoragePolicyInfo) setSPISuccess(ctx context.Context,
+	instance *spiv1alpha1.StoragePolicyInfo, msg string) error {
+	instance.Status.Error = ""
+	if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+		return err
+	}
+	r.recorder.Event(instance, v1.EventTypeNormal, "StoragePolicyInfoSynced", msg)
+	return nil
 }
 
 // completeReconciliationWithSuccess resets the backoff duration for the instance
