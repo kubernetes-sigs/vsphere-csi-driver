@@ -214,10 +214,14 @@ func (driver *vsphereCSIDriver) Run(ctx context.Context, endpoint string) {
 	}
 
 	// Determine if SnapshotMetadata service should be registered
-	// The service is only registered in controller mode when CBT feature is enabled
+	// The service is only registered in controller mode when CBT feature is enabled for both
+	// Supervisor and guest cluster CSI drivers.
 	var snapshotMetadataServer csi.SnapshotMetadataServer
 	if driver.mode == "controller" && commonco.ContainerOrchestratorUtility != nil &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		((clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)) ||
+		(clusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API_FSS))) {
 		// Pass the controller server which implements the SnapshotMetadata RPCs
 		snapshotMetadataServer = controllerServer.(csi.SnapshotMetadataServer)
 		log.Info("SnapshotMetadata service will be registered (CBT support enabled)")
