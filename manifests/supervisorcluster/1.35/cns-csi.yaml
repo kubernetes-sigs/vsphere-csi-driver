@@ -477,6 +477,8 @@ spec:
               value: "200"
             - name: INCLUSTER_CLIENT_BURST
               value: "200"
+            - name: GOMEMLIMIT
+              value: "4500MiB"
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true
@@ -547,6 +549,8 @@ spec:
               value: "200"
             - name: INCLUSTER_CLIENT_BURST
               value: "200"
+            - name: GOMEMLIMIT
+              value: "4500MiB"
           imagePullPolicy: "IfNotPresent"
           ports:
             - containerPort: 2113
