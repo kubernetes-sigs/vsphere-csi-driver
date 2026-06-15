@@ -49,10 +49,10 @@ rules:
     resources: ["volumeattachments/status"]
     verbs: ["patch"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs", "cnsfileaccessconfigs/status", "clusterstoragepolicyinfos", "clusterstoragepolicyinfos/status", "infrastoragepolicyinfos", "infrastoragepolicyinfos/status"]
+    resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs", "cnsfileaccessconfigs/status", "clusterstoragepolicyinfos", "clusterstoragepolicyinfos/status", "infrastoragepolicyinfos", "infrastoragepolicyinfos/status", "storagepolicyinfos", "storagepolicyinfos/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["cns.vmware.com"]
-    resources: ["clusterstoragepolicyinfos", "infrastoragepolicyinfos"]
+    resources: ["clusterstoragepolicyinfos", "infrastoragepolicyinfos", "storagepolicyinfos"]
     verbs: ["create"]
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsnodevmattachments", "cnsnodevmbatchattachments", "cnsnodevmbatchattachments/status", "cnsnodevmattachments/status"]
@@ -534,6 +534,8 @@ spec:
             - name: WORKER_THREADS_NODEVM_BATCH_ATTACH
               value: "20"
             - name: WORKER_THREADS_CLUSTER_STORAGE_POLICY_INFO
+              value: "4"
+            - name: WORKER_THREADS_STORAGE_POLICY_INFO
               value: "4"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
