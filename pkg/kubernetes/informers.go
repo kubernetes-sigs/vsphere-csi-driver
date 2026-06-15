@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	snapclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -74,18 +76,24 @@ func NewInformerFromFactory(
 func NewInformer(ctx context.Context, client clientset.Interface) *InformerManager {
 	log := logger.GetLogger(ctx)
 
+	if informerManagerInstance != nil {
+		return informerManagerInstance
+	}
+
 	informerInstanceLock.Lock()
 	defer informerInstanceLock.Unlock()
 
-	if informerManagerInstance == nil {
-		informerManagerInstance = &InformerManager{
-			client:          client,
-			stopCh:          signals.SetupSignalHandler().Done(),
-			informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
-		}
-		log.Info("Created new informer factory")
+	if informerManagerInstance != nil {
+		return informerManagerInstance
 	}
 
+	informerManagerInstance = &InformerManager{
+		client:          client,
+		stopCh:          signals.SetupSignalHandler().Done(),
+		informerFactory: informers.NewSharedInformerFactory(client, noResyncPeriodFunc()),
+	}
+
+	log.Info("Created new informer factory")
 	return informerManagerInstance
 }
 
@@ -268,6 +276,46 @@ func (im *InformerManager) AddVolumeAttachmentListener(ctx context.Context, add 
 	return nil
 }
 
+// SetSnapshotInformerFactory initialises the snapshot informer factory on an existing
+// InformerManager. No-op if the factory is already set or snapshotClient is nil.
+// This allows callers to defer the snapshot factory setup until after the FSS state is known.
+func (im *InformerManager) SetSnapshotInformerFactory(snapshotClient snapclientset.Interface) {
+	if im.snapshotInformerFactory != nil || snapshotClient == nil {
+		return
+	}
+	im.snapshotInformerFactory = externalversions.NewSharedInformerFactory(snapshotClient, noResyncPeriodFunc())
+}
+
+// AddSnapshotListener hooks up add, update, delete callbacks.
+// Returns an error if the snapshot informer factory was not initialised (i.e. no snapshot client
+// was provided when the InformerManager was created).
+func (im *InformerManager) AddSnapshotListener(ctx context.Context,
+	add func(obj any),
+	update func(oldObj, newObj any),
+	remove func(obj any)) error {
+	log := logger.GetLogger(ctx)
+	if im.snapshotInformerFactory == nil {
+		return logger.LogNewErrorf(log, "snapshot informer factory is not initialised; "+
+			"ensure a snapshot client was provided when creating the InformerManager")
+	}
+	if im.snapshotInformer == nil {
+		im.snapshotInformer = im.snapshotInformerFactory.
+			Snapshot().V1().VolumeSnapshots().Informer()
+	}
+
+	_, err := im.snapshotInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    add,
+		UpdateFunc: update,
+		DeleteFunc: remove,
+	})
+	if err != nil {
+		return logger.LogNewErrorf(
+			log, "failed to add event handler on snapshot listener. Error: %v", err)
+	}
+
+	return nil
+}
+
 // GetPVLister returns PV Lister for the calling informer manager.
 func (im *InformerManager) GetPVLister() corelisters.PersistentVolumeLister {
 	return im.informerFactory.Core().V1().PersistentVolumes().Lister()
@@ -334,6 +382,17 @@ func (im *InformerManager) Listen() (stopCh <-chan struct{}) {
 			return
 		}
 	}
+
+	if im.snapshotInformerFactory != nil {
+		go im.snapshotInformerFactory.Start(im.stopCh)
+		cacheSync := im.snapshotInformerFactory.WaitForCacheSync(im.stopCh)
+		for _, isSynced := range cacheSync {
+			if !isSynced {
+				return
+			}
+		}
+	}
+
 	return im.stopCh
 }
 
