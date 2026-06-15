@@ -180,6 +180,10 @@ type GCConfig struct {
 	ClusterAPIVersion string `gcfg:"cluster-api-version"`
 	// ClusterKind refers to the kind of object guest cluster is created from.
 	ClusterKind string `gcfg:"cluster-kind"`
+	// TopologyEnabled indicates whether this Guest Cluster is topology-aware
+	// (stretched Supervisor or WorkloadDomainIsolation enabled).
+	// Populated from vspherePVCSI.zone via cns-csi.conf topology-enabled field.
+	TopologyEnabled bool `gcfg:"topology-enabled"`
 }
 
 // SnapshotConfig contains snapshot configuration.
