@@ -104,7 +104,7 @@ func MountRWXVolumeAndVerifyIO(vmIPs []string, nfsAccessPoint string, testDir st
 
 		for _, cmd := range setupCmds {
 			err = RunSSHFromVmServiceVmAndLog(vmIP, cmd)
-			if err != nil && !strings.Contains(err.Error(), "does not have a Release file") {
+			if err != nil && !strings.Contains(err.Error(), "no longer has a Release file") {
 				return err
 			}
 
