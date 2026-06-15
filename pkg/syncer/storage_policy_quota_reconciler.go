@@ -99,6 +99,9 @@ func newStoragePolicyQuotaReconciler(
 	}
 
 	// Start StoragePolicyQuota Informer.
+	// The informer fires AddFunc for every existing StoragePolicyQuota during its
+	// initial LIST, so existing objects are already enqueued by the time
+	// WaitForCacheSync returns. No extra API call or explicit enqueue loop is needed.
 	dynamicInformerFactory.Start(stopCh)
 	if !cache.WaitForCacheSync(stopCh, rc.svcQuotaSynced) {
 		return nil, fmt.Errorf("newStoragePolicyQuotaReconciler: cannot sync StoragePolicyQuota cache")
