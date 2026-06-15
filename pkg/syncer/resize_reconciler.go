@@ -143,15 +143,36 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 		return
 	}
 
-	// Add tkgPVC to the claim queue only when the new size is bigger or oldPVC
-	// has FileSystemResizePending condition, newPVC does not have.
-	if newPVCSize.Cmp(oldPVCSize) > 0 || (checkFileSystemPendingOnPVC(oldPVC) && !checkFileSystemPendingOnPVC(newPVC)) {
+	// Add tkgPVC to the claim queue when:
+	// 1. PVC capacity increased (resize completed successfully)
+	// 2. FileSystemResizePending condition was cleared (legacy resizer completed)
+	// 3. allocatedResourceStatuses was cleared (modern resizer completed)
+	// 4. allocatedResourceStatuses is present (ensure supervisor sync)
+	shouldQueue := false
+
+	if newPVCSize.Cmp(oldPVCSize) > 0 {
+		shouldQueue = true
+		log.Debugf("Queuing PVC %s - capacity increased from %s to %s", newPVC.Name, oldPVCSize.String(), newPVCSize.String())
+	} else if checkFileSystemPendingOnPVC(oldPVC) && !checkFileSystemPendingOnPVC(newPVC) {
+		shouldQueue = true
+		log.Debugf("Queuing PVC %s - FileSystemResizePending condition cleared", newPVC.Name)
+	} else if hasAllocatedResourceStatuses(oldPVC) && !hasAllocatedResourceStatuses(newPVC) {
+		// Guest resizer 2.1.0: allocatedResourceStatuses was cleared (resize completed)
+		// This indicates we should sync with supervisor to clear any stale status
+		shouldQueue = true
+		log.Debugf("Queuing PVC %s - allocatedResourceStatuses cleared, syncing with supervisor", newPVC.Name)
+	} else if hasAllocatedResourceStatuses(newPVC) {
+		// Guest PVC has allocatedResourceStatuses - ensure supervisor is in sync
+		shouldQueue = true
+		log.Debugf("Queuing PVC %s - has allocatedResourceStatuses, checking supervisor sync", newPVC.Name)
+	}
+
+	if shouldQueue {
 		objKey, err := getPVCKey(ctx, newObj)
 		if err != nil {
 			return
 		}
-		log.Infof("Add new PVC %s to the claim queue", newPVC.Name)
-		log.Debugf("Detect PVC size/conditions change, old PVC %+v, new PVC %+v", oldPVC, newPVC)
+		log.Infof("Add PVC %s to the claim queue", newPVC.Name)
 		rc.claimQueue.Add(objKey)
 	}
 }
@@ -239,8 +260,19 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 		svcPvcClone.Status.Capacity[v1.ResourceStorage] = tkgPvcSize
 		updatePVC = true
 	}
+	// Clear supervisor conditions when guest resize completes (original logic - more robust)
 	if !checkFileSystemPendingOnPVC(tkgPVC) && checkFileSystemPendingOnPVC(svcPVC) {
+		log.Infof("Clearing FileSystemResizePending from supervisor PVC %s/%s - guest completed resize",
+			rc.supervisorNamespace, svcPVC.Name)
 		svcPvcClone = mergeResizeConditionOnPVC(svcPvcClone, []v1.PersistentVolumeClaimCondition{})
+		updatePVC = true
+	}
+
+	// Clear stale allocatedResourceStatuses when capacities match.
+	if hasAllocatedResourceStatuses(svcPVC) && tkgPvcSize.Cmp(svcPvcSize) == 0 {
+		log.Infof("Clearing stale allocatedResourceStatuses from supervisor PVC %s/%s - capacities match at %s",
+			rc.supervisorNamespace, svcPVC.Name, tkgPvcSize.String())
+		svcPvcClone.Status.AllocatedResourceStatuses = nil
 		updatePVC = true
 	}
 
@@ -354,4 +386,10 @@ func checkFileSystemPendingOnPVC(
 		}
 	}
 	return false
+}
+
+// hasAllocatedResourceStatuses checks whether PVC has allocatedResourceStatuses
+func hasAllocatedResourceStatuses(pvc *v1.PersistentVolumeClaim) bool {
+	return pvc.Status.AllocatedResourceStatuses != nil &&
+		len(pvc.Status.AllocatedResourceStatuses) > 0
 }
