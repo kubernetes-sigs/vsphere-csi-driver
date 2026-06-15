@@ -67,6 +67,7 @@ func newFVSCreateController(t *testing.T, guestObjs ...*v1.PersistentVolumeClaim
 		supervisorClient:    supervisorClient,
 		guestClient:         guestClient,
 		supervisorNamespace: fvsCreateSupervisorNS,
+		topologyEnabled:     true,
 	}
 	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 	if err != nil {

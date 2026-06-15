@@ -19,6 +19,7 @@ package wcpguest
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"reflect"
 	"sync"
@@ -109,6 +110,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			supervisorClient:            supervisorClient,
 			supervisorSnapshotterClient: fakeSnapshotClient,
 			supervisorNamespace:         supervisorNamespace,
+			topologyEnabled:             true,
 		}
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
@@ -455,6 +457,125 @@ func createTestTopologyRequirement() *csi.TopologyRequirement {
 		Preferred: []*csi.Topology{topology},
 	}
 	return topologyRequirement
+}
+
+// TestCreateVolume_TopologyDisabled_ZoneNotForwarded verifies the core fix for
+// WFFC PVC provisioning failures on non-topology Guest Clusters with
+// csi-provisioner 6.1.1.
+//
+// csi-provisioner 6.1.1 enables the Topology feature gate by default, so it
+// populates AccessibilityRequirements even on non-topology clusters. When
+// topologyEnabled=false the controller must NOT forward zone labels to the
+// supervisor — otherwise the supervisor rejects the request with
+// "StorageTopologyType is unset while topology label is present" for
+// StorageClasses that lack storageTopologyType=zonal.
+func TestCreateVolume_TopologyDisabled_ZoneNotForwarded(t *testing.T) {
+	tCtx := context.Background()
+
+	supervisorClient := testclient.NewClientset()
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+
+	oldCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
+
+	// topologyEnabled=false: simulates a non-topology (single-zone) Guest Cluster.
+	c := &controller{
+		supervisorClient:    supervisorClient,
+		supervisorNamespace: testNamespace,
+		topologyEnabled:     false,
+	}
+
+	// AccessibilityRequirements is populated by csi-provisioner 6.1.1 even for
+	// WFFC volumes on non-topology clusters — this is the failure trigger.
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributeSupervisorStorageClass: testStorageClass,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		}},
+		AccessibilityRequirements: createTestTopologyRequirement(),
+	}
+
+	type cvResult struct {
+		resp *csi.CreateVolumeResponse
+		err  error
+	}
+	resultCh := make(chan cvResult, 1)
+	go func() {
+		resp, err := c.CreateVolume(tCtx, reqCreate)
+		resultCh <- cvResult{resp, err}
+	}()
+
+	// Wait for CreateVolume to create the supervisor PVC and start the Watch.
+	time.Sleep(1 * time.Second)
+
+	pvc, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).
+		Get(tCtx, testSupervisorPVCName, metav1.GetOptions{})
+	require.NoError(t, err, "supervisor PVC should exist once CreateVolume has started")
+
+	// Zone annotation must NOT have been placed on the supervisor PVC.
+	assert.Empty(t, pvc.Annotations[common.AnnGuestClusterRequestedTopology],
+		"zone topology must not be forwarded to supervisor when topologyEnabled=false")
+
+	// Bind the PVC (no AnnVolumeAccessibleTopology — supervisor won't set it for
+	// non-topology storage classes).
+	pvc.Status.Phase = v1.ClaimBound
+	_, err = supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).
+		Update(tCtx, pvc, metav1.UpdateOptions{})
+	require.NoError(t, err)
+
+	r := <-resultCh
+	require.NoError(t, r.err,
+		"CreateVolume must succeed even when AccessibilityRequirements is populated")
+
+	// AccessibleTopology must not appear in the response.
+	assert.Nil(t, r.resp.Volume.AccessibleTopology,
+		"AccessibleTopology must not be set in response when topologyEnabled=false")
+}
+
+// TestGetCapacity_TopologyDisabled_ZoneIgnored verifies that GetCapacity returns
+// full capacity (MaxInt64) on a non-topology Guest Cluster even when
+// csi-provisioner 6.1.1 populates AccessibleTopology in the request.
+//
+// Without the c.topologyEnabled guard, the WorkloadDomainIsolationFSS block
+// would execute with a nil zonesMap (fake returns nil for non-topology clusters)
+// and return an error, stalling all capacity-based scheduling.
+func TestGetCapacity_TopologyDisabled_ZoneIgnored(t *testing.T) {
+	tCtx := context.Background()
+
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+
+	oldCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
+
+	// topologyEnabled=false: simulates a non-topology (single-zone) Guest Cluster.
+	c := &controller{
+		supervisorNamespace: testNamespace,
+		topologyEnabled:     false,
+	}
+
+	// AccessibleTopology populated by csi-provisioner 6.1.1 even for non-topology clusters.
+	resp, err := c.GetCapacity(tCtx, &csi.GetCapacityRequest{
+		AccessibleTopology: &csi.Topology{
+			Segments: map[string]string{"topology.kubernetes.io/zone": "zone-1"},
+		},
+	})
+
+	require.NoError(t, err,
+		"GetCapacity must not error when topologyEnabled=false, even with AccessibleTopology set")
+	assert.Equal(t, int64(math.MaxInt64), resp.AvailableCapacity,
+		"capacity must be MaxInt64 (unlimited) when topologyEnabled=false")
 }
 
 // TestGenerateVolumeAccessibleTopologyFromPVCAnnotation helps unit test
