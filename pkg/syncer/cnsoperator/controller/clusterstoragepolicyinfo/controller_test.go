@@ -28,9 +28,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vmware/govmomi/object"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -2158,267 +2156,6 @@ func TestGetStorageTopologyType(t *testing.T) {
 	}
 }
 
-// TestGetAccessibleZonesForPolicy tests the getAccessibleZonesForPolicy function
-func TestGetAccessibleZonesForPolicy(t *testing.T) {
-	ctx := logger.NewContextWithLogger(context.Background())
-
-	// Mock VirtualCenter for testing
-	mockVC := &cnsvsphere.VirtualCenter{}
-
-	tests := []struct {
-		name             string
-		topologyMgr      commoncotypes.ControllerTopologyService
-		profileID        string
-		mockPBMResponse  []pbmtypes.PbmPlacementHub
-		mockPBMError     error
-		expectedZones    []string
-		expectedError    string
-		mockCandidateDS  map[string][]*cnsvsphere.DatastoreInfo
-		mockCandidateErr map[string]error
-	}{
-		{
-			name:          "Nil topology manager returns empty zones",
-			topologyMgr:   nil,
-			profileID:     "test-policy",
-			expectedZones: []string{},
-		},
-		{
-			name: "Empty AZ clusters map returns empty zones",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{},
-			},
-			profileID:     "test-policy",
-			expectedZones: []string{},
-		},
-		{
-			name: "PbmQueryMatchingHub error",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-				},
-			},
-			profileID:     "test-policy",
-			mockPBMError:  fmt.Errorf("vCenter connection failed"),
-			expectedError: "failed to query compatible datastores for policy: vCenter connection failed",
-		},
-		{
-			name: "No compatible datastores found",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID:       "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{}, // Empty response
-			expectedZones:   []string{},
-		},
-		{
-			name: "Single zone with compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore1", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1"}, // Only zone1 has compatible datastore1
-		},
-		{
-			name: "Multiple zones with compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-					"zone3": {"cluster3"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore1", HubType: "Datastore"},
-				{HubId: "datastore2", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-				"cluster3": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore3"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1", "zone2"}, // zones 1 and 2 have compatible datastores
-		},
-		{
-			name: "Zone with multiple clusters, one has compatible datastore",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1", "cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore2", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1"}, // zone1 has datastore2 in cluster2
-		},
-		{
-			name: "Cluster datastore fetch error should not fail entire operation",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1", "cluster2"},
-					"zone2": {"cluster3"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore3", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster3": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore3"}),
-						},
-					},
-				},
-			},
-			mockCandidateErr: map[string]error{
-				"cluster1": fmt.Errorf("cluster1 unavailable"),
-				"cluster2": fmt.Errorf("cluster2 unavailable"),
-			},
-			expectedZones: []string{"zone2"}, // zone2 still works despite cluster1,2 errors
-		},
-		{
-			name: "No zones have compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore999", HubType: "Datastore"}, // Non-existent datastore
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{}, // No zones match datastore999
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This test would require mocking the VirtualCenter methods and
-			// cnsvsphere.GetCandidateDatastoresInCluster function
-			// For now, we'll test the core logic and structure
-
-			// The actual implementation would require complex mocking of:
-			// - vc.PbmQueryMatchingHub
-			// - cnsvsphere.GetCandidateDatastoresInCluster
-
-			// Since these are external dependencies, we'll focus on testing
-			// the logic we can control and provide a simplified test structure
-
-			if tt.topologyMgr == nil {
-				result, err := getAccessibleZonesForPolicy(ctx, nil, mockVC, tt.profileID)
-				if tt.expectedError != "" {
-					require.Error(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError)
-				} else {
-					require.NoError(t, err)
-					assert.Equal(t, tt.expectedZones, result)
-				}
-				return
-			}
-
-			if len(tt.topologyMgr.GetAZClustersMap(ctx)) == 0 {
-				result, err := getAccessibleZonesForPolicy(ctx, tt.topologyMgr, mockVC, tt.profileID)
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedZones, result)
-				return
-			}
-
-			// For tests that need full mocking, we skip actual execution
-			// and just verify the test structure is correct
-			t.Skip("Full integration test requires complex mocking of VirtualCenter and PBM APIs")
-		})
-	}
-}
-
 // TestFindStoragePolicyProfile tests the findStoragePolicyProfile function
 func TestFindStoragePolicyProfile(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -2676,17 +2413,20 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 
 	// For unit tests, we'll use a simplified zone calculation that doesn't require full VirtualCenter
 	// This tests the main logic flow without the complex datastore compatibility checks
-	accessibleZones := []string{} // Always initialize as empty slice, not nil
-	if r.topologyMgr != nil {
-		azClustersMap := r.topologyMgr.GetAZClustersMap(ctx)
-		// For unit test: if we have zones and mock compatible hubs, return the zones
-		if len(azClustersMap) > 0 && len(mockVCConfig.compatibleHubs) == 0 {
-			// Empty compatible hubs means no zones are accessible
-			accessibleZones = []string{}
-		}
-		// In a real implementation, this would call getAccessibleZonesForPolicy
-		// which requires complex VirtualCenter mocking that's more suitable for integration tests
+	if r.topologyMgr == nil {
+		log.Warnf("Topology manager not available")
+		return fmt.Errorf("topology manager is not available")
 	}
+
+	accessibleZones := []string{} // Always initialize as empty slice, not nil
+	azClustersMap := r.topologyMgr.GetAZClustersMap(ctx)
+	// For unit test: if we have zones and mock compatible hubs, return the zones
+	if len(azClustersMap) > 0 && len(mockVCConfig.compatibleHubs) == 0 {
+		// Empty compatible hubs means no zones are accessible
+		accessibleZones = []string{}
+	}
+	// In a real implementation, this would call cnsoperatorutil.GetAccessibleZonesForPolicy
+	// which requires complex VirtualCenter mocking that's more suitable for integration tests
 
 	// Update InfraSPI with topology information including accessible zones
 	infraSPI.Status.Topology.AccessibleZones = accessibleZones
@@ -2823,7 +2563,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 				"found referencing storage policy ID \"duplicate-policy\", expected exactly one",
 		},
 		{
-			name:      "Success with nil topology manager",
+			name:      "Error with nil topology manager",
 			profileID: "policy-nil-topo",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2838,10 +2578,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			mockVCConfig: &mockVirtualCenter{
 				compatibleHubs: []pbmtypes.PbmPlacementHub{},
 			},
-			expectedTopology: &infraspiv1alpha1.Topology{
-				TopologyType:    "zonal",
-				AccessibleZones: []string{}, // Empty because topology manager is nil
-			},
+			expectedError: "topology manager is not available",
 		},
 		{
 			name:      "Skip WaitForFirstConsumer StorageClasses",
@@ -2935,7 +2672,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 					// For accessible zones, we can only verify the structure since the actual
 					// zone population requires complex VirtualCenter mocking
 					assert.NotNil(t, infraSPI.Status.Topology.AccessibleZones)
-					// In our simplified test, zones will be empty because getAccessibleZonesForPolicy
+					// In our simplified test, zones will be empty because cnsoperatorutil.GetAccessibleZonesForPolicy
 					// requires complex VirtualCenter mocking which is beyond the scope of unit tests
 					assert.Equal(t, []string{}, infraSPI.Status.Topology.AccessibleZones)
 				}
@@ -3630,4 +3367,87 @@ func (t *testInfraSPIClient) Patch(ctx context.Context, obj client.Object, patch
 	}
 	// For testing, we don't need to actually perform the patch, just record that it was called
 	return nil
+}
+
+func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name                          string
+		k8sCompliantName              string
+		expectedSupportsVolumeBlock   bool
+		expectedSupportsLinkedClone   bool
+		expectedSupportsHPLinkedClone bool
+		isMarkerPolicy                bool
+	}{
+		{
+			name:                          "Non-marker policy supports all capabilities",
+			k8sCompliantName:              "some-regular-policy",
+			expectedSupportsVolumeBlock:   true,
+			expectedSupportsLinkedClone:   false, // Will be false due to nil topology manager in test
+			expectedSupportsHPLinkedClone: false, // Will be false due to nil topology manager in test
+			isMarkerPolicy:                false,
+		},
+		{
+			name:                          "Marker policy does not support block volume mode and linked clone capabilities",
+			k8sCompliantName:              common.StoragePolicyMarkerVsanFileService,
+			expectedSupportsVolumeBlock:   false,
+			expectedSupportsLinkedClone:   false,
+			expectedSupportsHPLinkedClone: false,
+			isMarkerPolicy:                true,
+		},
+		{
+			name:                          "Different policy name supports block volume mode",
+			k8sCompliantName:              "custom-storage-policy",
+			expectedSupportsVolumeBlock:   true,
+			expectedSupportsLinkedClone:   false, // Will be false due to nil topology manager in test
+			expectedSupportsHPLinkedClone: false, // Will be false due to nil topology manager in test
+			isMarkerPolicy:                false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock InfraStoragePolicyInfo with the test k8sCompliantName
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+			infraSPI.Name = tt.k8sCompliantName
+
+			// Call populateVolumeCapabilities with minimal required parameters
+			// We pass nil for vc, topologyMgr, and clusterDatastoreCache since we only want to test the logic
+			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil)
+
+			// For marker policies, there should be no error since we skip the HPLC check
+			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
+			if tt.isMarkerPolicy {
+				assert.NoError(t, err, "Marker policies should not cause errors")
+			}
+
+			// Verify that the volume capabilities are set
+			assert.NotNil(t, infraSPI.Status.VolumeCapabilities)
+
+			// Check SupportsVolumeModeFilesystem is always true
+			assert.True(t, infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeFilesystem])
+
+			// Check SupportsVolumeModeBlock matches expected value
+			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeBlock]
+			assert.True(t, exists, "SupportsVolumeModeBlock should be set")
+			assert.Equal(t, tt.expectedSupportsVolumeBlock, actual,
+				"SupportsVolumeModeBlock should be %v for k8sCompliantName %s",
+				tt.expectedSupportsVolumeBlock, tt.k8sCompliantName)
+
+			// Check SupportsLinkedClone matches expected value
+			actualLC, existsLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsLinkedClone]
+			assert.True(t, existsLC, "SupportsLinkedClone should be set")
+			assert.Equal(t, tt.expectedSupportsLinkedClone, actualLC,
+				"SupportsLinkedClone should be %v for k8sCompliantName %s",
+				tt.expectedSupportsLinkedClone, tt.k8sCompliantName)
+
+			// Check SupportsHighPerformanceLinkedClone matches expected value
+			actualHPLC, existsHPLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHighPerformanceLinkedClone]
+			assert.True(t, existsHPLC, "SupportsHighPerformanceLinkedClone should be set")
+			assert.Equal(t, tt.expectedSupportsHPLinkedClone, actualHPLC,
+				"SupportsHighPerformanceLinkedClone should be %v for k8sCompliantName %s",
+				tt.expectedSupportsHPLinkedClone, tt.k8sCompliantName)
+		})
+	}
 }
