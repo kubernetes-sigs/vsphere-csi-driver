@@ -224,14 +224,14 @@ func (m MockManager) ReRegisterVolume(ctx context.Context, volumeID string) erro
 }
 
 func (m MockManager) QueryFCDAllocatedBlocks(ctx context.Context,
-	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) ([]AllocatedArea, uint64, error) {
+	volumeID, snapshotID string, startingOffset uint64) ([]DiskArea, uint64, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 func (m MockManager) QueryFCDChangedBlocks(ctx context.Context,
-	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
-	[]ChangedArea, uint64, error) {
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64) (
+	[]DiskArea, uint64, error) {
 	//TODO implement me
 	panic("implement me")
 }

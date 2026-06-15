@@ -175,11 +175,11 @@ type Manager interface {
 	// ReRegisterVolume re-registers a volume to CNS when CnsNotRegisteredFault is encountered
 	ReRegisterVolume(ctx context.Context, volumeID string) error
 	// QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas (changeId "*").
-	QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string, startingOffset uint64,
-		maxResults uint32) ([]AllocatedArea, uint64, error)
+	QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string,
+		startingOffset uint64) ([]DiskArea, uint64, error)
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
-	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
-		maxResults uint32) ([]ChangedArea, uint64, error)
+	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string,
+		startingOffset uint64) ([]DiskArea, uint64, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4271,14 +4271,8 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 // vslmNewClientFunc creates a VSLM client (overridable in unit tests).
 var vslmNewClientFunc = vslm.NewClient
 
-// AllocatedArea is a byte range reported as allocated on an FCD snapshot.
-type AllocatedArea struct {
-	Offset uint64
-	Length uint64
-}
-
-// ChangedArea is a byte range reported as changed between FCD snapshots.
-type ChangedArea struct {
+// DiskArea is a byte range reported as allocated or changed on an FCD snapshot.
+type DiskArea struct {
 	Offset uint64
 	Length uint64
 }
@@ -4363,13 +4357,8 @@ func (m *defaultManager) connectVirtualCenter(ctx context.Context) (*cnsvsphere.
 	return m.virtualCenter, nil
 }
 
-// QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas with changeId "*".
-func (m *defaultManager) QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string,
-	startingOffset uint64, maxResults uint32) ([]AllocatedArea, uint64, error) {
-	log := logger.GetLogger(ctx)
-	log.Debugf("QueryFCDAllocatedBlocks: volume=%s snapshot=%s offset=%d maxResults=%d",
-		volumeID, snapshotID, startingOffset, maxResults)
-
+func (m *defaultManager) queryFCDBlocks(ctx context.Context, volumeID, snapshotID, changeID string,
+	startingOffset uint64) ([]DiskArea, uint64, error) {
 	vcenter, err := m.connectVirtualCenter(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get vCenter from volume manager: %v", err)
@@ -4377,81 +4366,51 @@ func (m *defaultManager) QueryFCDAllocatedBlocks(ctx context.Context, volumeID, 
 
 	vslmVolumeID := vim25types.ID{Id: volumeID}
 	vslmSnapshotID := vim25types.ID{Id: snapshotID}
-	const allocatedChangeID = "*"
 
-	log.Debugf("Calling QueryChangedDiskAreasHook with changeId='*' for all allocated blocks")
 	diskChangeInfo, err := QueryChangedDiskAreasHook(
-		ctx, vcenter, vslmVolumeID, vslmSnapshotID, int64(startingOffset), allocatedChangeID)
+		ctx, vcenter, vslmVolumeID, vslmSnapshotID, int64(startingOffset), changeID)
 	if err != nil {
 		return nil, 0, TranslateVslmError(ctx, err)
 	}
 
-	var allocatedAreas []AllocatedArea
-	nextOffset := startingOffset
+	var diskAreas []DiskArea
 	for _, area := range diskChangeInfo.ChangedArea {
-		if uint32(len(allocatedAreas)) >= maxResults {
-			break
-		}
-		allocatedAreas = append(allocatedAreas, AllocatedArea{
+		diskAreas = append(diskAreas, DiskArea{
 			Offset: uint64(area.Start),
 			Length: uint64(area.Length),
 		})
-		areaEnd := uint64(area.Start) + uint64(area.Length)
-		if areaEnd > nextOffset {
-			nextOffset = areaEnd
-		}
 	}
-	if uint32(len(allocatedAreas)) < maxResults {
-		nextOffset = 0
+	nextOffset := uint64(diskChangeInfo.StartOffset + diskChangeInfo.Length)
+	return diskAreas, nextOffset, nil
+}
+
+// QueryFCDAllocatedBlocks returns allocated block ranges using FCD VSLM QueryChangedDiskAreas with changeId "*".
+func (m *defaultManager) QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string,
+	startingOffset uint64) ([]DiskArea, uint64, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("QueryFCDAllocatedBlocks: volume=%s snapshot=%s offset=%d",
+		volumeID, snapshotID, startingOffset)
+
+	const allocatedChangeID = "*"
+	diskAreas, nextOffset, err := m.queryFCDBlocks(ctx, volumeID, snapshotID, allocatedChangeID, startingOffset)
+	if err == nil {
+		log.Debugf("QueryFCDAllocatedBlocks: returned %d allocated areas, next offset %d", len(diskAreas), nextOffset)
 	}
-	log.Debugf("QueryFCDAllocatedBlocks: returned %d allocated areas, next offset %d",
-		len(allocatedAreas), nextOffset)
-	return allocatedAreas, nextOffset, nil
+	return diskAreas, nextOffset, err
 }
 
 // QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
 func (m *defaultManager) QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string,
-	startingOffset uint64, maxResults uint32) ([]ChangedArea, uint64, error) {
+	startingOffset uint64) ([]DiskArea, uint64, error) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("QueryFCDChangedBlocks: volume=%s target=%s offset=%d maxResults=%d",
-		volumeID, targetSnapshotID, startingOffset, maxResults)
+	log.Debugf("QueryFCDChangedBlocks: volume=%s target=%s offset=%d",
+		volumeID, targetSnapshotID, startingOffset)
 
-	vcenter, err := m.connectVirtualCenter(ctx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get vCenter from volume manager: %v", err)
+	diskAreas, nextOffset, err := m.queryFCDBlocks(ctx, volumeID, targetSnapshotID, baseChangeID, startingOffset)
+	if err == nil {
+		log.Debugf("QueryFCDChangedBlocks: returned %d changed areas, next offset %d", len(diskAreas), nextOffset)
 	}
-
-	vslmVolumeID := vim25types.ID{Id: volumeID}
-	vslmTargetSnapshotID := vim25types.ID{Id: targetSnapshotID}
-
-	log.Debugf("Calling QueryChangedDiskAreasHook with base changeId for delta")
-	diskChangeInfo, err := QueryChangedDiskAreasHook(
-		ctx, vcenter, vslmVolumeID, vslmTargetSnapshotID, int64(startingOffset), baseChangeID)
-	if err != nil {
-		return nil, 0, TranslateVslmError(ctx, err)
-	}
-
-	var changedAreas []ChangedArea
-	nextOffset := startingOffset
-	for _, area := range diskChangeInfo.ChangedArea {
-		if uint32(len(changedAreas)) >= maxResults {
-			break
-		}
-		changedAreas = append(changedAreas, ChangedArea{
-			Offset: uint64(area.Start),
-			Length: uint64(area.Length),
-		})
-		areaEnd := uint64(area.Start) + uint64(area.Length)
-		if areaEnd > nextOffset {
-			nextOffset = areaEnd
-		}
-	}
-	if uint32(len(changedAreas)) < maxResults {
-		nextOffset = 0
-	}
-	log.Debugf("QueryFCDChangedBlocks: returned %d changed areas, next offset %d",
-		len(changedAreas), nextOffset)
-	return changedAreas, nextOffset, nil
+	return diskAreas, nextOffset, err
 }
 
 // TranslateVslmError maps VSLM and VADP error codes to standard CSI gRPC error codes.
