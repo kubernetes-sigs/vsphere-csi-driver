@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,6 +53,10 @@ func testScheme(t *testing.T) *runtime.Scheme {
 // to control which zones are returned per namespace.
 type mockZonesProvider struct {
 	zonesForNamespace map[string]map[string]struct{}
+}
+
+func (m *mockZonesProvider) StartZonesInformer(_ context.Context, _ *restclient.Config, _ string) error {
+	return nil
 }
 
 func (m *mockZonesProvider) GetZonesForNamespace(ns string) map[string]struct{} {
@@ -114,6 +119,68 @@ func TestMapSPQtoSPI_NoSuffix(t *testing.T) {
 	}
 	reqs := r.mapSPQtoSPI(ctx, spq)
 	assert.Nil(t, reqs)
+}
+
+// TestMapInfraSPItoSPI_NilObject verifies that mapInfraSPItoSPI returns nil for nil input.
+func TestMapInfraSPItoSPI_NilObject(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	r := &ReconcileStoragePolicyInfo{
+		client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme: scheme,
+	}
+	reqs := r.mapInfraSPItoSPI(ctx, nil)
+	assert.Nil(t, reqs)
+}
+
+// TestMapInfraSPItoSPI_EnqueuesMatchingNamespaces verifies that mapInfraSPItoSPI
+// returns one reconcile request per namespace-scoped StoragePolicyInfo whose name
+// matches the InfraStoragePolicyInfo name.
+func TestMapInfraSPItoSPI_EnqueuesMatchingNamespaces(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	spi1 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	spi2 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns2"},
+	}
+	// A StoragePolicyInfo with a different name should not be enqueued.
+	spiOther := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi1, spi2, spiOther).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	reqs := r.mapInfraSPItoSPI(ctx, infraSPI)
+	require.Len(t, reqs, 2)
+	names := []string{reqs[0].Namespace + "/" + reqs[0].Name, reqs[1].Namespace + "/" + reqs[1].Name}
+	assert.ElementsMatch(t, []string{"ns1/gold", "ns2/gold"}, names)
+}
+
+// TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos verifies that mapInfraSPItoSPI
+// returns an empty (non-nil) slice when no StoragePolicyInfo shares the name.
+func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	// Only a "silver" SPI exists; trigger is for "gold".
+	spiOther := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spiOther).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	reqs := r.mapInfraSPItoSPI(ctx, infraSPI)
+	assert.Empty(t, reqs)
 }
 
 // TestMergeOwnerReference exercises the four cases of the mergeOwnerReference helper.
@@ -387,9 +454,10 @@ func TestNamespaceFilteredZones(t *testing.T) {
 				zonesMap = map[string]map[string]struct{}{"ns1": tt.nsZones}
 			}
 			r := &ReconcileStoragePolicyInfo{
-				client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
-				scheme:        scheme,
-				zonesProvider: &mockZonesProvider{zonesForNamespace: zonesMap},
+				client:                         fake.NewClientBuilder().WithScheme(scheme).Build(),
+				scheme:                         scheme,
+				zonesProvider:                  &mockZonesProvider{zonesForNamespace: zonesMap},
+				workloadDomainIsolationEnabled: true,
 			}
 
 			got := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
@@ -506,8 +574,9 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 }
 
 // TestReconcile_InfraSPINotFound verifies that when InfraStoragePolicyInfo does
-// not yet exist, Reconcile returns success (the event-driven next reconcile will
-// populate topology once InfraStoragePolicyInfo is available).
+// not yet exist, Reconcile returns success without a requeue. The InfraStoragePolicyInfo
+// watch will re-enqueue this reconcile once InfraSPI is created, so an explicit
+// requeue is unnecessary.
 func TestReconcile_InfraSPINotFound(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
@@ -529,7 +598,8 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, result)
+	assert.Equal(t, reconcile.Result{}, result,
+		"expected success with no requeue when InfraStoragePolicyInfo is not yet available")
 }
 
 // TestSetSPISuccess verifies that setSPISuccess clears the error field and
@@ -650,4 +720,158 @@ func TestCompleteReconciliationWithError(t *testing.T) {
 	got := backOffDuration[nn]
 	backOffDurationMapMutex.Unlock()
 	assert.Equal(t, 2*time.Second, got, "expected backoff to be doubled on error")
+}
+
+// TestReconcile_WDIEnabled_ZoneFilteringApplied verifies that when
+// the namespace is assigned to a subset of zones, only those
+// zones appear in the StoragePolicyInfo topology.
+func TestReconcile_WDIEnabled_ZoneFilteringApplied(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1", "az2", "az3"},
+			},
+		},
+	}
+	// Namespace "ns1" is only assigned to az1 and az3; az2 should be filtered out.
+	nsZones := map[string]map[string]struct{}{
+		"ns1": {"az1": {}, "az3": {}},
+	}
+	recorder := record.NewFakeRecorder(10)
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:                         cli,
+		scheme:                         scheme,
+		recorder:                       recorder,
+		zonesProvider:                  &mockZonesProvider{zonesForNamespace: nsZones},
+		workloadDomainIsolationEnabled: true,
+	}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
+	require.NotNil(t, got.Status.TopologyInfo)
+	assert.Equal(t, "zonal", got.Status.TopologyInfo.TopologyType)
+	assert.ElementsMatch(t, []string{"az1", "az3"}, got.Status.TopologyInfo.AccessibleZones,
+		"az2 should be filtered out because ns1 is not assigned to it")
+}
+
+// TestReconcile_WDIEnabled_NoNamespaceZonesReturnsAll verifies that when WDI is
+// enabled but the namespace has no zone assignments (non-zonal namespace or
+// unconstrained namespace), all cluster-accessible zones are exposed.
+func TestReconcile_WDIEnabled_NoNamespaceZonesReturnsAll(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1", "az2"},
+			},
+		},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:   cli,
+		scheme:   scheme,
+		recorder: record.NewFakeRecorder(10),
+		// zonesForNamespace is nil → GetZonesForNamespace returns nil for ns1.
+		zonesProvider:                  &mockZonesProvider{},
+		workloadDomainIsolationEnabled: true,
+	}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
+	require.NotNil(t, got.Status.TopologyInfo)
+	assert.ElementsMatch(t, []string{"az1", "az2"}, got.Status.TopologyInfo.AccessibleZones,
+		"all cluster zones should be exposed when namespace has no zone constraints")
+}
+
+// TestReconcile_InfraSPITopologyUpdated verifies the scenario where an InfraStoragePolicyInfo
+// status update changes the accessible zones, the next reconcile correctly reflects the updated topology
+func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+		Status: spiv1alpha1.StoragePolicyInfoStatus{
+			TopologyInfo: &spiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1"}, // stale — az2 was added to InfraSPI
+			},
+		},
+	}
+	// Simulate InfraStoragePolicyInfo having been updated to include az2.
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1", "az2"},
+			},
+		},
+	}
+	recorder := record.NewFakeRecorder(10)
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:        cli,
+		scheme:        scheme,
+		recorder:      recorder,
+		zonesProvider: &mockZonesProvider{},
+	}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
+	require.NotNil(t, got.Status.TopologyInfo)
+	assert.ElementsMatch(t, []string{"az1", "az2"}, got.Status.TopologyInfo.AccessibleZones,
+		"topology should be updated to include az2 after InfraStoragePolicyInfo status update")
+
+	// A Normal sync event must be recorded to confirm the reconcile ran to completion.
+	select {
+	case ev := <-recorder.Events:
+		assert.Contains(t, ev, "Normal")
+		assert.Contains(t, ev, "StoragePolicyInfoSynced")
+	default:
+		t.Error("expected a Normal StoragePolicyInfoSynced event after topology update")
+	}
 }
