@@ -45,8 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
-	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
+	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -290,27 +290,8 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	timeout = backOffDuration[request.NamespacedName]
 	backOffDurationMapMutex.Unlock()
 
-	// Fetch or create the StoragePolicyInfo instance. If the CR was just
-	// created here, the creation event will trigger another reconcile automatically,
-	// so we return early and let the next reconcile populate its fields.
-	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name)
-	if err != nil {
-		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
-	}
-	if wasCreated {
-		log.Infof("StoragePolicyInfo %q was just created; creation event will trigger next reconcile",
-			request.NamespacedName)
-		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
-	}
-
-	if instance != nil && instance.DeletionTimestamp != nil {
-		log.Infof("StoragePolicyInfo %q is being deleted, skipping reconciliation",
-			request.NamespacedName)
-		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
-	}
-
-	// Fetch the cluster-scoped InfraStoragePolicyInfo (same name as StoragePolicyInfo)
-	// to obtain topology data already computed by the ClusterStoragePolicyInfo controller.
+	// Fetch the cluster-scoped InfraStoragePolicyInfo first so we can set the
+	// owner reference at SPI creation time.
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
 	if err := r.client.Get(ctx,
 		apitypes.NamespacedName{Name: request.Name}, infraSPI); err != nil {
@@ -326,8 +307,27 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	// Ensure SPI holds an owner reference to InfraStoragePolicyInfo so that the SPI
-	// is garbage-collected when the InfraStoragePolicyInfo is deleted.
+	// Fetch or create the StoragePolicyInfo instance, stamping the InfraSPI owner
+	// reference at creation time so the SPI is always GC-eligible.
+	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name, infraSPI)
+	if err != nil {
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if wasCreated {
+		log.Infof("StoragePolicyInfo %q was just created; creation event will trigger next reconcile",
+			request.NamespacedName)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
+	if instance.DeletionTimestamp != nil {
+		log.Infof("StoragePolicyInfo %q is being deleted, skipping reconciliation",
+			request.NamespacedName)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
+	// Ensure SPI holds an owner reference to InfraStoragePolicyInfo. This is a
+	// no-op for newly created SPIs (owner ref set at creation) but handles SPIs
+	// that pre-date this logic or had the ref removed.
 	if err := r.ensureInfraSPIOwnerReference(ctx, instance, infraSPI); err != nil {
 		log.Errorf("Failed to set owner reference on StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
@@ -357,9 +357,11 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 }
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given
-// namespace/name. If absent, it creates the CR and returns wasCreated=true.
+// namespace/name. If absent, it creates the CR with an owner reference to
+// infraSPI so it is GC-eligible, and returns wasCreated=true.
 func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
-	namespace, name string) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
+	namespace, name string,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
 	log := logger.GetLogger(ctx)
 
 	instance := &spiv1alpha1.StoragePolicyInfo{}
@@ -372,15 +374,22 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 		return nil, false, err
 	}
 
-	// Create the StoragePolicyInfo CR.
+	ownerRef, err := generateOwnerReference(r.scheme, infraSPI)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
+			infraSPI.Name, err)
+	}
+
+	// Create the StoragePolicyInfo CR with the owner reference already set.
 	instance = &spiv1alpha1.StoragePolicyInfo{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apis.SchemeGroupVersion.String(),
 			Kind:       "StoragePolicyInfo",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:            name,
+			Namespace:       namespace,
+			OwnerReferences: []metav1.OwnerReference{ownerRef},
 		},
 	}
 	if err := r.client.Create(ctx, instance); err != nil {
@@ -396,7 +405,8 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 		// The object already existed, so treat it as not newly created.
 		return instance, false, nil
 	}
-	log.Infof("Created StoragePolicyInfo %s/%s", namespace, name)
+	log.Infof("Created StoragePolicyInfo %s/%s with owner reference to InfraStoragePolicyInfo %q",
+		namespace, name, infraSPI.Name)
 	return instance, true, nil
 }
 

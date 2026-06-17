@@ -261,17 +261,20 @@ func TestGenerateOwnerReference_UnknownType(t *testing.T) {
 }
 
 // TestEnsureSPIExists_AlreadyExists verifies that ensureSPIExists returns the
-// existing instance (wasCreated=false) when the CR is already present.
+// existing instance when the CR is already present.
 func TestEnsureSPIExists_AlreadyExists(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	existing := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "test-ns"},
 	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold")
+	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", infraSPI)
 	require.NoError(t, err)
 	assert.False(t, wasCreated)
 	require.NotNil(t, inst)
@@ -279,23 +282,29 @@ func TestEnsureSPIExists_AlreadyExists(t *testing.T) {
 }
 
 // TestEnsureSPIExists_NotFound verifies that ensureSPIExists creates and persists
-// a new StoragePolicyInfo (wasCreated=true) when the CR does not exist.
+// a new StoragePolicyInfo with an owner reference to InfraStoragePolicyInfo.
 func TestEnsureSPIExists_NotFound(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold")
+	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", infraSPI)
 	require.NoError(t, err)
 	assert.True(t, wasCreated)
 	require.NotNil(t, inst)
 	assert.Equal(t, "gold", inst.Name)
 	assert.Equal(t, "test-ns", inst.Namespace)
 
-	// Verify the CR is persisted in the fake client.
+	// Verify the CR is persisted with the owner reference already set.
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "test-ns", Name: "gold"}, got))
+	require.Len(t, got.OwnerReferences, 1)
+	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
+	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
 }
 
 // TestEnsureInfraSPIOwnerReference_SetWhenAbsent verifies that the owner reference
@@ -470,16 +479,26 @@ func TestNamespaceFilteredZones(t *testing.T) {
 	}
 }
 
-// TestReconcile_CreatesAndReturnsEarly verifies that when a StoragePolicyInfo does
-// not yet exist Reconcile creates it, returns early, and lets the creation event
-// drive the next reconcile.
-func TestReconcile_CreatesAndReturnsEarly(t *testing.T) {
+// TestReconcile_CreatesWithOwnerRef verifies that when a StoragePolicyInfo does
+// not yet exist, Reconcile creates it with an owner reference to InfraStoragePolicyInfo
+// baked in at creation time, so the SPI is GC-eligible from birth.
+func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
 
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1"},
+			},
+		},
+	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).Build()
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:        cli,
 		scheme:        scheme,
@@ -495,6 +514,9 @@ func TestReconcile_CreatesAndReturnsEarly(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
+	require.Len(t, got.OwnerReferences, 1)
+	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
+	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
 }
 
 // TestReconcile_SkipsDeletion verifies that Reconcile exits immediately when
