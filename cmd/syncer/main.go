@@ -102,6 +102,13 @@ func main() {
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Version : %s", syncer.Version)
 
+	// Log GOMEMLIMIT if set for memory management visibility
+	if goMemLimit := os.Getenv("GOMEMLIMIT"); goMemLimit != "" {
+		log.Infof("GOMEMLIMIT is set to: %s", goMemLimit)
+	} else {
+		log.Infof("GOMEMLIMIT is not set, using Go default memory management")
+	}
+
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
