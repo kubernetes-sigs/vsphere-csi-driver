@@ -322,7 +322,7 @@ var _ bool = ginkgo.Describe("full-sync-test", func() {
 	// deleted; it labels them pv_missing=true on the existing PV-type
 	// CnsKubernetesEntityMetadata after a two-cycle grace period. This test
 	// verifies the new contract.
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-wcp][csi-supervisor]"+
+	ginkgo.It("[ef-f-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-wcp][csi-supervisor]"+
 		"[csi-block-vanilla][csi-block-vanilla-serialized] Verify CNS "+
 		"volume is labeled pv_missing=true after full sync when pv entry is deleted",
 		ginkgo.Label(p0, block, vanilla, wcp, core, vc70), func() {
