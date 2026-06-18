@@ -68,16 +68,6 @@ type zonesProvider interface {
 	GetZonesForNamespace(ns string) map[string]struct{}
 }
 
-// backOffDuration is a map of StoragePolicyInfo NamespacedNames to the time after
-// which a request for this instance will be requeued.
-// Initialized to 1 second for new instances and for instances whose latest
-// reconcile operation succeeded.
-// If the reconcile fails, backoff is incremented exponentially.
-var (
-	backOffDuration         map[apitypes.NamespacedName]time.Duration
-	backOffDurationMapMutex = sync.Mutex{}
-)
-
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_STORAGE_POLICY_INFO"
 	defaultMaxWorkerThreads = 4
@@ -137,6 +127,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		recorder:                       recorder,
 		zonesProvider:                  zp,
 		workloadDomainIsolationEnabled: workloadDomainIsolationEnabled,
+		backOffDuration:                make(map[apitypes.NamespacedName]time.Duration),
 	}
 }
 
@@ -193,8 +184,6 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		return err
 	}
 
-	// Initialize the backoff duration map
-	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
 	return nil
 }
 
@@ -269,6 +258,10 @@ type ReconcileStoragePolicyInfo struct {
 	// namespaceFilteredZones skips the GetZonesForNamespace call entirely,
 	// which avoids a nil-informer panic on non-zonal deployments.
 	workloadDomainIsolationEnabled bool
+	// backOffDuration tracks per-instance requeue delays, incremented
+	// exponentially on failure and reset to 1s on success.
+	backOffDuration         map[apitypes.NamespacedName]time.Duration
+	backOffDurationMapMutex sync.Mutex
 }
 
 // Reconcile creates or updates the StoragePolicyInfo for the given namespace
@@ -282,13 +275,13 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	log.Infof("Reconciling StoragePolicyInfo")
 
 	// Initialize backOffDuration for the instance, if required.
-	backOffDurationMapMutex.Lock()
+	r.backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[request.NamespacedName]; !exists {
-		backOffDuration[request.NamespacedName] = time.Second
+	if _, exists := r.backOffDuration[request.NamespacedName]; !exists {
+		r.backOffDuration[request.NamespacedName] = time.Second
 	}
-	timeout = backOffDuration[request.NamespacedName]
-	backOffDurationMapMutex.Unlock()
+	timeout = r.backOffDuration[request.NamespacedName]
+	r.backOffDurationMapMutex.Unlock()
 
 	// Fetch the cluster-scoped InfraStoragePolicyInfo first so we can set the
 	// owner reference at SPI creation time.
@@ -533,9 +526,9 @@ func (r *ReconcileStoragePolicyInfo) completeReconciliationWithSuccess(ctx conte
 	namespacedName apitypes.NamespacedName) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx).With("name", namespacedName)
 
-	backOffDurationMapMutex.Lock()
-	delete(backOffDuration, namespacedName)
-	backOffDurationMapMutex.Unlock()
+	r.backOffDurationMapMutex.Lock()
+	delete(r.backOffDuration, namespacedName)
+	r.backOffDurationMapMutex.Unlock()
 
 	log.Infof("Successfully reconciled StoragePolicyInfo")
 	return reconcile.Result{}, nil
@@ -547,10 +540,10 @@ func (r *ReconcileStoragePolicyInfo) completeReconciliationWithError(ctx context
 	namespacedName apitypes.NamespacedName, timeout time.Duration, err error) (reconcile.Result, error) {
 	log := logger.GetLogger(ctx).With("name", namespacedName)
 
-	backOffDurationMapMutex.Lock()
-	backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+	r.backOffDurationMapMutex.Lock()
+	r.backOffDuration[namespacedName] = min(r.backOffDuration[namespacedName]*2,
 		types.MaxBackOffDurationForReconciler)
-	backOffDurationMapMutex.Unlock()
+	r.backOffDurationMapMutex.Unlock()
 
 	log.Errorf("Failed to reconcile StoragePolicyInfo %q. Err: %v", namespacedName, err)
 	return reconcile.Result{RequeueAfter: timeout}, nil
