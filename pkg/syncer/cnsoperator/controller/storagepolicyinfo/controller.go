@@ -74,6 +74,9 @@ const (
 	// storagePolicyQuotaSuffix is the suffix appended to the K8s-compliant storage
 	// policy name to form the corresponding StoragePolicyQuota CR name.
 	storagePolicyQuotaSuffix = "-storagepolicyquota"
+	// spiNameIndexField is the field index key used to look up StoragePolicyInfo
+	// objects by name, enabling efficient cross-namespace lookups in mapInfraSPItoSPI.
+	spiNameIndexField = ".metadata.name"
 )
 
 // Add registers the StoragePolicyInfo controller with the Manager (WCP / Workload only).
@@ -96,13 +99,9 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	workloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
-		common.WorkloadDomainIsolation)
-	if workloadDomainIsolationEnabled {
-		if err := commonco.ContainerOrchestratorUtility.StartZonesInformer(
-			ctx, nil, metav1.NamespaceAll); err != nil {
-			return logger.LogNewErrorf(log, "failed to start zone informer for StoragePolicyInfo controller. Err: %v", err)
-		}
+	if err := commonco.ContainerOrchestratorUtility.StartZonesInformer(
+		ctx, nil, metav1.NamespaceAll); err != nil {
+		return logger.LogNewErrorf(log, "failed to start zone informer for StoragePolicyInfo controller. Err: %v", err)
 	}
 
 	eventBroadcaster := record.NewBroadcaster()
@@ -112,28 +111,35 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		commonco.ContainerOrchestratorUtility, workloadDomainIsolationEnabled))
+	return add(mgr, newReconciler(mgr, configInfo, recorder, commonco.ContainerOrchestratorUtility))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
-	recorder record.EventRecorder, zp zonesProvider,
-	workloadDomainIsolationEnabled bool) *ReconcileStoragePolicyInfo {
+	recorder record.EventRecorder, zp zonesProvider) *ReconcileStoragePolicyInfo {
 
 	return &ReconcileStoragePolicyInfo{
-		client:                         mgr.GetClient(),
-		scheme:                         mgr.GetScheme(),
-		configInfo:                     configInfo,
-		recorder:                       recorder,
-		zonesProvider:                  zp,
-		workloadDomainIsolationEnabled: workloadDomainIsolationEnabled,
-		backOffDuration:                make(map[apitypes.NamespacedName]time.Duration),
+		client:          mgr.GetClient(),
+		scheme:          mgr.GetScheme(),
+		configInfo:      configInfo,
+		recorder:        recorder,
+		zonesProvider:   zp,
+		backOffDuration: make(map[apitypes.NamespacedName]time.Duration),
 	}
 }
 
 func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	ctx, log := logger.GetNewContextWithLogger()
 	maxWorkerThreads := util.GetMaxWorkerThreads(ctx, workerThreadsEnvVar, defaultMaxWorkerThreads)
+
+	// Index StoragePolicyInfo by name so mapInfraSPItoSPI can list only matching
+	// objects rather than doing a full cross-namespace list.
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &spiv1alpha1.StoragePolicyInfo{},
+		spiNameIndexField, func(obj client.Object) []string {
+			return []string{obj.GetName()}
+		}); err != nil {
+		log.Errorf("failed to add field index for StoragePolicyInfo name: %v", err)
+		return err
+	}
 
 	// Only reconcile on StoragePolicyQuota CREATE events. Updates to the quota
 	// spec/status do not affect the StoragePolicyInfo topology data.
@@ -153,8 +159,8 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	// Generation-based predicates don't work for status-only updates, so we
 	// compare the resource version instead.
 	infraSPIPredicates := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return e.Object != nil
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			return e.ObjectOld.GetResourceVersion() != e.ObjectNew.GetResourceVersion()
@@ -220,12 +226,11 @@ func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 	}
 	log := logger.GetLogger(ctx)
 
-	// List all StoragePolicyInfo instances across all namespaces and filter
-	// to those whose name matches the InfraStoragePolicyInfo name. A field
-	// indexer would be more efficient at scale, but SPI count per cluster is
-	// bounded by (policies × namespaces) which is manageable with a full list.
+	// Use the name field index to list only StoragePolicyInfo objects whose name
+	// matches the InfraStoragePolicyInfo, avoiding a full cross-namespace scan.
 	spiList := &spiv1alpha1.StoragePolicyInfoList{}
-	if err := r.client.List(ctx, spiList); err != nil {
+	if err := r.client.List(ctx, spiList,
+		client.MatchingFields{spiNameIndexField: obj.GetName()}); err != nil {
 		log.Errorf("Failed to list StoragePolicyInfo for InfraStoragePolicyInfo %q: %v",
 			obj.GetName(), err)
 		return nil
@@ -233,14 +238,12 @@ func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 
 	reqs := make([]reconcile.Request, 0, len(spiList.Items))
 	for i := range spiList.Items {
-		if spiList.Items[i].Name == obj.GetName() {
-			reqs = append(reqs, reconcile.Request{
-				NamespacedName: apitypes.NamespacedName{
-					Namespace: spiList.Items[i].Namespace,
-					Name:      spiList.Items[i].Name,
-				},
-			})
-		}
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{
+				Namespace: spiList.Items[i].Namespace,
+				Name:      spiList.Items[i].Name,
+			},
+		})
 	}
 	return reqs
 }
@@ -254,10 +257,6 @@ type ReconcileStoragePolicyInfo struct {
 	configInfo    *config.ConfigurationInfo
 	recorder      record.EventRecorder
 	zonesProvider zonesProvider
-	// workloadDomainIsolationEnabled gates zone-filtering logic. When false,
-	// namespaceFilteredZones skips the GetZonesForNamespace call entirely,
-	// which avoids a nil-informer panic on non-zonal deployments.
-	workloadDomainIsolationEnabled bool
 	// backOffDuration tracks per-instance requeue delays, incremented
 	// exponentially on failure and reset to 1s on success.
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
@@ -289,19 +288,17 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	if err := r.client.Get(ctx,
 		apitypes.NamespacedName{Name: request.Name}, infraSPI); err != nil {
 		if apierrors.IsNotFound(err) {
-			// InfraStoragePolicyInfo may not be created yet (controller startup ordering).
-			// The InfraStoragePolicyInfo watch will re-enqueue this reconcile once InfraSPI
-			// is available, so returning success here is safe.
-			log.Infof("InfraStoragePolicyInfo %q not yet available; topology will be synced on next reconcile",
+			log.Infof("InfraStoragePolicyInfo %q not yet available; will retry",
 				request.Name)
-			return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+		} else {
+			log.Errorf("Failed to get InfraStoragePolicyInfo %q: %v", request.Name, err)
 		}
-		log.Errorf("Failed to get InfraStoragePolicyInfo %q: %v", request.Name, err)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
 	// Fetch or create the StoragePolicyInfo instance, stamping the InfraSPI owner
-	// reference at creation time so the SPI is always GC-eligible.
+	// reference at creation time so the SPI is deleted automatically when the
+	// InfraStoragePolicyInfo is deleted.
 	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name, infraSPI)
 	if err != nil {
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
@@ -351,7 +348,7 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given
 // namespace/name. If absent, it creates the CR with an owner reference to
-// infraSPI so it is GC-eligible, and returns wasCreated=true.
+// infraSPI and returns wasCreated=true.
 func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 	namespace, name string,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
@@ -465,17 +462,9 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 
 // namespaceFilteredZones returns the subset of clusterZones that are also
 // assigned to the given namespace, by consulting the namespace-scoped Zone CRs.
-// Zone filtering is only performed when WorkloadDomainIsolation is enabled and
-// the zones informer has been started; otherwise all cluster zones are returned.
 func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 	namespace string, clusterZones []string) []string {
 	log := logger.GetLogger(ctx)
-
-	if !r.workloadDomainIsolationEnabled {
-		log.Debugf("WorkloadDomainIsolation disabled; using all %d cluster-accessible zones for namespace %q",
-			len(clusterZones), namespace)
-		return clusterZones
-	}
 
 	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
 	if len(nsZones) == 0 {

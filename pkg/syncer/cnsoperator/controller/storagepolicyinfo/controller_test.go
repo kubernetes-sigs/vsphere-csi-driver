@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
@@ -133,6 +134,19 @@ func TestMapInfraSPItoSPI_NilObject(t *testing.T) {
 	assert.Nil(t, reqs)
 }
 
+// spiNameIndexer returns a fake client builder with the spiNameIndexField index
+// registered, mirroring what add() does against the real manager.
+func spiNameIndexer(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) client.Client {
+	t.Helper()
+	return fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(objs...).
+		WithIndex(&spiv1alpha1.StoragePolicyInfo{}, spiNameIndexField, func(obj client.Object) []string {
+			return []string{obj.GetName()}
+		}).
+		Build()
+}
+
 // TestMapInfraSPItoSPI_EnqueuesMatchingNamespaces verifies that mapInfraSPItoSPI
 // returns one reconcile request per namespace-scoped StoragePolicyInfo whose name
 // matches the InfraStoragePolicyInfo name.
@@ -151,7 +165,7 @@ func TestMapInfraSPItoSPI_EnqueuesMatchingNamespaces(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
 	}
 
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi1, spi2, spiOther).Build()
+	cli := spiNameIndexer(t, scheme, spi1, spi2, spiOther)
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -164,7 +178,7 @@ func TestMapInfraSPItoSPI_EnqueuesMatchingNamespaces(t *testing.T) {
 }
 
 // TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos verifies that mapInfraSPItoSPI
-// returns an empty (non-nil) slice when no StoragePolicyInfo shares the name.
+// returns an empty slice when no StoragePolicyInfo shares the name.
 func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
@@ -173,7 +187,7 @@ func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
 	spiOther := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
 	}
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spiOther).Build()
+	cli := spiNameIndexer(t, scheme, spiOther)
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -463,10 +477,9 @@ func TestNamespaceFilteredZones(t *testing.T) {
 				zonesMap = map[string]map[string]struct{}{"ns1": tt.nsZones}
 			}
 			r := &ReconcileStoragePolicyInfo{
-				client:                         fake.NewClientBuilder().WithScheme(scheme).Build(),
-				scheme:                         scheme,
-				zonesProvider:                  &mockZonesProvider{zonesForNamespace: zonesMap},
-				workloadDomainIsolationEnabled: true,
+				client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
+				scheme:        scheme,
+				zonesProvider: &mockZonesProvider{zonesForNamespace: zonesMap},
 			}
 
 			got := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
@@ -481,7 +494,8 @@ func TestNamespaceFilteredZones(t *testing.T) {
 
 // TestReconcile_CreatesWithOwnerRef verifies that when a StoragePolicyInfo does
 // not yet exist, Reconcile creates it with an owner reference to InfraStoragePolicyInfo
-// baked in at creation time, so the SPI is GC-eligible from birth.
+// baked in at creation time so it is deleted automatically when InfraStoragePolicyInfo
+// is deleted.
 func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
@@ -533,8 +547,11 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 			Finalizers:        []string{"test"},
 		},
 	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).Build()
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -596,9 +613,8 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 }
 
 // TestReconcile_InfraSPINotFound verifies that when InfraStoragePolicyInfo does
-// not yet exist, Reconcile returns success without a requeue. The InfraStoragePolicyInfo
-// watch will re-enqueue this reconcile once InfraSPI is created, so an explicit
-// requeue is unnecessary.
+// not yet exist, Reconcile returns a requeue-after result so the reconcile is
+// retried with backoff.
 func TestReconcile_InfraSPINotFound(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
@@ -620,8 +636,8 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, result,
-		"expected success with no requeue when InfraStoragePolicyInfo is not yet available")
+	assert.Greater(t, result.RequeueAfter, time.Duration(0),
+		"expected requeue-after when InfraStoragePolicyInfo is not yet available")
 }
 
 // TestSetSPISuccess verifies that setSPISuccess clears the error field and
@@ -742,10 +758,10 @@ func TestCompleteReconciliationWithError(t *testing.T) {
 	assert.Equal(t, 2*time.Second, got, "expected backoff to be doubled on error")
 }
 
-// TestReconcile_WDIEnabled_ZoneFilteringApplied verifies that when
-// the namespace is assigned to a subset of zones, only those
-// zones appear in the StoragePolicyInfo topology.
-func TestReconcile_WDIEnabled_ZoneFilteringApplied(t *testing.T) {
+// TestReconcile_ZoneFilteringApplied verifies that when the namespace is
+// assigned to a subset of zones, only those zones appear in the
+// StoragePolicyInfo topology.
+func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 
@@ -770,12 +786,11 @@ func TestReconcile_WDIEnabled_ZoneFilteringApplied(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:                         cli,
-		scheme:                         scheme,
-		recorder:                       recorder,
-		zonesProvider:                  &mockZonesProvider{zonesForNamespace: nsZones},
-		workloadDomainIsolationEnabled: true,
-		backOffDuration:                make(map[types.NamespacedName]time.Duration),
+		client:          cli,
+		scheme:          scheme,
+		recorder:        recorder,
+		zonesProvider:   &mockZonesProvider{zonesForNamespace: nsZones},
+		backOffDuration: make(map[types.NamespacedName]time.Duration),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -792,10 +807,10 @@ func TestReconcile_WDIEnabled_ZoneFilteringApplied(t *testing.T) {
 		"az2 should be filtered out because ns1 is not assigned to it")
 }
 
-// TestReconcile_WDIEnabled_NoNamespaceZonesReturnsAll verifies that when WDI is
-// enabled but the namespace has no zone assignments (non-zonal namespace or
-// unconstrained namespace), all cluster-accessible zones are exposed.
-func TestReconcile_WDIEnabled_NoNamespaceZonesReturnsAll(t *testing.T) {
+// TestReconcile_NoNamespaceZonesReturnsAll verifies that when a namespace has
+// no zone assignments (non-zonal or unconstrained namespace), all
+// cluster-accessible zones are exposed.
+func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 
@@ -815,13 +830,11 @@ func TestReconcile_WDIEnabled_NoNamespaceZonesReturnsAll(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:   cli,
-		scheme:   scheme,
-		recorder: record.NewFakeRecorder(10),
-		// zonesForNamespace is nil → GetZonesForNamespace returns nil for ns1.
-		zonesProvider:                  &mockZonesProvider{},
-		workloadDomainIsolationEnabled: true,
-		backOffDuration:                make(map[types.NamespacedName]time.Duration),
+		client:          cli,
+		scheme:          scheme,
+		recorder:        record.NewFakeRecorder(10),
+		zonesProvider:   &mockZonesProvider{},
+		backOffDuration: make(map[types.NamespacedName]time.Duration),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
