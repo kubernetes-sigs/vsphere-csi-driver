@@ -144,6 +144,17 @@ func (m *volumeIDToPvcMap) get(volumeHandle string) (string, bool) {
 	return pvcname, found
 }
 
+// Returns a snapshot of all items from volumeIDToPvcMap in a thread safe manner.
+func (m *volumeIDToPvcMap) getAll() []string {
+	m.RLock()
+	defer m.RUnlock()
+	volumeIDs := make([]string, 0, len(m.items))
+	for volumeID := range m.items {
+		volumeIDs = append(volumeIDs, volumeID)
+	}
+	return volumeIDs
+}
+
 // Adds an entry to pvcToVolumeIDMap in a thread safe manner.
 func (m *pvcToVolumeIDMap) add(pvcName, volumeHandle string) {
 	m.Lock()
@@ -2114,11 +2125,7 @@ func (c *K8sOrchestrator) GetVolumeAttachment(ctx context.Context, volumeId stri
 // GetAllVolumes returns list of volumes in a bound state for wcp clusters.
 // This will not return VCP-CSI migrated volumes.
 func (c *K8sOrchestrator) GetAllVolumes() []string {
-	volumeIDs := make([]string, 0)
-	for volumeID := range c.volumeIDToPvcMap.items {
-		volumeIDs = append(volumeIDs, volumeID)
-	}
-	return volumeIDs
+	return c.volumeIDToPvcMap.getAll()
 }
 
 // AnnotateVolumeSnapshot annotates the volumesnapshot CR in k8s cluster
