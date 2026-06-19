@@ -157,14 +157,12 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 
 	// Only re-reconcile when InfraStoragePolicyInfo status actually changes.
 	// Generation-based predicates don't work for status-only updates, so we
-	// compare the resource version instead.
+	// gate updates on resource-version changes.
 	infraSPIPredicates := predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool {
 			return false
 		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			return e.ObjectOld.GetResourceVersion() != e.ObjectNew.GetResourceVersion()
-		},
+		UpdateFunc: predicate.ResourceVersionChangedPredicate{}.Update,
 		DeleteFunc: func(_ event.DeleteEvent) bool {
 			return false
 		},
