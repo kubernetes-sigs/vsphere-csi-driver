@@ -39,6 +39,7 @@ import (
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
@@ -1446,6 +1447,380 @@ func TestSetGuestClusterDetailsOnSupervisorSnapshot_AnnotationBackfill(t *testin
 		assert.Equal(t, existing, annots[common.AnnKeyGuestClusterSnapshot],
 			"pre-existing annotation must not be overwritten")
 	})
+}
+
+// assertSingleSupervisorListCall verifies that the supervisor fake client
+// recorded exactly one API call and that it was a List — not a per-PV Get.
+// This documents and enforces the N-round-trips→1 optimization introduced in
+// syncGuestPvcCBTLabel: rather than calling Get once per eligible PV the
+// implementation fetches all supervisor PVCs with a single List and looks up
+// results in an in-memory map.
+func assertSingleSupervisorListCall(t *testing.T, supervisorClient *k8sfake.Clientset) {
+	t.Helper()
+	actions := supervisorClient.Actions()
+	require.Len(t, actions, 1,
+		"expected exactly one supervisor API call (List); got %d — "+
+			"a per-PV Get would indicate the optimization has regressed", len(actions))
+	assert.Equal(t, "list", actions[0].GetVerb(),
+		"supervisor API call should be List, not Get")
+}
+
+// makeBlockPV builds a bound vSphere block-volume PV whose VolumeHandle is svPVCName and
+// whose ClaimRef points at guestPVCName/guestNS.
+func makeBlockPV(name, svPVCName, guestPVCName, guestNS string) *v1.PersistentVolume {
+	return &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       common.VSphereCSIDriverName,
+					VolumeHandle: svPVCName,
+					VolumeAttributes: map[string]string{
+						common.AttributeDiskType: common.DiskTypeBlockVolume,
+					},
+				},
+			},
+			ClaimRef: &v1.ObjectReference{
+				Name:      guestPVCName,
+				Namespace: guestNS,
+			},
+		},
+		Status: v1.PersistentVolumeStatus{Phase: v1.VolumeBound},
+	}
+}
+
+// TestSyncGuestPvcCBTLabel_AddLabel verifies that when the supervisor PVC carries
+// cns.vmware.com/cbt-active=true but the guest PVC has no such label, the function
+// adds the label to the guest PVC.
+func TestSyncGuestPvcCBTLabel_AddLabel(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const (
+		svNS         = "sv-namespace"
+		svPVCName    = "sv-pvc-1"
+		guestPVCNS   = "guest-ns"
+		guestPVCName = "guest-pvc-1"
+	)
+
+	// Supervisor PVC: has the cbt-active label.
+	svPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svPVCName,
+			Namespace: svNS,
+			Labels:    map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	// Guest PVC: no cbt-active label yet.
+	guestPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: guestPVCName, Namespace: guestPVCNS},
+	}
+	pv := makeBlockPV("pv-1", svPVCName, guestPVCName, guestPVCNS)
+
+	supervisorClient := k8sfake.NewClientset(svPVC)
+	guestClient := k8sfake.NewClientset(guestPVC)
+	_, pvcLister, _ := newTestListers(t, guestPVC)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{pv}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	// Exactly one supervisor API call (List), not one Get per PV.
+	assertSingleSupervisorListCall(t, supervisorClient)
+
+	updated, err := guestClient.CoreV1().PersistentVolumeClaims(guestPVCNS).Get(ctx, guestPVCName, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, isCBTActiveLabelVal, updated.Labels[isCBTActiveLabel],
+		"guest PVC should have cbt-active label mirrored from supervisor PVC")
+}
+
+// TestSyncGuestPvcCBTLabel_RemoveLabel verifies that when the supervisor PVC no longer
+// carries cns.vmware.com/cbt-active but the guest PVC still does, the label is removed.
+func TestSyncGuestPvcCBTLabel_RemoveLabel(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const (
+		svNS         = "sv-namespace"
+		svPVCName    = "sv-pvc-2"
+		guestPVCNS   = "guest-ns"
+		guestPVCName = "guest-pvc-2"
+	)
+
+	// Supervisor PVC: cbt-active label absent.
+	svPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: svPVCName, Namespace: svNS},
+	}
+	// Guest PVC: still has the stale cbt-active label.
+	guestPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      guestPVCName,
+			Namespace: guestPVCNS,
+			Labels:    map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	pv := makeBlockPV("pv-2", svPVCName, guestPVCName, guestPVCNS)
+
+	supervisorClient := k8sfake.NewClientset(svPVC)
+	guestClient := k8sfake.NewClientset(guestPVC)
+	_, pvcLister, _ := newTestListers(t, guestPVC)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{pv}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	// Exactly one supervisor API call (List), not one Get per PV.
+	assertSingleSupervisorListCall(t, supervisorClient)
+
+	updated, err := guestClient.CoreV1().PersistentVolumeClaims(guestPVCNS).Get(ctx, guestPVCName, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, updated.Labels[isCBTActiveLabel],
+		"guest PVC cbt-active label should be removed when supervisor PVC has none")
+}
+
+// TestSyncGuestPvcCBTLabel_AlreadyInSync verifies that no patch is issued when
+// the guest PVC already matches the supervisor PVC's CBT label state.
+func TestSyncGuestPvcCBTLabel_AlreadyInSync(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const (
+		svNS         = "sv-namespace"
+		svPVCName    = "sv-pvc-3"
+		guestPVCNS   = "guest-ns"
+		guestPVCName = "guest-pvc-3"
+	)
+
+	// Both supervisor and guest PVCs have the label — already in sync.
+	svPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svPVCName,
+			Namespace: svNS,
+			Labels:    map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	guestPVC := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      guestPVCName,
+			Namespace: guestPVCNS,
+			Labels:    map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	pv := makeBlockPV("pv-3", svPVCName, guestPVCName, guestPVCNS)
+
+	supervisorClient := k8sfake.NewClientset(svPVC)
+	// guestClient initially has the PVC with the label; we detect an unexpected Patch via actions.
+	guestClient := k8sfake.NewClientset(guestPVC)
+	_, pvcLister, _ := newTestListers(t, guestPVC)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{pv}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	// Exactly one supervisor API call (List), not one Get per PV.
+	assertSingleSupervisorListCall(t, supervisorClient)
+
+	// No patch action should have been recorded on the guest client.
+	for _, action := range guestClient.Actions() {
+		assert.NotEqual(t, "patch", action.GetVerb(),
+			"no patch should be issued when labels are already in sync")
+	}
+}
+
+// TestSyncGuestPvcCBTLabel_SkipsNonBlockVolumes verifies that file volumes (missing
+// DiskType=block attribute) are skipped without error.
+func TestSyncGuestPvcCBTLabel_SkipsNonBlockVolumes(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const svNS = "sv-namespace"
+
+	// PV with no VolumeAttributes (i.e. a file volume).
+	fileVolumePV := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "file-pv"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       common.VSphereCSIDriverName,
+					VolumeHandle: "file-sv-pvc",
+				},
+			},
+			ClaimRef: &v1.ObjectReference{Name: "file-guest-pvc", Namespace: "guest-ns"},
+		},
+		Status: v1.PersistentVolumeStatus{Phase: v1.VolumeBound},
+	}
+
+	supervisorClient := k8sfake.NewClientset()
+	guestClient := k8sfake.NewClientset()
+	_, pvcLister, _ := newTestListers(t)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{fileVolumePV}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	// No eligible block PVs → early return before the supervisor List call.
+	for _, action := range guestClient.Actions() {
+		assert.NotEqual(t, "patch", action.GetVerb())
+	}
+	assert.Empty(t, supervisorClient.Actions(),
+		"supervisor List should not be issued when there are no eligible block volumes")
+}
+
+// TestSyncGuestPvcCBTLabel_SkipsUnboundPVs verifies that non-Bound PVs are skipped.
+func TestSyncGuestPvcCBTLabel_SkipsUnboundPVs(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const svNS = "sv-namespace"
+
+	unboundPV := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "unbound-pv"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{
+					Driver:       common.VSphereCSIDriverName,
+					VolumeHandle: "some-sv-pvc",
+					VolumeAttributes: map[string]string{
+						common.AttributeDiskType: common.DiskTypeBlockVolume,
+					},
+				},
+			},
+			ClaimRef: &v1.ObjectReference{Name: "some-pvc", Namespace: "ns"},
+		},
+		Status: v1.PersistentVolumeStatus{Phase: v1.VolumeAvailable}, // not Bound
+	}
+
+	supervisorClient := k8sfake.NewClientset()
+	guestClient := k8sfake.NewClientset()
+	_, pvcLister, _ := newTestListers(t)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{unboundPV}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	assert.Empty(t, supervisorClient.Actions(),
+		"supervisor List should not be issued when there are no eligible (Bound) PVs")
+}
+
+// TestSyncGuestPvcCBTLabel_MultipleVolumes verifies that the function correctly
+// processes multiple PVs in one pass — adding the label to some, removing from others.
+func TestSyncGuestPvcCBTLabel_MultipleVolumes(t *testing.T) {
+	ctx, _ := logger.GetNewContextWithLogger()
+	const svNS = "sv-namespace"
+
+	// sv-pvc-a: has cbt-active; guest-pvc-a: no label → label should be added.
+	svPVCA := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sv-pvc-a", Namespace: svNS,
+			Labels: map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	guestPVCA := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "guest-pvc-a", Namespace: "guest-ns"},
+	}
+	pvA := makeBlockPV("pv-a", "sv-pvc-a", "guest-pvc-a", "guest-ns")
+
+	// sv-pvc-b: no cbt-active; guest-pvc-b: has label → label should be removed.
+	svPVCB := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "sv-pvc-b", Namespace: svNS},
+	}
+	guestPVCB := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "guest-pvc-b", Namespace: "guest-ns",
+			Labels: map[string]string{isCBTActiveLabel: isCBTActiveLabelVal},
+		},
+	}
+	pvB := makeBlockPV("pv-b", "sv-pvc-b", "guest-pvc-b", "guest-ns")
+
+	supervisorClient := k8sfake.NewClientset(svPVCA, svPVCB)
+	guestClient := k8sfake.NewClientset(guestPVCA, guestPVCB)
+	_, pvcLister, _ := newTestListers(t, guestPVCA, guestPVCB)
+
+	syncer := &metadataSyncInformer{
+		supervisorClient: supervisorClient,
+		pvcLister:        pvcLister,
+	}
+
+	origK8s := k8sNewClient
+	defer func() { k8sNewClient = origK8s }()
+	k8sNewClient = func(ctx context.Context) (clientset.Interface, error) { return guestClient, nil }
+
+	origGetPVs := getPVsInBoundAvailableOrReleased
+	defer func() { getPVsInBoundAvailableOrReleased = origGetPVs }()
+	getPVsInBoundAvailableOrReleased = func(_ context.Context, _ *metadataSyncInformer) ([]*v1.PersistentVolume, error) {
+		return []*v1.PersistentVolume{pvA, pvB}, nil
+	}
+
+	require.NoError(t, syncGuestPvcCBTLabel(ctx, syncer, svNS))
+
+	// Two eligible PVs must still produce exactly one supervisor API call (List),
+	// not two individual Gets.  This is the core invariant of the optimization.
+	assertSingleSupervisorListCall(t, supervisorClient)
+
+	gotA, err := guestClient.CoreV1().PersistentVolumeClaims("guest-ns").Get(ctx, "guest-pvc-a", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, isCBTActiveLabelVal, gotA.Labels[isCBTActiveLabel],
+		"guest-pvc-a should have cbt-active label added")
+
+	gotB, err := guestClient.CoreV1().PersistentVolumeClaims("guest-ns").Get(ctx, "guest-pvc-b", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, gotB.Labels[isCBTActiveLabel],
+		"guest-pvc-b should have cbt-active label removed")
 }
 
 // TestIsReadyVolumeSnapshotContent_NilReadyToUse tests VSC with nil ReadyToUse
