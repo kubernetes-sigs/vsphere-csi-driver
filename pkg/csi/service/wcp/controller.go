@@ -51,6 +51,8 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
+	csivolumeinfosvc "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	fvsapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/filevolume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -118,6 +120,13 @@ var (
 	// vsan-file-service-policy-latebinding storage classes; legacy non-FVS paths do not use this
 	// value. Empty when the per-namespace capability is on (in which case the value is unused).
 	cachedGlobalNetworkProvider string
+	// isVMOwnedVolumesFSSEnabled is true when the VMOwnedVolumes WCP capability is enabled.
+	// When true, a CsiVolumeInfo CR is created at provisioning time and the VM-owned
+	// attach/detach path is used for greenfield VMs.
+	isVMOwnedVolumesFSSEnabled bool
+	// csiVolumeInfoService is the service used to create and manage CsiVolumeInfo CRs.
+	// Initialised once in Init when isVMOwnedVolumesFSSEnabled is true.
+	csiVolumeInfoService csivolumeinfosvc.CsiVolumeInfoService
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -428,6 +437,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			return logger.LogNewErrorf(log, "error initializing volumeInfoService. Error: %+v", err)
 		}
 		log.Infof("Successfully initialized VolumeInfoService")
+	}
+	isVMOwnedVolumesFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes)
+	if isVMOwnedVolumesFSSEnabled {
+		log.Info("VMOwnedVolumes capability enabled; initializing CsiVolumeInfo service")
+		csiVolumeInfoService, err = csivolumeinfosvc.InitCsiVolumeInfoService(ctx)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to initialize CsiVolumeInfo service. Error: %+v", err)
+		}
+		log.Infof("Successfully initialized CsiVolumeInfo service")
 	}
 
 	cfgDirPath := filepath.Dir(cfgPath)
@@ -1259,6 +1277,48 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to create CnsVolumeInfo CR for volumeID %q due to missing pvc namespace "+
 					"in the CreateVolume request parameters", volumeInfo.VolumeID.Id)
+		}
+	}
+
+	if isVMOwnedVolumesFSSEnabled {
+		pvName := req.Name
+		cviPVCName := pvcName
+		cviPVCNamespace := pvcNamespace
+		if cviPVCName == "" {
+			if v, ok := req.Parameters[common.AttributePvcName]; ok {
+				cviPVCName = v
+			}
+		}
+		if cviPVCNamespace == "" {
+			if v, ok := req.Parameters[common.AttributePvcNamespace]; ok {
+				cviPVCNamespace = v
+			}
+		}
+		if cviPVCName == "" || cviPVCNamespace == "" || pvName == "" {
+			log.Warnf("skipping CsiVolumeInfo creation for volumeID %q: missing pvcName=%q "+
+				"pvcNamespace=%q pvName=%q", volumeInfo.VolumeID.Id, cviPVCName, cviPVCNamespace, pvName)
+		} else {
+			cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      csivolumeinfosvc.GetCsiVolumeInfoCRName(volumeInfo.VolumeID.Id),
+					Namespace: csivolumeinfov1alpha1.CVINamespace,
+				},
+				Spec: csivolumeinfov1alpha1.CsiVolumeInfoSpec{
+					VolumeID:     volumeInfo.VolumeID.Id,
+					PVCName:      cviPVCName,
+					PVCNamespace: cviPVCNamespace,
+					PVName:       pvName,
+				},
+			}
+			if createErr := csiVolumeInfoService.CreateCsiVolumeInfo(ctx, cvi); createErr != nil {
+				// Log but do not fail provisioning; the CsiVolumeInfo reconciler will
+				// repair missing CRs on the next full-sync cycle.
+				log.Warnf("failed to create CsiVolumeInfo for volumeID %q: %v; "+
+					"the syncer will repair on the next full-sync", volumeInfo.VolumeID.Id, createErr)
+			} else {
+				log.Infof("created CsiVolumeInfo CR %q for volumeID %q pvName %q",
+					cvi.Name, volumeInfo.VolumeID.Id, pvName)
+			}
 		}
 	}
 
