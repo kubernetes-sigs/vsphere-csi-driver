@@ -2065,6 +2065,19 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, faultType, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to delete volume: %q. Error: %+v", req.VolumeId, err)
 		}
+
+		// After the FCD is deleted, remove the CsiVolumeInfo CR so it does not
+		// become an orphan. GC via PV ownerReference handles the normal path;
+		// this explicit delete covers the permanent-removal case where the PV
+		// is gone before GC runs. NotFound is treated as success (idempotent).
+		if isVMOwnedVolumesFSSEnabled && csiVolumeInfoService != nil {
+			if delErr := csiVolumeInfoService.DeleteCsiVolumeInfo(ctx, req.VolumeId); delErr != nil {
+				log.Warnf("DeleteVolume: failed to delete CsiVolumeInfo for volume %q: %v; "+
+					"GC cascade will clean it up on PV deletion", req.VolumeId, delErr)
+			} else {
+				log.Infof("DeleteVolume: deleted CsiVolumeInfo for volume %q", req.VolumeId)
+			}
+		}
 		return &csi.DeleteVolumeResponse{}, "", nil
 	}
 	resp, faultType, err := deleteVolumeInternal()
