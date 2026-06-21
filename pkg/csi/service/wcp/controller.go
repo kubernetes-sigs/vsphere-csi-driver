@@ -2752,6 +2752,17 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		}
 		volumeID := req.GetSourceVolumeId()
 		volumeType = prometheus.PrometheusBlockVolumeType
+
+		// Reject snapshot creation when the volume is owned by a VM. Snapshots
+		// of VM-managed disks are not supported through CSI; vm-operator owns
+		// that path.
+		if isVMOwnedVolumesFSSEnabled && csiVolumeInfoService != nil {
+			if blockErr := rejectSnapshotIfVMManaged(ctx, csiVolumeInfoService, volumeID); blockErr != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+					"snapshot creation rejected for volume %q: %v", volumeID, blockErr)
+			}
+		}
+
 		// Query capacity in MB for block volume snapshot
 		volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
 		cnsVolumeDetailsMap, err := utils.QueryVolumeDetailsUtil(ctx, c.manager.VolumeManager, volumeIds)
@@ -3321,6 +3332,25 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 			}
 		}
 	}
+}
+
+// rejectSnapshotIfVMManaged returns an error when the CsiVolumeInfo for the
+// given volumeID shows that the volume is currently VM-managed. This prevents
+// snapshot creation on a disk that is no longer an FCD.
+// Returns nil when the CVI is absent or in any non-VMManaged state.
+func rejectSnapshotIfVMManaged(ctx context.Context,
+	cviSvc csivolumeinfosvc.CsiVolumeInfoService, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	cvi, err := cviSvc.GetCsiVolumeInfo(ctx, volumeID)
+	if err != nil {
+		log.Warnf("rejectSnapshotIfVMManaged: failed to get CsiVolumeInfo for volume %q: %v; "+
+			"allowing snapshot (fail-open)", volumeID, err)
+		return nil
+	}
+	if cvi == nil || cvi.Status.Ownership != csivolumeinfov1alpha1.OwnershipStateVMManaged {
+		return nil
+	}
+	return fmt.Errorf("volume %q is currently owned by a VM; snapshot creation is not allowed", volumeID)
 }
 
 func (c *controller) UpdateCNSVolumeInfo(ctx context.Context, patch map[string]interface{}, volumeID string) error {
