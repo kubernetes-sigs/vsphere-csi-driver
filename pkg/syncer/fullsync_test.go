@@ -985,7 +985,7 @@ func (m *mockVolumeManagerForFullSync) UnregisterVolumeEx(
 
 func (m *mockVolumeManagerForFullSync) QueryPendingUnregisters(
 	ctx context.Context,
-) ([]cnstypes.CnsUnregisterVolumeResult, error) {
+) ([]volumes.PendingUnregisterRecord, error) {
 	return nil, nil
 }
 

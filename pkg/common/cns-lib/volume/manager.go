@@ -79,6 +79,14 @@ const (
 	MbInBytes = int64(1024 * 1024)
 )
 
+// PendingUnregisterRecord holds data for a volume in PENDING_UNREGISTER state.
+// Each record represents an unregister started but not yet acknowledged.
+type PendingUnregisterRecord struct {
+	VolumeID        string
+	BackingDiskPath string
+	DiskUUID        string
+}
+
 // Manager provides functionality to manage volumes.
 type Manager interface {
 	// CreateVolume creates a new volume given its spec.
@@ -188,7 +196,7 @@ type Manager interface {
 	// QueryPendingUnregisters returns all volumes that are in the PENDING_UNREGISTER
 	// state in CNS. Used on controller restart to recover any volumes whose AckUnregister
 	// was never delivered.
-	QueryPendingUnregisters(ctx context.Context) ([]cnstypes.CnsUnregisterVolumeResult, error)
+	QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error)
 	// AckUnregister completes phase-2 of the two-phase CNS unregister protocol by
 	// deleting the PENDING_UNREGISTER record from the CNS database. The call is idempotent.
 	AckUnregister(ctx context.Context, volumeID string) error
@@ -4571,7 +4579,7 @@ func (m *defaultManager) UnregisterVolumeEx(ctx context.Context, volumeID string
 
 // QueryPendingUnregisters returns all volumes in PENDING_UNREGISTER state from CNS.
 // Used on controller restart to recover volumes whose AckUnregister was never delivered.
-func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]cnstypes.CnsUnregisterVolumeResult, error) {
+func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
 	log := logger.GetLogger(ctx)
 	log.Infof("QueryPendingUnregisters: entry")
 
@@ -4589,8 +4597,16 @@ func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]cnstype
 		return nil, fmt.Errorf("CnsQueryPendingUnregisters failed: %w", err)
 	}
 
-	log.Infof("QueryPendingUnregisters: exit count=%d", len(results))
-	return results, nil
+	records := make([]PendingUnregisterRecord, 0, len(results))
+	for _, r := range results {
+		records = append(records, PendingUnregisterRecord{
+			VolumeID:        r.VolumeId.Id,
+			BackingDiskPath: r.BackingDiskPath,
+			DiskUUID:        r.DiskUUID,
+		})
+	}
+	log.Infof("QueryPendingUnregisters: exit count=%d", len(records))
+	return records, nil
 }
 
 // AckUnregister completes phase-2 of the two-phase CNS unregister protocol by

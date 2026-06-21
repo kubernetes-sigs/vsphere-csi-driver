@@ -257,7 +257,7 @@ func (m *MockVolumeManager) UnregisterVolumeEx(ctx context.Context, volumeID str
 }
 
 // QueryPendingUnregisters is a stub implementation returning an empty list.
-func (m *MockVolumeManager) QueryPendingUnregisters(ctx context.Context) ([]cnstypes.CnsUnregisterVolumeResult, error) {
+func (m *MockVolumeManager) QueryPendingUnregisters(ctx context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
 	return nil, nil
 }
 

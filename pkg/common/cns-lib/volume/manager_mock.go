@@ -246,7 +246,7 @@ func (m MockManager) UnregisterVolumeEx(ctx context.Context, volumeID string) (s
 }
 
 // QueryPendingUnregisters is the mock implementation that returns an empty list on success.
-func (m MockManager) QueryPendingUnregisters(ctx context.Context) ([]cnstypes.CnsUnregisterVolumeResult, error) {
+func (m MockManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
 	if m.failRequest {
 		return nil, m.err
 	}
