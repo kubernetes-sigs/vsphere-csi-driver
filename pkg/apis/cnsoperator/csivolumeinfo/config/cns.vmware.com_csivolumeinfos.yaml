@@ -24,9 +24,6 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
-    - jsonPath: .spec.vms
-      name: VMs
-      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -64,9 +61,6 @@ spec:
                 type: string
               pvcNamespace:
                 description: PVCNamespace is the namespace of the bound PVC.
-                type: string
-              vmName:
-                description: Deprecated - use vms instead.
                 type: string
               volumeID:
                 description: VolumeID is the CNS volume ID / PV volumeHandle. Immutable

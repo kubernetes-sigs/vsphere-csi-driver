@@ -145,7 +145,6 @@ type CsiVolumeInfoStatus struct {
 // +kubebuilder:resource:shortName=cvi,scope=Namespaced
 // +kubebuilder:printcolumn:name="Ownership",type=string,JSONPath=`.status.ownership`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="VMs",type=integer,JSONPath=`.spec.vms`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // CsiVolumeInfo tracks the ownership lifecycle of a CSI volume for the VM-owned

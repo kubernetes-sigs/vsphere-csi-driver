@@ -24,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	csivolumeinfosvc "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func newCVIScheme() *runtime.Scheme {
@@ -48,7 +48,8 @@ func cviSvcWith(cvis ...*csivolumeinfov1alpha1.CsiVolumeInfo) csivolumeinfosvc.C
 	return csivolumeinfosvc.NewCsiVolumeInfoService(c)
 }
 
-func buildTestCVI(volumeID string, ownership csivolumeinfov1alpha1.OwnershipState) *csivolumeinfov1alpha1.CsiVolumeInfo {
+func buildTestCVI(volumeID string,
+	ownership csivolumeinfov1alpha1.OwnershipState) *csivolumeinfov1alpha1.CsiVolumeInfo {
 	cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      csivolumeinfov1alpha1.CVINamePrefix + volumeID,

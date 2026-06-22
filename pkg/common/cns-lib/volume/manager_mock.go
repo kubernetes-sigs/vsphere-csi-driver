@@ -261,3 +261,8 @@ func (m MockManager) AckUnregister(ctx context.Context, volumeID string) error {
 	}
 	return nil
 }
+
+// GetDiskFolderURL is the mock implementation; always returns an empty string.
+func (m MockManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}

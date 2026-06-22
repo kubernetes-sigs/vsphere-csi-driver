@@ -21,9 +21,9 @@ import (
 	"errors"
 	"testing"
 
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 )
 
 // TestMockManagerImplementsInterface verifies that MockManager satisfies the

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 
-	_ "crypto/tls/fipsonly"
+	//_ "crypto/tls/fipsonly"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -221,6 +221,13 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 			}
 		}
 	} else if req.Kind.Kind == "VolumeSnapshot" {
+		if featureGateVMOwnedVolumesEnabled {
+			admissionResp := validateSnapshotCreateForVMOwnedVolumes(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+			if !resp.Allowed {
+				return
+			}
+		}
 		if featureIsLinkedCloneSupportEnabled {
 			admissionResp := validateSnapshotOperationSupervisorRequest(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()

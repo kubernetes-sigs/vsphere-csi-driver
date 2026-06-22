@@ -34,13 +34,12 @@ readonly SYNCER_IMAGE_CI=${BASE_IMAGE_REPO}/syncer
 
 PUSH=
 LATEST=
+# These can be set via env vars, -i/-s/-v flags, or left empty for defaults.
+CUSTOM_CSI_IMAGE_NAME="${CSI_IMAGE_NAME:-}"
+CUSTOM_SYNCER_IMAGE_NAME="${SYNCER_IMAGE_NAME:-}"
 CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
-if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
-  VERSION="$(git log -1 --format=%h)"
-else
-  VERSION="$(git describe --always 2>/dev/null)"
-fi
+VERSION="${VERSION:-}"
 GIT_COMMIT="$(git log -1 --format=%H)"
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
@@ -75,15 +74,21 @@ usage: ${0} [FLAGS]
   Honored environment variables:
   GCR_KEY_FILE
   GOPROXY
+  VERSION         image tag to use (overridden by -v flag)
+  CSI_IMAGE_NAME  CSI driver image name (overridden by -i flag)
+  SYNCER_IMAGE_NAME  syncer image name (overridden by -s flag)
 
 FLAGS
   -h    show this help and exit
+  -i    CSI driver image name (e.g. myrepo/driver); overrides CSI_IMAGE_NAME env var
   -k    path to GCR key file. Used to login to registry if specified
         (defaults to: ${GCR_KEY_FILE})
   -l    tag the images as \"latest\" in addition to their version
         when used with -p, both tags will be pushed
   -p    push the images to the public container registry
   -r    push the image to custom registry, specify the registry to be used
+  -s    syncer image name (e.g. myrepo/syncer); overrides SYNCER_IMAGE_NAME env var
+  -v    image tag/version to use (e.g. mytestv1); overrides VERSION env var and git
 "
 
 
@@ -130,7 +135,12 @@ function build_driver_images_windows() {
 function build_driver_images_linux() {
   echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux"
   docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
-  tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+  # If a custom image name was provided, use it as-is; otherwise append -linux-${ARCH}
+  if [ -n "${CUSTOM_CSI_IMAGE_NAME}" ]; then
+    tag="${CSI_IMAGE_NAME}:${VERSION}"
+  else
+    tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
+  fi
   docker buildx build \
    --platform "linux/$ARCH" \
    --output "${LINUX_IMAGE_OUTPUT}" \
@@ -164,8 +174,8 @@ function build_syncer_image_linux() {
 }
 
 function build_images() {
-  CSI_IMAGE_NAME=${CSI_IMAGE_CI}
-  SYNCER_IMAGE_NAME=${SYNCER_IMAGE_CI}
+  CSI_IMAGE_NAME="${CUSTOM_CSI_IMAGE_NAME:-${CSI_IMAGE_CI}}"
+  SYNCER_IMAGE_NAME="${CUSTOM_SYNCER_IMAGE_NAME:-${SYNCER_IMAGE_CI}}"
   LATEST="latest"
 
   # build images for linux platform
@@ -258,10 +268,13 @@ function push_syncer_images() {
 }
 
 # Start of main script
-while getopts ":hk:lpr:" opt; do
+while getopts ":hi:k:lpr:s:v:" opt; do
   case ${opt} in
     h)
       error "${USAGE}" && exit 1
+      ;;
+    i)
+      CUSTOM_CSI_IMAGE_NAME="${OPTARG}"
       ;;
     k)
       GCR_KEY_FILE="${OPTARG}"
@@ -275,6 +288,12 @@ while getopts ":hk:lpr:" opt; do
     r)
       REGISTRY="${OPTARG}"
       ;;
+    s)
+      CUSTOM_SYNCER_IMAGE_NAME="${OPTARG}"
+      ;;
+    v)
+      VERSION="${OPTARG}"
+      ;;
     \?)
       error "invalid option: -${OPTARG} ${USAGE}" && exit 1
       ;;
@@ -283,6 +302,15 @@ while getopts ":hk:lpr:" opt; do
       ;;
   esac
 done
+
+# Resolve VERSION: -v flag or env var wins; fall back to git.
+if [ -z "${VERSION}" ]; then
+  if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
+    VERSION="$(git log -1 --format=%h)"
+  else
+    VERSION="$(git describe --always 2>/dev/null)"
+  fi
+fi
 shift $((OPTIND-1))
 
 # Verify the GCR_KEY_FILE exists if defined
@@ -290,15 +318,17 @@ if [ "${GCR_KEY_FILE}" ]; then
   [ -e "${GCR_KEY_FILE}" ] || fatal "key file ${GCR_KEY_FILE} does not exist"
 fi
 
-# Validate build/release type.
-case "${BUILD_RELEASE_TYPE}" in
-  ci|pr|release)
-    # do nothing
-    ;;
-  *)
-    fatal "invalid BUILD_RELEASE_TYPE: ${BUILD_RELEASE_TYPE}"
-    ;;
-esac
+# Validate build/release type when set.
+if [ -n "${BUILD_RELEASE_TYPE}" ]; then
+  case "${BUILD_RELEASE_TYPE}" in
+    ci|pr|release)
+      # do nothing
+      ;;
+    *)
+      fatal "invalid BUILD_RELEASE_TYPE: ${BUILD_RELEASE_TYPE}"
+      ;;
+  esac
+fi
 
 mkdir -p .build
 

@@ -116,7 +116,9 @@ func ReconcileCsiVolumeInfoOnPVBind(
 
 	log.Infof("ReconcileCsiVolumeInfoOnPVBind: patching CsiVolumeInfo for volumeID=%q pv=%q pvcName=%q pvcNamespace=%q",
 		volumeID, newPV.Name, desiredPVCName, desiredPVCNamespace)
-	if err := svc.PatchCsiVolumeInfo(ctx, volumeID, patchBytes); err != nil {
+	// The returned generation is not needed here; this reconcile only refreshes
+	// PVC/PV identity fields and does not write status.
+	if _, err := svc.PatchCsiVolumeInfo(ctx, volumeID, patchBytes); err != nil {
 		log.Errorf("ReconcileCsiVolumeInfoOnPVBind: failed to patch CsiVolumeInfo for volumeID=%q pv=%q: %v",
 			volumeID, newPV.Name, err)
 		return err

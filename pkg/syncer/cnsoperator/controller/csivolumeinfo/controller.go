@@ -44,8 +44,8 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commonconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
@@ -59,6 +59,7 @@ const (
 	reasonUnregisterSucceeded = "UnregisterSucceeded"
 	reasonRegisterSucceeded   = "RegisterSucceeded"
 	reasonReconcileFailed     = "ReconcileFailed"
+	reasonInitialCSIManaged   = "InitialCSIManaged"
 )
 
 var (
@@ -139,6 +140,9 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	}
 	if err := r.client.Get(ctx, nn, cvi); err != nil {
 		if apierrors.IsNotFound(err) {
+			// The CVI is gone; drop its backoff entry so the map does not retain
+			// state for deleted volumes.
+			deleteBackoffEntry(ctx, nn)
 			log.Infof("Reconcile: CsiVolumeInfo %s not found; must be deleted — no action", req.Name)
 			return reconcile.Result{}, nil
 		}
@@ -148,6 +152,14 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 
 	backoff := getBackoffDuration(ctx, nn)
 	log.Infof("Reconcile: current backoff duration %s", backoff)
+
+	// Ensure the PV ownerRef is present. This is idempotent and repairs CVIs
+	// created before this logic existed (existing CVIs are reconciled on startup
+	// via synthetic Create events from the informer cache sync).
+	if err := r.ensurePVOwnerRef(ctx, cvi); err != nil {
+		log.Errorf("Reconcile: failed to ensure PV ownerRef for %s: %v", req.Name, err)
+		return reconcile.Result{}, err
+	}
 
 	vmCount := len(cvi.Spec.VMs)
 	ownership := cvi.Status.Ownership
@@ -176,6 +188,19 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: backoff}, nil
 		}
 		updateBackoffEntry(ctx, nn, time.Second)
+
+	case vmCount == 0 && ownership == "":
+		// Initial state: CR just created, no VMs attached yet. Write the initial
+		// CSIManaged status so vm-operator's observedGeneration wait condition is satisfied.
+		log.Infof("Reconcile: initial state — writing CSIManaged status for %s", req.Name)
+		patch := buildStatusPatch(cvi.Generation,
+			csivolumeinfov1alpha1.OwnershipStateCSIManaged,
+			csivolumeinfov1alpha1.PhaseSucceeded,
+			"", reasonInitialCSIManaged, true)
+		if err := r.cviSvc.PatchCsiVolumeInfoStatus(ctx, cvi.Spec.VolumeID, patch); err != nil {
+			log.Errorf("Reconcile: failed to set initial CSIManaged status: %v", err)
+			return reconcile.Result{}, err
+		}
 
 	default:
 		log.Infof("Reconcile: idle — vmCount=%d, ownership=%q; no action", vmCount, ownership)
@@ -218,14 +243,22 @@ func (r *Reconciler) reconcileUnregister(ctx context.Context,
 		return fmt.Errorf("reconcileUnregister: failed to marshal spec patch for %q: %w",
 			cvi.Spec.VolumeID, err)
 	}
-	if err := r.cviSvc.PatchCsiVolumeInfo(ctx, cvi.Spec.VolumeID, specPatch); err != nil {
+	// The spec patch increments metadata.generation, so capture the post-patch
+	// generation. observedGeneration must reflect this latest generation;
+	// otherwise vm-operator's green-signal check (observedGeneration >= generation)
+	// would never be satisfied, because the controller's own spec write advanced
+	// generation beyond the value observed at reconcile entry.
+	patchedGen, err := r.cviSvc.PatchCsiVolumeInfo(ctx, cvi.Spec.VolumeID, specPatch)
+	if err != nil {
 		return fmt.Errorf("reconcileUnregister: failed to patch spec for %q: %w",
 			cvi.Spec.VolumeID, err)
 	}
-	log.Infof("reconcileUnregister: patched spec.diskPath and spec.diskUUID for volume %q",
-		cvi.Spec.VolumeID)
+	log.Infof("reconcileUnregister: patched spec.diskPath and spec.diskUUID for volume %q (generation=%d)",
+		cvi.Spec.VolumeID, patchedGen)
 
 	// Add the volume-protection finalizer before status transition so GC is blocked.
+	// Finalizer changes are metadata-only and do not advance generation, so
+	// patchedGen remains the generation to record in status.
 	if err := r.cviSvc.AddVolumeProtectionFinalizer(ctx, cvi.Spec.VolumeID); err != nil {
 		return fmt.Errorf("reconcileUnregister: failed to add protection finalizer for %q: %w",
 			cvi.Spec.VolumeID, err)
@@ -233,7 +266,7 @@ func (r *Reconciler) reconcileUnregister(ctx context.Context,
 	log.Infof("reconcileUnregister: volume-protection finalizer added for volume %q", cvi.Spec.VolumeID)
 
 	// Write status: ownership=VMManaged, phase=Succeeded.
-	statusPatch := buildStatusPatch(cvi.Generation,
+	statusPatch := buildStatusPatch(patchedGen,
 		csivolumeinfov1alpha1.OwnershipStateVMManaged,
 		csivolumeinfov1alpha1.PhaseSucceeded, "", reasonUnregisterSucceeded, true)
 	if err := r.cviSvc.PatchCsiVolumeInfoStatus(ctx, cvi.Spec.VolumeID, statusPatch); err != nil {
@@ -322,9 +355,23 @@ func (r *Reconciler) reconcileRegister(ctx context.Context,
 	// Resolve the SPBM profile ID.
 	storagePolicyID := resolveStoragePolicyID(ctx, r.client, pv)
 
+	// Convert the datastore path captured during unregister to the HTTP folder
+	// URL that CNS's RegisterVMDKWithUrlAction requires. BackingDiskId cannot be
+	// used here because the FCD entry no longer exists after UnregisterVolumeEx.
+	diskFolderURL, err := r.volumeManager.GetDiskFolderURL(ctx, cvi.Spec.DiskPath)
+	if err != nil {
+		return fmt.Errorf("reconcileRegister: failed to resolve disk folder URL for %q: %w",
+			cvi.Spec.DiskPath, err)
+	}
+
+	// Preserve the original FCD ID by setting VolumeId on the top-level spec.
+	// When FCD_TRANSACTION_SUPPORT is enabled (vSphere 9.2+) CNS passes this to
+	// FcdSvc()->RegisterDisk so the re-registered FCD retains the same UUID.
+	origVolumeID := cnstypes.CnsVolumeId{Id: cvi.Spec.VolumeID}
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       pv.Name,
 		VolumeType: string(cnstypes.CnsVolumeTypeBlock),
+		VolumeId:   &origVolumeID,
 		Profile:    buildStorageProfileSpec(storagePolicyID),
 		Metadata: cnstypes.CnsVolumeMetadata{
 			ContainerCluster:      containerCluster,
@@ -332,14 +379,19 @@ func (r *Reconciler) reconcileRegister(ctx context.Context,
 			EntityMetadata:        []cnstypes.BaseCnsEntityMetadata{pvcMeta, pvMeta},
 		},
 		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
-			BackingDiskId: cvi.Spec.VolumeID,
+			BackingDiskUrlPath: diskFolderURL,
 		},
 	}
 
 	log.Infof("reconcileRegister: calling CreateVolume for volume %q", cvi.Spec.VolumeID)
 	_, faultType, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
 	if err != nil {
-		if volumes.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+		// An already-registered backing disk means the volume is back under CSI
+		// management, which is the desired end state — treat it as success. CNS
+		// reports this as either CnsAlreadyRegisteredFault (re-register) or
+		// CnsVolumeAlreadyExistsFault.
+		if volumes.IsCnsAlreadyRegisteredFault(ctx, faultType) ||
+			volumes.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
 			log.Infof("reconcileRegister: volume %q already registered as FCD — treating as success",
 				cvi.Spec.VolumeID)
 		} else {
@@ -369,6 +421,67 @@ func (r *Reconciler) reconcileRegister(ctx context.Context,
 	return nil
 }
 
+// ensurePVOwnerRef sets a PersistentVolume ownerReference on the CsiVolumeInfo
+// if one is not already present. This enables Kubernetes GC to cascade-delete
+// the CVI when the PV is deleted (CSIManaged path) and blockOwnerDeletion to
+// prevent PV deletion while the volume-protection finalizer is present (VMManaged path).
+//
+// If the PV does not exist yet (race between CreateVolume and PV creation by the CO),
+// the error is returned so controller-runtime requeues the reconcile.
+func (r *Reconciler) ensurePVOwnerRef(ctx context.Context,
+	cvi *csivolumeinfov1alpha1.CsiVolumeInfo) error {
+	log := logger.GetLogger(ctx).With("volumeID", cvi.Spec.VolumeID)
+
+	if cvi.Spec.PVName == "" {
+		log.Debugf("ensurePVOwnerRef: spec.pvName empty, skipping")
+		return nil
+	}
+
+	// Already set — nothing to do.
+	for _, ref := range cvi.OwnerReferences {
+		if ref.Kind == "PersistentVolume" && ref.Name == cvi.Spec.PVName {
+			return nil
+		}
+	}
+
+	pv := &corev1.PersistentVolume{}
+	if err := r.client.Get(ctx, k8stypes.NamespacedName{Name: cvi.Spec.PVName}, pv); err != nil {
+		if apierrors.IsNotFound(err) {
+			// PV not yet created by the CO; requeue so we retry once it exists.
+			return fmt.Errorf("ensurePVOwnerRef: PV %q not found yet for CVI %q, will retry",
+				cvi.Spec.PVName, cvi.Name)
+		}
+		return fmt.Errorf("ensurePVOwnerRef: failed to get PV %q: %w", cvi.Spec.PVName, err)
+	}
+
+	blockOwnerDeletion := true
+	ownerRef := metav1.OwnerReference{
+		APIVersion:         "v1",
+		Kind:               "PersistentVolume",
+		Name:               pv.Name,
+		UID:                pv.UID,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+	}
+
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"ownerReferences": []metav1.OwnerReference{ownerRef},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("ensurePVOwnerRef: failed to marshal patch: %w", err)
+	}
+
+	if err := r.client.Patch(ctx, cvi, client.RawPatch(k8stypes.MergePatchType, patchBytes)); err != nil {
+		return fmt.Errorf("ensurePVOwnerRef: failed to patch CVI %q: %w", cvi.Name, err)
+	}
+
+	log.Infof("ensurePVOwnerRef: set PV ownerRef (pv=%q uid=%q) on CVI %q",
+		pv.Name, pv.UID, cvi.Name)
+	return nil
+}
+
 // setFailedStatus patches status.phase=Failed with an error message and
 // sets the Ready condition to False. observedGeneration is also updated.
 func (r *Reconciler) setFailedStatus(ctx context.Context,
@@ -394,6 +507,7 @@ func buildStatusPatch(generation int64, ownership csivolumeinfov1alpha1.Ownershi
 		"type":               conditionTypeReady,
 		"status":             string(condStatus),
 		"reason":             condReason,
+		"message":            errMsg,
 		"lastTransitionTime": metav1.Now().UTC().Format(time.RFC3339),
 	}
 	statusMap := map[string]interface{}{

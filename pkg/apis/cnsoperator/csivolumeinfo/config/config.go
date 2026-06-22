@@ -19,8 +19,9 @@ package config
 
 import "embed"
 
-//go:embed cns.vmware.com_csivolumeinfos.yaml
 // EmbedCsiVolumeInfoCRFile embeds the CsiVolumeInfo CRD YAML.
+//
+//go:embed cns.vmware.com_csivolumeinfos.yaml
 var EmbedCsiVolumeInfoCRFile embed.FS
 
 // EmbedCsiVolumeInfoCRFileName is the filename of the embedded CsiVolumeInfo CRD.

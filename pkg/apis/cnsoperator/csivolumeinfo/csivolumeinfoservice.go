@@ -61,7 +61,13 @@ type CsiVolumeInfoService interface {
 	// PatchCsiVolumeInfo applies a JSON merge-patch to the spec and metadata
 	// (not status) of the CsiVolumeInfo identified by volumeID.
 	// Retries up to allowedRetries times on conflict.
-	PatchCsiVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) error
+	//
+	// It returns the metadata.generation of the object after the patch is
+	// applied. Because a spec change increments generation, callers that need
+	// to record observedGeneration must use this returned value (not the
+	// pre-patch generation) so that observedGeneration reflects the spec the
+	// controller actually acted on.
+	PatchCsiVolumeInfo(ctx context.Context, volumeID string, patchBytes []byte) (int64, error)
 
 	// PatchCsiVolumeInfoStatus applies a JSON merge-patch to the status
 	// subresource of the CsiVolumeInfo identified by volumeID.
@@ -197,9 +203,14 @@ func (s *csiVolumeInfoSvc) UpdateCsiVolumeInfoStatus(
 }
 
 // PatchCsiVolumeInfo applies a JSON merge-patch to the CsiVolumeInfo for the
-// given volumeID. Retries on conflict up to allowedRetries times.
+// given volumeID. Only conflicts are retried (up to allowedRetries times); any
+// other error is returned immediately because retrying it would not help.
+//
+// The returned int64 is the object's metadata.generation after the patch. The
+// API server populates the response object on a successful patch, so this value
+// reflects any generation increment caused by the spec change.
 func (s *csiVolumeInfoSvc) PatchCsiVolumeInfo(
-	ctx context.Context, volumeID string, patchBytes []byte) error {
+	ctx context.Context, volumeID string, patchBytes []byte) (int64, error) {
 	log := logger.GetLogger(ctx)
 	name := GetCsiVolumeInfoCRName(volumeID)
 
@@ -215,17 +226,22 @@ func (s *csiVolumeInfoSvc) PatchCsiVolumeInfo(
 		err := s.k8sClient.Patch(ctx, cvi,
 			client.RawPatch(k8stypes.MergePatchType, patchBytes))
 		if err == nil {
-			log.Infof("attempt %d: successfully patched CsiVolumeInfo %s/%s",
-				attempt, csivolumeinfov1alpha1.CVINamespace, name)
-			return nil
+			log.Infof("attempt %d: successfully patched CsiVolumeInfo %s/%s (generation=%d)",
+				attempt, csivolumeinfov1alpha1.CVINamespace, name, cvi.Generation)
+			return cvi.Generation, nil
 		}
 		lastErr = err
-		log.Warnf("attempt %d: failed to patch CsiVolumeInfo %s/%s: %v",
+		if !apierrors.IsConflict(err) {
+			return 0, logger.LogNewErrorf(log,
+				"failed to patch CsiVolumeInfo %s/%s: %v",
+				csivolumeinfov1alpha1.CVINamespace, name, err)
+		}
+		log.Warnf("attempt %d: conflict patching CsiVolumeInfo %s/%s: %v",
 			attempt, csivolumeinfov1alpha1.CVINamespace, name, err)
 		time.Sleep(100 * time.Millisecond)
 	}
-	return logger.LogNewErrorf(log,
-		"failed to patch CsiVolumeInfo %s/%s after %d retries: %v",
+	return 0, logger.LogNewErrorf(log,
+		"failed to patch CsiVolumeInfo %s/%s after %d conflict retries: %v",
 		csivolumeinfov1alpha1.CVINamespace, name, allowedRetries, lastErr)
 }
 
@@ -254,12 +270,17 @@ func (s *csiVolumeInfoSvc) PatchCsiVolumeInfoStatus(
 			return nil
 		}
 		lastErr = err
-		log.Warnf("attempt %d: failed to patch status of CsiVolumeInfo %s/%s: %v",
+		if !apierrors.IsConflict(err) {
+			return logger.LogNewErrorf(log,
+				"failed to patch status of CsiVolumeInfo %s/%s: %v",
+				csivolumeinfov1alpha1.CVINamespace, name, err)
+		}
+		log.Warnf("attempt %d: conflict patching status of CsiVolumeInfo %s/%s: %v",
 			attempt, csivolumeinfov1alpha1.CVINamespace, name, err)
 		time.Sleep(100 * time.Millisecond)
 	}
 	return logger.LogNewErrorf(log,
-		"failed to patch status of CsiVolumeInfo %s/%s after %d retries: %v",
+		"failed to patch status of CsiVolumeInfo %s/%s after %d conflict retries: %v",
 		csivolumeinfov1alpha1.CVINamespace, name, allowedRetries, lastErr)
 }
 

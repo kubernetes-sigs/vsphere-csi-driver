@@ -993,6 +993,10 @@ func (m *mockVolumeManagerForFullSync) AckUnregister(ctx context.Context, volume
 	return nil
 }
 
+func (m *mockVolumeManagerForFullSync) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
+
 // TestCNSQueryBatching tests CNS query batching logic
 func TestCNSQueryBatching_VaryingBatchSizes(t *testing.T) {
 	if testing.Short() {

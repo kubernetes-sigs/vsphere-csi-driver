@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package csivolumeinfo
+package csivolumeinfo_test
 
 import (
 	"context"
@@ -26,15 +26,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	csivolumeinfo "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-
-	csivolumeinfosvc "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 )
 
-// recoveryVolumeManager wraps testVolumeManager and overrides QueryPendingUnregisters.
+// recoveryVolumeManager embeds the shared mock volume manager and overrides only
+// the two-phase unregister query/ack methods exercised by recovery.
 type recoveryVolumeManager struct {
-	*testVolumeManager
+	*unittestcommon.MockVolumeManager
 	pendingRecords []cnsvolumes.PendingUnregisterRecord
 	queryErr       error
 	ackedIDs       []string
@@ -50,13 +51,18 @@ func (r *recoveryVolumeManager) QueryPendingUnregisters(ctx context.Context) (
 
 func (r *recoveryVolumeManager) AckUnregister(ctx context.Context, volumeID string) error {
 	r.ackedIDs = append(r.ackedIDs, volumeID)
-	if r.testVolumeManager.ackUnregisterFn != nil {
-		return r.testVolumeManager.ackUnregisterFn(ctx, volumeID)
-	}
 	return nil
 }
 
-func newRecoveryCVISvc(t *testing.T, cvis ...*csivolumeinfov1alpha1.CsiVolumeInfo) csivolumeinfosvc.CsiVolumeInfoService {
+func (r *recoveryVolumeManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
+
+func newRecoveryMgr() *recoveryVolumeManager {
+	return &recoveryVolumeManager{MockVolumeManager: &unittestcommon.MockVolumeManager{}}
+}
+
+func newRecoveryCVISvc(t *testing.T, cvis ...*csivolumeinfov1alpha1.CsiVolumeInfo) csivolumeinfo.CsiVolumeInfoService {
 	t.Helper()
 	s := newScheme(t)
 	clientObjs := make([]client.Object, len(cvis))
@@ -68,11 +74,12 @@ func newRecoveryCVISvc(t *testing.T, cvis ...*csivolumeinfov1alpha1.CsiVolumeInf
 		WithObjects(clientObjs...).
 		WithStatusSubresource(&csivolumeinfov1alpha1.CsiVolumeInfo{}).
 		Build()
-	return csivolumeinfosvc.NewCsiVolumeInfoService(fakeClient)
+	return csivolumeinfo.NewCsiVolumeInfoService(fakeClient)
 }
 
 // buildSimpleCVI creates a minimal CsiVolumeInfo with the given volumeID and ownership.
-func buildSimpleCVI(volumeID string, ownership csivolumeinfov1alpha1.OwnershipState) *csivolumeinfov1alpha1.CsiVolumeInfo {
+func buildSimpleCVI(volumeID string,
+	ownership csivolumeinfov1alpha1.OwnershipState) *csivolumeinfov1alpha1.CsiVolumeInfo {
 	cvi := &csivolumeinfov1alpha1.CsiVolumeInfo{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      csivolumeinfov1alpha1.CVINamePrefix + volumeID,
@@ -87,89 +94,78 @@ func buildSimpleCVI(volumeID string, ownership csivolumeinfov1alpha1.OwnershipSt
 }
 
 func TestRecoverPendingUnregisters_NoPendingRecords(t *testing.T) {
-	mgr := &recoveryVolumeManager{testVolumeManager: &testVolumeManager{}}
+	mgr := newRecoveryMgr()
 	svc := newRecoveryCVISvc(t)
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	require.Empty(t, mgr.ackedIDs)
 }
 
 func TestRecoverPendingUnregisters_QueryError(t *testing.T) {
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		queryErr:          errors.New("CNS unavailable"),
-	}
+	mgr := newRecoveryMgr()
+	mgr.queryErr = errors.New("CNS unavailable")
 	svc := newRecoveryCVISvc(t)
-	require.ErrorContains(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc), "QueryPendingUnregisters")
+	require.ErrorContains(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc),
+		"QueryPendingUnregisters")
 }
 
 func TestRecoverPendingUnregisters_OrphanRecord_Acked(t *testing.T) {
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		pendingRecords: []cnsvolumes.PendingUnregisterRecord{
-			{VolumeID: "vol-orphan", BackingDiskPath: "/ds/orphan.vmdk", DiskUUID: "uuid-1"},
-		},
+	mgr := newRecoveryMgr()
+	mgr.pendingRecords = []cnsvolumes.PendingUnregisterRecord{
+		{VolumeID: "vol-orphan", BackingDiskPath: "/ds/orphan.vmdk", DiskUUID: "uuid-1"},
 	}
 	svc := newRecoveryCVISvc(t) // no CVI stored
 
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	require.Equal(t, []string{"vol-orphan"}, mgr.ackedIDs)
 }
 
 func TestRecoverPendingUnregisters_AlreadyVMManaged_DoubleACK(t *testing.T) {
 	cvi := buildSimpleCVI("vol-done", csivolumeinfov1alpha1.OwnershipStateVMManaged)
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		pendingRecords: []cnsvolumes.PendingUnregisterRecord{
-			{VolumeID: "vol-done", BackingDiskPath: "/ds/done.vmdk", DiskUUID: "uuid-done"},
-		},
+	mgr := newRecoveryMgr()
+	mgr.pendingRecords = []cnsvolumes.PendingUnregisterRecord{
+		{VolumeID: "vol-done", BackingDiskPath: "/ds/done.vmdk", DiskUUID: "uuid-done"},
 	}
 	svc := newRecoveryCVISvc(t, cvi)
 
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	// Double-ACK: no spec/status patches needed.
 	require.Equal(t, []string{"vol-done"}, mgr.ackedIDs)
 }
 
 func TestRecoverPendingUnregisters_CSIManaged_PatchesAndACKs(t *testing.T) {
 	cvi := buildSimpleCVI("vol-csi", csivolumeinfov1alpha1.OwnershipStateCSIManaged)
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		pendingRecords: []cnsvolumes.PendingUnregisterRecord{
-			{VolumeID: "vol-csi", BackingDiskPath: "/ds/csi.vmdk", DiskUUID: "uuid-csi"},
-		},
+	mgr := newRecoveryMgr()
+	mgr.pendingRecords = []cnsvolumes.PendingUnregisterRecord{
+		{VolumeID: "vol-csi", BackingDiskPath: "/ds/csi.vmdk", DiskUUID: "uuid-csi"},
 	}
 	svc := newRecoveryCVISvc(t, cvi)
 
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	require.Equal(t, []string{"vol-csi"}, mgr.ackedIDs)
 }
 
 func TestRecoverPendingUnregisters_BlankOwnership_PatchesAndACKs(t *testing.T) {
 	cvi := buildSimpleCVI("vol-blank", "") // empty = treat as CSIManaged
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		pendingRecords: []cnsvolumes.PendingUnregisterRecord{
-			{VolumeID: "vol-blank", BackingDiskPath: "/ds/blank.vmdk", DiskUUID: "uuid-blank"},
-		},
+	mgr := newRecoveryMgr()
+	mgr.pendingRecords = []cnsvolumes.PendingUnregisterRecord{
+		{VolumeID: "vol-blank", BackingDiskPath: "/ds/blank.vmdk", DiskUUID: "uuid-blank"},
 	}
 	svc := newRecoveryCVISvc(t, cvi)
 
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	require.Equal(t, []string{"vol-blank"}, mgr.ackedIDs)
 }
 
 func TestRecoverPendingUnregisters_OneBadRecordDoesNotAbortBatch(t *testing.T) {
 	goodCVI := buildSimpleCVI("vol-good", csivolumeinfov1alpha1.OwnershipStateCSIManaged)
-	mgr := &recoveryVolumeManager{
-		testVolumeManager: &testVolumeManager{},
-		pendingRecords: []cnsvolumes.PendingUnregisterRecord{
-			{VolumeID: "vol-missing"}, // no CVI → will ACK orphan
-			{VolumeID: "vol-good", BackingDiskPath: "/ds/good.vmdk", DiskUUID: "uuid-good"},
-		},
+	mgr := newRecoveryMgr()
+	mgr.pendingRecords = []cnsvolumes.PendingUnregisterRecord{
+		{VolumeID: "vol-missing"}, // no CVI → will ACK orphan
+		{VolumeID: "vol-good", BackingDiskPath: "/ds/good.vmdk", DiskUUID: "uuid-good"},
 	}
 	svc := newRecoveryCVISvc(t, goodCVI)
 
 	// Both records should be processed; vol-missing will be acked as orphan.
-	require.NoError(t, csivolumeinfosvc.RecoverPendingUnregisters(context.Background(), mgr, svc))
+	require.NoError(t, csivolumeinfo.RecoverPendingUnregisters(context.Background(), mgr, svc))
 	require.Len(t, mgr.ackedIDs, 2)
 }

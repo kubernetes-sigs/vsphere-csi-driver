@@ -79,7 +79,7 @@ func (f *fakeCsiVolumeInfoService) UpdateCsiVolumeInfoStatus(
 }
 
 func (f *fakeCsiVolumeInfoService) PatchCsiVolumeInfo(
-	ctx context.Context, volumeID string, patchBytes []byte) error {
+	ctx context.Context, volumeID string, patchBytes []byte) (int64, error) {
 	return f.inner.PatchCsiVolumeInfo(ctx, volumeID, patchBytes)
 }
 
@@ -106,6 +106,25 @@ func (f *fakeCsiVolumeInfoService) AddVolumeProtectionFinalizer(
 func (f *fakeCsiVolumeInfoService) RemoveVolumeProtectionFinalizer(
 	ctx context.Context, volumeID string) error {
 	return f.inner.RemoveVolumeProtectionFinalizer(ctx, volumeID)
+}
+
+// genBumpingCviService simulates the API server incrementing metadata.generation
+// on a spec patch.  It applies the patch through the wrapped service but reports a
+// higher generation than the fake store actually records (the controller-runtime
+// fake client does not bump generation on a patch).  This lets a test verify that
+// the reconciler records observedGeneration from the patch result rather than from
+// the generation observed at reconcile entry.
+type genBumpingCviService struct {
+	csivolumeinfosvc.CsiVolumeInfoService
+	bumpedGen int64
+}
+
+func (g *genBumpingCviService) PatchCsiVolumeInfo(
+	ctx context.Context, volumeID string, patchBytes []byte) (int64, error) {
+	if _, err := g.CsiVolumeInfoService.PatchCsiVolumeInfo(ctx, volumeID, patchBytes); err != nil {
+		return 0, err
+	}
+	return g.bumpedGen, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +155,10 @@ func (m *testVolumeManager) AckUnregister(ctx context.Context, volumeID string) 
 	return nil
 }
 
+func (m *testVolumeManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
+
 func (m *testVolumeManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 	extraParams interface{}) (*cnsvolumes.CnsVolumeInfo, string, error) {
 	if m.createVolumeFn != nil {
@@ -150,13 +173,21 @@ func (m *testVolumeManager) AttachVolume(ctx context.Context, vm *cnsvsphere.Vir
 	panic("not implemented")
 }
 func (m *testVolumeManager) DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
-	volumeID string) (string, error) { panic("not implemented") }
+	volumeID string) (string, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) DeleteVolume(ctx context.Context, volumeID string,
-	deleteDisk bool) (string, error) { panic("not implemented") }
+	deleteDisk bool) (string, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) UpdateVolumeMetadata(ctx context.Context,
-	spec *cnstypes.CnsVolumeMetadataUpdateSpec) error { panic("not implemented") }
+	spec *cnstypes.CnsVolumeMetadataUpdateSpec) error {
+	panic("not implemented")
+}
 func (m *testVolumeManager) UpdateVolumeCrypto(ctx context.Context,
-	spec *cnstypes.CnsVolumeCryptoUpdateSpec) error { panic("not implemented") }
+	spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	panic("not implemented")
+}
 func (m *testVolumeManager) QueryVolumeInfo(ctx context.Context,
 	volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error) {
 	panic("not implemented")
@@ -178,17 +209,23 @@ func (m *testVolumeManager) RelocateVolume(ctx context.Context,
 	panic("not implemented")
 }
 func (m *testVolumeManager) ExpandVolume(ctx context.Context, volumeID string, size int64,
-	extraParams interface{}) (string, error) { panic("not implemented") }
+	extraParams interface{}) (string, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error {
 	panic("not implemented")
 }
 func (m *testVolumeManager) ConfigureVolumeACLs(ctx context.Context,
-	spec cnstypes.CnsVolumeACLConfigureSpec) error { panic("not implemented") }
+	spec cnstypes.CnsVolumeACLConfigureSpec) error {
+	panic("not implemented")
+}
 func (m *testVolumeManager) RegisterDisk(ctx context.Context, path string, name string) (string, error) {
 	panic("not implemented")
 }
 func (m *testVolumeManager) RetrieveVStorageObject(ctx context.Context,
-	volumeID string) (*vim25types.VStorageObject, error) { panic("not implemented") }
+	volumeID string) (*vim25types.VStorageObject, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) ProtectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
 	panic("not implemented")
 }
@@ -196,13 +233,21 @@ func (m *testVolumeManager) UnprotectVolumeFromVMDeletion(ctx context.Context, v
 	panic("not implemented")
 }
 func (m *testVolumeManager) SetVolumeControlFlags(ctx context.Context, volumeID string,
-	controlFlags []string) error { panic("not implemented") }
+	controlFlags []string) error {
+	panic("not implemented")
+}
 func (m *testVolumeManager) ClearVolumeControlFlags(ctx context.Context, volumeID string,
-	controlFlags []string) error { panic("not implemented") }
+	controlFlags []string) error {
+	panic("not implemented")
+}
 func (m *testVolumeManager) CreateSnapshot(ctx context.Context, volumeID string, desc string,
-	extraParams interface{}) (*cnsvolumes.CnsSnapshotInfo, error) { panic("not implemented") }
+	extraParams interface{}) (*cnsvolumes.CnsSnapshotInfo, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) DeleteSnapshot(ctx context.Context, volumeID string, snapshotID string,
-	extraParams interface{}) (*cnsvolumes.CnsSnapshotInfo, error) { panic("not implemented") }
+	extraParams interface{}) (*cnsvolumes.CnsSnapshotInfo, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) QuerySnapshots(ctx context.Context,
 	snapshotQueryFilter cnstypes.CnsSnapshotQueryFilter) (*cnstypes.CnsSnapshotQueryResult, error) {
 	panic("not implemented")
@@ -215,27 +260,37 @@ func (m *testVolumeManager) MonitorCreateVolumeTask(ctx context.Context,
 func (m *testVolumeManager) GetOperationStore() cnsvolumeoperationrequest.VolumeOperationRequest {
 	panic("not implemented")
 }
-func (m *testVolumeManager) IsListViewReady() bool                      { return true }
-func (m *testVolumeManager) SetListViewNotReady(ctx context.Context)    {}
+func (m *testVolumeManager) IsListViewReady() bool                   { return true }
+func (m *testVolumeManager) SetListViewNotReady(ctx context.Context) {}
 func (m *testVolumeManager) BatchAttachVolumes(ctx context.Context, vm *cnsvsphere.VirtualMachine,
 	batchAttachRequest []cnsvolumes.BatchAttachRequest) ([]cnsvolumes.BatchAttachResult, string, error) {
 	panic("not implemented")
 }
 func (m *testVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
-	unregisterDisk bool) (string, error) { panic("not implemented") }
+	unregisterDisk bool) (string, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) SyncVolume(ctx context.Context,
-	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) { panic("not implemented") }
+	syncVolumeSpecs []cnstypes.CnsSyncVolumeSpec) (string, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) ReRegisterVolume(ctx context.Context, volumeID string) error {
 	panic("not implemented")
 }
 func (m *testVolumeManager) QueryFCDAllocatedBlocks(ctx context.Context,
-	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) (
-	[]cnsvolumes.AllocatedArea, uint64, error) { panic("not implemented") }
+	volumeID, snapshotID string, startingOffset uint64) (
+	[]cnsvolumes.DiskArea, uint64, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) QueryFCDChangedBlocks(ctx context.Context,
-	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
-	[]cnsvolumes.ChangedArea, uint64, error) { panic("not implemented") }
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64) (
+	[]cnsvolumes.DiskArea, uint64, error) {
+	panic("not implemented")
+}
 func (m *testVolumeManager) QueryPendingUnregisters(ctx context.Context) (
-	[]cnsvolumes.PendingUnregisterRecord, error) { return nil, nil }
+	[]cnsvolumes.PendingUnregisterRecord, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -396,7 +451,7 @@ func TestReconcile_UnregisterTransition(t *testing.T) {
 	cvi := newCVI(volID, vms, "", "", "", 3, nil)
 
 	s := newScheme(t)
-	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 	ackCalled := false
 	mgr := &testVolumeManager{
@@ -437,8 +492,51 @@ func TestReconcile_UnregisterTransition(t *testing.T) {
 	assert.Contains(t, updated.Finalizers, csivolumeinfov1alpha1.VolumeProtectionFinalizer)
 	assert.Equal(t, csivolumeinfov1alpha1.OwnershipStateVMManaged, updated.Status.Ownership)
 	assert.Equal(t, csivolumeinfov1alpha1.PhaseSucceeded, updated.Status.Phase)
-	assert.Equal(t, int64(3), updated.Status.ObservedGeneration)
+	// observedGeneration must match the live generation (including any bump from the
+	// controller's own diskPath/diskUUID spec write) so the green signal is satisfiable.
+	assert.Equal(t, updated.Generation, updated.Status.ObservedGeneration)
 	assert.Empty(t, updated.Status.Error)
+}
+
+// TestReconcile_UnregisterObservedGenerationTracksSpecWrite verifies that the
+// unregister path records observedGeneration from the generation returned by the
+// spec patch (which the API server bumps), not the generation observed at reconcile
+// entry.  Without this, the controller's own diskPath/diskUUID write would leave
+// observedGeneration permanently behind generation and the green signal would never
+// be satisfied.
+func TestReconcile_UnregisterObservedGenerationTracksSpecWrite(t *testing.T) {
+	const volID = "vol-gen-track"
+	const bumpedGen = int64(5)
+	vms := []csivolumeinfov1alpha1.VirtualMachineRef{{VMName: "vm-a"}}
+	// Entry generation is 4; the simulated spec write reports generation 5.
+	cvi := newCVI(volID, vms, "", "", "", 4, nil)
+
+	s := newScheme(t)
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
+
+	r := &Reconciler{
+		client:        c,
+		scheme:        s,
+		configInfo:    minimalConfigInfo(),
+		volumeManager: &testVolumeManager{},
+		cviSvc: &genBumpingCviService{
+			CsiVolumeInfoService: newFakeCviService(c),
+			bumpedGen:            bumpedGen,
+		},
+	}
+	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
+
+	res, err := r.Reconcile(context.Background(), makeRequest(volID))
+	require.NoError(t, err)
+	assert.True(t, res.IsZero())
+
+	updated := &csivolumeinfov1alpha1.CsiVolumeInfo{}
+	require.NoError(t, c.Get(context.Background(), k8stypes.NamespacedName{
+		Namespace: csivolumeinfov1alpha1.CVINamespace,
+		Name:      csivolumeinfosvc.GetCsiVolumeInfoCRName(volID),
+	}, updated))
+	assert.Equal(t, bumpedGen, updated.Status.ObservedGeneration,
+		"observedGeneration must follow the post-spec-write generation")
 }
 
 // TestReconcile_BrownfieldLazy verifies that a CVI with spec.vms set but
@@ -451,7 +549,7 @@ func TestReconcile_BrownfieldLazy(t *testing.T) {
 	cvi := newCVI(volID, vms, "", "", "", 1, nil)
 
 	s := newScheme(t)
-	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 	called := false
 	mgr := &testVolumeManager{
@@ -579,7 +677,7 @@ func TestReconcile_IdleVMsPresent_VMManaged(t *testing.T) {
 	cvi := newCVI(volID, vms, csivolumeinfov1alpha1.OwnershipStateVMManaged, "", "", 1, nil)
 
 	s := newScheme(t)
-	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 	callCount := 0
 	mgr := &testVolumeManager{
@@ -611,7 +709,7 @@ func TestReconcile_IdleNoVMs_CSIManaged(t *testing.T) {
 	cvi := newCVI(volID, nil, csivolumeinfov1alpha1.OwnershipStateCSIManaged, "", "", 1, nil)
 
 	s := newScheme(t)
-	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 	createCalled := false
 	mgr := &testVolumeManager{
@@ -645,7 +743,7 @@ func TestReconcile_UnregisterFault(t *testing.T) {
 	cvi := newCVI(volID, vms, csivolumeinfov1alpha1.OwnershipStateCSIManaged, "", "", 5, nil)
 
 	s := newScheme(t)
-	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 	mgr := &testVolumeManager{
 		unregisterVolumeExFn: func(_ context.Context, _ string) (string, string, error) {
@@ -732,16 +830,16 @@ func TestReconcile_ObservedGenerationAlwaysSet(t *testing.T) {
 		fail      bool
 	}{
 		{
-			name:  "unregister success",
-			vms:   []csivolumeinfov1alpha1.VirtualMachineRef{{VMName: "vm-a"}},
-			gen:   7,
-			fail:  false,
+			name: "unregister success",
+			vms:  []csivolumeinfov1alpha1.VirtualMachineRef{{VMName: "vm-a"}},
+			gen:  7,
+			fail: false,
 		},
 		{
-			name:  "unregister failure",
-			vms:   []csivolumeinfov1alpha1.VirtualMachineRef{{VMName: "vm-a"}},
-			gen:   8,
-			fail:  true,
+			name: "unregister failure",
+			vms:  []csivolumeinfov1alpha1.VirtualMachineRef{{VMName: "vm-a"}},
+			gen:  8,
+			fail: true,
 		},
 	}
 
@@ -751,7 +849,7 @@ func TestReconcile_ObservedGenerationAlwaysSet(t *testing.T) {
 			cvi := newCVI(volID, tc.vms, tc.ownership, "", "", tc.gen, nil)
 
 			s := newScheme(t)
-			c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+			c := newFakeClient(t, s, []client.Object{cvi, newTestPV("test-pv")}, interceptor.Funcs{})
 
 			mgr := &testVolumeManager{
 				unregisterVolumeExFn: func(_ context.Context, _ string) (string, string, error) {
@@ -777,8 +875,8 @@ func TestReconcile_ObservedGenerationAlwaysSet(t *testing.T) {
 				Namespace: csivolumeinfov1alpha1.CVINamespace,
 				Name:      csivolumeinfosvc.GetCsiVolumeInfoCRName(volID),
 			}, updated))
-			assert.Equal(t, tc.gen, updated.Status.ObservedGeneration,
-				"observedGeneration must equal spec.generation")
+			assert.Equal(t, updated.Generation, updated.Status.ObservedGeneration,
+				"observedGeneration must equal the live spec.generation")
 		})
 	}
 }
@@ -870,6 +968,151 @@ func TestResolveStoragePolicyID_NotFound(t *testing.T) {
 
 	id := resolveStoragePolicyID(context.Background(), c, pv)
 	assert.Empty(t, id)
+}
+
+// ---------------------------------------------------------------------------
+// ensurePVOwnerRef unit tests
+// ---------------------------------------------------------------------------
+
+// TestEnsurePVOwnerRef_SetsOwnerRef verifies that when the CVI has no PV
+// ownerReference, ensurePVOwnerRef patches it with blockOwnerDeletion=true.
+func TestEnsurePVOwnerRef_SetsOwnerRef(t *testing.T) {
+	const volID = "vol-ownerref-set"
+	cvi := newCVI(volID, nil, "", "", "", 1, nil)
+
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pv",
+			UID:  k8stypes.UID("pv-uid-abc123"),
+		},
+	}
+
+	s := newScheme(t)
+	c := newFakeClient(t, s, []client.Object{cvi, pv}, interceptor.Funcs{})
+	r := &Reconciler{client: c, scheme: s}
+
+	err := r.ensurePVOwnerRef(context.Background(), cvi)
+	require.NoError(t, err)
+
+	// Reload CVI and verify the ownerRef was written.
+	got := &csivolumeinfov1alpha1.CsiVolumeInfo{}
+	require.NoError(t, c.Get(context.Background(), k8stypes.NamespacedName{
+		Namespace: csivolumeinfov1alpha1.CVINamespace,
+		Name:      cvi.Name,
+	}, got))
+
+	require.Len(t, got.OwnerReferences, 1)
+	ref := got.OwnerReferences[0]
+	assert.Equal(t, "v1", ref.APIVersion)
+	assert.Equal(t, "PersistentVolume", ref.Kind)
+	assert.Equal(t, "test-pv", ref.Name)
+	assert.Equal(t, k8stypes.UID("pv-uid-abc123"), ref.UID)
+	require.NotNil(t, ref.BlockOwnerDeletion)
+	assert.True(t, *ref.BlockOwnerDeletion)
+	assert.Nil(t, ref.Controller, "controller should not be set — PV is owner for GC, not managing controller")
+}
+
+// TestEnsurePVOwnerRef_AlreadySet verifies that ensurePVOwnerRef is a no-op
+// when the ownerReference is already present and no Patch call is made.
+func TestEnsurePVOwnerRef_AlreadySet(t *testing.T) {
+	const volID = "vol-ownerref-already"
+	cvi := newCVI(volID, nil, "", "", "", 1, nil)
+	cvi.OwnerReferences = []metav1.OwnerReference{
+		{APIVersion: "v1", Kind: "PersistentVolume", Name: "test-pv", UID: "existing-uid"},
+	}
+
+	s := newScheme(t)
+	patchCalled := false
+	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption) error {
+			patchCalled = true
+			return nil
+		},
+	})
+	r := &Reconciler{client: c, scheme: s}
+
+	err := r.ensurePVOwnerRef(context.Background(), cvi)
+	require.NoError(t, err)
+	assert.False(t, patchCalled, "Patch must not be called when ownerRef is already set")
+}
+
+// TestEnsurePVOwnerRef_PVNotFound verifies that a missing PV returns an error
+// so controller-runtime requeues the reconcile.
+func TestEnsurePVOwnerRef_PVNotFound(t *testing.T) {
+	const volID = "vol-ownerref-nopv"
+	cvi := newCVI(volID, nil, "", "", "", 1, nil)
+
+	s := newScheme(t)
+	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{})
+	r := &Reconciler{client: c, scheme: s}
+
+	err := r.ensurePVOwnerRef(context.Background(), cvi)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestEnsurePVOwnerRef_EmptyPVName verifies that a CVI with no spec.pvName
+// is silently skipped.
+func TestEnsurePVOwnerRef_EmptyPVName(t *testing.T) {
+	const volID = "vol-ownerref-nopvname"
+	cvi := newCVI(volID, nil, "", "", "", 1, nil)
+	cvi.Spec.PVName = ""
+
+	s := newScheme(t)
+	patchCalled := false
+	c := newFakeClient(t, s, []client.Object{cvi}, interceptor.Funcs{
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+			patch client.Patch, opts ...client.PatchOption) error {
+			patchCalled = true
+			return nil
+		},
+	})
+	r := &Reconciler{client: c, scheme: s}
+
+	err := r.ensurePVOwnerRef(context.Background(), cvi)
+	require.NoError(t, err)
+	assert.False(t, patchCalled, "Patch must not be called when pvName is empty")
+}
+
+// TestReconcile_SetsOwnerRefOnInitialState verifies that a full Reconcile on a
+// freshly-created CVI (no VMs, no ownership) sets the PV ownerRef and writes
+// the initial CSIManaged status.
+func TestReconcile_SetsOwnerRefOnInitialState(t *testing.T) {
+	const volID = "vol-ownerref-initial"
+	cvi := newCVI(volID, nil, "", "", "", 1, nil)
+
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-pv",
+			UID:  k8stypes.UID("pv-uid-initial"),
+		},
+	}
+
+	s := newScheme(t)
+	c := newFakeClient(t, s, []client.Object{cvi, pv}, interceptor.Funcs{})
+	r := &Reconciler{
+		client:        c,
+		scheme:        s,
+		configInfo:    minimalConfigInfo(),
+		volumeManager: &testVolumeManager{},
+		cviSvc:        newFakeCviService(c),
+	}
+	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
+
+	res, err := r.Reconcile(context.Background(), makeRequest(volID))
+	require.NoError(t, err)
+	assert.True(t, res.IsZero())
+
+	got := &csivolumeinfov1alpha1.CsiVolumeInfo{}
+	require.NoError(t, c.Get(context.Background(), k8stypes.NamespacedName{
+		Namespace: csivolumeinfov1alpha1.CVINamespace,
+		Name:      csivolumeinfosvc.GetCsiVolumeInfoCRName(volID),
+	}, got))
+
+	// ownerRef must be set.
+	require.Len(t, got.OwnerReferences, 1)
+	assert.Equal(t, k8stypes.UID("pv-uid-initial"), got.OwnerReferences[0].UID)
 }
 
 // ---------------------------------------------------------------------------

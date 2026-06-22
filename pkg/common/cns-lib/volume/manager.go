@@ -27,6 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -186,8 +187,8 @@ type Manager interface {
 	QueryFCDAllocatedBlocks(ctx context.Context, volumeID, snapshotID string,
 		startingOffset uint64) ([]DiskArea, uint64, error)
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
-	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64,
-		maxResults uint32) ([]ChangedArea, uint64, error)
+	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string,
+		startingOffset uint64) ([]DiskArea, uint64, error)
 	// UnregisterVolumeEx initiates phase-1 of the two-phase CNS unregister protocol.
 	// It unregisters the FCD from CNS and returns the backing-disk path and disk UUID
 	// that the caller must persist before invoking AckUnregister. The CNS record
@@ -200,6 +201,10 @@ type Manager interface {
 	// AckUnregister completes phase-2 of the two-phase CNS unregister protocol by
 	// deleting the PENDING_UNREGISTER record from the CNS database. The call is idempotent.
 	AckUnregister(ctx context.Context, volumeID string) error
+	// GetDiskFolderURL converts a datastore path in "[dsName] relPath" format to
+	// the HTTP folder URL format (https://host/folder/relPath?dcPath=...&dsName=...)
+	// required by CNS's RegisterVMDKWithUrlAction for re-registration after UnregisterVolumeEx.
+	GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4529,7 +4534,10 @@ func (m *defaultManager) UnregisterVolumeEx(ctx context.Context, volumeID string
 	}
 
 	spec := []cnstypes.CnsUnregisterVolumeSpec{
-		{VolumeId: cnstypes.CnsVolumeId{Id: volumeID}},
+		{
+			VolumeId:         cnstypes.CnsVolumeId{Id: volumeID},
+			TargetVolumeType: string(cnstypes.CnsUnregisterTargetVolumeTypeFCD),
+		},
 	}
 	task, err := m.virtualCenter.CnsClient.UnregisterVolumeEx(ctx, spec)
 	if err != nil {
@@ -4631,4 +4639,41 @@ func (m *defaultManager) AckUnregister(ctx context.Context, volumeID string) err
 
 	log.Infof("AckUnregister: exit volumeID=%q acknowledged successfully", volumeID)
 	return nil
+}
+
+// GetDiskFolderURL converts a datastore path ("[dsName] relPath") to the HTTP
+// folder URL format (https://host/folder/relPath?dcPath=...&dsName=...) required
+// by CNS's RegisterVMDKWithUrlAction when re-registering a VMDK after UnregisterVolumeEx.
+func (m *defaultManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	log := logger.GetLogger(ctx).With("datastorePath", datastorePath)
+
+	var dsPath object.DatastorePath
+	if !dsPath.FromString(datastorePath) {
+		return "", fmt.Errorf("GetDiskFolderURL: failed to parse datastore path %q", datastorePath)
+	}
+
+	if m.virtualCenter == nil {
+		return "", fmt.Errorf("GetDiskFolderURL: virtual center connection not established")
+	}
+
+	datacenters, err := m.virtualCenter.GetDatacenters(ctx)
+	if err != nil {
+		return "", fmt.Errorf("GetDiskFolderURL: failed to get datacenters: %w", err)
+	}
+
+	for _, dc := range datacenters {
+		f := find.NewFinder(m.virtualCenter.Client.Client, false)
+		f.SetDatacenter(dc.Datacenter)
+		ds, err := f.Datastore(ctx, dsPath.Datastore)
+		if err != nil {
+			log.Debugf("GetDiskFolderURL: datastore %q not found in datacenter %q: %v",
+				dsPath.Datastore, dc.InventoryPath, err)
+			continue
+		}
+		url := ds.NewURL(dsPath.Path).String()
+		log.Infof("GetDiskFolderURL: resolved %q → %q (dc=%q)", datastorePath, url, dc.InventoryPath)
+		return url, nil
+	}
+
+	return "", fmt.Errorf("GetDiskFolderURL: datastore %q not found in any datacenter", dsPath.Datastore)
 }

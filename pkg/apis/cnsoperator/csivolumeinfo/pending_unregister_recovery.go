@@ -20,10 +20,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+)
+
+const (
+	// conditionTypeReady is the standard Ready condition type on CsiVolumeInfo.
+	// It mirrors the condition vocabulary written by the reconciler so recovery
+	// produces an identical status shape.
+	conditionTypeReady = "Ready"
+	// reasonUnregisterSucceeded is the Ready-condition reason after a completed unregister.
+	reasonUnregisterSucceeded = "UnregisterSucceeded"
 )
 
 // RecoverPendingUnregisters is called once at CSI syncer startup to complete
@@ -111,6 +123,12 @@ func recoverOneRecord(
 
 	// The crash happened before or during the spec/status write. Persist disk
 	// coordinates in spec, then advance status to VMManaged, then ACK.
+	//
+	// A spec patch increments metadata.generation, so observedGeneration must be
+	// taken from the post-patch generation (returned by PatchCsiVolumeInfo) rather
+	// than the value read before the patch; otherwise vm-operator's green-signal
+	// check would never be satisfied.
+	gen := cvi.Generation
 	if rec.BackingDiskPath != "" || rec.DiskUUID != "" {
 		specPatch := map[string]interface{}{
 			"spec": map[string]interface{}{
@@ -123,20 +141,32 @@ func recoverOneRecord(
 			return fmt.Errorf("recoverOneRecord: failed to marshal spec patch for volume %q: %w",
 				rec.VolumeID, marshalErr)
 		}
-		if patchErr := cviSvc.PatchCsiVolumeInfo(ctx, rec.VolumeID, patchBytes); patchErr != nil {
+		patchedGen, patchErr := cviSvc.PatchCsiVolumeInfo(ctx, rec.VolumeID, patchBytes)
+		if patchErr != nil {
 			return fmt.Errorf("recoverOneRecord: failed to patch spec for volume %q: %w",
 				rec.VolumeID, patchErr)
 		}
-		log.Infof("recoverOneRecord: persisted diskPath and diskUUID in spec for volume %q",
-			rec.VolumeID)
+		gen = patchedGen
+		log.Infof("recoverOneRecord: persisted diskPath and diskUUID in spec for volume %q (generation=%d)",
+			rec.VolumeID, gen)
 	}
 
-	// Advance status to VMManaged.
+	// Advance status to VMManaged, mirroring the steady-state unregister status
+	// shape (ownership, phase, observedGeneration, cleared error, Ready condition).
 	statusPatch := map[string]interface{}{
 		"status": map[string]interface{}{
 			"ownership":          string(csivolumeinfov1alpha1.OwnershipStateVMManaged),
 			"phase":              string(csivolumeinfov1alpha1.PhaseSucceeded),
-			"observedGeneration": cvi.Generation,
+			"observedGeneration": gen,
+			"error":              "",
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":               conditionTypeReady,
+					"status":             string(metav1.ConditionTrue),
+					"reason":             reasonUnregisterSucceeded,
+					"lastTransitionTime": metav1.Now().UTC().Format(time.RFC3339),
+				},
+			},
 		},
 	}
 	statusBytes, marshalErr := json.Marshal(statusPatch)

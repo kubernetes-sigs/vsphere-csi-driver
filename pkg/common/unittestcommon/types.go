@@ -265,3 +265,8 @@ func (m *MockVolumeManager) QueryPendingUnregisters(ctx context.Context) ([]cnsv
 func (m *MockVolumeManager) AckUnregister(ctx context.Context, volumeID string) error {
 	return nil
 }
+
+// GetDiskFolderURL is a stub implementation.
+func (m *MockVolumeManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
