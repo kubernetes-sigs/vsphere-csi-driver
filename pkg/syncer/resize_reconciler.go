@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2020-2026 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -143,9 +143,12 @@ func (rc *resizeReconciler) updatePVC(oldObj, newObj interface{}) {
 		return
 	}
 
-	// Add tkgPVC to the claim queue only when the new size is bigger or oldPVC
-	// has FileSystemResizePending condition, newPVC does not have.
-	if newPVCSize.Cmp(oldPVCSize) > 0 || (checkFileSystemPendingOnPVC(oldPVC) && !checkFileSystemPendingOnPVC(newPVC)) {
+	// Add tkgPVC to the claim queue only when the new size is bigger, oldPVC
+	// has FileSystemResizePending and newPVC does not, or oldPVC has
+	// NodeResizePending and newPVC does not.
+	if newPVCSize.Cmp(oldPVCSize) > 0 ||
+		(checkFileSystemPendingOnPVC(oldPVC) && !checkFileSystemPendingOnPVC(newPVC)) ||
+		(hasNodeResizePending(oldPVC) && !hasNodeResizePending(newPVC)) {
 		objKey, err := getPVCKey(ctx, newObj)
 		if err != nil {
 			return
@@ -239,8 +242,24 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 		svcPvcClone.Status.Capacity[v1.ResourceStorage] = tkgPvcSize
 		updatePVC = true
 	}
+
 	if !checkFileSystemPendingOnPVC(tkgPVC) && checkFileSystemPendingOnPVC(svcPVC) {
+		log.Infof("Clearing FileSystemResizePending from supervisor PVC %s/%s - guest completed resize",
+			rc.supervisorNamespace, svcPVC.Name)
 		svcPvcClone = mergeResizeConditionOnPVC(svcPvcClone, []v1.PersistentVolumeClaimCondition{})
+		updatePVC = true
+	}
+
+	// Clear stale NodeResizePending from supervisor when:
+	// 1. Supervisor has NodeResizePending (set by supervisor csi-resizer)
+	// 2. Guest no longer has NodeResizePending (guest node resize complete)
+	// 3. Supervisor does not have FileSystemResizePending
+	if hasNodeResizePending(svcPVC) &&
+		!hasNodeResizePending(tkgPVC) &&
+		!checkFileSystemPendingOnPVC(svcPvcClone) {
+		log.Infof("Clearing stale NodeResizePending from supervisor PVC %s/%s - resize complete",
+			rc.supervisorNamespace, svcPVC.Name)
+		delete(svcPvcClone.Status.AllocatedResourceStatuses, v1.ResourceStorage)
 		updatePVC = true
 	}
 
@@ -354,4 +373,13 @@ func checkFileSystemPendingOnPVC(
 		}
 	}
 	return false
+}
+
+// hasNodeResizePending checks whether PVC has NodeResizePending in allocatedResourceStatuses
+func hasNodeResizePending(pvc *v1.PersistentVolumeClaim) bool {
+	if pvc.Status.AllocatedResourceStatuses == nil {
+		return false
+	}
+	status, exists := pvc.Status.AllocatedResourceStatuses[v1.ResourceStorage]
+	return exists && status == v1.PersistentVolumeClaimNodeResizePending
 }
