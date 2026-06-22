@@ -37,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -3630,4 +3632,143 @@ func (t *testInfraSPIClient) Patch(ctx context.Context, obj client.Object, patch
 	}
 	// For testing, we don't need to actually perform the patch, just record that it was called
 	return nil
+}
+
+func fvsNamespace(name, vpcAnnotation string) *v1.Namespace {
+	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   name,
+		Labels: map[string]string{cnsoperatorutil.NamespaceLabelFVSInstance: "true"},
+	}}
+	if vpcAnnotation != "" {
+		ns.Annotations = map[string]string{cnsoperatorutil.AnnotationVPCNetworkConfig: vpcAnnotation}
+	}
+	return ns
+}
+
+// TestPopulateTopologyCapabilities_MarkerPolicy tests the marker-policy branch of populateTopologyCapabilities.
+func TestPopulateTopologyCapabilities_MarkerPolicy(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	tests := []struct {
+		name          string
+		policyName    string // name of the ClusterSPI / storage policy
+		namespaces    []*v1.Namespace
+		zonesFn       func(string) map[string]struct{}
+		expectedZones []string
+		expectError   bool
+	}{
+		{
+			name:       "marker policy with two FVS namespaces each in a zone",
+			policyName: common.StorageClassVsanFileServicePolicy,
+			namespaces: []*v1.Namespace{
+				fvsNamespace("fvs-ns-1", "vpc-cfg-1"),
+				fvsNamespace("fvs-ns-2", "vpc-cfg-2"),
+			},
+			zonesFn: func(ns string) map[string]struct{} {
+				m := map[string]map[string]struct{}{
+					"fvs-ns-1": {"zone-a": {}},
+					"fvs-ns-2": {"zone-b": {}},
+				}
+				return m[ns]
+			},
+			expectedZones: []string{"zone-a", "zone-b"},
+		},
+		{
+			name:       "marker policy with no FVS instance namespaces yields empty zones",
+			policyName: common.StorageClassVsanFileServicePolicy,
+			namespaces: []*v1.Namespace{},
+			zonesFn: func(_ string) map[string]struct{} {
+				return map[string]struct{}{"zone-a": {}}
+			},
+			expectedZones: []string{},
+		},
+		{
+			name:       "FVS namespace missing VPC annotation is skipped",
+			policyName: common.StorageClassVsanFileServicePolicy,
+			namespaces: []*v1.Namespace{
+				fvsNamespace("fvs-ns-annotated", "vpc-cfg-1"),
+				fvsNamespace("fvs-ns-no-annotation", ""), // no annotation
+			},
+			zonesFn: func(ns string) map[string]struct{} {
+				if ns == "fvs-ns-annotated" {
+					return map[string]struct{}{"zone-a": {}}
+				}
+				return nil
+			},
+			expectedZones: []string{"zone-a"},
+		},
+		{
+			name:       "multiple FVS namespaces contributing overlapping zones are deduped",
+			policyName: common.StorageClassVsanFileServicePolicy,
+			namespaces: []*v1.Namespace{
+				fvsNamespace("fvs-ns-1", "vpc-cfg-1"),
+				fvsNamespace("fvs-ns-2", "vpc-cfg-2"),
+			},
+			zonesFn: func(_ string) map[string]struct{} {
+				return map[string]struct{}{"zone-shared": {}}
+			},
+			expectedZones: []string{"zone-shared"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8sObjs := make([]runtime.Object, len(tt.namespaces))
+			for i, ns := range tt.namespaces {
+				k8sObjs[i] = ns
+			}
+			k8sClient := k8sfake.NewSimpleClientset(k8sObjs...)
+
+			r := &ReconcileClusterStoragePolicyInfo{
+				client:    fake.NewClientBuilder().WithScheme(scheme).Build(),
+				scheme:    scheme,
+				k8sClient: k8sClient,
+			}
+
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: tt.policyName},
+			}
+
+			// Call GetZonesForvSANFileServiceMarkerPolicy directly (commonco singleton cannot be injected in unit tests).
+			zones, err := cnsoperatorutil.GetZonesForvSANFileServiceMarkerPolicy(ctx, k8sClient, tt.zonesFn)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: zones,
+			}
+
+			assert.Equal(t, k8sClient, r.k8sClient)
+			require.NotNil(t, infraSPI.Status.Topology)
+			assert.Equal(t, "zonal", infraSPI.Status.Topology.TopologyType)
+
+			sort.Strings(zones)
+			sort.Strings(tt.expectedZones)
+			assert.Equal(t, tt.expectedZones, zones)
+		})
+	}
+}
+
+// TestPopulateTopologyCapabilities_MarkerPolicyVsNonMarker tests IsvSANFileServiceMarkerPolicyName routing.
+func TestPopulateTopologyCapabilities_MarkerPolicyVsNonMarker(t *testing.T) {
+	markerCases := []struct {
+		name     string
+		isMarker bool
+	}{
+		{common.StorageClassVsanFileServicePolicy, true},
+		{"gold", false},
+		{"vsan-default-storage-policy", false},
+		{"", false},
+	}
+
+	for _, tc := range markerCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.isMarker, common.IsvSANFileServiceMarkerPolicyName(tc.name))
+		})
+	}
 }

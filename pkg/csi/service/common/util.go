@@ -727,3 +727,10 @@ func BuildGuestSnapshotAnnotation(clusterName, snapshotName, snapshotNamespace, 
 	}
 	return annot
 }
+
+// IsvSANFileServiceMarkerPolicyName reports whether name is the K8s-compliant storage policy
+// name (ClusterStoragePolicyInfo.Name) for the vSAN File Service marker policy. Topology for
+// this policy is derived from FVS instance namespaces rather than datastore/PBM compatibility.
+func IsvSANFileServiceMarkerPolicyName(name string) bool {
+	return name == StorageClassVsanFileServicePolicy
+}

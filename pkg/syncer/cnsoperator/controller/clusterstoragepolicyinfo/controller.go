@@ -31,8 +31,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -99,6 +102,17 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	cfg, err := restclient.InClusterConfig()
+	if err != nil {
+		log.Errorf("getting in-cluster config failed. Err: %v", err)
+		return err
+	}
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("creating dynamic client failed. Err: %v", err)
+		return err
+	}
+
 	// Initialize topology service.
 	topologyMgr, err := commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 	if err != nil {
@@ -113,20 +127,23 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, topologyMgr, recorder))
+	return add(mgr, newReconciler(mgr, configInfo, topologyMgr, k8sclient, dynamicClient, recorder))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	topologyMgr commoncotypes.ControllerTopologyService,
+	k8sClient kubernetes.Interface, dynamicClient dynamic.Interface,
 	recorder record.EventRecorder) *ReconcileClusterStoragePolicyInfo {
 
 	return &ReconcileClusterStoragePolicyInfo{
-		client:      mgr.GetClient(),
-		scheme:      mgr.GetScheme(),
-		configInfo:  configInfo,
-		recorder:    recorder,
-		mgr:         mgr,
-		topologyMgr: topologyMgr,
+		client:        mgr.GetClient(),
+		scheme:        mgr.GetScheme(),
+		configInfo:    configInfo,
+		recorder:      recorder,
+		mgr:           mgr,
+		topologyMgr:   topologyMgr,
+		k8sClient:     k8sClient,
+		dynamicClient: dynamicClient,
 	}
 }
 
@@ -204,12 +221,14 @@ var _ reconcile.Reconciler = &ReconcileClusterStoragePolicyInfo{}
 
 // ReconcileClusterStoragePolicyInfo reconciles ClusterStoragePolicyInfo objects.
 type ReconcileClusterStoragePolicyInfo struct {
-	client      client.Client
-	scheme      *runtime.Scheme
-	configInfo  *config.ConfigurationInfo
-	recorder    record.EventRecorder
-	mgr         manager.Manager
-	topologyMgr commoncotypes.ControllerTopologyService
+	client        client.Client
+	scheme        *runtime.Scheme
+	configInfo    *config.ConfigurationInfo
+	recorder      record.EventRecorder
+	mgr           manager.Manager
+	topologyMgr   commoncotypes.ControllerTopologyService
+	k8sClient     kubernetes.Interface
+	dynamicClient dynamic.Interface
 }
 
 // Reconcile syncs storage policy attributes from the vCenter.
@@ -666,6 +685,26 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
 	vc *cnsvsphere.VirtualCenter) error {
 	log := logger.GetLogger(ctx)
+
+	// Marker policies (e.g. vSAN File Service) derive their cluster-wide accessible zones from
+	// FVS instance namespaces rather than datastore/PBM compatibility.
+	if common.IsvSANFileServiceMarkerPolicyName(clusterSPI.Name) {
+		log.Infof("%q is a vSAN File Service marker policy; deriving zones from FVS instance namespaces",
+			clusterSPI.Name)
+		zonesFn := func(ns string) map[string]struct{} {
+			return commonco.ContainerOrchestratorUtility.GetZonesForNamespace(ns)
+		}
+		zones, err := util.GetZonesForvSANFileServiceMarkerPolicy(ctx, r.k8sClient, zonesFn)
+		if err != nil {
+			return fmt.Errorf("failed to compute cluster zones for vSAN File Service marker policy %q: %w", clusterSPI.Name, err)
+		}
+		infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
+			TopologyType:    "zonal",
+			AccessibleZones: zones,
+		}
+		log.Infof("vSAN File Service marker policy %q accessible zones: %v", clusterSPI.Name, zones)
+		return nil
+	}
 
 	// Get StorageClass that references this policy
 	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
