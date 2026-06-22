@@ -42,6 +42,7 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -915,4 +916,76 @@ func PatchObject(ctx context.Context, k8sClient client.Client, original, modifie
 	log.Debugf("PatchObject: Successfully patched object %s/%s",
 		original.GetNamespace(), original.GetName())
 	return nil
+}
+
+// GetPreferredVersionForCRD uses the discovery API to find the preferred version
+// of a CRD as declared by the API server.
+// Safe for well-behaved CRDs (e.g., VSphereCluster) where all served versions
+// expose the same resources
+func GetPreferredVersionForCRD(
+	ctx context.Context, cfg *restclient.Config, group, resource string) (string, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("Looking up preferred version for group=%q resource=%q", group, resource)
+
+	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		log.Errorf("Failed to create discovery client: %+v", err)
+		return "", err
+	}
+	return getPreferredVersionFromDiscovery(ctx, dc, group, resource)
+}
+
+// getPreferredVersionFromDiscovery contains the version-resolution logic and is
+// separated from GetPreferredVersionForCRD to allow unit testing via a mock discovery client.
+func getPreferredVersionFromDiscovery(
+	ctx context.Context, dc discovery.DiscoveryInterface, group, resource string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	groups, lists, err := dc.ServerGroupsAndResources()
+	if err != nil {
+		if lists == nil {
+			log.Errorf("Discovery returned no data (lists=nil): %+v", err)
+			return "", err
+		}
+		log.Warnf("Partial discovery error (continuing with available data): %+v", err)
+		// If the target group specifically failed discovery, surface that error now
+		// rather than returning a misleading "not found" at the end.
+		if failedGroups, ok := discovery.GroupDiscoveryFailedErrorGroups(err); ok {
+			for gv, groupErr := range failedGroups {
+				if gv.Group == group {
+					return "", fmt.Errorf("discovery failed for group %q: %w", group, groupErr)
+				}
+			}
+		}
+	}
+
+	log.Debugf("Scanning %d API groups for preferred version of group=%q", len(groups), group)
+	for _, g := range groups {
+		if g.Name == group && g.PreferredVersion.Version != "" {
+			log.Debugf("Found preferredVersion=%q for group=%q", g.PreferredVersion.Version, group)
+			return g.PreferredVersion.Version, nil
+		}
+	}
+
+	// Fallback: group not found in groups list — scan lists for any version serving the resource.
+	log.Debugf("Group=%q not in preferred-version list, scanning %d resource lists as fallback",
+		group, len(lists))
+	for _, list := range lists {
+		gv, parseErr := schema.ParseGroupVersion(list.GroupVersion)
+		if parseErr != nil {
+			log.Warnf("Skipping unparseable GroupVersion=%q: %+v", list.GroupVersion, parseErr)
+			continue
+		}
+		if gv.Group != group {
+			continue
+		}
+		for _, r := range list.APIResources {
+			if r.Name == resource {
+				log.Debugf("Found resource=%q in version=%q via fallback scan", resource, gv.Version)
+				return gv.Version, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("group %q resource %q not found in discovery", group, resource)
 }
