@@ -957,11 +957,11 @@ func (m *cbtFlagsMockVolumeManager) ReRegisterVolume(context.Context, string) er
 	return nil
 }
 func (m *cbtFlagsMockVolumeManager) QueryFCDAllocatedBlocks(context.Context,
-	string, string, uint64, uint32) ([]cnsvolume.AllocatedArea, uint64, error) {
+	string, string, uint64) ([]cnsvolume.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 func (m *cbtFlagsMockVolumeManager) QueryFCDChangedBlocks(context.Context,
-	string, string, string, uint64, uint32) ([]cnsvolume.ChangedArea, uint64, error) {
+	string, string, string, uint64) ([]cnsvolume.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 

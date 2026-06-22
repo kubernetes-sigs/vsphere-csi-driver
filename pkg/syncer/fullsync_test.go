@@ -869,13 +869,13 @@ func (m *mockVolumeManagerForFullSync) ResetManager(ctx context.Context, vcenter
 }
 
 func (m *mockVolumeManagerForFullSync) QueryFCDAllocatedBlocks(ctx context.Context,
-	volumeID, snapshotID string, startingOffset uint64, maxResults uint32) ([]volumes.AllocatedArea, uint64, error) {
+	volumeID, snapshotID string, startingOffset uint64) ([]volumes.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 
 func (m *mockVolumeManagerForFullSync) QueryFCDChangedBlocks(ctx context.Context,
-	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64, maxResults uint32) (
-	[]volumes.ChangedArea, uint64, error) {
+	volumeID, targetSnapshotID, baseChangeID string, startingOffset uint64) (
+	[]volumes.DiskArea, uint64, error) {
 	return nil, 0, nil
 }
 

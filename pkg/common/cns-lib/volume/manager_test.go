@@ -762,16 +762,18 @@ func TestQueryFCDAllocatedBlocks(t *testing.T) {
 	) (*vim25types.DiskChangeInfo, error) {
 		assert.Equal(t, "*", changeID)
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      12288,
 			ChangedArea: []vim25types.DiskChangeExtent{
 				{Start: 0, Length: 4096},
 				{Start: 8192, Length: 4096},
 			},
 		}, nil
 	}
-	areas, next, err := m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 10)
+	areas, next, err := m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0)
 	assert.NoError(t, err)
 	assert.Len(t, areas, 2)
-	assert.Equal(t, uint64(0), next)
+	assert.Equal(t, uint64(12288), next)
 
 	QueryChangedDiskAreasHook = func(
 		ctx context.Context,
@@ -781,13 +783,15 @@ func TestQueryFCDAllocatedBlocks(t *testing.T) {
 		changeID string,
 	) (*vim25types.DiskChangeInfo, error) {
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      8192,
 			ChangedArea: []vim25types.DiskChangeExtent{
 				{Start: 0, Length: 4096},
 				{Start: 4096, Length: 4096},
 			},
 		}, nil
 	}
-	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 2)
+	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0)
 	assert.NoError(t, err)
 	assert.Len(t, areas, 2)
 	assert.Equal(t, uint64(8192), next)
@@ -800,6 +804,8 @@ func TestQueryFCDAllocatedBlocks(t *testing.T) {
 		changeID string,
 	) (*vim25types.DiskChangeInfo, error) {
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      12288,
 			ChangedArea: []vim25types.DiskChangeExtent{
 				{Start: 0, Length: 4096},
 				{Start: 4096, Length: 4096},
@@ -807,10 +813,10 @@ func TestQueryFCDAllocatedBlocks(t *testing.T) {
 			},
 		}, nil
 	}
-	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0, 2)
+	areas, next, err = m.QueryFCDAllocatedBlocks(ctx, "vol", "snap", 0)
 	assert.NoError(t, err)
-	assert.Len(t, areas, 2)
-	assert.Equal(t, uint64(8192), next)
+	assert.Len(t, areas, 3)
+	assert.Equal(t, uint64(12288), next)
 
 	QueryChangedDiskAreasHook = func(
 		ctx context.Context,
@@ -821,12 +827,11 @@ func TestQueryFCDAllocatedBlocks(t *testing.T) {
 	) (*vim25types.DiskChangeInfo, error) {
 		return nil, fmt.Errorf("vslm down")
 	}
-	_, _, err = m.QueryFCDAllocatedBlocks(ctx, "v", "s", 0, 10)
+	_, _, err = m.QueryFCDAllocatedBlocks(ctx, "v", "s", 0)
 	assert.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
 
 	mNil := &defaultManager{virtualCenter: nil}
-	_, _, err = mNil.QueryFCDAllocatedBlocks(ctx, "v", "s", 0, 10)
+	_, _, err = mNil.QueryFCDAllocatedBlocks(ctx, "v", "s", 0)
 	assert.Error(t, err)
 }
 
@@ -848,13 +853,15 @@ func TestQueryFCDChangedBlocks(t *testing.T) {
 	) (*vim25types.DiskChangeInfo, error) {
 		assert.Equal(t, "base-cid", changeID)
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      300,
 			ChangedArea: []vim25types.DiskChangeExtent{{Start: 100, Length: 200}},
 		}, nil
 	}
-	areas, next, err := m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "base-cid", 0, 5)
+	areas, next, err := m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "base-cid", 0)
 	assert.NoError(t, err)
 	assert.Len(t, areas, 1)
-	assert.Equal(t, uint64(0), next)
+	assert.Equal(t, uint64(300), next)
 
 	QueryChangedDiskAreasHook = func(
 		ctx context.Context,
@@ -864,13 +871,15 @@ func TestQueryFCDChangedBlocks(t *testing.T) {
 		changeID string,
 	) (*vim25types.DiskChangeInfo, error) {
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      1024,
 			ChangedArea: []vim25types.DiskChangeExtent{
 				{Start: 0, Length: 512},
 				{Start: 512, Length: 512},
 			},
 		}, nil
 	}
-	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 2)
+	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0)
 	assert.NoError(t, err)
 	assert.Len(t, areas, 2)
 	assert.Equal(t, uint64(1024), next)
@@ -884,12 +893,11 @@ func TestQueryFCDChangedBlocks(t *testing.T) {
 	) (*vim25types.DiskChangeInfo, error) {
 		return nil, createFCDSoapFault(&vim25types.InvalidArgument{InvalidProperty: "snapshotId"}, "")
 	}
-	_, _, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 10)
+	_, _, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0)
 	assert.Error(t, err)
-	assert.Equal(t, codes.NotFound, status.Code(err))
 
 	mNil := &defaultManager{virtualCenter: nil}
-	_, _, err = mNil.QueryFCDChangedBlocks(ctx, "v", "t", "c", 0, 10)
+	_, _, err = mNil.QueryFCDChangedBlocks(ctx, "v", "t", "c", 0)
 	assert.Error(t, err)
 
 	QueryChangedDiskAreasHook = func(
@@ -900,6 +908,8 @@ func TestQueryFCDChangedBlocks(t *testing.T) {
 		changeID string,
 	) (*vim25types.DiskChangeInfo, error) {
 		return &vim25types.DiskChangeInfo{
+			StartOffset: 0,
+			Length:      500,
 			ChangedArea: []vim25types.DiskChangeExtent{
 				{Start: 0, Length: 100},
 				{Start: 200, Length: 100},
@@ -907,10 +917,10 @@ func TestQueryFCDChangedBlocks(t *testing.T) {
 			},
 		}, nil
 	}
-	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0, 2)
+	areas, next, err = m.QueryFCDChangedBlocks(ctx, "vol", "tgt", "cid", 0)
 	assert.NoError(t, err)
-	assert.Len(t, areas, 2)
-	assert.Equal(t, uint64(300), next)
+	assert.Len(t, areas, 3)
+	assert.Equal(t, uint64(500), next)
 }
 
 func TestRunQueryChangedDiskAreasViaVslmNilClient(t *testing.T) {

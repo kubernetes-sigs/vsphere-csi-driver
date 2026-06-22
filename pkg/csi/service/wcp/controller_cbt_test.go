@@ -24,7 +24,7 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/soap"
-	"github.com/vmware/govmomi/vim25/types"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,8 +39,10 @@ import (
 
 type mockAllocatedServer struct {
 	grpc.ServerStream
-	ctx context.Context
-	t   *testing.T
+	ctx       context.Context
+	t         *testing.T
+	sendCount int
+	allBlocks []*csi.BlockMetadata
 }
 
 func (m *mockAllocatedServer) Context() context.Context {
@@ -48,6 +50,8 @@ func (m *mockAllocatedServer) Context() context.Context {
 }
 
 func (m *mockAllocatedServer) Send(resp *csi.GetMetadataAllocatedResponse) error {
+	m.sendCount++
+	m.allBlocks = append(m.allBlocks, resp.BlockMetadata...)
 	if m.t != nil && resp.BlockMetadataType != csi.BlockMetadataType_VARIABLE_LENGTH {
 		m.t.Errorf("Expected BlockMetadataType to be %v, got %v",
 			csi.BlockMetadataType_VARIABLE_LENGTH, resp.BlockMetadataType)
@@ -57,8 +61,10 @@ func (m *mockAllocatedServer) Send(resp *csi.GetMetadataAllocatedResponse) error
 
 type mockDeltaServer struct {
 	grpc.ServerStream
-	ctx context.Context
-	t   *testing.T
+	ctx       context.Context
+	t         *testing.T
+	sendCount int
+	allBlocks []*csi.BlockMetadata
 }
 
 func (m *mockDeltaServer) Context() context.Context {
@@ -66,6 +72,8 @@ func (m *mockDeltaServer) Context() context.Context {
 }
 
 func (m *mockDeltaServer) Send(resp *csi.GetMetadataDeltaResponse) error {
+	m.sendCount++
+	m.allBlocks = append(m.allBlocks, resp.BlockMetadata...)
 	if m.t != nil && resp.BlockMetadataType != csi.BlockMetadataType_VARIABLE_LENGTH {
 		m.t.Errorf("Expected BlockMetadataType to be %v, got %v",
 			csi.BlockMetadataType_VARIABLE_LENGTH, resp.BlockMetadataType)
@@ -275,7 +283,7 @@ func TestGetMetadataAllocated_InvalidSnapshotID(t *testing.T) {
 
 // TestAllocatedAreaConversion tests the conversion from VSLM response to CSI format
 func TestAllocatedAreaConversion(t *testing.T) {
-	areas := []cnsvolume.AllocatedArea{
+	areas := []cnsvolume.DiskArea{
 		{Offset: 0, Length: 4096},
 		{Offset: 8192, Length: 4096},
 		{Offset: 16384, Length: 8192},
@@ -305,7 +313,7 @@ func TestAllocatedAreaConversion(t *testing.T) {
 
 // TestChangedAreaConversion tests the conversion from VSLM response to CSI format
 func TestChangedAreaConversion(t *testing.T) {
-	areas := []cnsvolume.ChangedArea{
+	areas := []cnsvolume.DiskArea{
 		{Offset: 4096, Length: 4096},
 		{Offset: 12288, Length: 4096},
 	}
@@ -324,76 +332,6 @@ func TestChangedAreaConversion(t *testing.T) {
 
 	if blockMetadata[0].ByteOffset != 4096 {
 		t.Errorf("First changed block offset incorrect: %d", blockMetadata[0].ByteOffset)
-	}
-}
-
-// TestPaginationLogic tests the nextOffset calculation
-func TestPaginationLogic(t *testing.T) {
-	tests := []struct {
-		name           string
-		areas          []cnsvolume.AllocatedArea
-		maxResults     uint32
-		startingOffset uint64
-		wantNextOffset uint64
-	}{
-		{
-			name: "fewer results than max",
-			areas: []cnsvolume.AllocatedArea{
-				{Offset: 0, Length: 4096},
-				{Offset: 8192, Length: 4096},
-			},
-			maxResults:     10,
-			startingOffset: 0,
-			wantNextOffset: 0, // Signals completion
-		},
-		{
-			name: "exactly max results",
-			areas: []cnsvolume.AllocatedArea{
-				{Offset: 0, Length: 4096},
-				{Offset: 4096, Length: 4096},
-			},
-			maxResults:     2,
-			startingOffset: 0,
-			wantNextOffset: 8192, // End of last area
-		},
-		{
-			name: "more results than max",
-			areas: []cnsvolume.AllocatedArea{
-				{Offset: 0, Length: 4096},
-				{Offset: 4096, Length: 4096},
-				{Offset: 8192, Length: 4096},
-			},
-			maxResults:     2,
-			startingOffset: 0,
-			wantNextOffset: 8192, // After taking first 2
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Simulate pagination logic
-			nextOffset := tt.startingOffset
-			resultCount := 0
-
-			for _, area := range tt.areas {
-				if uint32(resultCount) >= tt.maxResults {
-					break
-				}
-				resultCount++
-				areaEnd := area.Offset + area.Length
-				if areaEnd > nextOffset {
-					nextOffset = areaEnd
-				}
-			}
-
-			if uint32(resultCount) < tt.maxResults {
-				nextOffset = 0
-			}
-
-			if nextOffset != tt.wantNextOffset {
-				t.Errorf("nextOffset = %d, want %d", nextOffset, tt.wantNextOffset)
-			}
-		})
 	}
 }
 
@@ -446,11 +384,13 @@ func TestGetMetadataAllocated_Success(t *testing.T) {
 	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
 	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
 
+	volumeCapacityBytes := int64(1 * common.GbInBytes)
+
 	// Create a volume first to avoid NotFound error
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-allocated",
 		CapacityRange: &csi.CapacityRange{
-			RequiredBytes: 1 * common.GbInBytes,
+			RequiredBytes: volumeCapacityBytes,
 		},
 		VolumeCapabilities: []*csi.VolumeCapability{
 			{
@@ -473,12 +413,27 @@ func TestGetMetadataAllocated_Success(t *testing.T) {
 	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
 
 	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
-		return &types.DiskChangeInfo{
-			ChangedArea: []types.DiskChangeExtent{
-				{Start: 0, Length: 4096},
-				{Start: 4096, Length: 8192},
-			},
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64,
+		changeID string) (*vim25types.DiskChangeInfo, error) {
+		// Only return areas that start at or after startingOffset so the
+		// pagination loop terminates correctly.
+		all := []vim25types.DiskChangeExtent{
+			{Start: 0, Length: 4096},
+			{Start: 4096, Length: 8192},
+		}
+		var filtered []vim25types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+
+		length := volumeCapacityBytes - startingOffset
+
+		return &vim25types.DiskChangeInfo{
+			StartOffset: startingOffset,
+			Length:      length,
+			ChangedArea: filtered,
 		}, nil
 	}
 
@@ -503,11 +458,13 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
 	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
 
+	volumeCapacityBytes := int64(1 * common.GbInBytes)
+
 	// Create a volume first to avoid NotFound error
 	reqCreate := &csi.CreateVolumeRequest{
 		Name: testVolumeName + "-delta",
 		CapacityRange: &csi.CapacityRange{
-			RequiredBytes: 1 * common.GbInBytes,
+			RequiredBytes: volumeCapacityBytes,
 		},
 		VolumeCapabilities: []*csi.VolumeCapability{
 			{
@@ -530,11 +487,26 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
 
 	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-		volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
-		return &types.DiskChangeInfo{
-			ChangedArea: []types.DiskChangeExtent{
-				{Start: 8192, Length: 4096},
-			},
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64,
+		changeID string) (*vim25types.DiskChangeInfo, error) {
+		// Only return areas at or after startingOffset so the pagination loop
+		// terminates correctly.
+		all := []vim25types.DiskChangeExtent{
+			{Start: 8192, Length: 4096},
+		}
+		var filtered []vim25types.DiskChangeExtent
+		for _, a := range all {
+			if a.Start >= startingOffset {
+				filtered = append(filtered, a)
+			}
+		}
+
+		length := volumeCapacityBytes - startingOffset
+
+		return &vim25types.DiskChangeInfo{
+			StartOffset: startingOffset,
+			Length:      length,
+			ChangedArea: filtered,
 		}, nil
 	}
 
@@ -555,7 +527,7 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 
 // makeFCDSoapFault builds a govmomi SOAP fault wrapping the given vim fault
 // payload. Mirrors the helper used in the cnsvolume package tests.
-func makeFCDSoapFault(fault types.AnyType, msg string) error {
+func makeFCDSoapFault(fault vim25types.AnyType, msg string) error {
 	f := &soap.Fault{String: msg}
 	f.Detail.Fault = fault
 	return soap.WrapSoapFault(f)
@@ -589,12 +561,12 @@ func TestVslmErrorToCSICode(t *testing.T) {
 }
 
 // runVSLMErrorPropagationCase asserts that the wcp controller propagates the
-// gRPC status code produced by cnsvolume.TranslateVslmError end-to-end (instead
+// gRPC status code produced by volume.TranslateVslmError end-to-end (instead
 // of overwriting it with codes.Internal).
 //
 // Each case: stub QueryChangedDiskAreasHook to return a SOAP fault, then drive
 // either GetMetadataAllocated or GetMetadataDelta and assert status.Code(err).
-func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault types.AnyType,
+func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault vim25types.AnyType,
 	faultMsg string, isDelta bool, wantCode codes.Code) {
 	t.Run(name, func(t *testing.T) {
 		ct := getControllerTest(t)
@@ -628,7 +600,8 @@ func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault types.AnyTy
 		origHook := cnsvolume.QueryChangedDiskAreasHook
 		defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
 		cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
-			volumeID types.ID, snapshotID types.ID, startingOffset int64, changeID string) (*types.DiskChangeInfo, error) {
+			volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64,
+			changeID string) (*vim25types.DiskChangeInfo, error) {
 			return nil, makeFCDSoapFault(vimFault, faultMsg)
 		}
 
@@ -658,36 +631,36 @@ func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault types.AnyTy
 
 // TestGetMetadataAllocated_PreservesVSLMErrorCode verifies that for
 // GetMetadataAllocated the controller surfaces the gRPC code chosen by
-// cnsvolume.TranslateVslmError instead of clobbering it with codes.Internal.
+// volume.TranslateVslmError instead of clobbering it with codes.Internal.
 func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
 	// noTrack -> CBT not enabled -> FailedPrecondition.
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_noTrack",
-		&types.FileFault{
-			VimFault: types.VimFault{
-				MethodFault: types.MethodFault{
-					FaultMessage: []types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noTrack"}},
+		&vim25types.FileFault{
+			VimFault: vim25types.VimFault{
+				MethodFault: vim25types.MethodFault{
+					FaultMessage: []vim25types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noTrack"}},
 				},
 			},
 		}, "", false, codes.FailedPrecondition)
 
 	// startOffset out of range -> OutOfRange.
 	runVSLMErrorPropagationCase(t, "OutOfRange_startOffset",
-		&types.InvalidArgument{InvalidProperty: "startOffset"}, "",
+		&vim25types.InvalidArgument{InvalidProperty: "startOffset"}, "",
 		false, codes.OutOfRange)
 
 	// snapshotId not found -> NotFound.
 	runVSLMErrorPropagationCase(t, "NotFound_snapshotId",
-		&types.InvalidArgument{InvalidProperty: "snapshotId"}, "",
+		&vim25types.InvalidArgument{InvalidProperty: "snapshotId"}, "",
 		false, codes.NotFound)
 
 	// changeId malformed -> InvalidArgument.
 	runVSLMErrorPropagationCase(t, "InvalidArgument_changeId",
-		&types.InvalidArgument{InvalidProperty: "changeId"}, "",
+		&vim25types.InvalidArgument{InvalidProperty: "changeId"}, "",
 		false, codes.InvalidArgument)
 
 	// Generic VSLM SystemError -> Internal (already-wrapped case still works).
 	runVSLMErrorPropagationCase(t, "Internal_systemError",
-		&types.SystemError{}, "", false, codes.Internal)
+		&vim25types.SystemError{}, "", false, codes.Internal)
 }
 
 // TestGetMetadataDelta_PreservesVSLMErrorCode is the same end-to-end
@@ -695,19 +668,19 @@ func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
 // QueryFCDChangedBlocks under the hood).
 func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_noEpoch",
-		&types.FileFault{
-			VimFault: types.VimFault{
-				MethodFault: types.MethodFault{
-					FaultMessage: []types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noEpoch"}},
+		&vim25types.FileFault{
+			VimFault: vim25types.VimFault{
+				MethodFault: vim25types.MethodFault{
+					FaultMessage: []vim25types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noEpoch"}},
 				},
 			},
 		}, "", true, codes.FailedPrecondition)
 
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_corruptCTK",
-		&types.FileFault{
-			VimFault: types.VimFault{
-				MethodFault: types.MethodFault{
-					FaultMessage: []types.LocalizableMessage{
+		&vim25types.FileFault{
+			VimFault: vim25types.VimFault{
+				MethodFault: vim25types.MethodFault{
+					FaultMessage: []vim25types.LocalizableMessage{
 						{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges", Message: "file is corrupted"},
 					},
 				},
@@ -715,10 +688,10 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 		}, "file is corrupted", true, codes.FailedPrecondition)
 
 	runVSLMErrorPropagationCase(t, "InvalidArgument_changeIDMismatch",
-		&types.FileFault{
-			VimFault: types.VimFault{
-				MethodFault: types.MethodFault{
-					FaultMessage: []types.LocalizableMessage{
+		&vim25types.FileFault{
+			VimFault: vim25types.VimFault{
+				MethodFault: vim25types.MethodFault{
+					FaultMessage: []vim25types.LocalizableMessage{
 						{Key: "vim.hostd.vmsvc.cbt.cannotGetChanges"},
 					},
 				},
@@ -726,5 +699,182 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 		}, "", true, codes.InvalidArgument)
 
 	runVSLMErrorPropagationCase(t, "NotFound_FCD",
-		&types.NotFound{}, "", true, codes.NotFound)
+		&vim25types.NotFound{}, "", true, codes.NotFound)
+}
+
+// TestGetMetadataAllocated_Pagination verifies that GetMetadataAllocated streams
+// multiple server.Send() messages when the total allocated blocks exceed maxResults
+// per batch. This is the core bug that caused tc_008 to fail: the old code called
+// server.Send once and ignored nextOffset, truncating the result stream.
+func TestGetMetadataAllocated_Pagination(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
+
+	origVolumeManager := ct.controller.manager.VolumeManager
+	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
+	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
+
+	volumeCapacityBytes := int64(1 * common.GbInBytes)
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-alloc-pagination",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: volumeCapacityBytes,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("Failed to create volume: %v", err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
+
+	// Stub the hook to return areas in multiple pages to exercise VADP pagination.
+	// With maxResults=1 the controller will also batch the returned areas,
+	// issuing 3 separate server.Send() calls.
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64,
+		changeID string) (*vim25types.DiskChangeInfo, error) {
+
+		var area []vim25types.DiskChangeExtent
+		var length int64
+
+		switch startingOffset {
+		case 0:
+			area = []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 4096},
+				{Start: 4096, Length: 4096},
+			}
+			length = 8192
+		case 8192:
+			area = []vim25types.DiskChangeExtent{
+				{Start: 8192, Length: 4096},
+			}
+			length = volumeCapacityBytes - 8192
+		default:
+			area = nil
+			length = volumeCapacityBytes - startingOffset
+		}
+
+		return &vim25types.DiskChangeInfo{
+			StartOffset: startingOffset,
+			Length:      length,
+			ChangedArea: area,
+		}, nil
+	}
+
+	srv := &mockAllocatedServer{ctx: ctx, t: t}
+	req := &csi.GetMetadataAllocatedRequest{
+		SnapshotId: volID + "+snapshot-pagination",
+		MaxResults: 1, // force one area per Send() call
+	}
+
+	if err := ct.controller.GetMetadataAllocated(req, srv); err != nil {
+		t.Fatalf("GetMetadataAllocated returned unexpected error: %v", err)
+	}
+
+	if srv.sendCount != 3 {
+		t.Errorf("Expected 3 server.Send() calls (one per block batch), got %d", srv.sendCount)
+	}
+	if len(srv.allBlocks) != 3 {
+		t.Errorf("Expected 3 total BlockMetadata entries, got %d", len(srv.allBlocks))
+	}
+}
+
+// TestGetMetadataDelta_Pagination is the equivalent pagination test for
+// GetMetadataDelta: verifies that multiple server.Send() calls are issued
+// when changed blocks span more than one maxResults-sized batch.
+func TestGetMetadataDelta_Pagination(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrchestrator := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
+
+	origVolumeManager := ct.controller.manager.VolumeManager
+	ct.controller.manager.VolumeManager = &mockVolumeManager{Manager: origVolumeManager}
+	defer func() { ct.controller.manager.VolumeManager = origVolumeManager }()
+
+	volumeCapacityBytes := int64(1 * common.GbInBytes)
+
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-delta-pagination",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: volumeCapacityBytes,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("Failed to create volume: %v", err)
+	}
+	volID := respCreate.Volume.VolumeId
+
+	origHook := cnsvolume.QueryChangedDiskAreasHook
+	defer func() { cnsvolume.QueryChangedDiskAreasHook = origHook }()
+
+	cnsvolume.QueryChangedDiskAreasHook = func(ctx context.Context, vcenter *cnsvsphere.VirtualCenter,
+		volumeID vim25types.ID, snapshotID vim25types.ID, startingOffset int64,
+		changeID string) (*vim25types.DiskChangeInfo, error) {
+
+		var area []vim25types.DiskChangeExtent
+		var length int64
+
+		switch startingOffset {
+		case 0:
+			area = []vim25types.DiskChangeExtent{
+				{Start: 0, Length: 4096},
+				{Start: 4096, Length: 4096},
+			}
+			length = 8192
+		case 8192:
+			area = []vim25types.DiskChangeExtent{
+				{Start: 8192, Length: 4096},
+			}
+			length = volumeCapacityBytes - 8192
+		default:
+			area = nil
+			length = volumeCapacityBytes - startingOffset
+		}
+
+		return &vim25types.DiskChangeInfo{
+			StartOffset: startingOffset,
+			Length:      length,
+			ChangedArea: area,
+		}, nil
+	}
+
+	srv := &mockDeltaServer{ctx: ctx, t: t}
+	req := &csi.GetMetadataDeltaRequest{
+		BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+		TargetSnapshotId: volID + "+snapshot-pagination",
+		MaxResults:       1, // force one area per Send() call
+	}
+
+	if err := ct.controller.GetMetadataDelta(req, srv); err != nil {
+		t.Fatalf("GetMetadataDelta returned unexpected error: %v", err)
+	}
+
+	if srv.sendCount != 3 {
+		t.Errorf("Expected 3 server.Send() calls (one per block batch), got %d", srv.sendCount)
+	}
+	if len(srv.allBlocks) != 3 {
+		t.Errorf("Expected 3 total BlockMetadata entries, got %d", len(srv.allBlocks))
+	}
 }
