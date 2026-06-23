@@ -190,6 +190,12 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		if err != nil {
 			log.Warnf("FullSync: Failed to set change-id annotation on guest cluster snapshot. Err: %v", err)
 		}
+
+		// Mirror the cns.vmware.com/cbt-active label from each Supervisor PVC onto the
+		// corresponding guest cluster PVC, keeping CBT visibility in sync across both clusters.
+		if err1 := syncGuestPvcCBTLabel(ctx, metadataSyncer, supervisorNamespace); err1 != nil {
+			log.Warnf("FullSync: Failed to mirror CBT label to guest PVCs. Err: %v", err1)
+		}
 	}
 	log.Infof("FullSync: End")
 	return nil
@@ -835,6 +841,129 @@ func reconcileGuestSnapshotAnnotation(
 			common.VolumeSnapshotChangeIDKey, supervisorChangeID)
 		return nil
 	}
+	return nil
+}
+
+// syncGuestPvcCBTLabel mirrors cns.vmware.com/cbt-active label from each Supervisor PVC onto the
+// corresponding guest cluster PVC so that data-protection consumers on the guest can use the same
+// label selector to discover CBT-eligible volumes without additional CNS queries.
+//
+// For every bound vSphere block-volume PV in the guest cluster the function:
+//  1. Reads all Supervisor PVCs for the guest namespace with a single List call (N API-server
+//     round-trips → 1) and indexes them by name.
+//  2. Compares the cns.vmware.com/cbt-active label on the supervisor PVC with the guest PVC (read
+//     from the informer cache).
+//  3. Applies a JSON merge-patch to add or remove the label when they differ.
+//
+// Failures per PVC are logged at Warn and skipped; the next fullsync tick re-converges.
+func syncGuestPvcCBTLabel(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	log.Debugf("syncGuestPvcCBTLabel: starting CBT label mirror for supervisor namespace %q", supervisorNamespace)
+
+	pvList, err := getPVsInBoundAvailableOrReleased(ctx, metadataSyncer)
+	if err != nil {
+		return fmt.Errorf("syncGuestPvcCBTLabel: failed to list guest PVs: %w", err)
+	}
+
+	// Pre-filter to the PVs that actually need CBT processing.
+	type guestPVs struct {
+		svPVCName      string
+		guestNamespace string
+		guestPVCName   string
+	}
+	var filteredGuestPVs []guestPVs
+	for _, pv := range pvList {
+		if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != common.VSphereCSIDriverName ||
+			pv.Spec.CSI.VolumeHandle == "" {
+			continue
+		}
+		if pv.Spec.CSI.VolumeAttributes == nil ||
+			pv.Spec.CSI.VolumeAttributes[common.AttributeDiskType] != common.DiskTypeBlockVolume {
+			continue
+		}
+		if pv.Status.Phase != v1.VolumeBound || pv.Spec.ClaimRef == nil {
+			continue
+		}
+		filteredGuestPVs = append(filteredGuestPVs, guestPVs{
+			svPVCName:      pv.Spec.CSI.VolumeHandle,
+			guestNamespace: pv.Spec.ClaimRef.Namespace,
+			guestPVCName:   pv.Spec.ClaimRef.Name,
+		})
+	}
+
+	if len(filteredGuestPVs) == 0 {
+		log.Debugf("syncGuestPvcCBTLabel: no filteredGuestPVs block PVs found; nothing to do")
+		return nil
+	}
+
+	// Fetch all supervisor PVCs for the guest namespace in a single List call and index them by name
+	// so the per-PV loop below is O(1) with no additional round-trips to the API server.
+	svPVCList, err := metadataSyncer.supervisorClient.CoreV1().
+		PersistentVolumeClaims(supervisorNamespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("syncGuestPvcCBTLabel: failed to list supervisor PVCs in namespace %q: %w",
+			supervisorNamespace, err)
+	}
+	svPVCByName := make(map[string]*v1.PersistentVolumeClaim, len(svPVCList.Items))
+	for i := range svPVCList.Items {
+		svPVCByName[svPVCList.Items[i].Name] = &svPVCList.Items[i]
+	}
+
+	guestKubeClient, err := k8sNewClient(ctx)
+	if err != nil {
+		return fmt.Errorf("syncGuestPvcCBTLabel: failed to create guest kube client: %w", err)
+	}
+
+	patched, skipped := 0, 0
+	for _, e := range filteredGuestPVs {
+		svPVC, ok := svPVCByName[e.svPVCName]
+		if !ok {
+			log.Warnf("syncGuestPvcCBTLabel: supervisor PVC %q not found in namespace %q; skipping",
+				e.svPVCName, supervisorNamespace)
+			skipped++
+			continue
+		}
+
+		svHasLabel := svPVC.Labels[isCBTActiveLabel] == isCBTActiveLabelVal
+
+		guestPVC, err := metadataSyncer.pvcLister.
+			PersistentVolumeClaims(e.guestNamespace).Get(e.guestPVCName)
+		if err != nil {
+			log.Warnf("syncGuestPvcCBTLabel: failed to get guest PVC %s/%s: %v; skipping",
+				e.guestNamespace, e.guestPVCName, err)
+			skipped++
+			continue
+		}
+
+		if (guestPVC.Labels[isCBTActiveLabel] == isCBTActiveLabelVal) == svHasLabel {
+			continue // already in sync
+		}
+
+		patchBytes, err := buildCBTLabelPatch(svHasLabel)
+		if err != nil {
+			log.Warnf("syncGuestPvcCBTLabel: failed to build patch for guest PVC %s/%s: %v",
+				e.guestNamespace, e.guestPVCName, err)
+			skipped++
+			continue
+		}
+		if _, err = guestKubeClient.CoreV1().PersistentVolumeClaims(e.guestNamespace).
+			Patch(ctx, e.guestPVCName, types.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+			log.Warnf("syncGuestPvcCBTLabel: failed to patch guest PVC %s/%s: %v",
+				e.guestNamespace, e.guestPVCName, err)
+			skipped++
+			continue
+		}
+		patched++
+		if svHasLabel {
+			log.Infof("syncGuestPvcCBTLabel: added %s on guest PVC %s/%s (supervisor PVC %s)",
+				isCBTActiveLabel, e.guestNamespace, e.guestPVCName, e.svPVCName)
+		} else {
+			log.Infof("syncGuestPvcCBTLabel: removed %s from guest PVC %s/%s (supervisor PVC %s)",
+				isCBTActiveLabel, e.guestNamespace, e.guestPVCName, e.svPVCName)
+		}
+	}
+	log.Infof("syncGuestPvcCBTLabel: completed — %d PVC(s) patched, %d skipped", patched, skipped)
 	return nil
 }
 
