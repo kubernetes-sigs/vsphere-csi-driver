@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"math"
 	"os"
 	"reflect"
 	"sync"
@@ -40,6 +41,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -96,6 +99,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		c := &controller{
 			supervisorClient:    supervisorClient,
 			supervisorNamespace: supervisorNamespace,
+			topologyEnabled:     true,
 		}
 		commonco.ContainerOrchestratorUtility, err =
 			unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
@@ -442,6 +446,45 @@ func createTestTopologyRequirement() *csi.TopologyRequirement {
 		Preferred: []*csi.Topology{topology},
 	}
 	return topologyRequirement
+}
+
+// TestGetCapacity_TopologyDisabled_ZoneIgnored verifies that GetCapacity returns
+// full capacity (MaxInt64) on a non-topology Guest Cluster even when
+// csi-provisioner 6.1.1 populates AccessibleTopology in the request.
+//
+// Without the c.topologyEnabled guard, the WorkloadDomainIsolationFSS block
+// would execute with a nil zonesMap (fake returns nil for non-topology clusters)
+// and return an error, stalling all capacity-based scheduling.
+func TestGetCapacity_TopologyDisabled_ZoneIgnored(t *testing.T) {
+	tCtx := context.Background()
+
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("failed to get fake container orchestrator: %v", err)
+	}
+
+	oldCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	defer func() { commonco.ContainerOrchestratorUtility = oldCO }()
+
+	// topologyEnabled=false: simulates a non-topology (single-zone) Guest Cluster.
+	c := &controller{
+		supervisorNamespace: testNamespace,
+		topologyEnabled:     false,
+	}
+
+	// AccessibleTopology populated by csi-provisioner 6.1.1 even for non-topology clusters.
+	resp, err := c.GetCapacity(tCtx, &csi.GetCapacityRequest{
+		AccessibleTopology: &csi.Topology{
+			Segments: map[string]string{"topology.kubernetes.io/zone": "zone-1"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("GetCapacity must not error when topologyEnabled=false, even with AccessibleTopology set: %v", err)
+	}
+	assert.Equal(t, int64(math.MaxInt64), resp.AvailableCapacity,
+		"capacity must be MaxInt64 (unlimited) when topologyEnabled=false")
 }
 
 // TestGenerateVolumeAccessibleTopologyFromPVCAnnotation helps unit test

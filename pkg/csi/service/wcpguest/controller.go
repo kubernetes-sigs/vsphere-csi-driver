@@ -88,6 +88,7 @@ type controller struct {
 	tanzukubernetesClusterUID   string
 	tanzukubernetesClusterName  string
 	guestClusterDist            string
+	topologyEnabled             bool
 	csi.UnimplementedControllerServer
 }
 
@@ -109,6 +110,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	c.tanzukubernetesClusterUID = config.GC.TanzuKubernetesClusterUID
 	c.tanzukubernetesClusterName = config.GC.TanzuKubernetesClusterName
 	c.guestClusterDist = config.GC.ClusterDistribution
+	c.topologyEnabled = config.GC.TopologyEnabled
 	c.restClientConfig = k8s.GetRestClientConfigForSupervisor(ctx, config.GC.Endpoint, config.GC.Port)
 	c.supervisorClient, err = k8s.NewSupervisorClient(ctx, c.restClientConfig)
 	if err != nil {
@@ -394,6 +396,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				labels[key] = c.tanzukubernetesClusterUID
 				if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 					req.AccessibilityRequirements != nil &&
+					c.topologyEnabled &&
 					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
@@ -519,6 +522,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		var accessibleTopologies []map[string]string
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) &&
 			req.AccessibilityRequirements != nil &&
+			c.topologyEnabled &&
 			(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 				!isFileVolumeRequest) {
 			// Retrieve the latest version of the PVC
@@ -1511,7 +1515,8 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	totalcapacity := int64(math.MaxInt64)
 	maxvolumesize := int64(math.MaxInt64)
 
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
+	if c.topologyEnabled &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) {
 		zonesMap := commonco.ContainerOrchestratorUtility.GetZonesForNamespace(c.supervisorNamespace)
 		if req.AccessibleTopology != nil {
 			if zonesMap == nil {
