@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -41,7 +42,6 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -1149,27 +1149,31 @@ func updateInstanceVolumeStatus(
 		trimmedError, conditionType, reason)
 }
 
-// isVmInSameNamespace checks whether the VM with the given instanceUUID is in the
-// same namespace as the batchattach instance and the PVCs.
+// isVmInSameNamespace checks whether the VM with the given name and instanceUUID
+// exists in the same namespace as the batchattach instance and the PVCs.
+//
+// The CnsNodeVMBatchAttachment name equals the VM CR name by convention, so a
+// targeted Get replaces the previous namespace-wide List + UUID scan. This cuts
+// the API-server load from O(n) (all VMs in namespace) to O(1) per reconcile,
+// which is significant under high thread counts with many VMs per namespace.
 func isVmInSameNamespace(ctx context.Context, vmOperatorClient client.Client,
-	instanceUUID string, namespace string) (bool, error) {
+	vmName string, instanceUUID string, namespace string) (bool, error) {
 	log := logger.GetLogger(ctx)
-	vmList, err := utils.ListVirtualMachines(ctx, vmOperatorClient, namespace)
+	vm := &vmoperatortypes.VirtualMachine{}
+	err := vmOperatorClient.Get(ctx, types.NamespacedName{Name: vmName, Namespace: namespace}, vm)
 	if err != nil {
-		msg := fmt.Sprintf("failed to list virtualmachines with error: %+v", err)
-		log.Error(msg)
+		if apierrors.IsNotFound(err) {
+			log.Infof("VM CR %s not found in namespace %s", vmName, namespace)
+			return false, nil
+		}
+		log.Errorf("failed to get VM CR %s in namespace %s: %+v", vmName, namespace, err)
 		return false, err
 	}
-	for _, vmInstance := range vmList.Items {
-		if vmInstance.Status.InstanceUUID == instanceUUID {
-			msg := fmt.Sprintf("VM CR with instance UUID: %s found in namespace: %s",
-				instanceUUID, namespace)
-			log.Info(msg)
-			return true, nil
-		}
+	if vm.Status.InstanceUUID != instanceUUID {
+		log.Infof("VM CR %s found in namespace %s but InstanceUUID %s does not match expected %s",
+			vmName, namespace, vm.Status.InstanceUUID, instanceUUID)
+		return false, nil
 	}
-	msg := fmt.Sprintf("VM CR with InstanceUUID: %s not found in namespace: %s",
-		instanceUUID, namespace)
-	log.Info(msg)
-	return false, nil
+	log.Infof("VM CR %s with instance UUID %s found in namespace %s", vmName, instanceUUID, namespace)
+	return true, nil
 }

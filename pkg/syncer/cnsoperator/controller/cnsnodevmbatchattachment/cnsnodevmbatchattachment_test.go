@@ -157,7 +157,7 @@ func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAtt
 
 	vm1 := &vmoperatortypes.VirtualMachine{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
+			Name:      testCnsNodeVMBatchAttachmentName,
 			Namespace: testNamespace,
 		},
 		Status: vmoperatortypes.VirtualMachineStatus{
@@ -2197,7 +2197,7 @@ func TestIsVmInSameNamespace_Found(t *testing.T) {
 		WithObjects(vm).
 		Build()
 
-	found, err := isVmInSameNamespace(ctx, vmClient, instanceUUID, namespace)
+	found, err := isVmInSameNamespace(ctx, vmClient, "test-vm", instanceUUID, namespace)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2234,7 +2234,9 @@ func TestIsVmInSameNamespace_NotFound(t *testing.T) {
 		WithObjects(vm).
 		Build()
 
-	found, err := isVmInSameNamespace(ctx, vmClient, instanceUUID, namespace)
+	// "other-vm" exists but its UUID ("different-uuid") does not match
+	// "missing-uuid", so the function must return false.
+	found, err := isVmInSameNamespace(ctx, vmClient, "other-vm", instanceUUID, namespace)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
