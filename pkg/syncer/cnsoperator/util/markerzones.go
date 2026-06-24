@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,7 +39,7 @@ var vpcNetworkConfigurationGVR = schema.GroupVersionResource{
 const (
 	// AnnotationVPCNetworkConfig is set on supervisor namespaces; value is the VPCNetworkConfiguration CR name.
 	AnnotationVPCNetworkConfig = "nsx.vmware.com/vpc_network_config"
-	// NamespaceLabelFVSInstance marks FVS instance namespaces.
+	// NamespaceLabelFVSInstance marks FVS instance namespaces (supervisor namespaces that host FileVolume CRs).
 	// Expected label value is "true".
 	NamespaceLabelFVSInstance = "fvs_instance_namespace"
 )
@@ -87,12 +88,11 @@ func VPCPathForNamespace(ctx context.Context, dc dynamic.Interface,
 	return path, nil
 }
 
-// GetZonesForvSANFileServiceMarkerPolicy returns the union of zones (via zonesFn) across ALL
-// fvs_instance_namespace=true namespaces that carry the AnnotationVPCNetworkConfig annotation.
-// This is the cluster-wide accessible zone algorithm for the vSAN File Service marker policy,
-// used to populate InfraStoragePolicyInfo.
-func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
-	k8sClient kubernetes.Interface,
+// collectFVSZones iterates over all fvs_instance_namespace=true namespaces and calls zonesFn on
+// each one whose VPC path satisfies matchVPCPath (empty string means accept all VPC paths).
+// Returns the sorted union of all zone sets returned by zonesFn.
+func collectFVSZones(ctx context.Context, dc dynamic.Interface,
+	k8sClient kubernetes.Interface, matchVPCPath string,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -106,11 +106,28 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	zonesSet := make(map[string]struct{})
 	for i := range nsList.Items {
 		ns := &nsList.Items[i]
-		if ns.Annotations[AnnotationVPCNetworkConfig] == "" {
-			log.Debugf("Skipping namespace %q: missing %q annotation",
-				ns.Name, AnnotationVPCNetworkConfig)
+		crName := ns.Annotations[AnnotationVPCNetworkConfig]
+		if crName == "" {
+			log.Debugf("Skipping namespace %q: missing %q annotation", ns.Name, AnnotationVPCNetworkConfig)
 			continue
 		}
+
+		if matchVPCPath != "" {
+			cr, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, crName, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Debugf("VPCNetworkConfiguration %q for namespace %q not found; skipping",
+						crName, ns.Name)
+					continue
+				}
+				return nil, fmt.Errorf("get VPCNetworkConfiguration %q for namespace %q: %w",
+					crName, ns.Name, err)
+			}
+			if vpcPathFromVPCNetworkConfiguration(cr) != matchVPCPath {
+				continue
+			}
+		}
+
 		nsZones := zonesFn(ns.Name)
 		log.Debugf("Namespace %q contributes zones: %v", ns.Name, nsZones)
 		for z := range nsZones {
@@ -122,6 +139,46 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	for z := range zonesSet {
 		zones = append(zones, z)
 	}
+	return zones, nil
+}
+
+// GetZonesForvSANFileServiceMarkerPolicy returns the union of zones (via zonesFn) across ALL
+// fvs_instance_namespace=true namespaces that carry the AnnotationVPCNetworkConfig annotation.
+// This is the cluster-wide accessible zone algorithm for the vSAN File Service marker policy,
+// used to populate InfraStoragePolicyInfo.
+func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
+	k8sClient kubernetes.Interface,
+	zonesFn func(string) map[string]struct{}) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	zones, err := collectFVSZones(ctx, nil, k8sClient, "", zonesFn)
+	if err != nil {
+		return nil, err
+	}
 	log.Infof("Accessible zones for vSAN File Service: %v", zones)
+	return zones, nil
+}
+
+// GetZonesForvSANFileServiceMarkerPolicyByNamespace returns the union of zones (via zonesFn)
+// across all fvs_instance_namespace=true namespaces whose VPC path matches the consumer
+// namespace's VPC path.
+// This is the per-namespace accessible zone algorithm for the vSAN File Service marker policy,
+// used to populate namespace-level StoragePolicyInfo.
+func GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx context.Context, dc dynamic.Interface,
+	k8sClient kubernetes.Interface, namespace string,
+	zonesFn func(string) map[string]struct{}) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	consumerVPCPath, err := VPCPathForNamespace(ctx, dc, k8sClient, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve VPC path for namespace %q: %w", namespace, err)
+	}
+	log.Infof("Namespace %q has VPC path %q", namespace, consumerVPCPath)
+
+	zones, err := collectFVSZones(ctx, dc, k8sClient, consumerVPCPath, zonesFn)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("Namespace %q marker-policy accessible zones: %v", namespace, zones)
 	return zones, nil
 }

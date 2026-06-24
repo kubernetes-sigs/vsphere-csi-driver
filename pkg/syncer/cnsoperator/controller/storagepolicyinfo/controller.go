@@ -30,6 +30,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
@@ -78,6 +80,9 @@ const (
 	// spiNameIndexField is the field index key used to look up StoragePolicyInfo
 	// objects by name, enabling efficient cross-namespace lookups in mapInfraSPItoSPI.
 	spiNameIndexField = ".metadata.name"
+	// spiMarkerIndexField is the field index key used to list only marker-policy
+	// StoragePolicyInfo objects in mapFVSNamespaceToMarkerSPIs.
+	spiMarkerIndexField = "isMarkerPolicy"
 )
 
 // Add registers the StoragePolicyInfo controller with the Manager (WCP / Workload only).
@@ -100,6 +105,17 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	cfg, err := restclient.InClusterConfig()
+	if err != nil {
+		log.Errorf("getting in-cluster config failed. Err: %v", err)
+		return err
+	}
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("creating dynamic client failed. Err: %v", err)
+		return err
+	}
+
 	if err := commonco.ContainerOrchestratorUtility.StartZonesInformer(
 		ctx, nil, metav1.NamespaceAll); err != nil {
 		return logger.LogNewErrorf(log, "failed to start zone informer for StoragePolicyInfo controller. Err: %v", err)
@@ -112,19 +128,37 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder, commonco.ContainerOrchestratorUtility))
+
+	// Marker-policy topology support (the marker field index, the FVS-namespace
+	// watch, and the syncMarkerPolicyTopology branch) is a distinct feature gated
+	// by the VsanFileVolumeService capability. Regular policy topology reconciles
+	// regardless of this flag.
+	markerPolicyEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService)
+	if !markerPolicyEnabled {
+		log.Infof("StoragePolicyInfo Controller: capability %q is not activated; "+
+			"marker-policy topology support is disabled", common.VsanFileVolumeService)
+	}
+
+	return add(mgr, newReconciler(mgr, configInfo, recorder,
+		commonco.ContainerOrchestratorUtility,
+		k8sclient, dynamicClient, markerPolicyEnabled))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
-	recorder record.EventRecorder, zp zonesProvider) *ReconcileStoragePolicyInfo {
+	recorder record.EventRecorder, zp zonesProvider,
+	k8sClient kubernetes.Interface, dynamicClient dynamic.Interface,
+	markerPolicyEnabled bool) *ReconcileStoragePolicyInfo {
 
 	return &ReconcileStoragePolicyInfo{
-		client:          mgr.GetClient(),
-		scheme:          mgr.GetScheme(),
-		configInfo:      configInfo,
-		recorder:        recorder,
-		zonesProvider:   zp,
-		backOffDuration: make(map[apitypes.NamespacedName]time.Duration),
+		client:              mgr.GetClient(),
+		scheme:              mgr.GetScheme(),
+		configInfo:          configInfo,
+		recorder:            recorder,
+		zonesProvider:       zp,
+		k8sClient:           k8sClient,
+		dynamicClient:       dynamicClient,
+		markerPolicyEnabled: markerPolicyEnabled,
+		backOffDuration:     make(map[apitypes.NamespacedName]time.Duration),
 	}
 }
 
@@ -140,6 +174,23 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		}); err != nil {
 		log.Errorf("failed to add field index for StoragePolicyInfo name: %v", err)
 		return err
+	}
+
+	// Index StoragePolicyInfo by marker-policy membership so mapFVSNamespaceToMarkerSPIs
+	// can list only marker SPIs without a full cross-namespace scan. Only registered
+	// when marker-policy support is enabled; the index and the FVS-namespace watch
+	// below are wired together since the watch's map func lists by this index.
+	if r.markerPolicyEnabled {
+		if err := mgr.GetFieldIndexer().IndexField(ctx, &spiv1alpha1.StoragePolicyInfo{},
+			spiMarkerIndexField, func(obj client.Object) []string {
+				if common.IsvSANFileServiceMarkerPolicyName(obj.GetName()) {
+					return []string{"true"}
+				}
+				return nil
+			}); err != nil {
+			log.Errorf("failed to add field index for marker StoragePolicyInfo: %v", err)
+			return err
+		}
 	}
 
 	// Only reconcile on StoragePolicyQuota CREATE events. Updates to the quota
@@ -179,7 +230,35 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	// remaining CRs for that tick instead of blocking; see StartPeriodicResync.
 	resyncCh := make(chan event.GenericEvent, 256)
 
-	err := ctrl.NewControllerManagedBy(mgr).Named("storagepolicyinfo-controller").
+	// Trigger re-reconcile of marker-policy SPIs when an FVS instance namespace is
+	// created/deleted or its vpc_network_config annotation / fvs_instance_namespace
+	// label changes.
+	nsFVSPredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			if e.Object == nil {
+				return false
+			}
+			return e.Object.GetLabels()[util.NamespaceLabelFVSInstance] == "true"
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			oldAnnotation := e.ObjectOld.GetAnnotations()[util.AnnotationVPCNetworkConfig]
+			newAnnotation := e.ObjectNew.GetAnnotations()[util.AnnotationVPCNetworkConfig]
+			oldLabel := e.ObjectOld.GetLabels()[util.NamespaceLabelFVSInstance]
+			newLabel := e.ObjectNew.GetLabels()[util.NamespaceLabelFVSInstance]
+			return oldAnnotation != newAnnotation || oldLabel != newLabel
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			if e.Object == nil {
+				return false
+			}
+			return e.Object.GetLabels()[util.NamespaceLabelFVSInstance] == "true"
+		},
+	}
+
+	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).Named("storagepolicyinfo-controller").
 		For(&spiv1alpha1.StoragePolicyInfo{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
@@ -192,7 +271,20 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 			handler.EnqueueRequestsFromMapFunc(r.mapInfraSPItoSPI),
 			builder.WithPredicates(infraSPIPredicates),
 		).
-		WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{})).
+		WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{}))
+
+	// The FVS-namespace watch re-triggers marker-policy SPIs on namespace changes.
+	// Only wired when marker-policy support is enabled, matching the marker index
+	// above (mapFVSNamespaceToMarkerSPIs lists by that index).
+	if r.markerPolicyEnabled {
+		ctrlBuilder = ctrlBuilder.Watches(
+			&v1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.mapFVSNamespaceToMarkerSPIs),
+			builder.WithPredicates(nsFVSPredicate),
+		)
+	}
+
+	err := ctrlBuilder.
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
@@ -267,6 +359,38 @@ func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 	return reqs
 }
 
+// mapFVSNamespaceToMarkerSPIs maps an FVS instance namespace event to reconcile
+// requests for all marker-policy StoragePolicyInfo CRs across all namespaces.
+// Marker policy topology depends on FVS instance namespace membership and VPC path,
+// so any relevant namespace change must re-trigger all marker SPI reconciliations.
+// If the list call below fails, the event is dropped, but the periodic slow-sync
+// reconcile independently re-syncs marker-policy topology.
+func (r *ReconcileStoragePolicyInfo) mapFVSNamespaceToMarkerSPIs(ctx context.Context,
+	_ client.Object) []reconcile.Request {
+	log := logger.GetLogger(ctx)
+
+	spiList := &spiv1alpha1.StoragePolicyInfoList{}
+	if err := r.client.List(ctx, spiList,
+		client.MatchingFields{spiMarkerIndexField: "true"}); err != nil {
+		log.Errorf("mapFVSNamespaceToMarkerSPIs: failed to list marker StoragePolicyInfo: %v", err)
+		return nil
+	}
+
+	if len(spiList.Items) == 0 {
+		return nil
+	}
+	reqs := make([]reconcile.Request, len(spiList.Items))
+	for i := range spiList.Items {
+		reqs[i] = reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{
+				Namespace: spiList.Items[i].Namespace,
+				Name:      spiList.Items[i].Name,
+			},
+		}
+	}
+	return reqs
+}
+
 var _ reconcile.Reconciler = &ReconcileStoragePolicyInfo{}
 
 // ReconcileStoragePolicyInfo reconciles StoragePolicyInfo objects.
@@ -276,6 +400,13 @@ type ReconcileStoragePolicyInfo struct {
 	configInfo    *config.ConfigurationInfo
 	recorder      record.EventRecorder
 	zonesProvider zonesProvider
+	k8sClient     kubernetes.Interface
+	dynamicClient dynamic.Interface
+	// markerPolicyEnabled mirrors the VsanFileVolumeService capability read at
+	// controller start. When false, marker-policy topology support (the marker
+	// field index, the FVS-namespace watch, and the syncMarkerPolicyTopology
+	// branch) is disabled and only regular policy topology is reconciled.
+	markerPolicyEnabled bool
 	// backOffDuration tracks per-instance requeue delays, incremented
 	// exponentially on failure and reset to 1s on success. A value greater than
 	// one second means the instance is currently backed off after a failure;
@@ -456,10 +587,20 @@ func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Co
 // syncTopologyFromInfraSPI copies topology information from the cluster-scoped
 // InfraStoragePolicyInfo into the namespace-scoped StoragePolicyInfo status,
 // filtering accessible zones down to only those assigned to the namespace.
+// For marker policies the zone set is derived from FVS instance namespaces that
+// share the consumer namespace's VPC path, bypassing the standard namespace filter.
 func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
 	log := logger.GetLogger(ctx)
+
+	// Marker policies derive namespace-level zones from VPC/FVS instance namespace
+	// topology rather than from InfraSPI zones filtered by namespace Zone CRs. This
+	// path is only taken when marker-policy support is enabled; otherwise a marker
+	// policy falls through to the regular namespace-filtered topology path.
+	if r.markerPolicyEnabled && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
+		return r.syncMarkerPolicyTopology(ctx, instance, infraSPI)
+	}
 
 	if infraSPI.Status.Topology == nil {
 		log.Debugf("InfraStoragePolicyInfo %q has no topology; clearing StoragePolicyInfo topology",
@@ -479,6 +620,43 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 		instance.Namespace, instance.Name,
 		instance.Status.TopologyInfo.TopologyType,
 		instance.Status.TopologyInfo.AccessibleZones)
+	return nil
+}
+
+// syncMarkerPolicyTopology populates the namespace-scoped StoragePolicyInfo
+// topology for a marker policy by deriving accessible zones from FVS instance
+// namespaces that share the consumer namespace's VPC path, bypassing the
+// standard InfraSPI-zones-filtered-by-namespace-Zone-CRs path used for
+// regular policies.
+func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Context,
+	instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+	log := logger.GetLogger(ctx)
+
+	log.Infof("syncTopologyFromInfraSPI: %q is a marker policy; deriving zones from FVS instance namespaces",
+		instance.Name)
+	if infraSPI.Status.Topology == nil || infraSPI.Status.Topology.TopologyType == "" {
+		log.Debugf("syncTopologyFromInfraSPI: marker policy %q has no topology type; clearing topology",
+			instance.Name)
+		instance.Status.TopologyInfo = nil
+		return nil
+	}
+
+	zonesFn := func(ns string) map[string]struct{} {
+		return r.zonesProvider.GetZonesForNamespace(ns)
+	}
+	zones, err := util.GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx, r.dynamicClient, r.k8sClient,
+		instance.Namespace, zonesFn)
+	if err != nil {
+		return fmt.Errorf("failed to compute marker-policy zones for namespace %q: %w",
+			instance.Namespace, err)
+	}
+	instance.Status.TopologyInfo = &spiv1alpha1.Topology{
+		TopologyType:    infraSPI.Status.Topology.TopologyType,
+		AccessibleZones: zones,
+	}
+	log.Infof("syncTopologyFromInfraSPI: marker policy %q namespace %q zones: %v",
+		instance.Name, instance.Namespace, zones)
 	return nil
 }
 
