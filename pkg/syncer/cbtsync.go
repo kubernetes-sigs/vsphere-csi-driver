@@ -43,14 +43,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 const (
 	workerThreadsCBTReconcileOpsEnvVar  = "WORKER_THREADS_CBT_RECONCILE_OPS"
 	defaultWorkerThreadsCBTReconcileOps = 4
-
-	vmServiceVMAnnotationPrefix = "cns.vmware.com/usedby-vm-"
 
 	// isCBTActiveLabel is set to "true" on a PVC whose underlying CNS volume currently
 	// has ChangedBlockTracking enabled, and is absent when CBT is disabled. The label
@@ -587,7 +586,7 @@ func pvcEligibleForCBTChange(ctx context.Context,
 		return false
 	}
 	for key := range pvc.Annotations {
-		if strings.HasPrefix(key, vmServiceVMAnnotationPrefix) {
+		if strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
 			log.Debugf("pvcEligibleForCBTChange: PVC %s/%s is in use by a VM Service VM; skipping",
 				pvc.Namespace, pvc.Name)
 			return false

@@ -187,8 +187,8 @@ func TestIsPVCAttachedToVM_Annotation(t *testing.T) {
 			Name:      "test-pvc",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"csi.vsphere.encryption-class":         "my-encryption-class",
-				usedByVMAnnotationPrefix + "vm-uuid-1": "",
+				"csi.vsphere.encryption-class":                          "my-encryption-class",
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid-1": "",
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -231,7 +231,7 @@ func TestIsPVCAttachedToVM_AnnotationTakesPrecedence(t *testing.T) {
 			Name:      "test-pvc",
 			Namespace: "default",
 			Annotations: map[string]string{
-				usedByVMAnnotationPrefix + "vm-uuid-2": "",
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid-2": "",
 			},
 			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
 		},

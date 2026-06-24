@@ -40,12 +40,6 @@ import (
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
-// usedByVMAnnotationPrefix is the prefix of the annotation that the
-// CnsNodeVMBatchAttachment controller writes on a PVC when it is attached to a VM
-// (as "cns.vmware.com/usedby-vm-<vm-instance-uuid>"). It mirrors vmServiceVMAnnotationPrefix
-// in cbtsync.go and attachedVmPrefix in the attachment controllers.
-const usedByVMAnnotationPrefix = "cns.vmware.com/usedby-vm-"
-
 func AddToManager(ctx context.Context, mgr manager.Manager, opts ctrlcommoon.Options) error {
 	var (
 		controlledType     = &corev1.PersistentVolumeClaim{}
@@ -210,8 +204,8 @@ func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolum
 // deferred to VM Operator). It relies on two CSI-maintained signals already present on the
 // PVC object, so it needs no VirtualMachine API access (no listing, no informer):
 //
-//   - the cns.vmware.com/usedby-vm-<uuid> annotation, written by the CnsNodeVMBatchAttachment
-//     controller on attach and removed on detach; and
+//   - the cnsoperatortypes.UsedByVMAnnotationPrefix annotation (cns.vmware.com/usedby-vm-<uuid>),
+//     written by the CnsNodeVMBatchAttachment controller on attach and removed on detach; and
 //   - the cns.vmware.com/pvc-protection finalizer (CNSPvcFinalizer), added by both the batch
 //     and the legacy single CnsNodeVMAttachment attach paths (and by cnsfileaccessconfig for
 //     file volumes, which are not encryptable anyway) and removed on detach.
@@ -222,8 +216,8 @@ func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolum
 // Returns (isAttached, detail) where detail is a short human-readable identifier for logging.
 func (r *reconciler) isPVCAttachedToVM(pvc *corev1.PersistentVolumeClaim) (bool, string) {
 	for key := range pvc.Annotations {
-		if strings.HasPrefix(key, usedByVMAnnotationPrefix) {
-			return true, "(VM instance UUID " + strings.TrimPrefix(key, usedByVMAnnotationPrefix) + ")"
+		if strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
+			return true, "(VM instance UUID " + strings.TrimPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) + ")"
 		}
 	}
 

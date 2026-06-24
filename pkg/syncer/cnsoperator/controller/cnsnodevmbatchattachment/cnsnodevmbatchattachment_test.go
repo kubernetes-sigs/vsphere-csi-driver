@@ -456,7 +456,7 @@ func TestReconcileWithoutDeletionTimestampWhenAttachFails(t *testing.T) {
 func TestAddPvcAnnotation(t *testing.T) {
 	ctx := context.TODO()
 	vmUUID := "test-vm-uuid"
-	expectedKey := attachedVmPrefix + vmUUID
+	expectedKey := cnsoperatortypes.UsedByVMAnnotationPrefix + vmUUID
 
 	tests := []struct {
 		name               string
@@ -530,7 +530,7 @@ func TestAddPvcAnnotation(t *testing.T) {
 func TestRemovePvcAnnotation(t *testing.T) {
 	ctx := context.TODO()
 	vmUUID := "test-vm-uuid"
-	annotationKey := attachedVmPrefix + vmUUID
+	annotationKey := cnsoperatortypes.UsedByVMAnnotationPrefix + vmUUID
 
 	tests := []struct {
 		name               string
@@ -640,16 +640,16 @@ func TestPvcHasUsedByAnnotation(t *testing.T) {
 		{
 			name: "Annotations with matching prefix",
 			annotations: map[string]string{
-				attachedVmPrefix + "vm-uuid": "attached",
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid": "attached",
 			},
 			expected: true,
 		},
 		{
 			name: "Multiple annotations, one with matching prefix",
 			annotations: map[string]string{
-				"foo":                           "bar",
-				attachedVmPrefix + "another-vm": "attached",
-				"something.else":                "value",
+				"foo": "bar",
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "another-vm": "attached",
+				"something.else": "value",
 			},
 			expected: true,
 		},
