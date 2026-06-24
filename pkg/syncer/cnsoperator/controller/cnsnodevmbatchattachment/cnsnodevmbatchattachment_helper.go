@@ -65,6 +65,11 @@ const (
 	// PVCEncryptionClassAnnotationName is a PVC annotation indicating the associated EncryptionClass
 	PVCEncryptionClassAnnotationName = "csi.vsphere.encryption-class"
 	MaxConditionMessageLength        = 32768
+
+	// maxConcurrentPVCFinalizers caps the number of PVCs whose protection
+	// finalizers are removed in parallel during VM deletion. Keeping this below
+	// the total PVC count (255) prevents flooding the API server
+	maxConcurrentPVCFinalizers = 20
 )
 
 // FCDBackingDetails reflects the parameters with which a given FCD is attached to a VM.
@@ -96,6 +101,11 @@ func trimMessage(err error) error {
 // spec and status (see getPvcsFromSpecAndStatus). For each, it calls removePvcFinalizer, which
 // handles missing PVCs (NotFound) and whether cns.vmware.com/pvc-protection is present.
 // Volume status is updated to detached on success or detach-failed on error.
+//
+// PVCs are processed concurrently (up to maxConcurrentPVCFinalizers at a time)
+// because each PVC holds its own VolumeLock and the API calls are independent.
+// All PVCs are attempted even if some fail; the first error is returned so the
+// caller can retry the remaining failures on the next reconcile.
 func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
 	instance *v1alpha1.CnsNodeVMBatchAttachment,
 	c client.Client,
@@ -103,20 +113,48 @@ func removePvcProtectionFinalizersForTrackedPVCs(ctx context.Context,
 	cnsOperatorClient client.Client) error {
 	log := logger.GetLogger(ctx)
 
-	for pvcName, volumeName := range getPvcsFromSpecAndStatus(ctx, instance) {
-		err := removePvcFinalizerFn(ctx, c, k8sClient, cnsOperatorClient,
-			pvcName, instance.Namespace, instance.Spec.InstanceUUID)
-		if err != nil {
-			updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", err,
+	type pvcResult struct {
+		pvcName    string
+		volumeName string
+		err        error
+	}
+
+	pvcs := getPvcsFromSpecAndStatus(ctx, instance)
+	results := make(chan pvcResult, len(pvcs))
+	sem := make(chan struct{}, maxConcurrentPVCFinalizers)
+
+	var wg sync.WaitGroup
+	for pvcName, volumeName := range pvcs {
+		pvcName, volumeName := pvcName, volumeName
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			err := removePvcFinalizerFn(ctx, c, k8sClient, cnsOperatorClient,
+				pvcName, instance.Namespace, instance.Spec.InstanceUUID)
+			results <- pvcResult{pvcName, volumeName, err}
+		}()
+	}
+
+	go func() { wg.Wait(); close(results) }()
+
+	var firstErr error
+	for r := range results {
+		if r.err != nil {
+			updateInstanceVolumeStatus(ctx, instance, r.volumeName, r.pvcName, "", "", r.err,
 				v1alpha1.ConditionDetached, v1alpha1.ReasonDetachFailed)
 			log.Errorf("failed to remove protection finalizer from PVC %s before removing batch attachment finalizer: %v",
-				pvcName, err)
-			return err
+				r.pvcName, r.err)
+			if firstErr == nil {
+				firstErr = r.err
+			}
+		} else {
+			updateInstanceVolumeStatus(ctx, instance, r.volumeName, r.pvcName, "", "", nil,
+				v1alpha1.ConditionDetached, "")
 		}
-		updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, "", "", nil,
-			v1alpha1.ConditionDetached, "")
 	}
-	return nil
+	return firstErr
 }
 
 // removeFinalizerFromCRDInstance will remove the CNS Finalizer, cns.vmware.com,
