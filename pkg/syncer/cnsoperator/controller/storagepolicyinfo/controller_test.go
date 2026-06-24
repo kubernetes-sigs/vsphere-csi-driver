@@ -26,8 +26,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	dynfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,8 +41,10 @@ import (
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -907,4 +913,258 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 	default:
 		t.Error("expected a Normal StoragePolicyInfoSynced event after topology update")
 	}
+}
+
+// vpcNetworkConfigGVR mirrors the GVR used in markerzones.go.
+var vpcNetworkConfigGVR = schema.GroupVersionResource{
+	Group:    "crd.nsx.vmware.com",
+	Version:  "v1alpha1",
+	Resource: "vpcnetworkconfigurations",
+}
+
+// vpcCRPair holds a VPCNetworkConfiguration CR name and its resolved VPC path.
+type vpcCRPair struct {
+	name    string
+	vpcPath string
+}
+
+// newFakeDynClientWithVPCCRs builds a fake dynamic client pre-populated with one
+// VPCNetworkConfiguration object per pair, each carrying status.vpcs[0].vpcPath.
+func newFakeDynClientWithVPCCRs(pairs ...vpcCRPair) *dynfake.FakeDynamicClient {
+	dynScheme := runtime.NewScheme()
+	dynScheme.AddKnownTypeWithName(
+		vpcNetworkConfigGVR.GroupVersion().WithKind("VPCNetworkConfiguration"),
+		&unstructured.Unstructured{},
+	)
+	dynScheme.AddKnownTypeWithName(
+		vpcNetworkConfigGVR.GroupVersion().WithKind("VPCNetworkConfigurationList"),
+		&unstructured.UnstructuredList{},
+	)
+
+	objs := make([]runtime.Object, 0, len(pairs))
+	for _, p := range pairs {
+		cr := &unstructured.Unstructured{}
+		cr.SetGroupVersionKind(vpcNetworkConfigGVR.GroupVersion().WithKind("VPCNetworkConfiguration"))
+		cr.SetName(p.name)
+		_ = unstructured.SetNestedSlice(cr.Object, []interface{}{
+			map[string]interface{}{"vpcPath": p.vpcPath},
+		}, "status", "vpcs")
+		objs = append(objs, cr)
+	}
+
+	return dynfake.NewSimpleDynamicClient(dynScheme, objs...)
+}
+
+// newFakeDynClientWithVPCCR builds a fake dynamic client pre-populated with a
+// single VPCNetworkConfiguration object that carries status.vpcs[0].vpcPath = vpcPath.
+func newFakeDynClientWithVPCCR(crName, vpcPath string) *dynfake.FakeDynamicClient {
+	return newFakeDynClientWithVPCCRs(vpcCRPair{name: crName, vpcPath: vpcPath})
+}
+
+// fvsSPINamespace returns a Namespace labelled as an FVS instance namespace
+// with the given VPC network config annotation.
+func fvsSPINamespace(name, vpcAnnotation string) *v1.Namespace {
+	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   name,
+		Labels: map[string]string{cnsoperatorutil.NamespaceLabelFVSInstance: "true"},
+	}}
+	if vpcAnnotation != "" {
+		ns.Annotations = map[string]string{cnsoperatorutil.AnnotationVPCNetworkConfig: vpcAnnotation}
+	}
+	return ns
+}
+
+// TestMapFVSNamespaceToMarkerSPIs verifies that mapFVSNamespaceToMarkerSPIs
+// enqueues reconcile requests for every marker-policy StoragePolicyInfo across
+// all namespaces, and ignores non-marker policies.
+func TestMapFVSNamespaceToMarkerSPIs(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	// One marker-policy SPI and one non-marker SPI.
+	spiMarker1 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      common.StorageClassVsanFileServicePolicy,
+			Namespace: "ns1",
+		},
+	}
+	spiNonMarker := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(spiMarker1, spiNonMarker).
+		WithIndex(&spiv1alpha1.StoragePolicyInfo{}, spiMarkerIndexField,
+			func(obj client.Object) []string {
+				if common.IsvSANFileServiceMarkerPolicyName(obj.GetName()) {
+					return []string{"true"}
+				}
+				return nil
+			}).
+		Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	reqs := r.mapFVSNamespaceToMarkerSPIs(ctx, nil) // trigger object is unused
+	require.Len(t, reqs, 1, "expected one request per marker-policy SPI")
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: common.StorageClassVsanFileServicePolicy},
+	}, reqs[0])
+}
+
+// TestMapFVSNamespaceToMarkerSPIs_NoMarkerSPIs verifies that when no
+// marker-policy StoragePolicyInfos exist, mapFVSNamespaceToMarkerSPIs returns nil.
+func TestMapFVSNamespaceToMarkerSPIs_NoMarkerSPIs(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	spiNonMarker := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(spiNonMarker).
+		WithIndex(&spiv1alpha1.StoragePolicyInfo{}, spiMarkerIndexField,
+			func(obj client.Object) []string {
+				if common.IsvSANFileServiceMarkerPolicyName(obj.GetName()) {
+					return []string{"true"}
+				}
+				return nil
+			}).
+		Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	reqs := r.mapFVSNamespaceToMarkerSPIs(ctx, nil)
+	assert.Nil(t, reqs)
+}
+
+// TestSyncTopologyFromInfraSPI_MarkerPolicy verifies that for a marker-policy SPI
+// syncTopologyFromInfraSPI derives zones from FVS instance namespaces sharing the
+// consumer namespace's VPC path, rather than using the standard namespace-filter path.
+func TestSyncTopologyFromInfraSPI_MarkerPolicy(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	// Consumer namespace "consumer-ns" uses VPC "vpc-cfg-a" → path "/vpc/a".
+	// FVS instance namespace "fvs-ns-1" also uses "vpc-cfg-a" → matches.
+	// FVS instance namespace "fvs-ns-2" uses "vpc-cfg-b" → different VPC, no match.
+	consumerNS := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:        "consumer-ns",
+		Annotations: map[string]string{cnsoperatorutil.AnnotationVPCNetworkConfig: "vpc-cfg-a"},
+	}}
+	fvsNS1 := fvsSPINamespace("fvs-ns-1", "vpc-cfg-a") // same VPC as consumer
+	fvsNS2 := fvsSPINamespace("fvs-ns-2", "vpc-cfg-b") // different VPC
+
+	k8sClient := k8sfake.NewSimpleClientset(consumerNS, fvsNS1, fvsNS2)
+	// Fake dynamic client: vpc-cfg-a → /vpc/a, vpc-cfg-b → /vpc/b.
+	dc := newFakeDynClientWithVPCCRs(
+		vpcCRPair{"vpc-cfg-a", "/vpc/a"},
+		vpcCRPair{"vpc-cfg-b", "/vpc/b"},
+	)
+
+	// zonesProvider: fvs-ns-1 is in zone-x; fvs-ns-2 is in zone-y (should not appear).
+	zp := &mockZonesProvider{
+		zonesForNamespace: map[string]map[string]struct{}{
+			"fvs-ns-1": {"zone-x": {}},
+			"fvs-ns-2": {"zone-y": {}},
+		},
+	}
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: common.StorageClassVsanFileServicePolicy},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{TopologyType: "zonal"},
+		},
+	}
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      common.StorageClassVsanFileServicePolicy,
+			Namespace: "consumer-ns",
+		},
+	}
+
+	r := &ReconcileStoragePolicyInfo{
+		client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:        scheme,
+		zonesProvider: zp,
+		k8sClient:     k8sClient,
+		dynamicClient: dc,
+	}
+
+	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	require.NoError(t, err)
+	require.NotNil(t, instance.Status.TopologyInfo)
+	assert.Equal(t, "zonal", instance.Status.TopologyInfo.TopologyType)
+	assert.Equal(t, []string{"zone-x"}, instance.Status.TopologyInfo.AccessibleZones,
+		"only zones from FVS namespaces sharing the consumer VPC path should be included")
+}
+
+// TestSyncTopologyFromInfraSPI_MarkerPolicy_NoFVSNamespaces verifies that when no
+// FVS instance namespaces share the consumer's VPC path, the zone list is empty.
+func TestSyncTopologyFromInfraSPI_MarkerPolicy_NoFVSNamespaces(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	consumerNS := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:        "consumer-ns",
+		Annotations: map[string]string{cnsoperatorutil.AnnotationVPCNetworkConfig: "vpc-cfg-a"},
+	}}
+	// FVS namespace is on a completely different VPC — no match.
+	fvsNS := fvsSPINamespace("fvs-ns-1", "vpc-cfg-b")
+
+	k8sClient := k8sfake.NewSimpleClientset(consumerNS, fvsNS)
+	dc := newFakeDynClientWithVPCCRs(
+		vpcCRPair{"vpc-cfg-a", "/vpc/a"},
+		vpcCRPair{"vpc-cfg-b", "/vpc/b"},
+	)
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: common.StorageClassVsanFileServicePolicy},
+	}
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      common.StorageClassVsanFileServicePolicy,
+			Namespace: "consumer-ns",
+		},
+	}
+
+	r := &ReconcileStoragePolicyInfo{
+		client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:        scheme,
+		zonesProvider: &mockZonesProvider{},
+		k8sClient:     k8sClient,
+		dynamicClient: dc,
+	}
+
+	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	require.NoError(t, err)
+	assert.Nil(t, instance.Status.TopologyInfo,
+		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology type")
+}
+
+// TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology verifies that when
+// InfraStoragePolicyInfo has no topology, the marker branch clears TopologyInfo
+// without attempting any VPC/zone lookup.
+func TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: common.StorageClassVsanFileServicePolicy},
+	}
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      common.StorageClassVsanFileServicePolicy,
+			Namespace: "consumer-ns",
+		},
+	}
+
+	r := &ReconcileStoragePolicyInfo{
+		client:  fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:  scheme,
+	}
+
+	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	require.NoError(t, err)
+	assert.Nil(t, instance.Status.TopologyInfo,
+		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology")
 }
