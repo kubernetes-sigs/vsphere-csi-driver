@@ -42,17 +42,13 @@ spec:
                   if VolumeID is specified.
                 type: string
               diskURLPath:
-                description: 'DiskUrlPath is URL path to an existing block volume
-                  to be imported into Project Pacific cluster. VolumeID and DiskUrlPath
-                  cannot be specified together. DiskUrlPath is explicitly used for
-                  block volumes. AccessMode need not be specified and will be defaulted
-                  to "ReadWriteOnce". This field must be in the following format:
-                  Format: https://<vc_ip>/folder/<vm_vmdk_path>?dcPath=<datacenterName>&dsName=<datastoreName>
-                  Ex: https://10.192.255.221/folder/34a9c05d-5f03-e254-e692-02004479cb91/        vm2_1.vmdk?dcPath=Datacenter-1&dsName=vsanDatastore
-                  This is for a 34a9c05d-5f03-e254-e692-02004479cb91/vm2_1.vmdk file
-                  under datacenter "Datacenter-1" and datastore "vsanDatastore".'
+                description: 'DiskUrlPath is the path to an existing block volume.
+                  Accepts either the vCenter folder URL form
+                  (https://<vc_ip>/folder/<path>?dcPath=<dc>&dsName=<ds>) or the
+                  datastore path form ([<datastore>] <dir>/<file>.vmdk) used for
+                  VM-import where the disk is already attached as a plain VMDK.'
                 type: string
-                pattern: '^(http[s]?:\/\/)?([^\/\s]+\/folder\/)(.*)$'
+                pattern: '^((http[s]?:\/\/)?([^\/\s]+\/folder\/)(.*)|\[.+\].+)$'
               pvcName:
                 description: Name of the PVC
                 type: string
@@ -82,6 +78,23 @@ spec:
                 x-kubernetes-validations:
                 - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
                   message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
+              deferFcdRegistration:
+                description: When true, the controller creates PV and CsiVolumeInfo
+                  using the PVC UID as the volume identity without registering an FCD.
+                  Used for VM-imported disks that are already attached as plain VMDKs.
+                type: boolean
+              vmName:
+                description: Name of the VirtualMachine CR that owns this disk.
+                  Required when deferFcdRegistration is true.
+                type: string
+              vmInstanceUUID:
+                description: Instance UUID of the owning VM.
+                  Required when deferFcdRegistration is true.
+                type: string
+              diskUUID:
+                description: VirtualDisk backing UUID (VirtualDisk.Backing.Uuid).
+                  Informational only — not used as a correlation key.
+                type: string
             required:
             - pvcName
             type: object
@@ -98,6 +111,13 @@ spec:
                   field must only be set by the entity completing the register operation,
                   i.e. the CNS Operator.
                 type: boolean
+              volumeID:
+                description: Volume identity assigned by the controller. For deferred-FCD
+                  imports this equals the PVC UID.
+                type: string
+              pvName:
+                description: Name of the PersistentVolume created by the controller.
+                type: string
             required:
             - registered
             type: object
