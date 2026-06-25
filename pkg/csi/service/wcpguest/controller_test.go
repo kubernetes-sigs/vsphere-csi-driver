@@ -32,11 +32,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
@@ -1403,5 +1406,638 @@ func TestCreateSnapshotWithAnnotations(t *testing.T) {
 		assert.Equal(t, guestSnapNamespace, svAnnot["namespace"])
 		assert.Equal(t, clusterName, svAnnot["clusterName"])
 		assert.Equal(t, wantVSCName, svAnnot["volumeSnapshotContentName"])
+	})
+}
+
+// TestControllerGetCapabilitiesModifyVolumeGated verifies that MODIFY_VOLUME is
+// advertised in ControllerGetCapabilities only when the VM_PVC_STORAGE_POLICY_MUTABILITY FSS is enabled.
+func TestControllerGetCapabilitiesModifyVolumeGated(t *testing.T) {
+	ct := getControllerTest(t)
+	fakeOrch := commonco.ContainerOrchestratorUtility.(*unittestcommon.FakeK8SOrchestrator)
+
+	hasModifyVolume := func() bool {
+		resp, err := ct.controller.ControllerGetCapabilities(ctx, &csi.ControllerGetCapabilitiesRequest{})
+		if err != nil {
+			t.Fatalf("ControllerGetCapabilities failed: %v", err)
+		}
+		for _, c := range resp.Capabilities {
+			if rpc := c.GetRpc(); rpc != nil && rpc.Type == csi.ControllerServiceCapability_RPC_MODIFY_VOLUME {
+				return true
+			}
+		}
+		return false
+	}
+
+	require.NoError(t, fakeOrch.DisableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS))
+	if hasModifyVolume() {
+		t.Fatalf("MODIFY_VOLUME should NOT be advertised when FSS disabled")
+	}
+	require.NoError(t, fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS))
+	defer func() { assert.NoError(t, fakeOrch.DisableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)) }()
+	if !hasModifyVolume() {
+		t.Fatalf("MODIFY_VOLUME should be advertised when FSS enabled")
+	}
+}
+
+// TestControllerModifyVolume tests the ControllerModifyVolume implementation
+func TestControllerModifyVolume(t *testing.T) {
+	ctx := context.Background()
+
+	// The fake orchestrator maps any volumeID not containing "invalid" to "mock-pvc"/"mock-namespace".
+	// Guest PVCs must be created under those names so getTargetVACForVolume can find them.
+	const mockPVC = "mock-pvc"
+	const mockNS = "mock-namespace"
+
+	createGuestPVC := func(guestClient *testclient.Clientset, vacName string) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: mockPVC, Namespace: mockNS},
+			Spec:       v1.PersistentVolumeClaimSpec{},
+		}
+		if vacName != "" {
+			pvc.Spec.VolumeAttributesClassName = &vacName
+		}
+		_, err := guestClient.CoreV1().PersistentVolumeClaims(mockNS).Create(ctx, pvc, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("failed to create guest PVC: %v", err)
+		}
+	}
+
+	createTestSupervisorPVC := func(name, namespace string) *v1.PersistentVolumeClaim {
+		return &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+	}
+
+	t.Run("FSS disabled returns Unimplemented", func(t *testing.T) {
+		// Create fake clients
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		// Setup fake orchestrator with FSS disabled
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.DisableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId:          "test-volume",
+			MutableParameters: map[string]string{},
+		}
+
+		_, err = c.ControllerModifyVolume(ctx, req)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "VM_PVC_STORAGE_POLICY_MUTABILITY FSS is not enabled")
+	})
+
+	t.Run("empty volumeID returns InvalidArgument", func(t *testing.T) {
+		// Create fake clients
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		// Setup fake orchestrator with FSS enabled
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId:          "",
+			MutableParameters: map[string]string{},
+		}
+
+		_, err = c.ControllerModifyVolume(ctx, req)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Volume ID must be provided")
+	})
+
+	t.Run("no VAC specified returns InvalidArgument", func(t *testing.T) {
+		volumeID := "test-volume"
+
+		// Create fake clients
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
+
+		createGuestPVC(guestClient, "") // No VAC — fake maps volumeID → mock-pvc/mock-namespace
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		// Setup fake orchestrator with FSS enabled
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId:          volumeID,
+			MutableParameters: map[string]string{},
+		}
+
+		_, err = c.ControllerModifyVolume(ctx, req)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no VolumeAttributesClass specified")
+	})
+
+	t.Run("idempotency check returns success when already at target VAC", func(t *testing.T) {
+		volumeID := "test-volume"
+		targetVAC := "target-vac"
+
+		// Create fake clients
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+		runtimeClient := ctrlclientfake.NewClientBuilder().Build()
+
+		createGuestPVC(guestClient, targetVAC) // fake maps volumeID → mock-pvc/mock-namespace
+		supervisorPVC := createTestSupervisorPVC(volumeID, testNamespace)
+		supervisorPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+		supervisorPVC.Status.ModifyVolumeStatus = nil
+
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(
+			ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		// Setup fake orchestrator with FSS enabled
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId:          volumeID,
+			MutableParameters: map[string]string{},
+		}
+
+		resp, err := c.ControllerModifyVolume(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("successful modify volume completes successfully", func(t *testing.T) {
+		volumeID := "test-volume"
+		targetVAC := "target-vac"
+
+		// Create fake clients
+		guestClient := testclient.NewClientset()
+		supervisorClient := testclient.NewClientset()
+
+		scheme := runtime.NewScheme()
+		_ = v1.AddToScheme(scheme)
+		runtimeClient := ctrlclientfake.NewClientBuilder().WithScheme(scheme).Build()
+
+		// Fake orchestrator maps volumeID → mock-pvc/mock-namespace; create the PVC there.
+		createGuestPVC(guestClient, targetVAC)
+		supervisorPVC := createTestSupervisorPVC(volumeID, testNamespace)
+
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(
+			ctx, supervisorPVC, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		// Add the supervisor PVC to the runtime client too
+		err = runtimeClient.Create(ctx, supervisorPVC)
+		require.NoError(t, err)
+
+		c := &controller{
+			guestClient:             guestClient,
+			supervisorClient:        supervisorClient,
+			supervisorRuntimeClient: runtimeClient,
+			supervisorNamespace:     testNamespace,
+		}
+
+		// Setup fake orchestrator with FSS enabled
+		fakeOrch, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		require.NoError(t, err)
+		originalCO := commonco.ContainerOrchestratorUtility
+		commonco.ContainerOrchestratorUtility = fakeOrch
+		defer func() { commonco.ContainerOrchestratorUtility = originalCO }()
+
+		err = fakeOrch.EnableFSS(ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		require.NoError(t, err)
+
+		// Override the timeout for faster test
+		originalTimeout := modifyVolumeTimeoutInMin
+		modifyVolumeTimeoutInMin = 1 // 1 minute timeout
+		defer func() { modifyVolumeTimeoutInMin = originalTimeout }()
+
+		// Create a goroutine to simulate PVC status update after patch
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Wait a bit for the watch to be established
+			// Update supervisor PVC status to simulate completion
+			updatedPVC := supervisorPVC.DeepCopy()
+			updatedPVC.Spec.VolumeAttributesClassName = &targetVAC
+			updatedPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+			updatedPVC.Status.ModifyVolumeStatus = nil
+			_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update supervisor PVC: %v", err)
+			}
+		}()
+
+		req := &csi.ControllerModifyVolumeRequest{
+			VolumeId:          volumeID,
+			MutableParameters: map[string]string{},
+		}
+
+		resp, err := c.ControllerModifyVolume(ctx, req)
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+}
+
+// TestGetTargetVACForVolume tests the getTargetVACForVolume helper function.
+// The implementation uses commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID
+// (the in-memory PV informer cache) to resolve volumeID → guest PVC.
+// The FakeK8SOrchestrator maps any volumeID containing "invalid" to not-found,
+// and all other volumeIDs to "mock-pvc" / "mock-namespace".
+func TestGetTargetVACForVolume(t *testing.T) {
+	ctx := context.Background()
+	// Ensure commonco.ContainerOrchestratorUtility is initialised with the fake orchestrator.
+	getControllerTest(t)
+
+	const mockPVC = "mock-pvc"
+	const mockNS = "mock-namespace"
+
+	makePVC := func(guestClient *testclient.Clientset, vacName string) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: mockPVC, Namespace: mockNS},
+			Spec:       v1.PersistentVolumeClaimSpec{},
+		}
+		if vacName != "" {
+			pvc.Spec.VolumeAttributesClassName = &vacName
+		}
+		_, err := guestClient.CoreV1().PersistentVolumeClaims(mockNS).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+
+	t.Run("successful VAC resolution", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		makePVC(guestClient, "gold-vac")
+
+		c := &controller{guestClient: guestClient}
+		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
+		assert.NoError(t, err)
+		assert.Equal(t, "gold-vac", result)
+	})
+
+	t.Run("no VAC specified returns empty string", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		makePVC(guestClient, "") // no VAC
+
+		c := &controller{guestClient: guestClient}
+		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("volume not in cache", func(t *testing.T) {
+		// volumeID containing "invalid" causes FakeK8SOrchestrator to return exists=false
+		c := &controller{guestClient: testclient.NewClientset()}
+		result, err := c.getTargetVACForVolume(ctx, "invalid-volume")
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "no guest PVC found")
+	})
+
+	t.Run("guest PVC not found", func(t *testing.T) {
+		// Cache returns mock-pvc/mock-namespace but PVC does not exist in the API
+		c := &controller{guestClient: testclient.NewClientset()}
+		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "failed to get guest PVC")
+	})
+
+	t.Run("guest client API failure on get", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		guestClient.PrependReactor("get", "persistentvolumeclaims",
+			func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, nil, errors.NewInternalError(assert.AnError)
+			})
+
+		c := &controller{guestClient: guestClient}
+		result, err := c.getTargetVACForVolume(ctx, "test-volume-123")
+		assert.Error(t, err)
+		assert.Empty(t, result)
+		assert.Contains(t, err.Error(), "failed to get guest PVC")
+	})
+}
+
+// TestWaitForSupervisorPVCModifyVolume tests the waitForSupervisorPVCModifyVolume helper function
+func TestWaitForSupervisorPVCModifyVolume(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("watch setup failure", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+
+		// Mock watch failure
+		supervisorClient.PrependWatchReactor("persistentvolumeclaims",
+			func(action ktesting.Action) (handled bool, ret watch.Interface, err error) {
+				return true, nil, errors.NewInternalError(assert.AnError)
+			})
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		err := c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 1*time.Second)
+		assert.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
+		assert.Contains(t, err.Error(), "failed to watch supervisor PVC")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+
+		// Create context that cancels immediately
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		err := c.waitForSupervisorPVCModifyVolume(cancelCtx, pvcName, targetVAC, 1*time.Second)
+		assert.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.DeadlineExceeded, st.Code())
+		assert.Contains(t, err.Error(), "context cancelled")
+	})
+
+	t.Run("successful completion", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+
+		// Create PVC
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: testNamespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		// Simulate successful completion by updating PVC status in a goroutine
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			updatedPVC := pvc.DeepCopy()
+			updatedPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+			updatedPVC.Status.ModifyVolumeStatus = nil
+			_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC: %v", err)
+			}
+		}()
+
+		err = c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 5*time.Second)
+		assert.NoError(t, err)
+	})
+
+	t.Run("infeasible status", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+
+		// Create PVC
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: testNamespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		// Simulate infeasible status by updating PVC status in a goroutine
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			updatedPVC := pvc.DeepCopy()
+			updatedPVC.Status.ModifyVolumeStatus = &v1.ModifyVolumeStatus{
+				Status:                          v1.PersistentVolumeClaimModifyVolumeInfeasible,
+				TargetVolumeAttributesClassName: targetVAC,
+			}
+			_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC: %v", err)
+			}
+		}()
+
+		err = c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 5*time.Second)
+		assert.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+		assert.Contains(t, err.Error(), "marked as infeasible")
+	})
+
+	t.Run("timeout reached", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+
+		// Create PVC but don't update it
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: testNamespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		// Use very short timeout
+		err = c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 100*time.Millisecond)
+		assert.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.DeadlineExceeded, st.Code())
+		assert.Contains(t, err.Error(), "timeout waiting")
+	})
+
+	t.Run("wrong target VAC ignored", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+		wrongVAC := "wrong-vac"
+
+		// Create PVC
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: testNamespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		// Simulate wrong VAC completion, then correct VAC
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			// First update with wrong VAC - should be ignored
+			updatedPVC := pvc.DeepCopy()
+			updatedPVC.Status.CurrentVolumeAttributesClassName = &wrongVAC
+			updatedPVC.Status.ModifyVolumeStatus = nil
+			_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC with wrong VAC: %v", err)
+				return
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			// Second update with correct VAC - should succeed
+			updatedPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+			_, err = supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC with correct VAC: %v", err)
+			}
+		}()
+
+		err = c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 5*time.Second)
+		assert.NoError(t, err)
+	})
+
+	t.Run("infeasible status for wrong target VAC ignored", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		pvcName := "test-pvc"
+		targetVAC := "target-vac"
+		wrongVAC := "wrong-vac"
+
+		// Create PVC
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: testNamespace,
+			},
+			Spec:   v1.PersistentVolumeClaimSpec{},
+			Status: v1.PersistentVolumeClaimStatus{},
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: testNamespace,
+		}
+
+		// Simulate infeasible for wrong VAC, then success for correct VAC
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			// First update with infeasible for wrong VAC - should be ignored
+			updatedPVC := pvc.DeepCopy()
+			updatedPVC.Status.ModifyVolumeStatus = &v1.ModifyVolumeStatus{
+				Status:                          v1.PersistentVolumeClaimModifyVolumeInfeasible,
+				TargetVolumeAttributesClassName: wrongVAC,
+			}
+			_, err := supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC with wrong infeasible: %v", err)
+				return
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			// Second update with success for correct VAC
+			updatedPVC.Status.CurrentVolumeAttributesClassName = &targetVAC
+			updatedPVC.Status.ModifyVolumeStatus = nil
+			_, err = supervisorClient.CoreV1().PersistentVolumeClaims(testNamespace).Update(
+				ctx, updatedPVC, metav1.UpdateOptions{})
+			if err != nil {
+				t.Logf("Failed to update PVC with success: %v", err)
+			}
+		}()
+
+		err = c.waitForSupervisorPVCModifyVolume(ctx, pvcName, targetVAC, 5*time.Second)
+		assert.NoError(t, err)
 	})
 }
