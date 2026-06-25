@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 // createTestScheme creates a scheme with all required types for testing
@@ -147,480 +148,17 @@ func TestFindVolume(t *testing.T) {
 	})
 }
 
-// TestIsPVCAttachedToVM_NotAttached tests the case where a PVC is not referenced in any VM
+// newReconciler returns a reconciler suitable for isPVCAttachedToVM tests. The function
+// only inspects PVC-local fields, so no Kubernetes client is required.
+func newReconciler() *reconciler {
+	return &reconciler{
+		logger: logger.GetLoggerWithNoContext().Named("test"),
+	}
+}
+
+// TestIsPVCAttachedToVM_NotAttached verifies that a PVC carrying neither the usedby-vm
+// annotation nor the CNSPvcFinalizer is reported as not attached (encryption proceeds).
 func TestIsPVCAttachedToVM_NotAttached(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// Create a VM that doesn't reference this PVC
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "other-volume",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "other-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.False(t, isAttached, "PVC should not be attached")
-	assert.Empty(t, vmName, "VM name should be empty when not attached")
-}
-
-// TestIsPVCAttachedToVM_Attached tests the case where a PVC is referenced in a VM
-func TestIsPVCAttachedToVM_Attached(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// Create a VM that references this PVC
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "my-disk",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.True(t, isAttached, "PVC should be attached")
-	assert.Equal(t, "test-vm", vmName, "VM name should match")
-}
-
-// TestIsPVCAttachedToVM_NoVMs tests the case where no VMs exist in the namespace
-func TestIsPVCAttachedToVM_NoVMs(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.False(t, isAttached, "PVC should not be attached when no VMs exist")
-	assert.Empty(t, vmName, "VM name should be empty")
-}
-
-// TestIsPVCAttachedToVM_MultipleVMs tests the case where multiple VMs exist and one references the PVC
-func TestIsPVCAttachedToVM_MultipleVMs(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// VM 1 - doesn't reference the PVC
-	vm1 := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vm-1",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "other-volume",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "other-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// VM 2 - references the PVC
-	vm2 := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vm-2",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "my-disk",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// VM 3 - doesn't reference the PVC
-	vm3 := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "vm-3",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm1, vm2, vm3).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.True(t, isAttached, "PVC should be attached")
-	assert.Equal(t, "vm-2", vmName, "VM name should match the VM that references the PVC")
-}
-
-// TestIsPVCAttachedToVM_VMWithMultipleVolumes tests a VM with multiple volumes including the target PVC
-func TestIsPVCAttachedToVM_VMWithMultipleVolumes(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// VM with multiple volumes
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "disk-1",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "pvc-1",
-							},
-						},
-					},
-				},
-				{
-					Name: "disk-2",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
-				{
-					Name: "disk-3",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "pvc-3",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.True(t, isAttached, "PVC should be attached")
-	assert.Equal(t, "test-vm", vmName, "VM name should match")
-}
-
-// TestIsPVCAttachedToVM_DifferentNamespace tests that VMs in different namespaces are not considered
-func TestIsPVCAttachedToVM_DifferentNamespace(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "namespace-1",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// VM in a different namespace that references a PVC with the same name
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "namespace-2",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "my-disk",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.False(t, isAttached, "PVC should not be attached (VM is in different namespace)")
-	assert.Empty(t, vmName, "VM name should be empty")
-}
-
-// TestIsPVCAttachedToVM_VMWithNoPVCVolumes tests a VM that has no PVC volumes
-func TestIsPVCAttachedToVM_VMWithNoPVCVolumes(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test",
-		},
-	}
-
-	// VM with a non-PVC volume (e.g., ConfigMap)
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "config-volume",
-					// PersistentVolumeClaim is nil - could be a ConfigMap or other volume type
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	assert.NoError(t, err)
-	assert.False(t, isAttached, "PVC should not be attached")
-	assert.Empty(t, vmName, "VM name should be empty")
-}
-
-// TestIsPVCAttachedToVM_PVCAnnotationChanged_AttachedToVM tests the scenario where
-// a PVC's csi.vsphere.encryption-class annotation is changed while the PVC is attached to a VM.
-// The isPVCAttachedToVM function should detect the attachment and return true.
-func TestIsPVCAttachedToVM_PVCAnnotationChanged_AttachedToVM(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	// Create PVC with NEW encryption class annotation (simulating annotation change from old-class to new-class)
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pvc",
-			Namespace: "default",
-			Annotations: map[string]string{
-				"csi.vsphere.encryption-class": "new-encryption-class", // Changed annotation
-			},
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test-123",
-		},
-	}
-
-	// Create VM that references this PVC
-	vm := &vmoperatortypes.VirtualMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-vm",
-			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "my-disk",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
-
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
-	}
-
-	// Execute - this simulates the reconciliation triggered by PVC annotation change
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-
-	// Verify - should detect attachment and return true
-	assert.NoError(t, err)
-	assert.True(t, isAttached, "PVC should be detected as attached when annotation changes while attached to VM")
-	assert.Equal(t, "test-vm", vmName, "VM name should be returned")
-}
-
-// TestIsPVCAttachedToVM_EncryptionClassUpdated_PVCAttachedToVM tests the scenario where
-// an EncryptionClass is updated (e.g., KeyID or KeyProvider changed) and a PVC referencing
-// it is attached to a VM. The isPVCAttachedToVM function should detect the attachment.
-func TestIsPVCAttachedToVM_EncryptionClassUpdated_PVCAttachedToVM(t *testing.T) {
-	ctx := context.Background()
-	scheme := createTestScheme()
-
-	// Create PVC that references an EncryptionClass (which will be updated externally)
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-pvc",
@@ -630,49 +168,103 @@ func TestIsPVCAttachedToVM_EncryptionClassUpdated_PVCAttachedToVM(t *testing.T) 
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			VolumeName: "pv-test-456",
+			VolumeName: "pv-test",
 		},
 	}
 
-	// Create VM that references this PVC
-	vm := &vmoperatortypes.VirtualMachine{
+	isAttached, detail := newReconciler().isPVCAttachedToVM(pvc)
+
+	assert.False(t, isAttached, "PVC should not be attached without usedby-vm annotation or CNS finalizer")
+	assert.Empty(t, detail, "detail should be empty when not attached")
+}
+
+// TestIsPVCAttachedToVM_Annotation verifies that a PVC carrying the cns.vmware.com/usedby-vm-
+// annotation (written by CnsNodeVMBatchAttachment) is reported as attached, and the VM
+// instance UUID suffix is surfaced in the detail string for logging.
+func TestIsPVCAttachedToVM_Annotation(t *testing.T) {
+	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "prod-vm",
+			Name:      "test-pvc",
 			Namespace: "default",
-		},
-		Spec: vmoperatortypes.VirtualMachineSpec{
-			Volumes: []vmoperatortypes.VirtualMachineVolume{
-				{
-					Name: "data-disk",
-					VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
-						PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
-							PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "test-pvc",
-							},
-						},
-					},
-				},
+			Annotations: map[string]string{
+				"csi.vsphere.encryption-class":                          "my-encryption-class",
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid-1": "",
 			},
 		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-test",
+		},
 	}
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pvc, vm).
-		Build()
+	isAttached, detail := newReconciler().isPVCAttachedToVM(pvc)
 
-	r := &reconciler{
-		Client: fakeClient,
-		logger: logger.GetLoggerWithNoContext().Named("test"),
+	assert.True(t, isAttached, "PVC should be attached when usedby-vm annotation is present")
+	assert.Contains(t, detail, "vm-uuid-1", "detail should contain the VM instance UUID suffix")
+}
+
+// TestIsPVCAttachedToVM_Finalizer verifies that a PVC carrying the CNSPvcFinalizer but no
+// usedby-vm annotation (e.g. attached via the legacy CnsNodeVMAttachment path) is reported
+// as attached.
+func TestIsPVCAttachedToVM_Finalizer(t *testing.T) {
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-pvc",
+			Namespace:  "default",
+			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-test",
+		},
 	}
 
-	// Execute - this simulates the reconciliation triggered by EncryptionClass update
-	// (The EncryptionClassToPersistentVolumeClaimMapper would have triggered reconciliation of this PVC)
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
+	isAttached, detail := newReconciler().isPVCAttachedToVM(pvc)
 
-	// Verify - should detect attachment and return true
-	assert.NoError(t, err)
-	assert.True(t, isAttached,
-		"PVC should be detected as attached when EncryptionClass is updated and PVC is attached to VM")
-	assert.Equal(t, "prod-vm", vmName, "VM name should be returned")
+	assert.True(t, isAttached, "PVC should be attached when CNSPvcFinalizer is present")
+	assert.Contains(t, detail, cnsoperatortypes.CNSPvcFinalizer, "detail should reference the finalizer")
+}
+
+// TestIsPVCAttachedToVM_AnnotationTakesPrecedence verifies that when both signals are present
+// the annotation path is used (and surfaces the VM UUID).
+func TestIsPVCAttachedToVM_AnnotationTakesPrecedence(t *testing.T) {
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid-2": "",
+			},
+			Finalizers: []string{cnsoperatortypes.CNSPvcFinalizer},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-test",
+		},
+	}
+
+	isAttached, detail := newReconciler().isPVCAttachedToVM(pvc)
+
+	assert.True(t, isAttached, "PVC should be attached")
+	assert.Contains(t, detail, "vm-uuid-2", "detail should surface the VM instance UUID from the annotation")
+}
+
+// TestIsPVCAttachedToVM_UnrelatedAnnotationAndFinalizer verifies that annotations/finalizers
+// that merely resemble but do not match the markers are not treated as attachment.
+func TestIsPVCAttachedToVM_UnrelatedAnnotationAndFinalizer(t *testing.T) {
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"cns.vmware.com/some-other-annotation": "value",
+			},
+			Finalizers: []string{"kubernetes.io/pvc-protection"},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			VolumeName: "pv-test",
+		},
+	}
+
+	isAttached, detail := newReconciler().isPVCAttachedToVM(pvc)
+
+	assert.False(t, isAttached, "unrelated annotation/finalizer should not count as VM attachment")
+	assert.Empty(t, detail)
 }

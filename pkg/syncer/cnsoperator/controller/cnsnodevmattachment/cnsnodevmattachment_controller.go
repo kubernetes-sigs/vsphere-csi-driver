@@ -62,7 +62,6 @@ import (
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_NODEVM_ATTACH"
 	defaultMaxWorkerThreads = 20
-	attachedVmPrefix        = "cns.vmware.com/usedby-vm-"
 )
 
 // backOffDuration is a map of cnsnodevmattachment name's to the time after
@@ -839,13 +838,13 @@ func pvcHasUsedByAnnotaion(ctx context.Context, pvc *v1.PersistentVolumeClaim) b
 	}
 
 	for key := range pvc.Annotations {
-		if strings.HasPrefix(key, attachedVmPrefix) {
-			log.Infof("Annotation with prefix %s found on PVC %s", attachedVmPrefix, pvc.Name)
+		if strings.HasPrefix(key, cnsoptypes.UsedByVMAnnotationPrefix) {
+			log.Infof("Annotation with prefix %s found on PVC %s", cnsoptypes.UsedByVMAnnotationPrefix, pvc.Name)
 			return true
 		}
 	}
 
-	log.Infof("PVC %s does not contain any annotations with prefix %s", pvc.Name, attachedVmPrefix)
+	log.Infof("PVC %s does not contain any annotations with prefix %s", pvc.Name, cnsoptypes.UsedByVMAnnotationPrefix)
 	return false
 }
 

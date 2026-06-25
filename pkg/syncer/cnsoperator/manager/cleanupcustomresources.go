@@ -144,8 +144,6 @@ func cleanupOrphanedBatchAttachPVCs(ctx context.Context, config rest.Config) {
 	// structure of the map follows the logical grouping kubernetes uses.
 	// namespace -> pvc -> struct{}{}
 	orphanPVCs := make(map[string]map[string]struct{})
-	// prefix for the annotation that indicates the PVC is used by a VM.
-	usedByVmAnnotationPrefix := "cns.vmware.com/usedby-vm-"
 	for _, pvc := range pvcList {
 		if pvc.DeletionTimestamp == nil {
 			// PVC is not being deleted. Can be ignored.
@@ -159,7 +157,7 @@ func cleanupOrphanedBatchAttachPVCs(ctx context.Context, config rest.Config) {
 
 		isBatchAttachPVC := false
 		for key := range pvc.GetAnnotations() {
-			if !strings.HasPrefix(key, usedByVmAnnotationPrefix) {
+			if !strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
 				continue
 			}
 

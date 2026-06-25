@@ -53,7 +53,6 @@ import (
 
 var (
 	GetVMFromVcenter = cnsoperatorutil.GetVMFromVcenter
-	attachedVmPrefix = "cns.vmware.com/usedby-vm-"
 
 	// removePvcFinalizerFn is a package-level function variable so tests can
 	// inject a fake implementation without architecture-specific monkey patching.
@@ -765,7 +764,7 @@ func getVolumesToDetach(ctx context.Context, client client.Client,
 func addPvcAnnotation(ctx context.Context, k8sClient kubernetes.Interface,
 	vmInstanceUUID string, pvc *v1.PersistentVolumeClaim) error {
 
-	return patchPVCAnnotations(ctx, k8sClient, pvc, attachedVmPrefix+vmInstanceUUID, false)
+	return patchPVCAnnotations(ctx, k8sClient, pvc, cnsoperatortypes.UsedByVMAnnotationPrefix+vmInstanceUUID, false)
 }
 
 // removePvcAnnotation removes the given vmInstanceUUID from PVC annotations.
@@ -778,7 +777,7 @@ func removePvcAnnotation(ctx context.Context, k8sClient kubernetes.Interface,
 		return nil
 	}
 
-	return patchPVCAnnotations(ctx, k8sClient, pvc, attachedVmPrefix+vmInstanceUUID, true)
+	return patchPVCAnnotations(ctx, k8sClient, pvc, cnsoperatortypes.UsedByVMAnnotationPrefix+vmInstanceUUID, true)
 }
 
 // patchPVCAnnotations patches the list of annotations on the PVC with the newAnnotations.
@@ -842,13 +841,14 @@ func pvcHasUsedByAnnotaion(ctx context.Context, pvc *v1.PersistentVolumeClaim) b
 	}
 
 	for key := range pvc.Annotations {
-		if strings.HasPrefix(key, attachedVmPrefix) {
-			log.Infof("Annotation with prefix %s found on PVC %s", attachedVmPrefix, pvc.Name)
+		if strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
+			log.Infof("Annotation with prefix %s found on PVC %s", cnsoperatortypes.UsedByVMAnnotationPrefix, pvc.Name)
 			return true
 		}
 	}
 
-	log.Infof("PVC %s does not contain any annotations with prefix %s", pvc.Name, attachedVmPrefix)
+	log.Infof("PVC %s does not contain any annotations with prefix %s",
+		pvc.Name, cnsoperatortypes.UsedByVMAnnotationPrefix)
 	return false
 }
 

@@ -26,6 +26,11 @@ const (
 	// to avoid Detach-Delete race which in-turn avoids ResourceInUse errors
 	CNSPvcFinalizer = "cns.vmware.com/pvc-protection"
 
+	// UsedByVMAnnotationPrefix is the prefix of the annotation written on a PVC when it is
+	// attached to a VM Service VM (full key: "cns.vmware.com/usedby-vm-<vm-instance-uuid>").
+	// Written by CnsNodeVMBatchAttachment on attach and removed on detach.
+	UsedByVMAnnotationPrefix = "cns.vmware.com/usedby-vm-"
+
 	// CNSVolumeFinalizer is the finalizer on Supervisor PVC created from Guest cluster
 	// and associated with Guest cluster PVC,
 	// This finalizer is added to avoid deletion of such PVCs directly from Supervisor.

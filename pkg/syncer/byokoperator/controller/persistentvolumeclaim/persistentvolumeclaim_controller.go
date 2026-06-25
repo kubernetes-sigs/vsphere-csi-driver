@@ -29,14 +29,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	ctrlcommoon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/common"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 func AddToManager(ctx context.Context, mgr manager.Manager, opts ctrlcommoon.Options) error {
@@ -100,19 +101,13 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		return nil
 	}
 
-	// Check if PVC is referenced in a VM
-	isAttached, vmName, err := r.isPVCAttachedToVM(ctx, pvc)
-	if err != nil {
-		r.logger.Errorf("Failed to check PVC attachment status for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
-		return err
-	}
-
-	if isAttached {
-		// PVC is referenced in a VM - skip encryption and defer to VM Operator
-		r.logger.Infof("Skipping encryption for PVC %s/%s as it is referenced in VirtualMachine %s. "+
+	// Check if PVC is attached to a VM using PVC-local signals (annotation/finalizer).
+	if isAttached, detail := r.isPVCAttachedToVM(pvc); isAttached {
+		// PVC is attached to a VM - skip encryption and defer to VM Operator
+		r.logger.Infof("Skipping encryption for PVC %s/%s as it is attached to a VirtualMachine %s. "+
 			"Deferring to VM Operator which will aggregate all PVCs and VM encryption changes "+
 			"and issue atomic reconfig API call to vCenter. EncryptionClass: %s, KeyProvider: %s, KeyID: %s",
-			pvc.Namespace, pvc.Name, vmName, encClass.Name, encClass.Spec.KeyProvider, encClass.Spec.KeyID)
+			pvc.Namespace, pvc.Name, detail, encClass.Name, encClass.Spec.KeyProvider, encClass.Spec.KeyID)
 		return nil
 	}
 
@@ -205,37 +200,30 @@ func (r *reconciler) findVolume(ctx context.Context, pvc *corev1.PersistentVolum
 	return volumeID, nil
 }
 
-// isPVCAttachedToVM checks if the PVC is referenced in any VirtualMachine spec in the same namespace.
-// Returns (isAttached, vmName, error) where vmName is the name of the VM using this PVC.
+// isPVCAttachedToVM reports whether the PVC is attached to a VM (and thus encryption must be
+// deferred to VM Operator). It relies on two CSI-maintained signals already present on the
+// PVC object, so it needs no VirtualMachine API access (no listing, no informer):
 //
-// This function uses the v1alpha2 VM Operator API client which can list VirtualMachines created
-// with any API version (v1alpha1, v1alpha2, v1alpha3, v1alpha4, v1alpha5) due to Kubernetes
-// API machinery's automatic version conversion.
-func (r *reconciler) isPVCAttachedToVM(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (bool, string, error) {
-	log := r.logger.With("pvc", pvc.Name, "namespace", pvc.Namespace)
-
-	// List all VirtualMachines in the PVC's namespace
-	vmList, err := utils.ListVirtualMachines(ctx, r.Client, pvc.Namespace)
-	if err != nil {
-		// If VM CRD is not installed or we can't list VMs, proceed with encryption
-		// (don't block encryption if VM Operator is not present)
-		log.Infof("Unable to list VirtualMachines in namespace %s: %v. Proceeding with encryption.",
-			pvc.Namespace, err)
-		return false, "", nil
-	}
-
-	// Check if this PVC is referenced in any VM's spec
-	for _, vm := range vmList.Items {
-		for _, vmVol := range vm.Spec.Volumes {
-			if vmVol.PersistentVolumeClaim != nil &&
-				vmVol.PersistentVolumeClaim.ClaimName == pvc.Name {
-				log.Infof("Found VirtualMachine %s in namespace %s referencing PVC %s",
-					vm.Name, pvc.Namespace, pvc.Name)
-				return true, vm.Name, nil
-			}
+//   - the cnsoperatortypes.UsedByVMAnnotationPrefix annotation (cns.vmware.com/usedby-vm-<uuid>),
+//     written by the CnsNodeVMBatchAttachment controller on attach and removed on detach; and
+//   - the cns.vmware.com/pvc-protection finalizer (CNSPvcFinalizer), added by both the batch
+//     and the legacy single CnsNodeVMAttachment attach paths (and by cnsfileaccessconfig for
+//     file volumes, which are not encryptable anyway) and removed on detach.
+//
+// The annotation is only written when SharedDiskFss/batch attach is enabled; the finalizer
+// covers the legacy attach path and any pre-upgrade attachments that lack the annotation.
+//
+// Returns (isAttached, detail) where detail is a short human-readable identifier for logging.
+func (r *reconciler) isPVCAttachedToVM(pvc *corev1.PersistentVolumeClaim) (bool, string) {
+	for key := range pvc.Annotations {
+		if strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
+			return true, "(VM instance UUID " + strings.TrimPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) + ")"
 		}
 	}
 
-	log.Infof("PVC %s/%s is not referenced in any VirtualMachine", pvc.Namespace, pvc.Name)
-	return false, "", nil
+	if controllerutil.ContainsFinalizer(pvc, cnsoperatortypes.CNSPvcFinalizer) {
+		return true, "(per " + cnsoperatortypes.CNSPvcFinalizer + " finalizer)"
+	}
+
+	return false, ""
 }
