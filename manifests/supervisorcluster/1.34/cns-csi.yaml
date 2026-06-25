@@ -132,6 +132,12 @@ rules:
   - apiGroups: ["cns.vmware.com"]
     resources: ["cnsvolumeinfoes/status"]
     verbs: ["patch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos/status"]
+    verbs: ["update", "patch"]
   - apiGroups: ["crd.nsx.vmware.com"]
     resources: ["networkinfos"]
     verbs: ["get", "watch", "list"]
@@ -824,6 +830,9 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["cns.vmware.com"]
+    resources: ["csivolumeinfos"]
+    verbs: ["get", "list"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

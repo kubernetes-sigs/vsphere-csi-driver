@@ -63,6 +63,7 @@ var (
 	featureFileVolumesWithVmServiceEnabled bool
 	featureIsSharedDiskEnabled             bool
 	featureIsLinkedCloneSupportEnabled     bool
+	featureGateVMOwnedVolumesEnabled       bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -151,6 +152,7 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
 		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
+		featureGateVMOwnedVolumesEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes)
 		if !featureIsLinkedCloneSupportEnabled {
 			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 				common.LinkedCloneSupport, "", "")

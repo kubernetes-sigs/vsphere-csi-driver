@@ -235,3 +235,34 @@ func (m MockManager) QueryFCDChangedBlocks(ctx context.Context,
 	//TODO implement me
 	panic("implement me")
 }
+
+// UnregisterVolumeEx is the mock implementation of the two-phase CNS unregister phase-1.
+// Returns the configured error on failure, otherwise empty backing-disk path and disk UUID.
+func (m MockManager) UnregisterVolumeEx(ctx context.Context, volumeID string) (string, string, error) {
+	if m.failRequest {
+		return "", "", m.err
+	}
+	return "", "", nil
+}
+
+// QueryPendingUnregisters is the mock implementation that returns an empty list on success.
+func (m MockManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
+	if m.failRequest {
+		return nil, m.err
+	}
+	return nil, nil
+}
+
+// AckUnregister is the mock implementation of the two-phase CNS unregister phase-2.
+// Returns the configured error on failure, otherwise nil.
+func (m MockManager) AckUnregister(ctx context.Context, volumeID string) error {
+	if m.failRequest {
+		return m.err
+	}
+	return nil
+}
+
+// GetDiskFolderURL is the mock implementation; always returns an empty string.
+func (m MockManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}

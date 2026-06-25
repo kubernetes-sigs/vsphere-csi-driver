@@ -956,6 +956,20 @@ func (m *cbtFlagsMockVolumeManager) SyncVolume(context.Context,
 func (m *cbtFlagsMockVolumeManager) ReRegisterVolume(context.Context, string) error {
 	return nil
 }
+func (m *cbtFlagsMockVolumeManager) UnregisterVolumeEx(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+func (m *cbtFlagsMockVolumeManager) QueryPendingUnregisters(
+	context.Context) ([]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+func (m *cbtFlagsMockVolumeManager) AckUnregister(context.Context, string) error {
+	return nil
+}
+
+func (m *cbtFlagsMockVolumeManager) GetDiskFolderURL(context.Context, string) (string, error) {
+	return "", nil
+}
 func (m *cbtFlagsMockVolumeManager) QueryFCDAllocatedBlocks(context.Context,
 	string, string, uint64) ([]cnsvolume.DiskArea, uint64, error) {
 	return nil, 0, nil

@@ -57,6 +57,7 @@ import (
 	"github.com/go-logr/zapr"
 	cr_log "sigs.k8s.io/controller-runtime/pkg/log"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	csivolumeinfosvc "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
@@ -518,6 +519,19 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
 		metadataSyncer.volumeManager = volumeManager
+
+		// On startup, complete any two-phase FCD unregister operations that were
+		// interrupted by a crash. This is a no-op when VMOwnedVolumes is disabled.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+			cviSvc, cviSvcErr := csivolumeinfosvc.InitCsiVolumeInfoService(ctx)
+			if cviSvcErr != nil {
+				log.Warnf("RecoverPendingUnregisters: failed to init CVI service: %v; skipping startup recovery",
+					cviSvcErr)
+			} else if recoveryErr := csivolumeinfosvc.RecoverPendingUnregisters(ctx,
+				metadataSyncer.volumeManager, cviSvc); recoveryErr != nil {
+				log.Warnf("RecoverPendingUnregisters: startup recovery encountered errors: %v", recoveryErr)
+			}
+		}
 
 		// Initialize a CnsOperator client for supervisor-mode operations
 		// (e.g. CNSVolumeInfo and StoragePolicyUsage patches during

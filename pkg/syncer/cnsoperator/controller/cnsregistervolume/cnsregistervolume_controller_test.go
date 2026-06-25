@@ -268,6 +268,23 @@ func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID strin
 	return nil
 }
 
+func (m *mockVolumeManager) UnregisterVolumeEx(ctx context.Context, volumeID string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *mockVolumeManager) QueryPendingUnregisters(ctx context.Context) (
+	[]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+
+func (m *mockVolumeManager) AckUnregister(ctx context.Context, volumeID string) error {
+	return nil
+}
+
+func (m *mockVolumeManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
+
 type mockCOCommon struct{}
 
 func (m *mockCOCommon) ListPVCs(ctx context.Context, namespace string) []*corev1.PersistentVolumeClaim {
