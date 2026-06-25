@@ -208,10 +208,10 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		if featureFileVolumesWithVmServiceEnabled {
 			switch req.Operation {
 			case admissionv1.Create:
-				admissionResp := validateCreateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest, h.Client)
+				admissionResp := validateCreateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
 				resp.AdmissionResponse = *admissionResp.DeepCopy()
 			case admissionv1.Delete:
-				admissionResp := validateDeleteCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest, h.Client)
+				admissionResp := validateDeleteCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest)
 				resp.AdmissionResponse = *admissionResp.DeepCopy()
 			}
 		}
@@ -331,7 +331,7 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	}
 
 	// If CR is created by CSI service account, do not add devops label.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, h.Client)
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(req.UserInfo.Username)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
