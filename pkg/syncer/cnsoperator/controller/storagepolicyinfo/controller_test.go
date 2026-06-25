@@ -517,8 +517,7 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -557,8 +556,7 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -594,8 +592,7 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 		scheme:          scheme,
 		recorder:        recorder,
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -629,8 +626,7 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -719,8 +715,7 @@ func TestCompleteReconciliationWithSuccess(t *testing.T) {
 		client:          fake.NewClientBuilder().WithScheme(scheme).Build(),
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 	nn := types.NamespacedName{Namespace: "ns1", Name: "gold"}
 	r.backOffDuration[nn] = 5 * time.Second
 
@@ -743,8 +738,7 @@ func TestCompleteReconciliationWithError(t *testing.T) {
 		client:          fake.NewClientBuilder().WithScheme(scheme).Build(),
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 	nn := types.NamespacedName{Namespace: "ns1", Name: "gold"}
 	r.backOffDuration[nn] = time.Second
 
@@ -790,8 +784,7 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 		scheme:          scheme,
 		recorder:        recorder,
 		zonesProvider:   &mockZonesProvider{zonesForNamespace: nsZones},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -834,8 +827,7 @@ func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
 		scheme:          scheme,
 		recorder:        record.NewFakeRecorder(10),
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
@@ -884,8 +876,7 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 		scheme:          scheme,
 		recorder:        recorder,
 		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
-	}
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},

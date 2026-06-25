@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -168,6 +169,16 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		},
 	}
 
+	// Channel for periodic resync; a ticker-driven goroutine lists all
+	// StoragePolicyInfo CRs on a configurable interval and pushes them here so
+	// the controller re-reconciles each one against the cached InfraStoragePolicyInfo
+	// topology.
+	// source.Channel drains this into controller-runtime's internal work queue,
+	// so a small buffer is sufficient to avoid blocking between sends and reads.
+	// If the buffer does fill up (e.g. reconciles are slow), the sender skips the
+	// remaining CRs for that tick instead of blocking; see StartPeriodicResync.
+	resyncCh := make(chan event.GenericEvent, 256)
+
 	err := ctrl.NewControllerManagedBy(mgr).Named("storagepolicyinfo-controller").
 		For(&spiv1alpha1.StoragePolicyInfo{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -181,6 +192,7 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 			handler.EnqueueRequestsFromMapFunc(r.mapInfraSPItoSPI),
 			builder.WithPredicates(infraSPIPredicates),
 		).
+		WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
@@ -188,6 +200,15 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		return err
 	}
 
+	interval := getSlowSyncInterval(ctx)
+	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
+		StartPeriodicResync(mgrCtx, r.client, resyncCh, interval, r)
+		<-mgrCtx.Done()
+		return nil
+	})); err != nil {
+		log.Errorf("failed to register periodic resync runnable. Err: %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -256,7 +277,10 @@ type ReconcileStoragePolicyInfo struct {
 	recorder      record.EventRecorder
 	zonesProvider zonesProvider
 	// backOffDuration tracks per-instance requeue delays, incremented
-	// exponentially on failure and reset to 1s on success.
+	// exponentially on failure and reset to 1s on success. A value greater than
+	// one second means the instance is currently backed off after a failure;
+	// slow-sync skips such instances, since they are already scheduled to
+	// reconcile via RequeueAfter.
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
 	backOffDurationMapMutex sync.Mutex
 }
