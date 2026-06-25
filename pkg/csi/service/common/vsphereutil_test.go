@@ -155,6 +155,23 @@ func (m *mockVolumeManager) ReRegisterVolume(ctx context.Context, volumeID strin
 	return nil
 }
 
+func (m *mockVolumeManager) UnregisterVolumeEx(ctx context.Context, volumeID string) (string, string, error) {
+	return "", "", nil
+}
+
+func (m *mockVolumeManager) QueryPendingUnregisters(ctx context.Context) (
+	[]cnsvolume.PendingUnregisterRecord, error) {
+	return nil, nil
+}
+
+func (m *mockVolumeManager) AckUnregister(ctx context.Context, volumeID string) error {
+	return nil
+}
+
+func (m *mockVolumeManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	return "", nil
+}
+
 func TestQueryVolumeSnapshotsByVolumeIDWithQuerySnapshotsCnsVolumeNotFoundFault(t *testing.T) {
 	// Skip test on ARM64 due to gomonkey limitations
 	if runtime.GOARCH == "arm64" {

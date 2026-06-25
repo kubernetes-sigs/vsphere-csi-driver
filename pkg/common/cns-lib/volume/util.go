@@ -632,6 +632,15 @@ func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	return faultType == "vim.fault.CnsVolumeAlreadyExistsFault"
 }
 
+// IsCnsAlreadyRegisteredFault returns true if a given faultType value is
+// vim.fault.CnsAlreadyRegisteredFault, which CNS returns when a CreateVolume
+// (re-register) targets a backing disk that is already a registered FCD.
+func IsCnsAlreadyRegisteredFault(ctx context.Context, faultType string) bool {
+	log := logger.GetLogger(ctx)
+	log.Infof("Checking fault type: %q is vim.fault.CnsAlreadyRegisteredFault", faultType)
+	return faultType == "vim.fault.CnsAlreadyRegisteredFault"
+}
+
 // IsCnsNotRegisteredFault checks if the fault is CnsNotRegisteredFault
 func IsCnsNotRegisteredFault(ctx context.Context, fault *types.LocalizedMethodFault) bool {
 	log := logger.GetLogger(ctx)

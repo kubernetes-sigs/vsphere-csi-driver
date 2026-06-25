@@ -32,6 +32,7 @@ import (
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsunregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsunregistervolume/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	csivolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/v1alpha1"
 	infrastoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -95,6 +96,10 @@ var (
 	StoragePolicyInfoSingular = "storagepolicyinfo"
 	// StoragePolicyInfoPlural is plural of StoragePolicyInfo
 	StoragePolicyInfoPlural = "storagepolicyinfos"
+	// CsiVolumeInfoSingular is the singular name of CsiVolumeInfo.
+	CsiVolumeInfoSingular = "csivolumeinfo"
+	// CsiVolumeInfoPlural is the plural name of CsiVolumeInfo.
+	CsiVolumeInfoPlural = "csivolumeinfos"
 )
 
 var (
@@ -217,6 +222,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&storagepolicyinfov1alpha1.StoragePolicyInfo{},
 		&storagepolicyinfov1alpha1.StoragePolicyInfoList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&csivolumeinfov1alpha1.CsiVolumeInfo{},
+		&csivolumeinfov1alpha1.CsiVolumeInfoList{},
 	)
 
 	scheme.AddKnownTypes(

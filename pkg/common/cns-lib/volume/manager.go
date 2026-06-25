@@ -27,6 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -78,6 +79,14 @@ const (
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
 )
+
+// PendingUnregisterRecord holds data for a volume in PENDING_UNREGISTER state.
+// Each record represents an unregister started but not yet acknowledged.
+type PendingUnregisterRecord struct {
+	VolumeID        string
+	BackingDiskPath string
+	DiskUUID        string
+}
 
 // Manager provides functionality to manage volumes.
 type Manager interface {
@@ -180,6 +189,22 @@ type Manager interface {
 	// QueryFCDChangedBlocks returns changed block ranges using FCD VSLM QueryChangedDiskAreas with baseChangeID.
 	QueryFCDChangedBlocks(ctx context.Context, volumeID, targetSnapshotID, baseChangeID string,
 		startingOffset uint64) ([]DiskArea, uint64, error)
+	// UnregisterVolumeEx initiates phase-1 of the two-phase CNS unregister protocol.
+	// It unregisters the FCD from CNS and returns the backing-disk path and disk UUID
+	// that the caller must persist before invoking AckUnregister. The CNS record
+	// transitions to PENDING_UNREGISTER until AckUnregister is called.
+	UnregisterVolumeEx(ctx context.Context, volumeID string) (string, string, error)
+	// QueryPendingUnregisters returns all volumes that are in the PENDING_UNREGISTER
+	// state in CNS. Used on controller restart to recover any volumes whose AckUnregister
+	// was never delivered.
+	QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error)
+	// AckUnregister completes phase-2 of the two-phase CNS unregister protocol by
+	// deleting the PENDING_UNREGISTER record from the CNS database. The call is idempotent.
+	AckUnregister(ctx context.Context, volumeID string) error
+	// GetDiskFolderURL converts a datastore path in "[dsName] relPath" format to
+	// the HTTP folder URL format (https://host/folder/relPath?dcPath=...&dsName=...)
+	// required by CNS's RegisterVMDKWithUrlAction for re-registration after UnregisterVolumeEx.
+	GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error)
 }
 
 // CnsVolumeInfo hold information related to volume created by CNS.
@@ -4490,4 +4515,165 @@ func TranslateVslmError(ctx context.Context, err error) error {
 	}
 
 	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+}
+
+// UnregisterVolumeEx initiates phase-1 of the two-phase CNS unregister protocol.
+// It unregisters the FCD from CNS and returns the backing-disk path and disk UUID.
+// The CNS record transitions to PENDING_UNREGISTER; the caller must persist these
+// values and then call AckUnregister to complete the handshake.
+func (m *defaultManager) UnregisterVolumeEx(ctx context.Context, volumeID string) (string, string, error) {
+	log := logger.GetLogger(ctx).With("volumeID", volumeID)
+	log.Infof("UnregisterVolumeEx: entry volumeID=%q", volumeID)
+
+	if m.virtualCenter == nil {
+		return "", "", errors.New("virtual center connection not established")
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("UnregisterVolumeEx: ConnectCns failed for volumeID=%q: %v", volumeID, err)
+		return "", "", fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	spec := []cnstypes.CnsUnregisterVolumeSpec{
+		{
+			VolumeId:         cnstypes.CnsVolumeId{Id: volumeID},
+			TargetVolumeType: string(cnstypes.CnsUnregisterTargetVolumeTypeFCD),
+		},
+	}
+	task, err := m.virtualCenter.CnsClient.UnregisterVolumeEx(ctx, spec)
+	if err != nil {
+		log.Errorf("UnregisterVolumeEx: CNS call failed for volumeID=%q: %v", volumeID, err)
+		return "", "", fmt.Errorf("CnsUnregisterVolumeEx failed: %w", err)
+	}
+
+	taskInfo, err := m.waitOnTask(ctx, task.Reference())
+	if err != nil {
+		log.Errorf("UnregisterVolumeEx: waitOnTask failed for volumeID=%q: %v", volumeID, err)
+		return "", "", fmt.Errorf("waiting for CnsUnregisterVolumeEx task failed: %w", err)
+	}
+	if taskInfo == nil {
+		log.Errorf("UnregisterVolumeEx: taskInfo is nil for volumeID=%q", volumeID)
+		return "", "", errors.New("taskInfo is nil for CnsUnregisterVolumeEx task")
+	}
+
+	res, err := getTaskResultFromTaskInfo(ctx, taskInfo)
+	if err != nil {
+		log.Errorf("UnregisterVolumeEx: failed to get task result for volumeID=%q: %v", volumeID, err)
+		return "", "", fmt.Errorf("failed to get CnsUnregisterVolumeEx task result: %w", err)
+	}
+	if res == nil {
+		log.Errorf("UnregisterVolumeEx: task result is nil for volumeID=%q opId=%q",
+			volumeID, taskInfo.ActivationId)
+		return "", "", errors.New("task result is nil for CnsUnregisterVolumeEx task")
+	}
+
+	unregRes, ok := res.(*cnstypes.CnsUnregisterVolumeResult)
+	if !ok {
+		log.Errorf("UnregisterVolumeEx: unexpected result type %T for volumeID=%q", res, volumeID)
+		return "", "", fmt.Errorf("unexpected task result type %T for CnsUnregisterVolumeEx", res)
+	}
+
+	volOpRes := unregRes.GetCnsVolumeOperationResult()
+	if volOpRes.Fault != nil {
+		fault := ExtractFaultTypeFromVolumeResponseResult(ctx, volOpRes)
+		log.Errorf("UnregisterVolumeEx: fault for volumeID=%q fault=%q opId=%q",
+			volumeID, fault, taskInfo.ActivationId)
+		return "", "", fmt.Errorf("CnsUnregisterVolumeEx fault: %s", fault)
+	}
+
+	log.Infof("UnregisterVolumeEx: exit volumeID=%q backingDiskPath=%q diskUUID=%q opId=%q",
+		volumeID, unregRes.BackingDiskPath, unregRes.DiskUUID, taskInfo.ActivationId)
+	return unregRes.BackingDiskPath, unregRes.DiskUUID, nil
+}
+
+// QueryPendingUnregisters returns all volumes in PENDING_UNREGISTER state from CNS.
+// Used on controller restart to recover volumes whose AckUnregister was never delivered.
+func (m *defaultManager) QueryPendingUnregisters(ctx context.Context) ([]PendingUnregisterRecord, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("QueryPendingUnregisters: entry")
+
+	if m.virtualCenter == nil {
+		return nil, errors.New("virtual center connection not established")
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("QueryPendingUnregisters: ConnectCns failed: %v", err)
+		return nil, fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	results, err := m.virtualCenter.CnsClient.QueryPendingUnregisters(ctx)
+	if err != nil {
+		log.Errorf("QueryPendingUnregisters: CNS call failed: %v", err)
+		return nil, fmt.Errorf("CnsQueryPendingUnregisters failed: %w", err)
+	}
+
+	records := make([]PendingUnregisterRecord, 0, len(results))
+	for _, r := range results {
+		records = append(records, PendingUnregisterRecord{
+			VolumeID:        r.VolumeId.Id,
+			BackingDiskPath: r.BackingDiskPath,
+			DiskUUID:        r.DiskUUID,
+		})
+	}
+	log.Infof("QueryPendingUnregisters: exit count=%d", len(records))
+	return records, nil
+}
+
+// AckUnregister completes phase-2 of the two-phase CNS unregister protocol by
+// deleting the PENDING_UNREGISTER record for the given volumeID. The call is idempotent.
+func (m *defaultManager) AckUnregister(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx).With("volumeID", volumeID)
+	log.Infof("AckUnregister: entry volumeID=%q", volumeID)
+
+	if m.virtualCenter == nil {
+		return errors.New("virtual center connection not established")
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("AckUnregister: ConnectCns failed for volumeID=%q: %v", volumeID, err)
+		return fmt.Errorf("connecting to CNS failed: %w", err)
+	}
+
+	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
+	if err := m.virtualCenter.CnsClient.AcknowledgeUnregister(ctx, volumeIds); err != nil {
+		log.Errorf("AckUnregister: CNS call failed for volumeID=%q: %v", volumeID, err)
+		return fmt.Errorf("CnsAcknowledgeUnregister failed: %w", err)
+	}
+
+	log.Infof("AckUnregister: exit volumeID=%q acknowledged successfully", volumeID)
+	return nil
+}
+
+// GetDiskFolderURL converts a datastore path ("[dsName] relPath") to the HTTP
+// folder URL format (https://host/folder/relPath?dcPath=...&dsName=...) required
+// by CNS's RegisterVMDKWithUrlAction when re-registering a VMDK after UnregisterVolumeEx.
+func (m *defaultManager) GetDiskFolderURL(ctx context.Context, datastorePath string) (string, error) {
+	log := logger.GetLogger(ctx).With("datastorePath", datastorePath)
+
+	var dsPath object.DatastorePath
+	if !dsPath.FromString(datastorePath) {
+		return "", fmt.Errorf("GetDiskFolderURL: failed to parse datastore path %q", datastorePath)
+	}
+
+	if m.virtualCenter == nil {
+		return "", fmt.Errorf("GetDiskFolderURL: virtual center connection not established")
+	}
+
+	datacenters, err := m.virtualCenter.GetDatacenters(ctx)
+	if err != nil {
+		return "", fmt.Errorf("GetDiskFolderURL: failed to get datacenters: %w", err)
+	}
+
+	for _, dc := range datacenters {
+		f := find.NewFinder(m.virtualCenter.Client.Client, false)
+		f.SetDatacenter(dc.Datacenter)
+		ds, err := f.Datastore(ctx, dsPath.Datastore)
+		if err != nil {
+			log.Debugf("GetDiskFolderURL: datastore %q not found in datacenter %q: %v",
+				dsPath.Datastore, dc.InventoryPath, err)
+			continue
+		}
+		url := ds.NewURL(dsPath.Path).String()
+		log.Infof("GetDiskFolderURL: resolved %q → %q (dc=%q)", datastorePath, url, dc.InventoryPath)
+		return url, nil
+	}
+
+	return "", fmt.Errorf("GetDiskFolderURL: datastore %q not found in any datacenter", dsPath.Datastore)
 }

@@ -38,6 +38,7 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
 	cnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/config"
+	csivolumeinfocfg "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/csivolumeinfo/config"
 	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -348,6 +349,16 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					log.Errorf("Failed to create %q CRD. Err: %+v", internalapis.CnsFileVolumeClientPlural, err)
 					return err
 				}
+			}
+		}
+
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.VMOwnedVolumes) {
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				csivolumeinfocfg.EmbedCsiVolumeInfoCRFile,
+				csivolumeinfocfg.EmbedCsiVolumeInfoCRFileName)
+			if err != nil {
+				log.Errorf("failed to create CsiVolumeInfo CRD. Err: %+v", err)
+				return err
 			}
 		}
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {

@@ -64,10 +64,12 @@ deps:
 #
 # So we only use the commit id as the version for the binaries built from master branch,
 # and use the tag as the version for any release branches.
+ifeq ($(VERSION),)
 ifeq ($(shell git rev-parse --abbrev-ref HEAD), master)
 VERSION := $(shell git log -1 --format=%h)
 else
 VERSION := $(shell git describe --dirty --always 2>/dev/null)
+endif
 endif
 
 .PHONY: version
