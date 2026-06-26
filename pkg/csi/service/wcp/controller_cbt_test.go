@@ -635,7 +635,7 @@ func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault vim25types.
 func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
 	// noTrack -> CBT not enabled -> FailedPrecondition.
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_noTrack",
-		&vim25types.FileFault{
+		vim25types.FileFault{
 			VimFault: vim25types.VimFault{
 				MethodFault: vim25types.MethodFault{
 					FaultMessage: []vim25types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noTrack"}},
@@ -645,22 +645,22 @@ func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
 
 	// startOffset out of range -> OutOfRange.
 	runVSLMErrorPropagationCase(t, "OutOfRange_startOffset",
-		&vim25types.InvalidArgument{InvalidProperty: "startOffset"}, "",
+		vim25types.InvalidArgument{InvalidProperty: "startOffset"}, "",
 		false, codes.OutOfRange)
 
 	// snapshotId not found -> NotFound.
 	runVSLMErrorPropagationCase(t, "NotFound_snapshotId",
-		&vim25types.InvalidArgument{InvalidProperty: "snapshotId"}, "",
+		vim25types.InvalidArgument{InvalidProperty: "snapshotId"}, "",
 		false, codes.NotFound)
 
 	// changeId malformed -> InvalidArgument.
 	runVSLMErrorPropagationCase(t, "InvalidArgument_changeId",
-		&vim25types.InvalidArgument{InvalidProperty: "changeId"}, "",
+		vim25types.InvalidArgument{InvalidProperty: "changeId"}, "",
 		false, codes.InvalidArgument)
 
 	// Generic VSLM SystemError -> Internal (already-wrapped case still works).
 	runVSLMErrorPropagationCase(t, "Internal_systemError",
-		&vim25types.SystemError{}, "", false, codes.Internal)
+		vim25types.SystemError{}, "", false, codes.Internal)
 }
 
 // TestGetMetadataDelta_PreservesVSLMErrorCode is the same end-to-end
@@ -668,7 +668,7 @@ func TestGetMetadataAllocated_PreservesVSLMErrorCode(t *testing.T) {
 // QueryFCDChangedBlocks under the hood).
 func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_noEpoch",
-		&vim25types.FileFault{
+		vim25types.FileFault{
 			VimFault: vim25types.VimFault{
 				MethodFault: vim25types.MethodFault{
 					FaultMessage: []vim25types.LocalizableMessage{{Key: "vim.hostd.vmsvc.cbt.noEpoch"}},
@@ -677,7 +677,7 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 		}, "", true, codes.FailedPrecondition)
 
 	runVSLMErrorPropagationCase(t, "FailedPrecondition_corruptCTK",
-		&vim25types.FileFault{
+		vim25types.FileFault{
 			VimFault: vim25types.VimFault{
 				MethodFault: vim25types.MethodFault{
 					FaultMessage: []vim25types.LocalizableMessage{
@@ -688,7 +688,7 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 		}, "file is corrupted", true, codes.FailedPrecondition)
 
 	runVSLMErrorPropagationCase(t, "InvalidArgument_changeIDMismatch",
-		&vim25types.FileFault{
+		vim25types.FileFault{
 			VimFault: vim25types.VimFault{
 				MethodFault: vim25types.MethodFault{
 					FaultMessage: []vim25types.LocalizableMessage{
@@ -699,7 +699,7 @@ func TestGetMetadataDelta_PreservesVSLMErrorCode(t *testing.T) {
 		}, "", true, codes.InvalidArgument)
 
 	runVSLMErrorPropagationCase(t, "NotFound_FCD",
-		&vim25types.NotFound{}, "", true, codes.NotFound)
+		vim25types.NotFound{}, "", true, codes.NotFound)
 }
 
 // TestGetMetadataAllocated_Pagination verifies that GetMetadataAllocated streams

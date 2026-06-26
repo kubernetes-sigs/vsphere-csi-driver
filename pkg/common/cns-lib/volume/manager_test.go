@@ -569,7 +569,7 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name: "SOAP FileFault with noTrack",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{
 					MethodFault: vim25types.MethodFault{
 						FaultMessage: []vim25types.LocalizableMessage{
@@ -582,7 +582,7 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name: "SOAP FileFault with noEpoch",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{
 					MethodFault: vim25types.MethodFault{
 						FaultMessage: []vim25types.LocalizableMessage{
@@ -595,7 +595,7 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name: "SOAP FileFault with corrupt cannotGetChanges",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{
 					MethodFault: vim25types.MethodFault{
 						FaultMessage: []vim25types.LocalizableMessage{
@@ -608,7 +608,7 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name: "SOAP FileFault with mismatched cannotGetChanges",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{
 					MethodFault: vim25types.MethodFault{
 						FaultMessage: []vim25types.LocalizableMessage{
@@ -621,45 +621,45 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name:     "SOAP FileFault generic",
-			err:      createFCDSoapFault(&vim25types.FileFault{}, ""),
+			err:      createFCDSoapFault(vim25types.FileFault{}, ""),
 			wantCode: codes.Internal,
 		},
 		{
 			name:     "SOAP SystemError",
-			err:      createFCDSoapFault(&vim25types.SystemError{}, ""),
+			err:      createFCDSoapFault(vim25types.SystemError{}, ""),
 			wantCode: codes.Internal,
 		},
 		{
 			name: "SOAP InvalidArgument startOffset",
-			err: createFCDSoapFault(&vim25types.InvalidArgument{
+			err: createFCDSoapFault(vim25types.InvalidArgument{
 				InvalidProperty: "startOffset",
 			}, ""),
 			wantCode: codes.OutOfRange,
 		},
 		{
 			name: "SOAP InvalidArgument snapshotId",
-			err: createFCDSoapFault(&vim25types.InvalidArgument{
+			err: createFCDSoapFault(vim25types.InvalidArgument{
 				InvalidProperty: "snapshotId",
 			}, ""),
 			wantCode: codes.NotFound,
 		},
 		{
 			name: "SOAP InvalidArgument changeId",
-			err: createFCDSoapFault(&vim25types.InvalidArgument{
+			err: createFCDSoapFault(vim25types.InvalidArgument{
 				InvalidProperty: "changeId",
 			}, ""),
 			wantCode: codes.InvalidArgument,
 		},
 		{
 			name: "SOAP InvalidArgument deviceKey",
-			err: createFCDSoapFault(&vim25types.InvalidArgument{
+			err: createFCDSoapFault(vim25types.InvalidArgument{
 				InvalidProperty: "deviceKey",
 			}, ""),
 			wantCode: codes.InvalidArgument,
 		},
 		{
 			name:     "SOAP NotFound",
-			err:      createFCDSoapFault(&vim25types.NotFound{}, ""),
+			err:      createFCDSoapFault(vim25types.NotFound{}, ""),
 			wantCode: codes.NotFound,
 		},
 		{
@@ -679,35 +679,35 @@ func TestTranslateVslmError(t *testing.T) {
 		},
 		{
 			name: "SOAP FileFault noTrack via error message substring",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
 			}, "vim.hostd.vmsvc.cbt.noTrack"),
 			wantCode: codes.FailedPrecondition,
 		},
 		{
 			name: "SOAP FileFault noEpoch via error message substring",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
 			}, "vim.hostd.vmsvc.cbt.noEpoch"),
 			wantCode: codes.FailedPrecondition,
 		},
 		{
 			name: "SOAP FileFault cannotGetChanges via error message substring",
-			err: createFCDSoapFault(&vim25types.FileFault{
+			err: createFCDSoapFault(vim25types.FileFault{
 				VimFault: vim25types.VimFault{MethodFault: vim25types.MethodFault{}},
 			}, "vim.hostd.vmsvc.cbt.cannotGetChanges"),
 			wantCode: codes.InvalidArgument,
 		},
 		{
 			name: "SOAP InvalidArgument unknown property",
-			err: createFCDSoapFault(&vim25types.InvalidArgument{
+			err: createFCDSoapFault(vim25types.InvalidArgument{
 				InvalidProperty: "otherProperty",
 			}, ""),
 			wantCode: codes.InvalidArgument,
 		},
 		{
 			name:     "SOAP fault type not specially handled",
-			err:      createFCDSoapFault(&vim25types.AlreadyExists{}, "exists"),
+			err:      createFCDSoapFault(vim25types.AlreadyExists{}, "exists"),
 			wantCode: codes.Internal,
 		},
 	}
