@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 
-	_ "crypto/tls/fipsonly"
+	_ "crypto/tls/fipsonly" //nolint:typecheck
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -143,25 +144,56 @@ func startCNSCSIWebhookManager(ctx context.Context, enableWebhookClientCertVerif
 	k8sClient := mgr.GetClient()
 	cryptoClient := crypto.NewClient(ctx, k8sClient)
 
+	vsphereClusterVersion, err := k8s.GetPreferredVersionForCRD(
+		ctx,
+		mgr.GetConfig(),
+		vsphereClusterGroup,
+		vsphereClusterResource,
+	)
+	if err != nil {
+		vsphereClusterVersion = vsphereClusterDefaultVersion
+		log.Warnf("Failed to discover VSphereCluster API version, falling back to %q: %+v",
+			vsphereClusterVersion, err)
+	}
+	log.Infof("Using VSphereCluster API version: %s", vsphereClusterVersion)
+
+	vsphereClusterInformer, err := k8s.GetDynamicInformer(ctx,
+		vsphereClusterGroup, vsphereClusterVersion,
+		vsphereClusterResource,
+		v1.NamespaceAll, mgr.GetConfig(), true)
+	if err != nil {
+		return fmt.Errorf("unable to create VSphereCluster informer: %w", err)
+	}
+	stopCtx := signals.SetupSignalHandler()
+	go func() {
+		vsphereClusterInformer.Informer().Run(stopCtx.Done())
+	}()
+
 	log.Infof("registering validating webhook with the endpoint %v", ValidationWebhookPath)
 
 	webhookServer := mgr.GetWebhookServer()
 
 	webhookServer.Register(ValidationWebhookPath, &webhook.Admission{Handler: &CSISupervisorWebhook{
-		Client:            k8sClient,
-		CryptoClient:      cryptoClient,
-		clientConfig:      mgr.GetConfig(),
-		coCommonInterface: commonInterface,
+		Client:                  k8sClient,
+		CryptoClient:            cryptoClient,
+		clientConfig:            mgr.GetConfig(),
+		coCommonInterface:       commonInterface,
+		vsphereClusterStore:     vsphereClusterInformer.Informer().GetStore(),
+		vsphereClusterHasSynced: vsphereClusterInformer.Informer().HasSynced,
+		vsphereClusterVersion:   vsphereClusterVersion,
 	}})
 
 	log.Infof("registering mutation webhook with the endpoint %v", MutationWebhookPath)
 	webhookServer.Register(MutationWebhookPath, &webhook.Admission{Handler: &CSISupervisorMutationWebhook{
-		Client:            k8sClient,
-		CryptoClient:      cryptoClient,
-		coCommonInterface: commonInterface,
+		Client:                  k8sClient,
+		CryptoClient:            cryptoClient,
+		coCommonInterface:       commonInterface,
+		vsphereClusterStore:     vsphereClusterInformer.Informer().GetStore(),
+		vsphereClusterHasSynced: vsphereClusterInformer.Informer().HasSynced,
+		vsphereClusterVersion:   vsphereClusterVersion,
 	}})
 
-	if err = mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err = mgr.Start(stopCtx); err != nil {
 		return fmt.Errorf("unable to run the webhook manager: %w", err)
 	}
 
@@ -172,9 +204,12 @@ var _ admission.Handler = &CSISupervisorWebhook{}
 
 type CSISupervisorWebhook struct {
 	client.Client
-	CryptoClient      crypto.Client
-	clientConfig      *rest.Config
-	coCommonInterface commonco.COCommonInterface
+	CryptoClient            crypto.Client
+	clientConfig            *rest.Config
+	coCommonInterface       commonco.COCommonInterface
+	vsphereClusterStore     cache.Store
+	vsphereClusterHasSynced cache.InformerSynced
+	vsphereClusterVersion   string
 }
 
 func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
@@ -208,10 +243,22 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		if featureFileVolumesWithVmServiceEnabled {
 			switch req.Operation {
 			case admissionv1.Create:
-				admissionResp := validateCreateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest, h.Client)
+				cache := vsphereClusterCache{
+					store:     h.vsphereClusterStore,
+					hasSynced: h.vsphereClusterHasSynced,
+					version:   h.vsphereClusterVersion,
+				}
+				admissionResp := validateCreateCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest,
+					h.Client, cache)
 				resp.AdmissionResponse = *admissionResp.DeepCopy()
 			case admissionv1.Delete:
-				admissionResp := validateDeleteCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest, h.Client)
+				cache := vsphereClusterCache{
+					store:     h.vsphereClusterStore,
+					hasSynced: h.vsphereClusterHasSynced,
+					version:   h.vsphereClusterVersion,
+				}
+				admissionResp := validateDeleteCnsFileAccessConfig(ctx, h.clientConfig, &req.AdmissionRequest,
+					h.Client, cache)
 				resp.AdmissionResponse = *admissionResp.DeepCopy()
 			}
 		}
@@ -228,8 +275,11 @@ var _ admission.Handler = &CSISupervisorMutationWebhook{}
 
 type CSISupervisorMutationWebhook struct {
 	client.Client
-	CryptoClient      crypto.Client
-	coCommonInterface commonco.COCommonInterface
+	CryptoClient            crypto.Client
+	coCommonInterface       commonco.COCommonInterface
+	vsphereClusterStore     cache.Store
+	vsphereClusterHasSynced cache.InformerSynced
+	vsphereClusterVersion   string
 }
 
 func (h *CSISupervisorMutationWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -331,7 +381,12 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	}
 
 	// If CR is created by CSI service account, do not add devops label.
-	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, h.Client)
+	cache := vsphereClusterCache{
+		store:     h.vsphereClusterStore,
+		hasSynced: h.vsphereClusterHasSynced,
+		version:   h.vsphereClusterVersion,
+	}
+	isPvCSIServiceAccount, err := validatePvCSIServiceAccount(ctx, req.UserInfo.Username, h.Client, cache)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
