@@ -1598,8 +1598,8 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 		}
 		if labels[prometheus.PrometheusPVMissingLabelKey] == prometheus.PrometheusPVMissingLabelValue {
 			// Already labeled in CNS; nothing to do for this entity.
-			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q PV entity %q already has pv_missing=true label, skipping",
-				vc, vol.VolumeId.Id, k8sEm.EntityName)
+			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q PV entity %q"+
+				" already has pv_missing=true label, skipping", vc, vol.VolumeId.Id, k8sEm.EntityName)
 			continue
 		}
 		labels[prometheus.PrometheusPVMissingLabelKey] = prometheus.PrometheusPVMissingLabelValue
