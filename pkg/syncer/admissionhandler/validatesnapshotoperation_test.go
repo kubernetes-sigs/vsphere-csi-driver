@@ -23,13 +23,13 @@ import (
 
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	snapshotclientfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	v1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	snapshotclientfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 )
 
 var admissionReview_snapshotclass = v1.AdmissionReview{
@@ -110,7 +110,7 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 			DeletionPolicy: "Delete",
 		},
 	}
-	snapshotClient := snapshotclientfake.NewSimpleClientset(snapshotClassObj...)
+	snapshotClient := snapshotclientfake.NewClientset(snapshotClassObj...)
 	origSnapshotterClient := newSnapshotterClient
 	defer func() { newSnapshotterClient = origSnapshotterClient }()
 	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
@@ -142,7 +142,7 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 			DeletionPolicy: "Delete",
 		},
 	}
-	snapshotClient = snapshotclientfake.NewSimpleClientset(snapshotClassObj...)
+	snapshotClient = snapshotclientfake.NewClientset(snapshotClassObj...)
 	newSnapshotterClient = func(ctx context.Context) (snapshotterClientSet.Interface, error) {
 		return snapshotClient, nil
 	}

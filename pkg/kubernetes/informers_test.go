@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	snapshotfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sinformers "k8s.io/client-go/informers"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	snapshotfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 )
 
 func TestNewInformer(t *testing.T) {
@@ -41,7 +41,7 @@ func TestNewInformer(t *testing.T) {
 		}
 		assert.Nil(tt, im.snapshotInformerFactory)
 
-		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		im.SetSnapshotInformerFactory(snapshotfake.NewClientset())
 		assert.NotNil(tt, im.snapshotInformerFactory,
 			"snapshotInformerFactory should be set after SetSnapshotInformerFactory")
 	})
@@ -51,11 +51,11 @@ func TestNewInformer(t *testing.T) {
 			client:          testclient.NewSimpleClientset(),
 			informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
 		}
-		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		im.SetSnapshotInformerFactory(snapshotfake.NewClientset())
 		first := im.snapshotInformerFactory
 
 		// Second call should be a no-op.
-		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		im.SetSnapshotInformerFactory(snapshotfake.NewClientset())
 		assert.Equal(tt, first, im.snapshotInformerFactory, "factory should not be replaced on second call")
 	})
 
@@ -111,7 +111,7 @@ func TestNewInformer(t *testing.T) {
 		assert.NotNil(tt, informerMgr.informerFactory.Core(), "Core informer factory should be accessible")
 
 		// Attach snapshot factory and verify it is usable.
-		informerMgr.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		informerMgr.SetSnapshotInformerFactory(snapshotfake.NewClientset())
 		assert.NotNil(tt, informerMgr.snapshotInformerFactory, "snapshotInformerFactory should be set")
 		assert.NotNil(tt, informerMgr.snapshotInformerFactory.Snapshot(),
 			"Snapshot informer factory should be accessible")
@@ -150,7 +150,7 @@ func TestInformerManager_AddSnapshotListener(t *testing.T) {
 			client:          testclient.NewSimpleClientset(),
 			informerFactory: k8sinformers.NewSharedInformerFactory(testclient.NewSimpleClientset(), 0),
 		}
-		im.SetSnapshotInformerFactory(snapshotfake.NewSimpleClientset())
+		im.SetSnapshotInformerFactory(snapshotfake.NewClientset())
 		return im
 	}
 

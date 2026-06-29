@@ -28,7 +28,6 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	fakesnapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -46,6 +45,7 @@ import (
 	ktesting "k8s.io/client-go/testing"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	fakesnapshotclient "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
@@ -107,7 +107,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 		}
 
 		// Create fake snapshot client
-		fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+		fakeSnapshotClient := fakesnapshotclient.NewClientset()
 
 		c := &controller{
 			supervisorClient:            supervisorClient,
@@ -1316,7 +1316,7 @@ func TestCreateSnapshotWithAnnotations(t *testing.T) {
 	)
 
 	supervisorFakeClient := testclient.NewClientset()
-	fakeSnapshotClient := fakesnapshotclient.NewSimpleClientset()
+	fakeSnapshotClient := fakesnapshotclient.NewClientset()
 	c := &controller{
 		supervisorClient:            supervisorFakeClient,
 		supervisorSnapshotterClient: fakeSnapshotClient,

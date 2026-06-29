@@ -34,7 +34,6 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapshotmetadataapi "github.com/kubernetes-csi/external-snapshot-metadata/pkg/api"
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	snapshotterfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -48,6 +47,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	snapshotterfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -76,7 +76,7 @@ func seedSupervisorVolumeSnapshots(t *testing.T, c *controller, handles ...strin
 			},
 		)
 	}
-	c.supervisorSnapshotterClient = snapshotterfake.NewSimpleClientset(objs...)
+	c.supervisorSnapshotterClient = snapshotterfake.NewClientset(objs...)
 	c.supervisorNamespace = testSupervisorSnapshotNamespace
 }
 

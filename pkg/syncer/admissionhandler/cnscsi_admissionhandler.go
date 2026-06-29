@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 
-	_ "crypto/tls/fipsonly" //nolint:typecheck
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
