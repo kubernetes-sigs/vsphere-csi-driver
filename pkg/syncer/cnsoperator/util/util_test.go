@@ -20,11 +20,15 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	"github.com/vmware/govmomi/object"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,6 +39,7 @@ import (
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -612,4 +617,236 @@ func TestGetTKGVMIP_PerNamespaceVDSUsesVMIP(t *testing.T) {
 	ip, err := GetTKGVMIPFromNetworkSettings(ctx, vmOpClient, dc, vmNamespace, vmName)
 	assert.NoError(t, err)
 	assert.Equal(t, "192.0.2.10", ip)
+}
+
+// --- helpers for GetPolicyCompatibleDatastoresPerZone / GetAccessibleZonesForPolicy ----
+
+// mockTopologyService is a minimal ControllerTopologyService for unit tests.
+type mockTopologyService struct {
+	azClustersMap map[string][]string
+}
+
+func (m *mockTopologyService) GetAZClustersMap(_ context.Context) map[string][]string {
+	return m.azClustersMap
+}
+func (m *mockTopologyService) GetSharedDatastoresInTopology(_ context.Context, _ interface{},
+) ([]*cnsvsphere.DatastoreInfo, error) {
+	return nil, nil
+}
+func (m *mockTopologyService) GetTopologyInfoFromNodes(_ context.Context, _ interface{},
+) ([]map[string]string, error) {
+	return nil, nil
+}
+func (m *mockTopologyService) ZonesWithMultipleClustersExist(_ context.Context) bool { return false }
+func (m *mockTopologyService) GetAccessibleZonesForDatastore(_ context.Context, _ string,
+	_ *cnsvsphere.VirtualCenter) ([]string, error) {
+	return nil, nil
+}
+
+// fakeDS builds a DatastoreInfo whose Reference().Value equals the given id.
+// nil is safe for the govmomi client because only Reference() is called in tests.
+func fakeDS(id string) *cnsvsphere.DatastoreInfo {
+	ref := vimtypes.ManagedObjectReference{Type: "Datastore", Value: id}
+	return &cnsvsphere.DatastoreInfo{
+		Datastore: &cnsvsphere.Datastore{
+			Datastore: object.NewDatastore(nil, ref),
+		},
+	}
+}
+
+// withCompatibleDSIDs replaces GetPolicyCompatibleDatastoresFn for the duration of a test.
+func withCompatibleDSIDs(ids map[string]struct{}, fn func()) {
+	orig := GetPolicyCompatibleDatastoresFn
+	GetPolicyCompatibleDatastoresFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ string) (map[string]struct{}, error) {
+		return ids, nil
+	}
+	defer func() { GetPolicyCompatibleDatastoresFn = orig }()
+	fn()
+}
+
+// --- GetPolicyCompatibleDatastoresPerZone tests ---------------------------------------
+
+// TestGetPolicyCompatibleDatastoresPerZone_NilTopologyManager verifies that a nil
+// topology manager returns an error immediately.
+func TestGetPolicyCompatibleDatastoresPerZone_NilTopologyManager(t *testing.T) {
+	ctx := context.Background()
+	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, nil, nil, "policy-1", nil)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_NoZones verifies that an empty azClustersMap
+// returns an empty map without calling the VC.
+func TestGetPolicyCompatibleDatastoresPerZone_NoZones(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{azClustersMap: map[string][]string{}}
+	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", nil)
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_AllCompatible verifies that when every
+// datastore in the cache matches the compatible set, all are returned per zone.
+func TestGetPolicyCompatibleDatastoresPerZone_AllCompatible(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{
+			"zone-a": {"cluster-1"},
+			"zone-b": {"cluster-2"},
+		},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-1"), fakeDS("ds-2")},
+		"cluster-2": {fakeDS("ds-3")},
+	}
+	compatible := map[string]struct{}{"ds-1": {}, "ds-2": {}, "ds-3": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		assert.Len(t, result["zone-a"], 2)
+		assert.Len(t, result["zone-b"], 1)
+	})
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_SomeCompatible verifies that only datastores
+// whose IDs are in the compatible set are included in the result.
+func TestGetPolicyCompatibleDatastoresPerZone_SomeCompatible(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{"zone-a": {"cluster-1"}},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-match"), fakeDS("ds-skip")},
+	}
+	compatible := map[string]struct{}{"ds-match": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		require.Len(t, result["zone-a"], 1)
+		assert.Equal(t, "ds-match", result["zone-a"][0].Reference().Value)
+	})
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_NoneCompatible verifies that a zone entry
+// is still created with an empty slice when no datastores match.
+func TestGetPolicyCompatibleDatastoresPerZone_NoneCompatible(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{"zone-a": {"cluster-1"}},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-1")},
+	}
+	compatible := map[string]struct{}{"ds-other": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		assert.Empty(t, result["zone-a"])
+	})
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_MultipleZonesSameDatastore verifies that a
+// datastore shared between two zones appears in the results for both.
+func TestGetPolicyCompatibleDatastoresPerZone_MultipleZonesSameDatastore(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{
+			"zone-a": {"cluster-1"},
+			"zone-b": {"cluster-2"},
+		},
+	}
+	sharedDS := fakeDS("ds-shared")
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {sharedDS},
+		"cluster-2": {sharedDS},
+	}
+	compatible := map[string]struct{}{"ds-shared": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		assert.Len(t, result["zone-a"], 1)
+		assert.Len(t, result["zone-b"], 1)
+	})
+}
+
+// TestGetPolicyCompatibleDatastoresPerZone_MultipleClustersPerZone verifies that
+// datastores from all clusters in a zone are aggregated before filtering.
+func TestGetPolicyCompatibleDatastoresPerZone_MultipleClustersPerZone(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{
+			"zone-a": {"cluster-1", "cluster-2"},
+		},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-1")},
+		"cluster-2": {fakeDS("ds-2")},
+	}
+	compatible := map[string]struct{}{"ds-1": {}, "ds-2": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		assert.Len(t, result["zone-a"], 2)
+	})
+}
+
+// --- GetAccessibleZonesForPolicy tests ------------------------------------------------
+
+// TestGetAccessibleZonesForPolicy_NilTopologyManager verifies that a nil topology
+// manager returns an error.
+func TestGetAccessibleZonesForPolicy_NilTopologyManager(t *testing.T) {
+	ctx := context.Background()
+	zones, err := GetAccessibleZonesForPolicy(ctx, nil, nil, "policy-1", nil)
+	assert.Error(t, err)
+	assert.Nil(t, zones)
+}
+
+// TestGetAccessibleZonesForPolicy_NoCompatibleDatastores verifies that zones without
+// any compatible datastores are excluded from the result.
+func TestGetAccessibleZonesForPolicy_NoCompatibleDatastores(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{"zone-a": {"cluster-1"}},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-1")},
+	}
+	// No compatible datastores → zone-a should not appear.
+	withCompatibleDSIDs(map[string]struct{}{}, func() {
+		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		assert.Empty(t, zones)
+	})
+}
+
+// TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned verifies that only
+// zones containing at least one compatible datastore are included in the result.
+func TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned(t *testing.T) {
+	ctx := context.Background()
+	topo := &mockTopologyService{
+		azClustersMap: map[string][]string{
+			"zone-has-ds":   {"cluster-1"},
+			"zone-no-ds":    {"cluster-2"},
+			"zone-also-has": {"cluster-3"},
+		},
+	}
+	cache := map[string][]*cnsvsphere.DatastoreInfo{
+		"cluster-1": {fakeDS("ds-match")},
+		"cluster-2": {fakeDS("ds-other")},
+		"cluster-3": {fakeDS("ds-match2")},
+	}
+	compatible := map[string]struct{}{"ds-match": {}, "ds-match2": {}}
+
+	withCompatibleDSIDs(compatible, func() {
+		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		require.NoError(t, err)
+		sort.Strings(zones)
+		assert.Equal(t, []string{"zone-also-has", "zone-has-ds"}, zones)
+	})
 }

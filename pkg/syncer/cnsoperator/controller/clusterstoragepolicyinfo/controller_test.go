@@ -23,13 +23,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/object"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/simulator"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -2160,267 +2164,6 @@ func TestGetStorageTopologyType(t *testing.T) {
 	}
 }
 
-// TestGetAccessibleZonesForPolicy tests the getAccessibleZonesForPolicy function
-func TestGetAccessibleZonesForPolicy(t *testing.T) {
-	ctx := logger.NewContextWithLogger(context.Background())
-
-	// Mock VirtualCenter for testing
-	mockVC := &cnsvsphere.VirtualCenter{}
-
-	tests := []struct {
-		name             string
-		topologyMgr      commoncotypes.ControllerTopologyService
-		profileID        string
-		mockPBMResponse  []pbmtypes.PbmPlacementHub
-		mockPBMError     error
-		expectedZones    []string
-		expectedError    string
-		mockCandidateDS  map[string][]*cnsvsphere.DatastoreInfo
-		mockCandidateErr map[string]error
-	}{
-		{
-			name:          "Nil topology manager returns empty zones",
-			topologyMgr:   nil,
-			profileID:     "test-policy",
-			expectedZones: []string{},
-		},
-		{
-			name: "Empty AZ clusters map returns empty zones",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{},
-			},
-			profileID:     "test-policy",
-			expectedZones: []string{},
-		},
-		{
-			name: "PbmQueryMatchingHub error",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-				},
-			},
-			profileID:     "test-policy",
-			mockPBMError:  fmt.Errorf("vCenter connection failed"),
-			expectedError: "failed to query compatible datastores for policy: vCenter connection failed",
-		},
-		{
-			name: "No compatible datastores found",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID:       "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{}, // Empty response
-			expectedZones:   []string{},
-		},
-		{
-			name: "Single zone with compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore1", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1"}, // Only zone1 has compatible datastore1
-		},
-		{
-			name: "Multiple zones with compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-					"zone3": {"cluster3"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore1", HubType: "Datastore"},
-				{HubId: "datastore2", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-				"cluster3": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore3"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1", "zone2"}, // zones 1 and 2 have compatible datastores
-		},
-		{
-			name: "Zone with multiple clusters, one has compatible datastore",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1", "cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore2", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{"zone1"}, // zone1 has datastore2 in cluster2
-		},
-		{
-			name: "Cluster datastore fetch error should not fail entire operation",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1", "cluster2"},
-					"zone2": {"cluster3"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore3", HubType: "Datastore"},
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster3": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore3"}),
-						},
-					},
-				},
-			},
-			mockCandidateErr: map[string]error{
-				"cluster1": fmt.Errorf("cluster1 unavailable"),
-				"cluster2": fmt.Errorf("cluster2 unavailable"),
-			},
-			expectedZones: []string{"zone2"}, // zone2 still works despite cluster1,2 errors
-		},
-		{
-			name: "No zones have compatible datastores",
-			topologyMgr: &mockControllerTopologyService{
-				azClustersMap: map[string][]string{
-					"zone1": {"cluster1"},
-					"zone2": {"cluster2"},
-				},
-			},
-			profileID: "test-policy",
-			mockPBMResponse: []pbmtypes.PbmPlacementHub{
-				{HubId: "datastore999", HubType: "Datastore"}, // Non-existent datastore
-			},
-			mockCandidateDS: map[string][]*cnsvsphere.DatastoreInfo{
-				"cluster1": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore1"}),
-						},
-					},
-				},
-				"cluster2": {
-					{
-						Datastore: &cnsvsphere.Datastore{
-							Datastore: object.NewDatastore(nil, vimtypes.ManagedObjectReference{
-								Type: "Datastore", Value: "datastore2"}),
-						},
-					},
-				},
-			},
-			expectedZones: []string{}, // No zones match datastore999
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This test would require mocking the VirtualCenter methods and
-			// cnsvsphere.GetCandidateDatastoresInCluster function
-			// For now, we'll test the core logic and structure
-
-			// The actual implementation would require complex mocking of:
-			// - vc.PbmQueryMatchingHub
-			// - cnsvsphere.GetCandidateDatastoresInCluster
-
-			// Since these are external dependencies, we'll focus on testing
-			// the logic we can control and provide a simplified test structure
-
-			if tt.topologyMgr == nil {
-				result, err := getAccessibleZonesForPolicy(ctx, nil, mockVC, tt.profileID)
-				if tt.expectedError != "" {
-					require.Error(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError)
-				} else {
-					require.NoError(t, err)
-					assert.Equal(t, tt.expectedZones, result)
-				}
-				return
-			}
-
-			if len(tt.topologyMgr.GetAZClustersMap(ctx)) == 0 {
-				result, err := getAccessibleZonesForPolicy(ctx, tt.topologyMgr, mockVC, tt.profileID)
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedZones, result)
-				return
-			}
-
-			// For tests that need full mocking, we skip actual execution
-			// and just verify the test structure is correct
-			t.Skip("Full integration test requires complex mocking of VirtualCenter and PBM APIs")
-		})
-	}
-}
-
 // TestFindStoragePolicyProfile tests the findStoragePolicyProfile function
 func TestFindStoragePolicyProfile(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -2678,17 +2421,20 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 
 	// For unit tests, we'll use a simplified zone calculation that doesn't require full VirtualCenter
 	// This tests the main logic flow without the complex datastore compatibility checks
-	accessibleZones := []string{} // Always initialize as empty slice, not nil
-	if r.topologyMgr != nil {
-		azClustersMap := r.topologyMgr.GetAZClustersMap(ctx)
-		// For unit test: if we have zones and mock compatible hubs, return the zones
-		if len(azClustersMap) > 0 && len(mockVCConfig.compatibleHubs) == 0 {
-			// Empty compatible hubs means no zones are accessible
-			accessibleZones = []string{}
-		}
-		// In a real implementation, this would call getAccessibleZonesForPolicy
-		// which requires complex VirtualCenter mocking that's more suitable for integration tests
+	if r.topologyMgr == nil {
+		log.Warnf("Topology manager not available")
+		return fmt.Errorf("topology manager is not available")
 	}
+
+	accessibleZones := []string{} // Always initialize as empty slice, not nil
+	azClustersMap := r.topologyMgr.GetAZClustersMap(ctx)
+	// For unit test: if we have zones and mock compatible hubs, return the zones
+	if len(azClustersMap) > 0 && len(mockVCConfig.compatibleHubs) == 0 {
+		// Empty compatible hubs means no zones are accessible
+		accessibleZones = []string{}
+	}
+	// In a real implementation, this would call cnsoperatorutil.GetAccessibleZonesForPolicy
+	// which requires complex VirtualCenter mocking that's more suitable for integration tests
 
 	// Update InfraSPI with topology information including accessible zones
 	infraSPI.Status.Topology.AccessibleZones = accessibleZones
@@ -2825,7 +2571,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 				"found referencing storage policy ID \"duplicate-policy\", expected exactly one",
 		},
 		{
-			name:      "Success with nil topology manager",
+			name:      "Error with nil topology manager",
 			profileID: "policy-nil-topo",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2840,10 +2586,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			mockVCConfig: &mockVirtualCenter{
 				compatibleHubs: []pbmtypes.PbmPlacementHub{},
 			},
-			expectedTopology: &infraspiv1alpha1.Topology{
-				TopologyType:    "zonal",
-				AccessibleZones: []string{}, // Empty because topology manager is nil
-			},
+			expectedError: "topology manager is not available",
 		},
 		{
 			name:      "Skip WaitForFirstConsumer StorageClasses",
@@ -2937,7 +2680,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 					// For accessible zones, we can only verify the structure since the actual
 					// zone population requires complex VirtualCenter mocking
 					assert.NotNil(t, infraSPI.Status.Topology.AccessibleZones)
-					// In our simplified test, zones will be empty because getAccessibleZonesForPolicy
+					// In our simplified test, zones will be empty because cnsoperatorutil.GetAccessibleZonesForPolicy
 					// requires complex VirtualCenter mocking which is beyond the scope of unit tests
 					assert.Equal(t, []string{}, infraSPI.Status.Topology.AccessibleZones)
 				}
@@ -3771,4 +3514,401 @@ func TestPopulateTopologyCapabilities_MarkerPolicyVsNonMarker(t *testing.T) {
 			assert.Equal(t, tc.isMarker, common.IsvSANFileServiceMarkerPolicyName(tc.name))
 		})
 	}
+}
+
+func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name                          string
+		k8sCompliantName              string
+		expectedSupportsVolumeBlock   bool
+		expectedSupportsLinkedClone   bool
+		expectedSupportsHPLinkedClone bool
+		isMarkerPolicy                bool
+	}{
+		{
+			name:                          "Non-marker policy supports all capabilities",
+			k8sCompliantName:              "some-regular-policy",
+			expectedSupportsVolumeBlock:   true,
+			expectedSupportsLinkedClone:   false, // false: nil topology manager in test
+			expectedSupportsHPLinkedClone: false, // false: nil topology manager in test
+			isMarkerPolicy:                false,
+		},
+		{
+			name:                          "Marker policy does not support block volume mode and linked clone capabilities",
+			k8sCompliantName:              common.StorageClassVsanFileServicePolicy,
+			expectedSupportsVolumeBlock:   false,
+			expectedSupportsLinkedClone:   false,
+			expectedSupportsHPLinkedClone: false,
+			isMarkerPolicy:                true,
+		},
+		{
+			name:                          "Different policy name supports block volume mode",
+			k8sCompliantName:              "custom-storage-policy",
+			expectedSupportsVolumeBlock:   true,
+			expectedSupportsLinkedClone:   false, // false: nil topology manager in test
+			expectedSupportsHPLinkedClone: false, // false: nil topology manager in test
+			isMarkerPolicy:                false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock InfraStoragePolicyInfo with the test k8sCompliantName
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+			infraSPI.Name = tt.k8sCompliantName
+
+			// Call populateVolumeCapabilities with minimal required parameters
+			// We pass nil for vc, topologyMgr, and clusterDatastoreCache since we only want to test the logic
+			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil)
+
+			// For marker policies, there should be no error since we skip the HPLC check
+			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
+			if tt.isMarkerPolicy {
+				assert.NoError(t, err, "Marker policies should not cause errors")
+			}
+
+			// Verify that the volume capabilities are set
+			assert.NotNil(t, infraSPI.Status.VolumeCapabilities)
+
+			// Check SupportsVolumeModeFilesystem is always true
+			assert.True(t, infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeFilesystem])
+
+			// Check SupportsVolumeModeBlock matches expected value
+			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeBlock]
+			assert.True(t, exists, "SupportsVolumeModeBlock should be set")
+			assert.Equal(t, tt.expectedSupportsVolumeBlock, actual,
+				"SupportsVolumeModeBlock should be %v for k8sCompliantName %s",
+				tt.expectedSupportsVolumeBlock, tt.k8sCompliantName)
+
+			// Check SupportsLinkedClone matches expected value
+			actualLC, existsLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsLinkedClone]
+			assert.True(t, existsLC, "SupportsLinkedClone should be set")
+			assert.Equal(t, tt.expectedSupportsLinkedClone, actualLC,
+				"SupportsLinkedClone should be %v for k8sCompliantName %s",
+				tt.expectedSupportsLinkedClone, tt.k8sCompliantName)
+
+			// Check SupportsHighPerformanceLinkedClone matches expected value
+			actualHPLC, existsHPLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHighPerformanceLinkedClone]
+			assert.True(t, existsHPLC, "SupportsHighPerformanceLinkedClone should be set")
+			assert.Equal(t, tt.expectedSupportsHPLinkedClone, actualHPLC,
+				"SupportsHighPerformanceLinkedClone should be %v for k8sCompliantName %s",
+				tt.expectedSupportsHPLinkedClone, tt.k8sCompliantName)
+		})
+	}
+}
+
+// TestCheckHighPerformanceLinkedClone_EmptyInput verifies that an empty per-zone map
+// returns false without error and without making any vCenter calls.
+func TestCheckHighPerformanceLinkedClone_EmptyInput(t *testing.T) {
+	ctx := context.Background()
+	result, err := checkHighPerformanceLinkedClone(ctx, nil, map[string]map[string]vimtypes.ManagedObjectReference{})
+	assert.NoError(t, err)
+	assert.False(t, result, "empty per-zone input should yield HPLC=false")
+}
+
+// TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts verifies that zones with no
+// ESXi 9.1+ hosts yield HPLC=false (no ESA check possible, all-zones requirement fails).
+func TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts(t *testing.T) {
+	ctx := context.Background()
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {},
+		"zone-b": {},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, nil, input)
+	assert.NoError(t, err)
+	assert.False(t, result, "HPLC must be false when no zone has ESXi 9.1+ hosts")
+}
+
+// TestCheckLinkedClone_NoZones verifies that checkLinkedClone returns
+// LC=false when the topology manager reports no zones (empty azClustersMap).
+func TestCheckLinkedClone_NoZones(t *testing.T) {
+	ctx := context.Background()
+	topoMgr := &mockControllerTopologyService{azClustersMap: map[string][]string{}}
+	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
+	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", topoMgr, nil)
+	assert.NoError(t, err)
+	assert.False(t, lc, "LC must be false when there are no zones")
+	assert.Empty(t, perZone)
+}
+
+// TestCheckLinkedClone_NilTopologyManager verifies that checkLinkedClone returns
+// an error when called without a topology manager.
+func TestCheckLinkedClone_NilTopologyManager(t *testing.T) {
+	ctx := context.Background()
+	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil, nil)
+	assert.Error(t, err)
+	assert.False(t, lc)
+	assert.Nil(t, perZone)
+}
+
+// TestCheckHighPerformanceLinkedClone_NilVC verifies that HPLC check returns an error
+// when zones have hosts but no vCenter client is available.
+func TestCheckHighPerformanceLinkedClone_NilVC(t *testing.T) {
+	ctx := context.Background()
+	fakeHost := vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {fakeHost.Value: fakeHost},
+	}
+	_, err := checkHighPerformanceLinkedClone(ctx, nil, input)
+	assert.Error(t, err, "nil vc should return an error when hosts are present")
+}
+
+// TestCheckHighPerformanceLinkedClone_PartialZoneSupport verifies that HPLC=false
+// when only a subset of zones have ESXi 9.1+ hosts (all-zones requirement).
+func TestCheckHighPerformanceLinkedClone_PartialZoneSupport(t *testing.T) {
+	ctx := context.Background()
+	fakeHost := vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
+	// zone-a has a host; zone-b has none — all-zones requirement is not met.
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {fakeHost.Value: fakeHost},
+		"zone-b": {},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, nil, input)
+	assert.NoError(t, err)
+	assert.False(t, result, "HPLC must be false when not all zones have ESXi 9.1+ hosts")
+}
+
+// --- simulator helpers ----------------------------------------------------------------
+
+// setupLCSim creates a VPX model with the requested number of clusters and hosts per cluster.
+// Each cluster gets its own datastores which are mounted by the cluster's hosts.
+func setupLCSim(t *testing.T, numClusters, hostsPerCluster int) (
+	ctx context.Context,
+	vc *cnsvsphere.VirtualCenter,
+	model *simulator.Model,
+	stop func(),
+) {
+	t.Helper()
+	ctx = logger.NewContextWithLogger(context.Background())
+	model = simulator.VPX()
+	model.Datacenter = 1
+	model.Cluster = numClusters
+	model.ClusterHost = hostsPerCluster
+	model.Host = 0
+	model.Machine = 0
+	require.NoError(t, model.Create())
+	s := model.Service.NewServer()
+	c, err := govmomi.NewClient(ctx, s.URL, true)
+	if err != nil {
+		s.Close()
+		model.Remove()
+		t.Fatalf("failed to create govmomi client: %v", err)
+	}
+	vc = &cnsvsphere.VirtualCenter{
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Client:      c,
+		ClientMutex: &sync.Mutex{},
+	}
+	stop = func() { s.Close(); model.Remove() }
+	return
+}
+
+// dsInfoFromSim wraps a simulator datastore reference in a cnsvsphere.DatastoreInfo.
+func dsInfoFromSim(c *govmomi.Client, ref vimtypes.ManagedObjectReference) *cnsvsphere.DatastoreInfo {
+	return &cnsvsphere.DatastoreInfo{
+		Datastore: &cnsvsphere.Datastore{
+			Datastore: object.NewDatastore(c.Client, ref),
+		},
+	}
+}
+
+// setHostESXiVersion sets the ESXi version string on a simulator HostSystem.
+func setHostESXiVersion(model *simulator.Model, hostRef vimtypes.ManagedObjectReference, version string) {
+	h := model.Map().Get(hostRef).(*simulator.HostSystem)
+	h.Config.Product.Version = version
+}
+
+// setClusterESA enables or disables vSAN-ESA on a simulator ClusterComputeResource.
+// It mutates the existing ConfigurationEx rather than replacing it so other simulator
+// fields (DRS, DAS config, etc.) are preserved.
+func setClusterESA(model *simulator.Model, clusterRef vimtypes.ManagedObjectReference, enabled bool) {
+	c := model.Map().Get(clusterRef).(*simulator.ClusterComputeResource)
+	cfgEx := c.ConfigurationEx.(*vimtypes.ClusterConfigInfoEx)
+	if cfgEx.VsanConfigInfo == nil {
+		cfgEx.VsanConfigInfo = &vimtypes.VsanClusterConfigInfo{}
+	}
+	cfgEx.VsanConfigInfo.VsanEsaEnabled = &enabled
+}
+
+// hostRefsInCluster returns the HostSystem MORs belonging to the given cluster.
+func hostRefsInCluster(model *simulator.Model, clusterRef vimtypes.ManagedObjectReference,
+) []vimtypes.ManagedObjectReference {
+	c := model.Map().Get(clusterRef).(*simulator.ClusterComputeResource)
+	return c.Host
+}
+
+// --- fetchESXi91HostsForDatastore tests -----------------------------------------------
+
+// TestFetchESXi91HostsForDatastore_AllOldHosts verifies that no hosts are returned
+// when all mounting hosts run ESXi older than 9.1.
+func TestFetchESXi91HostsForDatastore_AllOldHosts(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 2)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, 1)
+	clusterRef := clusters[0].Reference()
+
+	for _, hostRef := range hostRefsInCluster(model, clusterRef) {
+		setHostESXiVersion(model, hostRef, "7.0.3")
+	}
+
+	dsRef := model.Map().All("Datastore")[0].Reference()
+	ds := dsInfoFromSim(vc.Client, dsRef)
+	pc := property.DefaultCollector(vc.Client.Client)
+
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	require.NoError(t, err)
+	assert.Empty(t, hosts, "no ESXi 9.1+ hosts should be returned when all hosts run 7.0")
+}
+
+// TestFetchESXi91HostsForDatastore_MixedVersions verifies that only ESXi 9.1+ hosts
+// are returned when the datastore is mounted by a mix of host versions.
+func TestFetchESXi91HostsForDatastore_MixedVersions(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 2)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, 1)
+	clusterRef := clusters[0].Reference()
+	hostRefs := hostRefsInCluster(model, clusterRef)
+	require.GreaterOrEqual(t, len(hostRefs), 2)
+
+	setHostESXiVersion(model, hostRefs[0], "9.1.0")
+	setHostESXiVersion(model, hostRefs[1], "7.0.3")
+
+	dsRef := model.Map().All("Datastore")[0].Reference()
+	ds := dsInfoFromSim(vc.Client, dsRef)
+	pc := property.DefaultCollector(vc.Client.Client)
+
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	require.NoError(t, err)
+	require.Len(t, hosts, 1, "only the 9.1+ host should be returned")
+	assert.Equal(t, hostRefs[0].Value, hosts[0].Value)
+}
+
+// TestFetchESXi91HostsForDatastore_AllESXi91 verifies that all mounting hosts are
+// returned when every host runs ESXi 9.1+.
+func TestFetchESXi91HostsForDatastore_AllESXi91(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 2)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	clusterRef := clusters[0].Reference()
+	hostRefs := hostRefsInCluster(model, clusterRef)
+	require.GreaterOrEqual(t, len(hostRefs), 2)
+
+	for _, ref := range hostRefs {
+		setHostESXiVersion(model, ref, "9.1.0")
+	}
+
+	dsRef := model.Map().All("Datastore")[0].Reference()
+	ds := dsInfoFromSim(vc.Client, dsRef)
+	pc := property.DefaultCollector(vc.Client.Client)
+
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	require.NoError(t, err)
+	assert.Len(t, hosts, len(hostRefs), "all ESXi 9.1+ hosts should be returned")
+}
+
+// --- checkHighPerformanceLinkedClone simulator tests ----------------------------------
+
+// TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled verifies HPLC=true when
+// the single zone's cluster has vSAN-ESA enabled.
+func TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 1)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	clusterRef := clusters[0].Reference()
+	setClusterESA(model, clusterRef, true)
+
+	hostRefs := hostRefsInCluster(model, clusterRef)
+	require.NotEmpty(t, hostRefs)
+
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {hostRefs[0].Value: hostRefs[0]},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
+	require.NoError(t, err)
+	assert.True(t, result, "HPLC should be true when the zone's cluster has ESA enabled")
+}
+
+// TestCheckHighPerformanceLinkedClone_SingleZone_NoESA verifies HPLC=false when
+// the single zone's cluster does not have vSAN-ESA enabled.
+func TestCheckHighPerformanceLinkedClone_SingleZone_NoESA(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 1)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	clusterRef := clusters[0].Reference()
+	setClusterESA(model, clusterRef, false)
+
+	hostRefs := hostRefsInCluster(model, clusterRef)
+	require.NotEmpty(t, hostRefs)
+
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {hostRefs[0].Value: hostRefs[0]},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
+	require.NoError(t, err)
+	assert.False(t, result, "HPLC should be false when the zone's cluster has no ESA")
+}
+
+// TestCheckHighPerformanceLinkedClone_TwoZones_AllESA verifies HPLC=true only when
+// every zone has at least one host in an ESA-enabled cluster.
+func TestCheckHighPerformanceLinkedClone_TwoZones_AllESA(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 2, 1)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, 2)
+
+	clusterARef := clusters[0].Reference()
+	clusterBRef := clusters[1].Reference()
+	setClusterESA(model, clusterARef, true)
+	setClusterESA(model, clusterBRef, true)
+
+	hostsA := hostRefsInCluster(model, clusterARef)
+	hostsB := hostRefsInCluster(model, clusterBRef)
+	require.NotEmpty(t, hostsA)
+	require.NotEmpty(t, hostsB)
+
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {hostsA[0].Value: hostsA[0]},
+		"zone-b": {hostsB[0].Value: hostsB[0]},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
+	require.NoError(t, err)
+	assert.True(t, result, "HPLC should be true when all zones have ESA-enabled clusters")
+}
+
+// TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA verifies HPLC=false when
+// only one of two zones has an ESA-enabled cluster (all-zones requirement).
+func TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 2, 1)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, 2)
+
+	clusterARef := clusters[0].Reference()
+	clusterBRef := clusters[1].Reference()
+	setClusterESA(model, clusterARef, true)
+	setClusterESA(model, clusterBRef, false)
+
+	hostsA := hostRefsInCluster(model, clusterARef)
+	hostsB := hostRefsInCluster(model, clusterBRef)
+	require.NotEmpty(t, hostsA)
+	require.NotEmpty(t, hostsB)
+
+	input := map[string]map[string]vimtypes.ManagedObjectReference{
+		"zone-a": {hostsA[0].Value: hostsA[0]},
+		"zone-b": {hostsB[0].Value: hostsB[0]},
+	}
+	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
+	require.NoError(t, err)
+	assert.False(t, result, "HPLC should be false when not all zones have ESA-enabled clusters")
 }
