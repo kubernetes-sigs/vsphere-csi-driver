@@ -421,6 +421,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			Names: []string{
 				string(cnstypes.QuerySelectionNameTypeVolumeType),
 				string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+				string(cnstypes.QuerySelectionNameTypeVolumeName),
+				//string("VOLUME_METADATA"),
 			},
 		}
 		// get queryAllResult using new Supervisor ID for rest of full sync operations
@@ -1568,16 +1570,25 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 	log := logger.GetLogger(ctx)
 	var entityMetadata []cnstypes.BaseCnsEntityMetadata
 	foundInClusterPV := false
+	log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q with name %q has %d entity metadata entries",
+		vc, vol.VolumeId.Id, vol.Name, len(vol.Metadata.EntityMetadata))
 	for _, em := range vol.Metadata.EntityMetadata {
 		k8sEm, ok := em.(*cnstypes.CnsKubernetesEntityMetadata)
 		if !ok {
+			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q skipping non-K8s entity metadata (type %T)",
+				vc, vol.VolumeId.Id, em)
 			continue
 		}
 		if k8sEm.ClusterID != clusterIDforVolumeMetadata {
 			// Entity belongs to a different K8s cluster — leave it alone.
+			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q skipping entity with clusterID %q"+
+				" (expected %q) entityType %s entityName %s",
+				vc, vol.VolumeId.Id, k8sEm.ClusterID, clusterIDforVolumeMetadata, k8sEm.EntityType, k8sEm.EntityName)
 			continue
 		}
 		if k8sEm.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q skipping entity type %s (name %s)",
+				vc, vol.VolumeId.Id, k8sEm.EntityType, k8sEm.EntityName)
 			continue
 		}
 		foundInClusterPV = true
@@ -1587,6 +1598,8 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 		}
 		if labels[prometheus.PrometheusPVMissingLabelKey] == prometheus.PrometheusPVMissingLabelValue {
 			// Already labeled in CNS; nothing to do for this entity.
+			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q PV entity %q"+
+				" already has pv_missing=true label, skipping", vc, vol.VolumeId.Id, k8sEm.EntityName)
 			continue
 		}
 		labels[prometheus.PrometheusPVMissingLabelKey] = prometheus.PrometheusPVMissingLabelValue
@@ -1598,6 +1611,8 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 	if !foundInClusterPV && vol.Name != "" {
 		// Synthesize a PV-type entity so the pv_missing label has a home on
 		// volumes whose CNS metadata never carried a PV entry.
+		log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q has no in-cluster PV entity;"+
+			" synthesizing one using vol.Name %q", vc, vol.VolumeId.Id, vol.Name)
 		labels := map[string]string{
 			prometheus.PrometheusPVMissingLabelKey: prometheus.PrometheusPVMissingLabelValue,
 		}
@@ -1607,6 +1622,9 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 	}
 
 	if len(entityMetadata) == 0 {
+		log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q produced no update specs"+
+			" (foundInClusterPV=%v vol.Name=%q); skipping",
+			vc, vol.VolumeId.Id, foundInClusterPV, vol.Name)
 		return cnstypes.CnsVolumeMetadataUpdateSpec{}, false
 	}
 	log.Infof("FullSync for VC %s: Adding pv_missing label to volume %q "+
