@@ -493,6 +493,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			log.Errorf("Failed to create supervisorClient. Error: %+v", err)
 			return err
 		}
+
+		// Warm up the cached snapshot clients so the first delete event / full sync does not pay the
+		// creation cost. Non-fatal: getCachedSnapshotClients lazily (re)creates and caches them on
+		// first use if this fails.
+		if _, _, _, snapErr := getCachedSnapshotClients(ctx, metadataSyncer); snapErr != nil {
+			log.Warnf("InitMetadataSyncer: failed to pre-create snapshot clients; "+
+				"will create on first use. Err: %v", snapErr)
+		}
 	} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Initialize volume manager with vcenter credentials
 		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
@@ -2850,9 +2858,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 }
 
-func snapshotDeleted(obj interface{}, _ *metadataSyncInformer) {
-	_, log := logger.GetNewContextWithLogger()
+func snapshotDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
+	ctx, log := logger.GetNewContextWithLogger()
 	log = log.With("func", "snapshotDeleted")
+	if unknown, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		if unknown.Obj == nil {
+			log.Errorf("snapshotDeleted: received empty DeletedFinalStateUnknown object, ignoring")
+			return
+		}
+		obj = unknown.Obj
+	}
 	snap, ok := obj.(*snapshotv1.VolumeSnapshot)
 	if snap == nil || !ok {
 		log.Warnf("Unrecognised object %+v", obj)
@@ -2868,8 +2883,10 @@ func snapshotDeleted(obj interface{}, _ *metadataSyncInformer) {
 		return
 	}
 
-	log.Warnf("unimplemented")
-	// TODO: implement this in a subsequent PR
+	// Remove the guest-cluster-snapshot annotation fields from the corresponding supervisor
+	// VolumeSnapshot. This is a best-effort, low-latency complement to the full-sync reconcile
+	// (reconcileSupervisorSnapshotAnnotations), which remains the backstop for missed events.
+	pvcsiSnapshotDeleted(ctx, snap, metadataSyncer)
 }
 
 // pvcDeleted deletes pvc metadata on VC when pvc has been deleted on K8s
