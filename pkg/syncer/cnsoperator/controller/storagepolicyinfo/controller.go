@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
@@ -66,6 +67,10 @@ type zonesProvider interface {
 	// dereference a nil informer and panic.
 	StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config, namespace string) error
 	GetZonesForNamespace(ns string) map[string]struct{}
+	// RegisterZoneEventHandler registers a callback invoked on Zone CR
+	// add/update/delete, carrying the namespace of the changed Zone. It must be
+	// called before StartZonesInformer.
+	RegisterZoneEventHandler(handler func(namespace string))
 }
 
 const (
@@ -77,6 +82,10 @@ const (
 	// spiNameIndexField is the field index key used to look up StoragePolicyInfo
 	// objects by name, enabling efficient cross-namespace lookups in mapInfraSPItoSPI.
 	spiNameIndexField = ".metadata.name"
+	// zoneEventChannelBuffer is the buffer size of the channel bridging Zone CR
+	// events into the controller workqueue. It absorbs short bursts of zone churn
+	// without blocking the informer's event-handler goroutine.
+	zoneEventChannelBuffer = 64
 )
 
 // Add registers the StoragePolicyInfo controller with the Manager (WCP / Workload only).
@@ -99,11 +108,6 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	if err := commonco.ContainerOrchestratorUtility.StartZonesInformer(
-		ctx, nil, metav1.NamespaceAll); err != nil {
-		return logger.LogNewErrorf(log, "failed to start zone informer for StoragePolicyInfo controller. Err: %v", err)
-	}
-
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(
 		&typedcorev1.EventSinkImpl{
@@ -111,7 +115,19 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
-	return add(mgr, newReconciler(mgr, configInfo, recorder, commonco.ContainerOrchestratorUtility))
+	r := newReconciler(mgr, configInfo, recorder, commonco.ContainerOrchestratorUtility)
+
+	// Register the Zone event handler before starting the informer so it is
+	// attached on the informer's first (and only) start. The handler bridges Zone
+	// CR changes in a namespace into this controller's workqueue.
+	commonco.ContainerOrchestratorUtility.RegisterZoneEventHandler(r.enqueueZoneNamespace)
+
+	if err := commonco.ContainerOrchestratorUtility.StartZonesInformer(
+		ctx, nil, metav1.NamespaceAll); err != nil {
+		return logger.LogNewErrorf(log, "failed to start zone informer for StoragePolicyInfo controller. Err: %v", err)
+	}
+
+	return add(mgr, r)
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
@@ -123,6 +139,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 		configInfo:      configInfo,
 		recorder:        recorder,
 		zonesProvider:   zp,
+		zoneEventCh:     make(chan event.GenericEvent, zoneEventChannelBuffer),
 		backOffDuration: make(map[apitypes.NamespacedName]time.Duration),
 	}
 }
@@ -180,6 +197,12 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 			&infraspiv1alpha1.InfraStoragePolicyInfo{},
 			handler.EnqueueRequestsFromMapFunc(r.mapInfraSPItoSPI),
 			builder.WithPredicates(infraSPIPredicates),
+		).
+		WatchesRawSource(
+			source.Channel(
+				r.zoneEventCh,
+				handler.EnqueueRequestsFromMapFunc(r.mapZoneNamespaceToSPIs),
+			),
 		).
 		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
@@ -246,6 +269,66 @@ func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 	return reqs
 }
 
+// enqueueZoneNamespace is the Zone event-handler callback registered with the
+// commonco layer. It is invoked whenever a Zone CR is added, updated, or deleted
+// and pushes a GenericEvent stamped with the affected namespace onto the
+// controller's channel. mapZoneNamespaceToSPIs then fans the namespace out to its
+// StoragePolicyInfo CRs. The send is best-effort: if the buffered channel is
+// full, the event is dropped (a subsequent zone change or any other reconcile
+// trigger will recompute the topology), so the informer's event goroutine is
+// never blocked.
+func (r *ReconcileStoragePolicyInfo) enqueueZoneNamespace(namespace string) {
+	if namespace == "" {
+		return
+	}
+	evt := event.GenericEvent{
+		Object: &metav1.PartialObjectMetadata{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+		},
+	}
+	select {
+	case r.zoneEventCh <- evt:
+	default:
+		_, log := logger.GetNewContextWithLogger()
+		log.Warnf("Zone event channel full; dropping zone-change event for namespace %q", namespace)
+	}
+}
+
+// mapZoneNamespaceToSPIs maps a Zone-change GenericEvent (whose object carries
+// only the affected namespace) to reconcile requests for every StoragePolicyInfo
+// CR in that namespace, so their AccessibleZones are recomputed.
+func (r *ReconcileStoragePolicyInfo) mapZoneNamespaceToSPIs(ctx context.Context,
+	obj client.Object) []reconcile.Request {
+	if obj == nil {
+		return nil
+	}
+	namespace := obj.GetNamespace()
+	if namespace == "" {
+		return nil
+	}
+	log := logger.GetLogger(ctx)
+
+	spiList := &spiv1alpha1.StoragePolicyInfoList{}
+	if err := r.client.List(ctx, spiList, client.InNamespace(namespace)); err != nil {
+		log.Errorf("Failed to list StoragePolicyInfo in namespace %q on zone change: %v",
+			namespace, err)
+		return nil
+	}
+
+	reqs := make([]reconcile.Request, 0, len(spiList.Items))
+	for i := range spiList.Items {
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{
+				Namespace: spiList.Items[i].Namespace,
+				Name:      spiList.Items[i].Name,
+			},
+		})
+	}
+	log.Infof("Zone change in namespace %q enqueued %d StoragePolicyInfo reconcile request(s)",
+		namespace, len(reqs))
+	return reqs
+}
+
 var _ reconcile.Reconciler = &ReconcileStoragePolicyInfo{}
 
 // ReconcileStoragePolicyInfo reconciles StoragePolicyInfo objects.
@@ -255,6 +338,10 @@ type ReconcileStoragePolicyInfo struct {
 	configInfo    *config.ConfigurationInfo
 	recorder      record.EventRecorder
 	zonesProvider zonesProvider
+	// zoneEventCh receives a GenericEvent (stamped with the affected namespace)
+	// whenever a Zone CR in some namespace changes. It bridges the package-level
+	// zone informer's events into this controller's workqueue via source.Channel.
+	zoneEventCh chan event.GenericEvent
 	// backOffDuration tracks per-instance requeue delays, incremented
 	// exponentially on failure and reset to 1s on success.
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
@@ -447,6 +534,16 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 	accessibleZones := r.namespaceFilteredZones(ctx, instance.Namespace,
 		infraSPI.Status.Topology.AccessibleZones)
 
+	if len(accessibleZones) == 0 {
+		// No zones are accessible in this namespace (no Zone CRs assigned).
+		// Clear TopologyInfo rather than writing an empty accessibleZones slice,
+		// which the CRD schema rejects as a required field.
+		log.Debugf("StoragePolicyInfo %s/%s has no accessible zones; clearing TopologyInfo",
+			instance.Namespace, instance.Name)
+		instance.Status.TopologyInfo = nil
+		return nil
+	}
+
 	instance.Status.TopologyInfo = &spiv1alpha1.Topology{
 		TopologyType:    infraSPI.Status.Topology.TopologyType,
 		AccessibleZones: accessibleZones,
@@ -466,11 +563,12 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 
 	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
 	if len(nsZones) == 0 {
-		// Non-zonal deployment or namespace has no zone constraints; expose all
-		// cluster-accessible zones.
-		log.Debugf("Namespace %q has no zone assignments; using all %d cluster-accessible zones",
-			namespace, len(clusterZones))
-		return clusterZones
+		// No Zone CRs in this namespace means no zone has been assigned to it yet.
+		// Return empty rather than falling back to all cluster zones — exposing all
+		// zones for an unassigned namespace would be incorrect in a WDI deployment.
+		log.Debugf("Namespace %q has no zone assignments; accessibleZones will be empty",
+			namespace)
+		return nil
 	}
 
 	// Intersect cluster-accessible zones with namespace-assigned zones.
