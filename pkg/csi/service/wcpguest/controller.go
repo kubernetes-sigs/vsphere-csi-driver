@@ -437,6 +437,27 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 		}
 
+		// If the VM_PVC_STORAGE_POLICY_MUTABILITY FSS is enabled, read the supervisor
+		// VolumeAttributesClass name from mutable_parameters. Per the CSI spec, mutable_parameters
+		// take precedence over parameters and are sourced from the VolumeAttributesClass (not
+		// the StorageClass), so they are separate from the supervisorStorageClass above.
+		var supervisorVACName string
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutabilityFSS) {
+			for param := range req.GetMutableParameters() {
+				if strings.ToLower(param) == common.AttributeSupervisorVolumeAttributesClass {
+					supervisorVACName = req.GetMutableParameters()[param]
+				}
+			}
+			if supervisorVACName != "" {
+				if isFileVolumeRequest {
+					return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log,
+						codes.Unimplemented, "VolumeAttributesClass is not supported for file volumes")
+				}
+				log.Infof("CreateVolume: VolumeAttributesClass %q specified in mutable_parameters for supervisor PVC %s",
+					supervisorVACName, supervisorPVCName)
+			}
+		}
+
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS) {
 			// Check if this is a LinkedClone request
 			isLinkedCloneRequest, err = commonco.ContainerOrchestratorUtility.IsLinkedCloneRequest(ctx, pvcName, pvcNamespace)
@@ -563,6 +584,9 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				claim := getPersistentVolumeClaimSpecWithStorageClass(supervisorPVCName, c.supervisorNamespace,
 					diskSize, supervisorStorageClass, getAccessMode(accessMode), annotations, labels, finalizers,
 					volumeSnapshotName, isLinkedCloneRequest)
+				if supervisorVACName != "" {
+					claim.Spec.VolumeAttributesClassName = &supervisorVACName
+				}
 				log.Debugf("PVC claim spec is %+v", spew.Sdump(claim))
 				pvc, err = c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Create(
 					ctx, claim, metav1.CreateOptions{})
