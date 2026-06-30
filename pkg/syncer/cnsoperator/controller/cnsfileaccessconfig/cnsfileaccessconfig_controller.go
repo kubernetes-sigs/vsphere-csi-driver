@@ -643,6 +643,13 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 		return logger.LogNewErrorf(log, "Failed to get VM IP from VM name in CNSFileVolumeClient instance. "+
 			"Error: %+v", err)
 	}
+	// CnsFileVolumeClient does not exist or VM was never registered — nothing left to clean up.
+	if vmIP == "" {
+		log.Infof("No VM IP entry found for VM %q in CnsFileVolumeClient; "+
+			"skipping ACL and IPList removal for CnsFileAccessConfig %q",
+			instance.Spec.VMName, instance.Name)
+		return nil
+	}
 	// If PVC is not found, then skipConfigureVolumeACL will be true.
 	// There is no need to configure volume ACL on volume if PVC is already deleted.
 	if !skipConfigureVolumeACL && (vmsAssociatedWithIP == 1) {
