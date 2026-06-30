@@ -10,7 +10,6 @@ import (
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	snapshotclientfake "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
+	snapshotclientfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
@@ -598,7 +598,7 @@ func TestValidatePVC(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
+			snapshotClient := snapshotclientfake.NewClientset(test.snapshotObjs...)
 			kubeClient := fake.NewClientset(test.kubeObjs...)
 
 			origK8sClient := newK8sClient
@@ -1095,7 +1095,7 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Create fake clients
 			kubeClient := fake.NewClientset(test.kubeObjs...)
-			snapshotClient := snapshotclientfake.NewSimpleClientset(test.snapshotObjs...)
+			snapshotClient := snapshotclientfake.NewClientset(test.snapshotObjs...)
 
 			origK8sClient := newK8sClient
 			origSnapshotterClient := newSnapshotterClient

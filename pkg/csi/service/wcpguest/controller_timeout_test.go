@@ -22,13 +22,13 @@ import (
 	"time"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	snapshotclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	snapshotclientset "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
@@ -465,7 +465,7 @@ func TestSnapshotStateTransitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorSnapshotClient := snapshotclientset.NewSimpleClientset()
+			supervisorSnapshotClient := snapshotclientset.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 			snapshotName := "test-snapshot-" + tt.name
 			pvcName := "test-pvc-" + tt.name
@@ -582,7 +582,7 @@ func TestSnapshotLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorSnapshotClient := snapshotclientset.NewSimpleClientset()
+			supervisorSnapshotClient := snapshotclientset.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 			pvcName := "test-pvc-" + tt.name
 
@@ -685,7 +685,7 @@ func TestSnapshotIdempotentOperations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			supervisorSnapshotClient := snapshotclientset.NewSimpleClientset()
+			supervisorSnapshotClient := snapshotclientset.NewClientset()
 			supervisorNamespace := "supervisor-ns"
 			pvcName := "test-pvc-" + tt.name
 
@@ -853,7 +853,7 @@ func TestSnapshotRetryBehavior(t *testing.T) {
 // snapshot creation, waiting for ready (timeout), and ensuring proper error code.
 func TestSnapshotTimeoutScenario(t *testing.T) {
 	ctx := context.Background()
-	supervisorSnapshotClient := snapshotclientset.NewSimpleClientset()
+	supervisorSnapshotClient := snapshotclientset.NewClientset()
 	supervisorNamespace := "supervisor-ns"
 	snapshotName := "timeout-test-snapshot"
 	pvcName := "timeout-test-pvc"
