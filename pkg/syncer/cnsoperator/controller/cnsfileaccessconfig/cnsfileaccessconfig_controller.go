@@ -65,6 +65,10 @@ const (
 	devopsUserLabelKey      = "cns.vmware.com/user-created"
 )
 
+// getFileVolumeClientInstanceFn is a variable so that tests can substitute a fake implementation
+// without needing gomonkey.
+var getFileVolumeClientInstanceFn = cnsfilevolumeclient.GetFileVolumeClientInstance
+
 // backOffDuration is a map of cnsfileaccessconfig name's to the time after
 // which a request for this instance will be requeued. Initialized to 1 second
 // for new instances and for instances whose latest reconcile operation
@@ -554,7 +558,7 @@ func isPvcInUse(ctx context.Context, pvcName string,
 	instance *v1a1.CnsFileAccessConfig) (bool, error) {
 	log := logger.GetLogger(ctx)
 
-	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	cnsFileVolumeClientInstance, err := getFileVolumeClientInstanceFn(ctx)
 	if err != nil {
 		return true, logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
 	}
@@ -632,7 +636,7 @@ func (r *ReconcileCnsFileAccessConfig) removePermissionsForFileVolume(ctx contex
 	instanceLock, _ := volumePermissionLock.(*sync.Mutex)
 	instanceLock.Lock()
 	defer instanceLock.Unlock()
-	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	cnsFileVolumeClientInstance, err := getFileVolumeClientInstanceFn(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
 	}
@@ -690,7 +694,7 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 		return logger.LogNewErrorf(log, "Failed to get external facing IP address for VM: %s/%s instance. Error: %+v",
 			vm.Namespace, vm.Name, err)
 	}
-	cnsFileVolumeClientInstance, err := cnsfilevolumeclient.GetFileVolumeClientInstance(ctx)
+	cnsFileVolumeClientInstance, err := getFileVolumeClientInstanceFn(ctx)
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
 	}
