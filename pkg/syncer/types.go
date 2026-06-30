@@ -20,11 +20,13 @@ import (
 	"sync"
 	"time"
 
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
+	restclient "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -147,6 +149,15 @@ type metadataSyncInformer struct {
 	topologyVCMap map[string]map[string]struct{}
 	clusterFlavor cnstypes.CnsClusterFlavor
 	host          string
+	// Snapshot clients cached after first initialization so the event-handler path
+	// (pvcsiSnapshotDeleted) and full sync do not construct fresh HTTP clients per call.
+	// Access them via getCachedSnapshotClients, which lazily creates and caches them under
+	// snapClientMu (the event path can run concurrently with full sync).
+	snapClientMu                sync.Mutex
+	guestSnapClient             snapshotterClientSet.Interface
+	supervisorSnapClient        snapshotterClientSet.Interface
+	supervisorSnapRestConf      *restclient.Config
+	supervisorSnapRuntimeClient client.Client
 }
 
 const (

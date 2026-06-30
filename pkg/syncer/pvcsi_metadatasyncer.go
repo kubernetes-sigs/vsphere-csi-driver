@@ -22,6 +22,8 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -241,4 +243,99 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 			log.Infof("pvCSI PodDeleted: Successfully deleted CnsVolumeMetadata: %v", volumeMetadataName)
 		}
 	}
+}
+
+// pvcsiSnapshotDeleted is invoked from the guest-cluster VolumeSnapshot informer's DeleteFunc.
+// When a guest VolumeSnapshot is deleted, it removes the guest-cluster-snapshot annotation from
+// the corresponding supervisor VolumeSnapshot (if it still exists, e.g. under a Retain deletion
+// policy). The guest-cluster ownership label is intentionally left intact for the
+// CNSSnapshotFinalizer cleanup path. This is a best-effort, low-latency complement to the
+// full-sync reconcile (reconcileSupervisorSnapshotAnnotations), which remains the backstop for
+// missed events.
+func pvcsiSnapshotDeleted(ctx context.Context, vs *snapv1.VolumeSnapshot, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+
+	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		return
+	}
+
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("pvCSI SnapshotDeleted: unable to fetch supervisor namespace. Err: %v", err)
+		return
+	}
+
+	guestSnapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient, err :=
+		getCachedSnapshotClients(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("pvCSI SnapshotDeleted: failed to create snapshotter clients. Err: %v", err)
+		return
+	}
+
+	snapshotDeletedRemoveAnnotation(ctx, vs, guestSnapshotterClient, supervisorSnapshotterClient,
+		supervisorRuntimeClient, supervisorNamespace)
+}
+
+// snapshotDeletedRemoveAnnotation is the testable core of pvcsiSnapshotDeleted. It resolves the
+// supervisor VolumeSnapshot for the deleted guest VolumeSnapshot via the bound VSC's SnapshotHandle
+// and removes the guest-cluster-snapshot annotation when present.
+func snapshotDeletedRemoveAnnotation(ctx context.Context, vs *snapv1.VolumeSnapshot,
+	guestSnapshotterClient snapshotterClientSet.Interface,
+	supervisorSnapshotterClient snapshotterClientSet.Interface,
+	supervisorRuntimeClient client.Client,
+	supervisorNamespace string) {
+	log := logger.GetLogger(ctx)
+
+	// Resolve the supervisor VolumeSnapshot name via the bound VSC's SnapshotHandle (authoritative;
+	// works for both dynamic and re-bound snapshots). If the VSC is already gone, the supervisor
+	// VolumeSnapshot is typically gone too (Delete policy) -> nothing to clean.
+	if vs.Status == nil || vs.Status.BoundVolumeSnapshotContentName == nil ||
+		*vs.Status.BoundVolumeSnapshotContentName == "" {
+		log.Debugf("pvCSI SnapshotDeleted: guest VolumeSnapshot %s/%s has no bound VSC; skipping",
+			vs.Namespace, vs.Name)
+		return
+	}
+	guestVSCName := *vs.Status.BoundVolumeSnapshotContentName
+	guestVSC, err := guestSnapshotterClient.SnapshotV1().VolumeSnapshotContents().
+		Get(ctx, guestVSCName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("pvCSI SnapshotDeleted: guest VSC %q not found; supervisor snapshot likely "+
+				"already deleted. Skipping", guestVSCName)
+			return
+		}
+		log.Errorf("pvCSI SnapshotDeleted: failed to get guest VSC %q. Err: %v", guestVSCName, err)
+		return
+	}
+	if guestVSC.Status == nil || guestVSC.Status.SnapshotHandle == nil || *guestVSC.Status.SnapshotHandle == "" {
+		log.Debugf("pvCSI SnapshotDeleted: guest VSC %q has no SnapshotHandle; skipping", guestVSCName)
+		return
+	}
+	supervisorVSName := *guestVSC.Status.SnapshotHandle
+
+	svVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
+		Get(ctx, supervisorVSName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Debugf("pvCSI SnapshotDeleted: supervisor VolumeSnapshot %s/%s not found; nothing to clean",
+				supervisorNamespace, supervisorVSName)
+			return
+		}
+		log.Errorf("pvCSI SnapshotDeleted: failed to get supervisor VolumeSnapshot %s/%s. Err: %v",
+			supervisorNamespace, supervisorVSName, err)
+		return
+	}
+
+	original := svVS.DeepCopy()
+	if !removeSnapshotAnnotation(ctx, svVS) {
+		return
+	}
+
+	if err := k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS); err != nil {
+		log.Errorf("pvCSI SnapshotDeleted: failed to patch supervisor VolumeSnapshot %s/%s. Err: %v",
+			supervisorNamespace, supervisorVSName, err)
+		return
+	}
+	log.Infof("pvCSI SnapshotDeleted: cleared guest-cluster-snapshot annotation fields on supervisor "+
+		"VolumeSnapshot %s/%s", supervisorNamespace, supervisorVSName)
 }
