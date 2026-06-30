@@ -172,3 +172,84 @@ func TestGetActiveClusters_Ginkgo(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "K8sOrchestrator GetActiveClusters Suite")
 }
+
+// resetZoneEventHandlers clears the package-level zone-event handler state,
+// including zoneInformer (other tests in this package assign a *fakeInformer
+// to it), so tests don't leak state into one another. RegisterZoneEventHandler
+// reads zoneInformer to decide whether to attach an AddEventHandler dispatcher,
+// and fakeInformer embeds a nil cache.SharedIndexInformer, so a leaked value
+// segfaults on that call.
+func resetZoneEventHandlers(t *testing.T) {
+	t.Helper()
+	zoneEventHandlersLock.Lock()
+	zoneEventHandlers = nil
+	zoneEventHandlersLock.Unlock()
+	zoneInformer = nil
+	t.Cleanup(func() {
+		zoneEventHandlersLock.Lock()
+		zoneEventHandlers = nil
+		zoneEventHandlersLock.Unlock()
+		zoneInformer = nil
+	})
+}
+
+func TestRegisterZoneEventHandler_NilHandlerIsNoOp(t *testing.T) {
+	resetZoneEventHandlers(t)
+	orch := &K8sOrchestrator{}
+
+	orch.RegisterZoneEventHandler(context.Background(), nil)
+
+	zoneEventHandlersLock.RLock()
+	defer zoneEventHandlersLock.RUnlock()
+	if len(zoneEventHandlers) != 0 {
+		t.Errorf("expected no handlers to be registered, got %d", len(zoneEventHandlers))
+	}
+}
+
+func TestRegisterZoneEventHandler_MultipleHandlersAllInvoked(t *testing.T) {
+	resetZoneEventHandlers(t)
+	orch := &K8sOrchestrator{}
+
+	var calledA, calledB bool
+	var nsA, nsB string
+	orch.RegisterZoneEventHandler(context.Background(), func(namespace string) {
+		calledA = true
+		nsA = namespace
+	})
+	orch.RegisterZoneEventHandler(context.Background(), func(namespace string) {
+		calledB = true
+		nsB = namespace
+	})
+
+	zoneEventHandlersLock.RLock()
+	handlerCount := len(zoneEventHandlers)
+	zoneEventHandlersLock.RUnlock()
+	if handlerCount != 2 {
+		t.Fatalf("expected 2 registered handlers, got %d", handlerCount)
+	}
+
+	notifyZoneEventHandlers(makeZone("zone-A", "ns1", false, nil, false))
+
+	if !calledA || nsA != "ns1" {
+		t.Errorf("handler A: expected called with ns1, got called=%v ns=%q", calledA, nsA)
+	}
+	if !calledB || nsB != "ns1" {
+		t.Errorf("handler B: expected called with ns1, got called=%v ns=%q", calledB, nsB)
+	}
+}
+
+func TestNotifyZoneEventHandlers_ExtractsNamespace(t *testing.T) {
+	resetZoneEventHandlers(t)
+	orch := &K8sOrchestrator{}
+
+	var got string
+	orch.RegisterZoneEventHandler(context.Background(), func(namespace string) {
+		got = namespace
+	})
+
+	notifyZoneEventHandlers(makeZone("zone-A", "ns2", false, nil, false))
+
+	if got != "ns2" {
+		t.Errorf("expected namespace %q, got %q", "ns2", got)
+	}
+}
