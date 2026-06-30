@@ -2149,9 +2149,8 @@ func TestRemoveSnapshotAnnotation(t *testing.T) {
 		svVS := &snapv1.VolumeSnapshot{ObjectMeta: metav1.ObjectMeta{
 			Name: "sv-snap",
 			Annotations: map[string]string{
-				common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`,
-				"other-annot":                     "keepme",
-			},
+				common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns",
+				"volumeSnapshotContentName":"snapcontent-abc"}`, "other-annot": "keepme"},
 			Labels: map[string]string{"my-tkc/TKGService": "tkc-uid"},
 		}}
 		assert.True(t, removeSnapshotAnnotation(ctx, svVS))
@@ -2296,7 +2295,8 @@ func TestReconcileSupervisorSnapshotAnnotations(t *testing.T) {
 
 	t.Run("guest exists and annotation present -> unchanged", func(t *testing.T) {
 		svName := rsaClusterUID + "-abc"
-		existing := `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`
+		existing := `{"clusterName":"my-tkc",` +
+			`"name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`
 		sv := makeSupervisorVSForReconcile(svName, map[string]string{common.AnnKeyGuestClusterSnapshot: existing}, nil)
 		guest := makeReadyGuestVSC("snapcontent-abc", svName, "guest-snap", "guest-ns")
 		guestVS := makeGuestVSForReconcile("guest-snap", "guest-ns")
@@ -2306,33 +2306,38 @@ func TestReconcileSupervisorSnapshotAnnotations(t *testing.T) {
 		assert.Equal(t, existing, getVS(t, rc, svName).Annotations[common.AnnKeyGuestClusterSnapshot])
 	})
 
-	t.Run("guest gone and annotation present -> identity fields cleared, cluster info/VSC/label preserved", func(t *testing.T) {
-		svName := rsaClusterUID + "-gone"
-		labelKey := rsaClusterName + "/TKGService"
-		sv := makeSupervisorVSForReconcile(svName,
-			map[string]string{common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-gone"}`},
-			map[string]string{labelKey: rsaClusterUID})
-		// No guest VSC seeded -> guest Get returns NotFound.
-		rc, err := runReconcileAnnotations(t, []*snapv1.VolumeSnapshot{sv}, nil, nil, rsaClusterUID)
-		require.NoError(t, err)
+	t.Run("guest gone and annotation present -> identity fields cleared, cluster info/VSC/label preserved",
+		func(t *testing.T) {
+			svName := rsaClusterUID + "-gone"
+			labelKey := rsaClusterName + "/TKGService"
+			sv := makeSupervisorVSForReconcile(svName,
+				map[string]string{
+					common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns",
+					"volumeSnapshotContentName":"snapcontent-gone"}`,
+				},
+				map[string]string{labelKey: rsaClusterUID})
+			// No guest VSC seeded -> guest Get returns NotFound.
+			rc, err := runReconcileAnnotations(t, []*snapv1.VolumeSnapshot{sv}, nil, nil, rsaClusterUID)
+			require.NoError(t, err)
 
-		vs := getVS(t, rc, svName)
-		require.Contains(t, vs.Annotations, common.AnnKeyGuestClusterSnapshot)
-		var got map[string]string
-		require.NoError(t, json.Unmarshal([]byte(vs.Annotations[common.AnnKeyGuestClusterSnapshot]), &got))
-		assert.Equal(t, map[string]string{
-			common.GuestClusterAnnotKeyClusterName: "my-tkc",
-			common.GuestClusterAnnotKeyVSCName:     "snapcontent-gone",
-		}, got, "only name/namespace cleared; clusterName and volumeSnapshotContentName preserved for audit")
-		assert.Equal(t, rsaClusterUID, vs.Labels[labelKey], "ownership label must be preserved")
-	})
+			vs := getVS(t, rc, svName)
+			require.Contains(t, vs.Annotations, common.AnnKeyGuestClusterSnapshot)
+			var got map[string]string
+			require.NoError(t, json.Unmarshal([]byte(vs.Annotations[common.AnnKeyGuestClusterSnapshot]), &got))
+			assert.Equal(t, map[string]string{
+				common.GuestClusterAnnotKeyClusterName: "my-tkc",
+				common.GuestClusterAnnotKeyVSCName:     "snapcontent-gone",
+			}, got, "only name/namespace cleared; clusterName and volumeSnapshotContentName preserved for audit")
+			assert.Equal(t, rsaClusterUID, vs.Labels[labelKey], "ownership label must be preserved")
+		})
 
 	t.Run("guest VSC retained but guest VS gone -> identity fields cleared, not repopulated", func(t *testing.T) {
 		// Retain deletion policy: the guest VSC outlives its guest VolumeSnapshot. Full sync must NOT
 		// repopulate the identity fields from the orphaned VSC; it must clear them instead, so it does
 		// not oscillate against the delete-event cleanup on every pass.
 		svName := rsaClusterUID + "-retain"
-		existing := `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-retain"}`
+		existing := `{"clusterName":"my-tkc","name":"guest-snap",
+						"namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-retain"}`
 		sv := makeSupervisorVSForReconcile(svName,
 			map[string]string{common.AnnKeyGuestClusterSnapshot: existing}, nil)
 		guest := makeReadyGuestVSC("snapcontent-retain", svName, "guest-snap", "guest-ns")
@@ -2398,7 +2403,8 @@ func TestReconcileSupervisorSnapshotAnnotations(t *testing.T) {
 		// NotFound, but the annotation must NOT be stripped.
 		svName := rsaClusterUID + "-static"
 		staticVSCName := "my-corp-backup-vsc"
-		existing := `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"` + staticVSCName + `"}`
+		existing := `{"clusterName":"my-tkc","name":"guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"` +
+			staticVSCName + `"}`
 		sv := makeSupervisorVSForReconcile(svName,
 			map[string]string{common.AnnKeyGuestClusterSnapshot: existing}, nil)
 		// No guest VSC seeded for either the static name or the derived name -> both return NotFound.

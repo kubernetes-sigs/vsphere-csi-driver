@@ -37,11 +37,11 @@ import (
 )
 
 const (
-	sdraNamespace  = "vmware-system-csi"
-	sdraGuestVSNs  = "guest-ns"
-	sdraGuestVSN   = "my-guest-snap"
-	sdraGuestVSCN  = "snapcontent-abc123"
-	sdraSvVSName   = "sv-snap-abc123"
+	sdraNamespace = "vmware-system-csi"
+	sdraGuestVSNs = "guest-ns"
+	sdraGuestVSN  = "my-guest-snap"
+	sdraGuestVSCN = "snapcontent-abc123"
+	sdraSvVSName  = "sv-snap-abc123"
 )
 
 // buildSDAScheme returns a runtime.Scheme with snapv1 registered.
@@ -142,8 +142,10 @@ func makeSVVSWithAnnotation(name string, annotations map[string]string) *snapv1.
 // core of pvcsiSnapshotDeleted.
 func TestSnapshotDeletedRemoveAnnotation(t *testing.T) {
 	annotPresent := map[string]string{
-		common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"my-guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`,
-		"other-annot":                     "keepme",
+		common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc",
+		"name":"my-guest-snap",
+		"namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`,
+		"other-annot": "keepme",
 	}
 
 	t.Run("identity fields cleared when guest VSC exists and has SnapshotHandle", func(t *testing.T) {
@@ -255,7 +257,9 @@ func TestSnapshotDeletedRemoveAnnotation(t *testing.T) {
 				Name:      sdraSvVSName,
 				Namespace: sdraNamespace,
 				Annotations: map[string]string{
-					common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc","name":"my-guest-snap","namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`,
+					common.AnnKeyGuestClusterSnapshot: `{"clusterName":"my-tkc",
+					"name":"my-guest-snap",
+					"namespace":"guest-ns","volumeSnapshotContentName":"snapcontent-abc"}`,
 				},
 				Labels: map[string]string{
 					"my-tkc/TKGService": "tkc-uid",
@@ -316,4 +320,3 @@ func TestPvcsiSnapshotDeleted(t *testing.T) {
 		pvcsiSnapshotDeleted(ctx, guestVS, syncer)
 	})
 }
-
