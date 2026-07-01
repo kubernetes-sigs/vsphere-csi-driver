@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -4291,6 +4292,17 @@ func runQueryChangedDiskAreasViaVslm(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VSLM client: %v", err)
 	}
+	// The VSLM endpoint (/vslm/sdk) uses fully-qualified VMODL type names in xsi:type
+	// (e.g. "vmodl.fault.InvalidArgument") whereas govmomi's type registry only contains
+	// short names (e.g. "InvalidArgument"). Extend the client's TypeFunc to strip the
+	// "vmodl.fault." prefix before the second lookup so fault details decode correctly.
+	existing := vslmClient.Types
+	vslmClient.Types = func(name string) (reflect.Type, bool) {
+		if t, ok := existing(name); ok {
+			return t, ok
+		}
+		return existing(strings.TrimPrefix(name, "vmodl.fault."))
+	}
 	globalObjectManager := vslm.NewGlobalObjectManager(vslmClient)
 	return globalObjectManager.QueryChangedDiskAreas(ctx, volumeID, snapshotID, startingOffset, changeID)
 }
@@ -4415,6 +4427,17 @@ func (m *defaultManager) QueryFCDChangedBlocks(ctx context.Context, volumeID, ta
 
 // TranslateVslmError maps VSLM and VADP error codes to standard CSI gRPC error codes.
 func TranslateVslmError(ctx context.Context, err error) error {
+	const (
+		cbtFaultNoTrack         = "vim.hostd.vmsvc.cbt.noTrack"
+		cbtFaultNoEpoch         = "vim.hostd.vmsvc.cbt.noEpoch"
+		cbtFaultCannotGetChange = "vim.hostd.vmsvc.cbt.cannotGetChanges"
+
+		propStartOffset = "startOffset"
+		propSnapshotID  = "snapshotId"
+		propChangeID    = "changeId"
+		propDeviceKey   = "deviceKey"
+	)
+
 	log := logger.GetLogger(ctx)
 	if err == nil {
 		return nil
@@ -4422,71 +4445,73 @@ func TranslateVslmError(ctx context.Context, err error) error {
 
 	errMsg := err.Error()
 
-	if soap.IsSoapFault(err) {
-		fault := soap.ToSoapFault(err).VimFault()
-
-		switch f := fault.(type) {
-		case *vim25types.FileFault:
-			msgID := ""
-			if len(f.FaultMessage) > 0 {
-				msgID = f.FaultMessage[0].Key
-			} else {
-				if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noTrack") {
-					msgID = "vim.hostd.vmsvc.cbt.noTrack"
-				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.noEpoch") {
-					msgID = "vim.hostd.vmsvc.cbt.noEpoch"
-				} else if strings.Contains(errMsg, "vim.hostd.vmsvc.cbt.cannotGetChanges") {
-					msgID = "vim.hostd.vmsvc.cbt.cannotGetChanges"
-				}
+	if !soap.IsSoapFault(err) {
+		return logger.LogNewErrorCodef(log, codes.Internal, "failed with error 1: %v", err)
+	}
+	fault := soap.ToSoapFault(err).VimFault()
+	if fault == nil {
+		return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
+	}
+	switch f := fault.(type) {
+	case vim25types.FileFault:
+		msgID := ""
+		if len(f.FaultMessage) > 0 {
+			msgID = f.FaultMessage[0].Key
+		} else {
+			if strings.Contains(errMsg, cbtFaultNoTrack) {
+				msgID = cbtFaultNoTrack
+			} else if strings.Contains(errMsg, cbtFaultNoEpoch) {
+				msgID = cbtFaultNoEpoch
+			} else if strings.Contains(errMsg, cbtFaultCannotGetChange) {
+				msgID = cbtFaultCannotGetChange
 			}
-
-			switch msgID {
-			case "vim.hostd.vmsvc.cbt.noTrack":
+		}
+		switch msgID {
+		case cbtFaultNoTrack:
+			return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"CBT disabled or not enabled. The caller should perform a full backup instead: %v", err)
+		case cbtFaultNoEpoch:
+			return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+				"Cannot get current epoch when changeId=*. The caller should perform a full backup instead: %v", err)
+		case cbtFaultCannotGetChange:
+			if strings.Contains(strings.ToLower(errMsg), "corrupt") {
 				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"CBT disabled or not enabled. The caller should perform a full backup instead: %v", err)
-			case "vim.hostd.vmsvc.cbt.noEpoch":
-				return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-					"Cannot get current epoch when changeId=*. The caller should perform a full backup instead: %v", err)
-			case "vim.hostd.vmsvc.cbt.cannotGetChanges":
-				if strings.Contains(strings.ToLower(errMsg), "corrupt") {
-					return logger.LogNewErrorCodef(log, codes.FailedPrecondition,
-						"ctk file corrupted. The caller should perform a full backup instead: %v", err)
-				}
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"changeID mismatch. The caller should correct the error and resubmit the call: %v", err)
-			default:
-				return logger.LogNewErrorCodef(log, codes.Internal,
-					"Internal errors such ctk disk open fails, FCD disk locked, disk missing, etc. "+
-						"CSI driver should retry the operation: %v", err)
-			}
-		case *vim25types.SystemError:
-			return logger.LogNewErrorCodef(log, codes.Internal,
-				"Internal system error. CSI driver should retry the operation: %v", err)
-		case *vim25types.InvalidArgument:
-			if f.InvalidProperty == "startOffset" || strings.Contains(errMsg, "startOffset") {
-				return logger.LogNewErrorCodef(log, codes.OutOfRange,
-					"start offset specified beyond volume size. The caller should specify a valid offset: %v", err)
-			}
-			if f.InvalidProperty == "snapshotId" || strings.Contains(errMsg, "snapshotId") {
-				return logger.LogNewErrorCodef(log, codes.NotFound,
-					"snapshot ID not found for FCD. The caller should re-check that these objects exist: %v", err)
-			}
-			if f.InvalidProperty == "changeId" || strings.Contains(errMsg, "changeId") {
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"invalid format for changeID. The caller should correct the error and resubmit the call: %v", err)
-			}
-			if f.InvalidProperty == "deviceKey" || strings.Contains(errMsg, "deviceKey") {
-				return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-					"Device key doesn't exist, Disk has no backing, or Disk backing "+
-						"type doesn't support CBT. The caller should correct the "+
-						"error and resubmit the call: %v", err)
+					"ctk file corrupted. The caller should perform a full backup instead: %v", err)
 			}
 			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"invalid argument %s: %v", f.InvalidProperty, err)
-		case *vim25types.NotFound:
-			return logger.LogNewErrorCodef(log, codes.NotFound,
-				"FCD not found in VC inventory. The caller should re-check that these objects exist: %v", err)
+				"changeID mismatch. The caller should correct the error and resubmit the call: %v", err)
+		default:
+			return logger.LogNewErrorCodef(log, codes.Internal,
+				"Internal errors such ctk disk open fails, FCD disk locked, disk missing, etc. "+
+					"CSI driver should retry the operation: %v", err)
 		}
+	case vim25types.SystemError:
+		return logger.LogNewErrorCodef(log, codes.Internal,
+			"Internal system error. CSI driver should retry the operation: %v", err)
+	case vim25types.InvalidArgument:
+		if f.InvalidProperty == propStartOffset || strings.Contains(errMsg, propStartOffset) {
+			return logger.LogNewErrorCodef(log, codes.OutOfRange,
+				"start offset specified beyond volume size. The caller should specify a valid offset: %v", err)
+		}
+		if f.InvalidProperty == propSnapshotID || strings.Contains(errMsg, propSnapshotID) {
+			return logger.LogNewErrorCodef(log, codes.NotFound,
+				"snapshot ID not found for FCD. The caller should re-check that these objects exist: %v", err)
+		}
+		if f.InvalidProperty == propChangeID || strings.Contains(errMsg, propChangeID) {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"invalid format for changeID. The caller should correct the error and resubmit the call: %v", err)
+		}
+		if f.InvalidProperty == propDeviceKey || strings.Contains(errMsg, propDeviceKey) {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"Device key doesn't exist, Disk has no backing, or Disk backing "+
+					"type doesn't support CBT. The caller should correct the "+
+					"error and resubmit the call: %v", err)
+		}
+		return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"invalid argument %s: %v", f.InvalidProperty, err)
+	case vim25types.NotFound:
+		return logger.LogNewErrorCodef(log, codes.NotFound,
+			"FCD not found in VC inventory. The caller should re-check that these objects exist: %v", err)
 	}
 
 	return logger.LogNewErrorCodef(log, codes.Internal, "failed with error: %v", err)
