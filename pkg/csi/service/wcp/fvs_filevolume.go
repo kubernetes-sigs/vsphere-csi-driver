@@ -695,7 +695,7 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 //
 // The reserved vsan-file-service-policy / vsan-file-service-policy-latebinding storage classes
 // require the NSX_VPC network provider. The provider is resolved either per-namespace (from the
-// PVC namespace's NetworkSettings CR) when supports_per_namespace_network_providers is on, or from
+// PVC namespace's NetworkSettings CR) when supports_per_namespace_network_provider is on, or from
 // the cached global wcp-network-config value resolved once at controller.Init when the per-
 // namespace capability is off. Non-reserved storage classes return useFVS=false without consulting
 // the network provider.
@@ -720,7 +720,7 @@ func shouldProvisionVsanFileVolumeViaFVS(ctx context.Context, dc dynamic.Interfa
 }
 
 // resolveNetworkProviderForFVS reads the per-namespace NetworkSettings CR when
-// supports_per_namespace_network_providers is on, otherwise returns the global provider value
+// supports_per_namespace_network_provider is on, otherwise returns the global provider value
 // cached during controller.Init (no per-call wcp-network-config read).
 func resolveNetworkProviderForFVS(ctx context.Context, dc dynamic.Interface,
 	pvcNamespace string) (string, error) {
