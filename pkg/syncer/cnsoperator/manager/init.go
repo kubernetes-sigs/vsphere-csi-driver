@@ -368,6 +368,30 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				return err
 			}
 		}
+
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.SupportsExposingStoragePolicyAttributes) {
+			// Create ClusterStoragePolicyInfo CRD in the guest cluster.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				cnsoperatorconfig.EmbedClusterStoragePolicyInfoCRFile,
+				cnsoperatorconfig.EmbedClusterStoragePolicyInfoCRFileName)
+			if err != nil {
+				crdName := cnsoperatorv1alpha1.ClusterStoragePolicyInfoPlural +
+					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
+				log.Errorf("failed to create %q CRD. Err: %+v", crdName, err)
+				return err
+			}
+
+			// Create StoragePolicyInfo CRD in the guest cluster.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				cnsoperatorconfig.EmbedStoragePolicyInfoCRFile,
+				cnsoperatorconfig.EmbedStoragePolicyInfoCRFileName)
+			if err != nil {
+				crdName := cnsoperatorv1alpha1.StoragePolicyInfoPlural +
+					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
+				log.Errorf("failed to create %q CRD. Err: %+v", crdName, err)
+				return err
+			}
+		}
 	}
 
 	// Initialize the global scheme once before creating the manager
