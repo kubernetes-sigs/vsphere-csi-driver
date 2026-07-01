@@ -697,6 +697,217 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelVirtualMachineName))
 		Expect(pvcSpec.Labels).NotTo(HaveKey(cnsoperatortypes.LabelStoragePolicyReservationName))
 	})
+
+	// DiskURLPath registrations that fail the active-clusters accessibility check
+	// must call UnregisterVolume(unregDisk=true) to demote the FCD back to a plain VMDK.
+	It("DiskURLPath + active clusters not accessible: should call UnregisterVolume(unregDisk=true)", func() {
+		diskURLCR := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "disk-url-accessible-test",
+				Namespace: "test-ns",
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:     "test-pvc",
+				DiskURLPath: "https://vc/test.vmdk",
+				AccessMode:  "ReadWriteOnce",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(diskURLCR).
+			Build()
+
+		var unregCalled bool
+		var unregDiskArg bool
+		diskURLMgr := &mockVolumeManager{
+			createVolumeFunc: func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+				ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+				return &cnsvolume.CnsVolumeInfo{
+					VolumeID: cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+				}, "", nil
+			},
+			unregisterVolume: func(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+				unregCalled = true
+				unregDiskArg = unregDisk
+				return "", nil
+			},
+		}
+		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			client:        fakeClient,
+			scheme:        scheme,
+			volumeManager: diskURLMgr,
+		}
+
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
+			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+		})
+		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
+			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			return &cnstypes.CnsVolume{
+				VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
+				DatastoreUrl:    "dummy-ds-url",
+				StoragePolicyId: "dummy-storage-policy-id",
+				BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+				},
+			}, nil
+		})
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a", "cluster-b"}, true, nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(&mockCOCommon{}), "GetZonesForNamespace",
+			func(_ *mockCOCommon, ns string) map[string]struct{} {
+				return map[string]struct{}{"zone-b": {}}
+			})
+		patches.ApplyMethod(reflect.TypeOf(&mockCOCommon{}), "GetActiveClustersForNamespaceInRequestedZones",
+			func(_ commonco.COCommonInterface, ctx context.Context, ns string, zones []string) ([]string, error) {
+				return []string{"cluster-a"}, nil
+			})
+		patches.ApplyFunc(isDatastoreAccessibleToAZClusters,
+			func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				azToClusters map[string][]string, ds string) bool {
+				return false
+			})
+		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
+			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}
+		})
+		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		})
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      "disk-url-accessible-test",
+				Namespace: "test-ns",
+			},
+		}
+		result, err := diskURLReconciler.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal(reconcile.Result{RequeueAfter: 0}))
+		Expect(unregCalled).To(BeTrue(), "UnregisterVolume must be called for DiskURLPath accessibility failure")
+		Expect(unregDiskArg).To(BeTrue(), "unregDisk must be true so FCD is demoted back to VMDK")
+	})
+
+	// DiskURLPath registrations that fail PVC topology validation
+	// must call UnregisterVolume(unregDisk=true) — not DeleteVolumeUtil — to demote the FCD.
+	It("DiskURLPath + PVC topology validation failure: should call UnregisterVolume(unregDisk=true)", func() {
+		storageClassName := "test-sc"
+		diskURLCR := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "disk-url-topo-test",
+				Namespace: "test-ns",
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:     "test-pvc",
+				DiskURLPath: "https://vc/test.vmdk",
+				AccessMode:  "ReadWriteOnce",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(diskURLCR).
+			Build()
+
+		var unregCalled bool
+		var unregDiskArg bool
+		diskURLMgr := &mockVolumeManager{
+			createVolumeFunc: func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+				ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+				return &cnsvolume.CnsVolumeInfo{
+					VolumeID: cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+				}, "", nil
+			},
+			unregisterVolume: func(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+				unregCalled = true
+				unregDiskArg = unregDisk
+				return "", nil
+			},
+		}
+
+		// Create k8sclient with an existing PVC whose storage class matches
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: "test-ns"},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName: &storageClassName,
+			},
+		}
+		sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: storageClassName}}
+		k8sclientFake := k8sfake.NewClientset(pvc, sc)
+
+		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			client:        fakeClient,
+			scheme:        scheme,
+			volumeManager: diskURLMgr,
+			k8sclient:     k8sclientFake,
+		}
+
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
+			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+		})
+		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
+			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			return &cnstypes.CnsVolume{
+				VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
+				DatastoreUrl:    "dummy-ds-url",
+				StoragePolicyId: "dummy-policy-id",
+				BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+				},
+			}, nil
+		})
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a"}, false, nil
+		})
+		patches.ApplyFunc(isDatastoreAccessibleToCluster, func(ctx context.Context,
+			vc *cnsvsphere.VirtualCenter, clusterID, ds string) bool {
+			return true
+		})
+		patches.ApplyFunc(isDatastoreAccessibleToAZClusters,
+			func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				azToClusters map[string][]string, ds string) bool {
+				return true
+			})
+		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
+			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}
+		})
+		patches.ApplyFunc(getK8sStorageClassNameWithImmediateBindingModeForPolicy,
+			func(ctx context.Context, k8sClient kubernetes.Interface, c ctrlclient.Client,
+				storagePolicyID, namespace string, isPodVMOnStretchSupervisor bool) (string, error) {
+				return storageClassName, nil
+			})
+		patches.ApplyFunc(clearKeepAfterDeleteVmIfNonRemovable,
+			func(ctx context.Context, c ctrlclient.Client, vm cnsvolume.Manager,
+				pvc *corev1.PersistentVolumeClaim, namespace, volumeID string) error {
+				return nil
+			})
+		// Force topology validation to fail (simulates zone mismatch — the root cause of bug 3733250)
+		topologyMgr = &mockTopologyService{}
+		patches.ApplyFunc(validatePVCTopologyCompatibility,
+			func(ctx context.Context, k8sclient kubernetes.Interface, pvc *corev1.PersistentVolumeClaim,
+				datastoreURL string, topoMgr commoncotypes.ControllerTopologyService,
+				vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string) error {
+				return fmt.Errorf("topology conflict: zone mismatch")
+			})
+		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		})
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: "disk-url-topo-test", Namespace: "test-ns"},
+		}
+		_, err := diskURLReconciler.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(unregCalled).To(BeTrue(),
+			"UnregisterVolume must be called for DiskURLPath when topology validation fails")
+		Expect(unregDiskArg).To(BeTrue(),
+			"unregDisk must be true so the FCD is demoted back to a plain VMDK")
+	})
 })
 
 var _ = Describe("checkExistingPVCDataSourceRef", func() {
@@ -3484,6 +3695,64 @@ func TestClearKeepAfterDeleteVm_PVCClaimNameMismatch_NoOp(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when no VM volume matches the PVC")
+}
+
+// TestCleanupCNSVolume_DiskURLPath verifies that cleanupCNSVolume routes to
+// UnregisterVolume(unregDisk=true) for DiskURLPath registrations so the FCD is
+// demoted back to a plain VMDK.
+func TestCleanupCNSVolume_DiskURLPath(t *testing.T) {
+	ctx := context.Background()
+	var calledVolumeID string
+	var calledUnregDisk bool
+	mock := &mockVolumeManager{
+		unregisterVolume: func(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+			calledVolumeID = volumeID
+			calledUnregDisk = unregDisk
+			return "", nil
+		},
+	}
+	r := &ReconcileCnsRegisterVolume{volumeManager: mock}
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			DiskURLPath: "https://vc/disk.vmdk",
+		},
+	}
+
+	err := r.cleanupCNSVolume(ctx, instance, "vol-disk-url")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "vol-disk-url", calledVolumeID)
+	assert.True(t, calledUnregDisk, "DiskURLPath cleanup must call UnregisterVolume with unregDisk=true")
+}
+
+// TestCleanupCNSVolume_VolumeID verifies that cleanupCNSVolume routes to
+// DeleteVolumeUtil(deleteDisk=false) for VolumeID registrations, preserving the FCD.
+func TestCleanupCNSVolume_VolumeID(t *testing.T) {
+	ctx := context.Background()
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			VolumeID: "existing-fcd-id",
+		},
+	}
+	mock := &mockVolumeManager{}
+	r := &ReconcileCnsRegisterVolume{volumeManager: mock}
+
+	var deletedVolumeID string
+	var deleteDisk bool
+	patches := gomonkey.ApplyFunc(common.DeleteVolumeUtil,
+		func(_ context.Context, _ cnsvolume.Manager, volumeID string, forceDelete bool) (string, error) {
+			deletedVolumeID = volumeID
+			deleteDisk = forceDelete
+			return "", nil
+		},
+	)
+	defer patches.Reset()
+
+	err := r.cleanupCNSVolume(ctx, instance, "existing-fcd-id")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "existing-fcd-id", deletedVolumeID)
+	assert.False(t, deleteDisk, "VolumeID cleanup must call DeleteVolumeUtil with deleteDisk=false")
 }
 
 func TestClearKeepAfterDeleteVm_AnnotationUpdateFailure_ReturnsError(t *testing.T) {

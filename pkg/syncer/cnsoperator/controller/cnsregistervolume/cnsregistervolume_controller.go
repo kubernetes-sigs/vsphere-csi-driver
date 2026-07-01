@@ -403,8 +403,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 						"the active cluster on the namespace")
 
 					// Attempt volume cleanup
-					if _, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false); err != nil {
-						log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+					if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+						log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 						return reconcile.Result{RequeueAfter: timeout}, nil
 					}
 					// permanent failure and not requeue.
@@ -417,9 +417,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
 						volumeID, volume.DatastoreUrl, azClustersMap)
 					setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
-					_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-					if err != nil {
-						log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+					if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+						log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 						return reconcile.Result{RequeueAfter: timeout}, nil
 					}
 					// permanent failure and not requeue.
@@ -427,31 +426,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				}
 			}
 		}
-	} else {
+	} else if !isDatastoreAccessibleToCluster(
+		ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl) {
 		// Verify if the volume is accessible to Supervisor cluster.
-		isAccessible := isDatastoreAccessibleToCluster(ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl)
-		if !isAccessible {
-			log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
-				volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
-			setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
-			// Untag the CNS volume which was created previously.
-			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-			if err != nil {
-				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			// permanent failure and not requeue.
-			return reconcile.Result{}, nil
+		log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
+			volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
+		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
+		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
+		// permanent failure and not requeue.
+		return reconcile.Result{}, nil
 	}
 	// Verify if storage policy is empty.
 	if volume.StoragePolicyId == "" {
 		log.Errorf("Volume: %s doesn't have storage policy associated with it", volumeID)
 		setInstanceError(ctx, r, instance, "Volume in the spec doesn't have storage policy associated with it")
-		// Untag the CNS volume which was created previously.
-		_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-		if err != nil {
-			log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 		}
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -618,10 +611,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, *pvc.Spec.StorageClassName, storageClassName)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
-			// Untag the CNS volume which was created previously.
-			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-			if delErr != nil {
-				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 			}
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		} else if pvc.Spec.StorageClassName == nil {
@@ -629,10 +620,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, storageClassName)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
-			// Untag the CNS volume which was created previously.
-			_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-			if delErr != nil {
-				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+			if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 			}
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -645,10 +634,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
 				log.Error(msg)
 				setInstanceError(ctx, r, instance, msg)
-				// Untag the CNS volume which was created previously.
-				_, delErr := common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-				if delErr != nil {
-					log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, delErr)
+				if delErr := r.cleanupCNSVolume(ctx, instance, volumeID); delErr != nil {
+					log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, delErr)
 				}
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
@@ -750,10 +737,8 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.PvcName, instance.Namespace)
 			log.Errorf(msg)
 			setInstanceError(ctx, r, instance, msg)
-			// Untag the CNS volume which was created previously.
-			_, err = common.DeleteVolumeUtil(ctx, r.volumeManager, volumeID, false)
-			if err != nil {
-				log.Errorf("Failed to untag CNS volume: %s with error: %+v", volumeID, err)
+			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 			} else {
 				// Delete PV created above.
 				err = k8sclient.CoreV1().PersistentVolumes().Delete(ctx, pvName, *metav1.NewDeleteOptions(0))
@@ -1508,21 +1493,10 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 	}
 
 	if volumeID != "" {
-		// Different cleanup based on how the volume was registered
-		if instance.Spec.VolumeID != "" {
-			// VolumeID was specified: volume was already a FCD
-			// Just untag it from CNS (deleteDisk=false to preserve the underlying FCD)
-			if err := r.untagCNSVolume(ctx, volumeID); err != nil {
-				log.With("error", err).Error("Failed to untag CNS volume")
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-		} else if instance.Spec.DiskURLPath != "" {
-			// DiskURLPath was specified: volume was a legacy disk that we registered as FCD
-			// De-register it as FCD (unregDisk=true to convert back to legacy disk)
-			if err := r.unregisterFCD(ctx, volumeID); err != nil {
-				log.With("error", err).Error("Failed to unregister FCD")
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
+		err := r.cleanupCNSVolume(ctx, instance, volumeID)
+		if err != nil {
+			log.With("error", err).Error("Failed to cleanup CNS volume")
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
 
@@ -1720,6 +1694,21 @@ func (r *ReconcileCnsRegisterVolume) untagCNSVolume(ctx context.Context, volumeI
 	}
 	log.With("volumeID", volumeID).Info("Successfully untagged CNS volume")
 	return nil
+}
+
+// cleanupCNSVolume cleans up a CNS volume created during a failed registration.
+// For DiskURLPath registrations (legacy VMDK promoted to FCD), it unregisters the
+// FCD to convert the disk back to a legacy VMDK. For VolumeID registrations (existing
+// FCD), it only untags the CNS record, preserving the underlying FCD.
+func (r *ReconcileCnsRegisterVolume) cleanupCNSVolume(
+	ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	volumeID string,
+) error {
+	if instance.Spec.DiskURLPath != "" {
+		return r.unregisterFCD(ctx, volumeID)
+	}
+	return r.untagCNSVolume(ctx, volumeID)
 }
 
 // unregisterFCD de-registers a volume as FCD, converting it back to a legacy disk.
