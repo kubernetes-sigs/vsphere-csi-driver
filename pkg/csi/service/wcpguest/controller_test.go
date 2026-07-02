@@ -1155,7 +1155,7 @@ func TestCreateVolumeAnnotationLogic(t *testing.T) {
 
 // TestCreateVolumeUpdatesVolumeNameAnnotation verifies that CreateVolume patches the
 // supervisor PVC with the bound PV name inside the AnnKeyGuestClusterPvc annotation
-// when the ImprovedVolumeVisiblity FSS is enabled.
+// when the ImprovedVolumeVisibility FSS is enabled.
 //
 // The key behavior under test is that isPVCInSupervisorClusterBound now returns the
 // bound PVC object, so CreateVolume can use it directly (no extra GET round-trip) to
