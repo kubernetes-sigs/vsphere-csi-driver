@@ -539,6 +539,8 @@ spec:
               value: "4"
             - name: WORKER_THREADS_STORAGE_POLICY_INFO
               value: "4"
+            - name: STORAGE_POLICY_INFO_RESYNC_INTERVAL_MINUTES
+              value: "720"
             - name: POD_POLL_INTERVAL_SECONDS
               value: "2"
             - name: POD_LISTENER_SERVICE_PORT

@@ -513,11 +513,12 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -553,11 +554,12 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -590,11 +592,12 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        recorder,
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              recorder,
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -625,11 +628,12 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -716,10 +720,11 @@ func TestCompleteReconciliationWithSuccess(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	r := &ReconcileStoragePolicyInfo{
-		client:          fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 	nn := types.NamespacedName{Namespace: "ns1", Name: "gold"}
 	r.backOffDuration[nn] = 5 * time.Second
@@ -740,10 +745,11 @@ func TestCompleteReconciliationWithError(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	r := &ReconcileStoragePolicyInfo{
-		client:          fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 	nn := types.NamespacedName{Namespace: "ns1", Name: "gold"}
 	r.backOffDuration[nn] = time.Second
@@ -786,11 +792,12 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        recorder,
-		zonesProvider:   &mockZonesProvider{zonesForNamespace: nsZones},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              recorder,
+		zonesProvider:         &mockZonesProvider{zonesForNamespace: nsZones},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -830,11 +837,12 @@ func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        record.NewFakeRecorder(10),
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              record.NewFakeRecorder(10),
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
@@ -880,11 +888,12 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        recorder,
-		zonesProvider:   &mockZonesProvider{},
-		backOffDuration: make(map[types.NamespacedName]time.Duration),
+		client:                cli,
+		scheme:                scheme,
+		recorder:              recorder,
+		zonesProvider:         &mockZonesProvider{},
+		backOffDuration:       make(map[types.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[types.NamespacedName]time.Time),
 	}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{
