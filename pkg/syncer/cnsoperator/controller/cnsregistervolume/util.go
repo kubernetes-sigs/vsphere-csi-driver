@@ -119,23 +119,28 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 // The clear is performed via the VSLM endpoint (UnprotectVolumeFromVMDeletion),
 // which is broadly available on older vSphere as well; no FSS gate is required.
 //
-// Returns nil (no-op) when:
+// Returns the (unmodified) pvc and a nil error when:
 //   - pvc is nil or has no DataSourceRef,
 //   - DataSourceRef does not point at vmoperator.vmware.com/VirtualMachine,
 //   - the matching VM volume entry has removable=true or removable=nil (default).
 //
-// Returns a non-nil error when the VirtualMachine CR cannot be fetched or when
+// Returns the original pvc and a non-nil error when the VirtualMachine CR cannot be fetched or when
 // the underlying VSLM clear call fails. Both cases are safe to retry on the
 // next reconcile (CreateVolume and VSLM clear are both idempotent).
+//
+// On success after clearing keepAfterDeleteVm, returns the PVC refreshed with the
+// AnnVMDeleteProtectionCleared annotation and an up-to-date resourceVersion, so callers can safely
+// chain further mutations on the returned object without risking a stale-resourceVersion conflict.
 func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclient.Client,
-	volumeManager volumes.Manager, pvc *v1.PersistentVolumeClaim, namespace, volumeID string) error {
+	volumeManager volumes.Manager, pvc *v1.PersistentVolumeClaim, namespace,
+	volumeID string) (*v1.PersistentVolumeClaim, error) {
 	log := logger.GetLogger(ctx)
 
 	if pvc == nil || pvc.Spec.DataSourceRef == nil ||
 		pvc.Spec.DataSourceRef.APIGroup == nil ||
 		*pvc.Spec.DataSourceRef.APIGroup != "vmoperator.vmware.com" ||
 		pvc.Spec.DataSourceRef.Kind != "VirtualMachine" {
-		return nil
+		return pvc, nil
 	}
 
 	vm := &vmoperatortypes.VirtualMachine{}
@@ -143,7 +148,7 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 		Namespace: namespace,
 		Name:      pvc.Spec.DataSourceRef.Name,
 	}, vm); err != nil {
-		return fmt.Errorf("failed to get VirtualMachine %s/%s referenced by PVC DataSourceRef: %v",
+		return pvc, fmt.Errorf("failed to get VirtualMachine %s/%s referenced by PVC DataSourceRef: %v",
 			namespace, pvc.Spec.DataSourceRef.Name, err)
 	}
 
@@ -158,29 +163,32 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 	}
 
 	if !nonRemovable {
-		return nil
+		return pvc, nil
 	}
 
 	log.Infof("Clearing keepAfterDeleteVm for volumeID %s (PVC %s/%s mounted as non-removable on VM %s)",
 		volumeID, pvc.Namespace, pvc.Name, vm.Name)
 	if err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID); err != nil {
-		return fmt.Errorf("failed to clear keepAfterDeleteVm for volumeID %s: %v", volumeID, err)
+		return pvc, fmt.Errorf("failed to clear keepAfterDeleteVm for volumeID %s: %v", volumeID, err)
 	}
 
 	// Set annotation to indicate keepAfterDeleteVm has been cleared.
 	// This prevents redundant VSLM calls on syncer restarts or informer resyncs.
+	// Patch (instead of Update) so this write can't 409 on the resourceVersion, and the response is
+	// decoded back into pvcCopy, refreshing it, so the caller can safely reuse the returned object.
+	original := pvc.DeepCopy()
 	pvcCopy := pvc.DeepCopy()
 	if pvcCopy.Annotations == nil {
 		pvcCopy.Annotations = make(map[string]string)
 	}
 	pvcCopy.Annotations[common.AnnVMDeleteProtectionCleared] = "true"
-	if err := c.Update(ctx, pvcCopy); err != nil {
-		return fmt.Errorf("failed to set %s annotation on PVC %s/%s: %v",
+	if err := c.Patch(ctx, pvcCopy, ctrlruntimeclient.MergeFrom(original)); err != nil {
+		return pvc, fmt.Errorf("failed to set %s annotation on PVC %s/%s: %v",
 			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name, err)
 	}
 	log.Infof("Set %s annotation on PVC %s/%s",
 		common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)
-	return nil
+	return pvcCopy, nil
 }
 
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
