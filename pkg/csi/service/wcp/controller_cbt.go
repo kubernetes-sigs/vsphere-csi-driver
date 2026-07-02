@@ -419,15 +419,19 @@ func validateGetMetadataAllocatedRequest(ctx context.Context, req *csi.GetMetada
 		return fmt.Errorf("snapshot ID is required")
 	}
 
+	if req.StartingOffset < 0 {
+		return fmt.Errorf("starting_offset must be non-negative value")
+	}
+
+	if req.MaxResults < 0 {
+		return fmt.Errorf("max_results must be non-negative value")
+	}
+
 	log.Debugf("GetMetadataAllocated request validation passed")
 	return nil
 }
 
 // validateGetMetadataDeltaRequest validates the GetMetadataDelta request.
-//
-// base_snapshot_id is the vSphere CBT change-id (opaque string) — we only check that it is
-// non-empty. target_snapshot_id is a CSI snapshot handle that the caller is responsible for
-// keeping valid (the target snapshot must still exist in vSphere).
 func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDeltaRequest) error {
 	log := logger.GetLogger(ctx)
 
@@ -439,8 +443,21 @@ func validateGetMetadataDeltaRequest(ctx context.Context, req *csi.GetMetadataDe
 		return fmt.Errorf("base snapshot ID (vSphere change-id) is required")
 	}
 
+	if !common.IsValidChangeId(req.BaseSnapshotId) {
+		return fmt.Errorf("base_snapshot_id %q has invalid format; provide a valid vSphere changeID",
+			req.BaseSnapshotId)
+	}
+
 	if req.TargetSnapshotId == "" {
 		return fmt.Errorf("target snapshot ID is required")
+	}
+
+	if req.StartingOffset < 0 {
+		return fmt.Errorf("starting_offset must be non-negative value")
+	}
+
+	if req.MaxResults < 0 {
+		return fmt.Errorf("max_results must be non-negative value")
 	}
 
 	log.Debugf("GetMetadataDelta request validation passed")

@@ -1127,3 +1127,34 @@ func TestBuildGuestSnapshotAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestIsValidChangeId(t *testing.T) {
+	tests := []struct {
+		name     string
+		changeID string
+		want     bool
+	}{
+		{name: "valid change-id", changeID: "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/0", want: true},
+		{name: "empty string", changeID: "", want: false},
+		{name: "wildcard only", changeID: "*", want: false},
+		{name: "wildcard with epoch", changeID: "*/123", want: false},
+		{name: "no slash (no epoch)", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d", want: false},
+		{name: "empty UUID", changeID: "/123", want: false},
+		{name: "empty epoch", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d/", want: false},
+		{name: "non-digit epoch", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d/abc", want: false},
+		{name: "changeid with parent chain", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d/123/p0", want: false},
+		{name: "changeid with parent chain without epoch", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d/p1",
+			want: false},
+		{name: "UUID with upper case", changeID: "52 05 A2 CE 6D 6D C9 59-D3 2E AD 19 E3 96 73 6D/5", want: false},
+		{name: "plain text not valid UUID format", changeID: "diskuuid/0", want: false},
+		{name: "UUID with length more than default", changeID: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d0/5",
+			want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsValidChangeId(tt.changeID); got != tt.want {
+				t.Errorf("IsValidChangeId(%q) = %v, want %v", tt.changeID, got, tt.want)
+			}
+		})
+	}
+}

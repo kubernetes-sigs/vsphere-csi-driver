@@ -37,6 +37,12 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
+const (
+	testValidChangeID    = "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/12"
+	testInvalidChangeID1 = "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/12/p0"
+	testInvalidChangeID2 = "*/p0"
+)
+
 type mockAllocatedServer struct {
 	grpc.ServerStream
 	ctx       context.Context
@@ -121,6 +127,22 @@ func TestValidateGetMetadataAllocatedRequest(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "negative starting_offset",
+			req: &csi.GetMetadataAllocatedRequest{
+				SnapshotId:     "volume-123+snapshot-456",
+				StartingOffset: -1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative max_results",
+			req: &csi.GetMetadataAllocatedRequest{
+				SnapshotId: "volume-123+snapshot-456",
+				MaxResults: -1,
+			},
+			wantErr: true,
+		},
+		{
 			name: "valid request",
 			req: &csi.GetMetadataAllocatedRequest{
 				SnapshotId:     "volume-123+snapshot-456",
@@ -167,15 +189,57 @@ func TestValidateGetMetadataDeltaRequest(t *testing.T) {
 		{
 			name: "empty target snapshot ID",
 			req: &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "some-change-id",
+				BaseSnapshotId:   testValidChangeID,
 				TargetSnapshotId: "",
+			},
+			wantErr: true,
+		},
+		{
+			name: "base_snapshot_id is reserved '*'",
+			req: &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   "*",
+				TargetSnapshotId: "volume-123+snapshot-456",
+			},
+			wantErr: true,
+		},
+		{
+			name: "base_snapshot_id has invalid format - 1",
+			req: &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   testInvalidChangeID1,
+				TargetSnapshotId: "volume-123+snapshot-456",
+			},
+			wantErr: true,
+		},
+		{
+			name: "base_snapshot_id has invalid format - 2",
+			req: &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   testInvalidChangeID2,
+				TargetSnapshotId: "volume-123+snapshot-456",
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative starting_offset",
+			req: &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   testValidChangeID,
+				TargetSnapshotId: "volume-123+snapshot-456",
+				StartingOffset:   -1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative max_results",
+			req: &csi.GetMetadataDeltaRequest{
+				BaseSnapshotId:   testValidChangeID,
+				TargetSnapshotId: "volume-123+snapshot-456",
+				MaxResults:       -1,
 			},
 			wantErr: true,
 		},
 		{
 			name: "valid request (BaseSnapshotId is the vSphere change-id)",
 			req: &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+				BaseSnapshotId:   testValidChangeID,
 				TargetSnapshotId: "volume-123+snapshot-456",
 				StartingOffset:   0,
 				MaxResults:       1000,
@@ -253,7 +317,7 @@ func TestGetMetadataDelta_VolumeNotFound(t *testing.T) {
 	_ = fakeOrchestrator.EnableFSS(ctx, common.CSI_Backup_API)
 
 	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   "some-change-id",
+		BaseSnapshotId:   testValidChangeID,
 		TargetSnapshotId: "nonexistent-volume+snapshot-456",
 	}
 
@@ -514,7 +578,7 @@ func TestGetMetadataDelta_Success(t *testing.T) {
 	// `csi.vsphere.volume/change-id` annotation when the base snapshot was first created).
 	// for this mock.
 	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+		BaseSnapshotId:   testValidChangeID,
 		TargetSnapshotId: volID + "+snapshot-456",
 		MaxResults:       1,
 	}
@@ -607,7 +671,7 @@ func runVSLMErrorPropagationCase(t *testing.T, name string, vimFault vim25types.
 
 		if isDelta {
 			req := &csi.GetMetadataDeltaRequest{
-				BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+				BaseSnapshotId:   testValidChangeID,
 				TargetSnapshotId: volID + "+snapshot-456",
 				MaxResults:       1,
 			}
@@ -862,7 +926,7 @@ func TestGetMetadataDelta_Pagination(t *testing.T) {
 
 	srv := &mockDeltaServer{ctx: ctx, t: t}
 	req := &csi.GetMetadataDeltaRequest{
-		BaseSnapshotId:   "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/123",
+		BaseSnapshotId:   testValidChangeID,
 		TargetSnapshotId: volID + "+snapshot-pagination",
 		MaxResults:       1, // force one area per Send() call
 	}

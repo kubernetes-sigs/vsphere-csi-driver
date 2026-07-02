@@ -734,3 +734,13 @@ func BuildGuestSnapshotAnnotation(clusterName, snapshotName, snapshotNamespace, 
 func IsvSANFileServiceMarkerPolicyName(name string) bool {
 	return name == StorageClassVsanFileServicePolicy
 }
+
+// changeIDPattern matches a well-formed vSphere CBT change-id: <change-epic-uuid>/<epoch-number>.
+// Example: "52 05 a2 ce 6d 6d c9 59-d3 2e ad 19 e3 96 73 6d/5"
+var changeIDPattern = regexp.MustCompile(`^[0-9a-f]{2}(?: [0-9a-f]{2}){7}-[0-9a-f]{2}(?: [0-9a-f]{2}){7}/\d+$`)
+
+// IsValidChangeId reports whether changeID is a well-formed vSphere CBT
+// change-id in the form <change-epic-uuid>/<epoch-number> expected at the CSI API boundary.
+func IsValidChangeId(changeID string) bool {
+	return changeIDPattern.MatchString(changeID)
+}
