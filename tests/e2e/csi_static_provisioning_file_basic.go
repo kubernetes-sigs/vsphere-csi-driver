@@ -18,7 +18,9 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -56,6 +58,7 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		pv                *v1.PersistentVolume
 		pvSpec            *v1.PersistentVolume
 		pvc               *v1.PersistentVolumeClaim
+		fullSyncWaitTime  int
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -93,6 +96,16 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 			}
 		}
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "Datastore is not found in the datacenter list")
+
+		if os.Getenv(envFullSyncWaitTime) != "" {
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			if fullSyncWaitTime < 120 || fullSyncWaitTime > defaultFullSyncWaitTime {
+				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
+			}
+		} else {
+			fullSyncWaitTime = defaultFullSyncWaitTime
+		}
 	})
 
 	// This test verifies the static provisioning workflow.
@@ -210,11 +223,15 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 	//    PersistentVolumeReclaimPolicy is set to Retain.
 	// 3. Wait for the volume entry to be created in CNS.
 	// 4. Delete PV1.
-	// 5. Wait for PV1 to be deleted, and also entry is deleted from CNS.
-	// 6. Create a PV2 by the same name as PV1.
-	// 7. Wait for the volume entry to be created in CNS.
+	// 5. Wait for PV1 to be deleted; per the cns-health-initiative design the
+	//    CNS volume entry is NOT deleted, it is instead labeled
+	//    pv_missing=true once full-sync observes the PV is gone.
+	// 6. Create a PV2 by the same name as PV1, pointing at the same fileshare.
+	// 7. Wait for full-sync to overwrite the PV-entity metadata from the
+	//    reappeared PV, which clears the pv_missing label.
 	// 8. Delete PV2.
-	// 9. Wait for PV2 to be deleted, and also entry is deleted from CNS.
+	// 9. Explicitly unregister and delete the CNS volume (full-sync no longer
+	//    does this as part of cleanup).
 	ginkgo.It("[ef-file-vanilla][pq-n1-vanilla-file][pq-n2-vanilla-file]Verify static provisioning for file volume"+
 		" workflow using same PV name twice", ginkgo.Label(p1, file, vanilla, vc70), func() {
 
@@ -254,6 +271,17 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		_, err = cns.GetTaskResult(ctx, taskInfo)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		// Final cleanup: full-sync no longer unregisters CNS volumes for
+		// missing PVs, so explicitly unregister and delete the underlying
+		// file share once the test is done with it.
+		defer func() {
+			ginkgo.By("Explicitly deleting CNS volume for cleanup (cns-health-initiative)")
+			err := e2eVSphere.cnsDeleteVolume(ctx, fileShareVolumeID, true)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
 		staticPVLabels := make(map[string]string)
 		staticPVLabels["fileshare-id"] = strings.TrimPrefix(fileShareVolumeID, "file:")
 
@@ -271,44 +299,45 @@ var _ = ginkgo.Describe("[csi-file-vanilla] Basic File Volume Static Provisionin
 		pv, err = client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			ginkgo.By("Delete PV")
-			framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvSpec.Name))
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeoutShort))
-
-			ginkgo.By("Verify fileshare volume got deleted")
-			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
-		}()
-
 		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Deleting PV-1")
 		framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvSpec.Name))
 		framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeout))
-		framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
 
-		ginkgo.By("Creating PV-2")
+		// Static PV deletion (ReclaimPolicy=Retain) no longer drives CNS
+		// unregister via full-sync (cns-health-initiative). Instead, once
+		// full-sync observes the PV is missing (after its two-cycle grace
+		// period), it labels the still-registered CNS volume pv_missing=true.
+		ginkgo.By(fmt.Sprintf("Waiting for pv_missing=true label to appear on CNS volume %s", fileShareVolumeID))
+		err = e2eVSphere.waitForPVMissingLabel(ctx, fileShareVolumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Verify the CNS volume is still registered (not unregistered/deleted)")
+		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(fileShareVolumeID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(queryResult.Volumes).To(gomega.HaveLen(1),
+			"CNS volume must remain registered after missing-PV labeling")
+
+		ginkgo.By("Creating PV-2 pointing at the same fileshare/CNS volume as PV-1")
 		pv2, err := client.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		defer func() {
-			ginkgo.By("Delete PV")
-			framework.ExpectNoError(fpv.DeletePersistentVolume(ctx, client, pvSpec.Name))
-			framework.ExpectNoError(fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeoutShort))
+		ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow full-sync to overwrite labels from the "+
+			"reappeared PV", fullSyncWaitTime))
+		time.Sleep(time.Duration(fullSyncWaitTime) * time.Second)
 
-			ginkgo.By("Verify fileshare volume got deleted")
-			framework.ExpectNoError(e2eVSphere.waitForCNSVolumeToBeDeleted(fileShareVolumeID))
-		}()
-
-		err = e2eVSphere.waitForCNSVolumeToBeCreated(pv2.Spec.CSI.VolumeHandle)
+		ginkgo.By("Verify pv_missing label is cleared now that PV-2 matches the CNS volume")
+		labeled, err := e2eVSphere.hasPVMissingLabel(pv2.Spec.CSI.VolumeHandle)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(labeled).To(gomega.BeFalse(),
+			"pv_missing label must be cleared once a matching K8s PV (PV-2) exists")
 
 		ginkgo.By("Deleting PV-2")
 		err = client.CoreV1().PersistentVolumes().Delete(ctx, pvSpec.Name, *metav1.NewDeleteOptions(0))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = e2eVSphere.waitForCNSVolumeToBeDeleted(pv2.Spec.CSI.VolumeHandle)
+		err = fpv.WaitForPersistentVolumeDeleted(ctx, client, pvSpec.Name, poll, pollTimeout)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
