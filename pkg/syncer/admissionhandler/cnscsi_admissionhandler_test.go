@@ -295,6 +295,12 @@ func (m *MockCryptoClient) MarkEncryptedStorageClass(ctx context.Context,
 	return args.Error(0)
 }
 
+func (m *MockCryptoClient) MarkEncryptedVAC(ctx context.Context,
+	vac *storagev1.VolumeAttributesClass, encrypted bool) error {
+	args := m.Called(ctx, vac, encrypted)
+	return args.Error(0)
+}
+
 func (m *MockCryptoClient) GetEncryptionClass(ctx context.Context,
 	name, namespace string) (*byokv1.EncryptionClass, error) {
 	args := m.Called(ctx, name, namespace)
