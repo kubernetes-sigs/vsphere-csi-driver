@@ -956,15 +956,16 @@ func TestRemoveFinalizerFromPVCWithUsedByAnnotations(t *testing.T) {
 				assert.Contains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer,
 					"Expected finalizer to be preserved when used-by annotations are present")
 			} else {
-				// For cases where finalizer should be removed, log the attempt
-				t.Logf("Finalizer removal attempted for PVC without used-by annotations")
+				// Should no longer have the finalizer when removal is allowed
+				assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer,
+					"Expected finalizer to be removed when no used-by annotations are present")
 			}
 		})
 	}
 }
 
-// TestPvcHasUsedByAnnotaion tests the helper function that checks for used-by annotations.
-func TestPvcHasUsedByAnnotaion(t *testing.T) {
+// TestPvcHasUsedByAnnotation tests the helper function that checks for used-by annotations.
+func TestPvcHasUsedByAnnotation(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
@@ -1019,7 +1020,7 @@ func TestPvcHasUsedByAnnotaion(t *testing.T) {
 				},
 			}
 
-			result := pvcHasUsedByAnnotaion(ctx, pvc)
+			result := pvcHasUsedByAnnotation(ctx, pvc)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

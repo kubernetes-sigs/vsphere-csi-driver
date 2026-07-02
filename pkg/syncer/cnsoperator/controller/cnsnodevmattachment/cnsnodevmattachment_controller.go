@@ -817,9 +817,6 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 func addFinalizerToPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim) (string, error) {
 	log := logger.GetLogger(ctx)
-	pvc.Finalizers = append(pvc.Finalizers, cnsoptypes.CNSPvcFinalizer)
-	log.Infof("Adding %q finalizer on PersistentVolumeClaim: %q on namespace: %q",
-		cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 	faulttype, err := updateSVPVC(ctx, client, pvc, false)
 	if err != nil {
 		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
@@ -828,8 +825,8 @@ func addFinalizerToPVC(ctx context.Context, client client.Client,
 	return faulttype, err
 }
 
-// pvcHasUsedByAnnotaion goes through all annotations on the PVC to find out if the PVC is used by any VM or not.
-func pvcHasUsedByAnnotaion(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
+// pvcHasUsedByAnnotation goes through all annotations on the PVC to find out if the PVC is used by any VM or not.
+func pvcHasUsedByAnnotation(ctx context.Context, pvc *v1.PersistentVolumeClaim) bool {
 	log := logger.GetLogger(ctx)
 
 	if pvc.Annotations == nil {
@@ -855,17 +852,14 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 	log := logger.GetLogger(ctx)
 
 	// Before proceeding with finalizer removal, check if PVC has any used-by annotations
-	if pvcHasUsedByAnnotaion(ctx, pvc) {
+	if pvcHasUsedByAnnotation(ctx, pvc) {
 		log.Infof("PVC %s still has used-by annotations, skipping finalizer removal", pvc.Name)
 		return "", nil
 	}
 
 	finalizerFound := false
-	for i, finalizer := range pvc.Finalizers {
+	for _, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoptypes.CNSPvcFinalizer {
-			log.Infof("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
-				cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
-			pvc.Finalizers = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
 			finalizerFound = true
 			break
 		}
@@ -892,6 +886,20 @@ func updateSVPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim, removeCnsPvcFinalizer bool) (string, error) {
 	log := logger.GetLogger(ctx)
 	original := pvc.DeepCopy()
+	if removeCnsPvcFinalizer {
+		for i, finalizer := range pvc.Finalizers {
+			if finalizer == cnsoptypes.CNSPvcFinalizer {
+				log.Infof("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
+					cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+				pvc.Finalizers = append(pvc.Finalizers[:i], pvc.Finalizers[i+1:]...)
+				break
+			}
+		}
+	} else {
+		log.Infof("Adding %q finalizer on PersistentVolumeClaim: %q on namespace: %q",
+			cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
+		pvc.Finalizers = append(pvc.Finalizers, cnsoptypes.CNSPvcFinalizer)
+	}
 	err := k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		if apierrors.IsConflict(err) {
@@ -909,6 +917,7 @@ func updateSVPVC(ctx context.Context, client client.Client,
 
 			// The callers of updateSVPVC are only updating the instance finalizers
 			// Hence we add/remove the finalizers on the latest PVC object from API server.
+			originalLatest := latestPVCObject.DeepCopy()
 			if removeCnsPvcFinalizer {
 				for i, finalizer := range latestPVCObject.Finalizers {
 					if finalizer == cnsoptypes.CNSPvcFinalizer {
@@ -921,7 +930,6 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			} else {
 				latestPVCObject.Finalizers = append(latestPVCObject.Finalizers, cnsoptypes.CNSPvcFinalizer)
 			}
-			originalLatest := latestPVCObject.DeepCopy()
 			err := k8s.PatchObject(ctx, client, originalLatest, latestPVCObject)
 			if err != nil {
 				if apierrors.IsConflict(err) {
