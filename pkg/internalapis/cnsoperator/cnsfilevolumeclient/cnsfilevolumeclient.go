@@ -227,11 +227,12 @@ func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context,
 		}
 	}
 	newClientVMList := append(oldClientVMList, clientVMName)
+	original := instance.DeepCopy()
 	instance.Spec.ExternalIPtoClientVms[clientVMIP] = newClientVMList
 	log.Debugf("Updating cnsfilevolumeclient instance %s with spec: %+v", fileVolumeName, instance)
-	err = f.client.Update(ctx, instance)
+	err = f.client.Patch(ctx, instance, client.MergeFrom(original))
 	if err != nil {
-		log.Errorf("failed to update cnsfilevolumeclient instance %s/%s with error: %+v", fileVolumeName, err)
+		log.Errorf("failed to patch cnsfilevolumeclient instance %s/%s with error: %+v", instance.Namespace, instance.Name, err)
 	}
 	return err
 }
@@ -315,9 +316,10 @@ func (f *fileVolumeClient) RemoveClientVMFromIPList(ctx context.Context,
 				return nil
 			}
 			log.Debugf("Updating cnsfilevolumeclient instance %s with spec: %+v", fileVolumeName, instance)
-			err = f.client.Update(ctx, instance)
+			original := instance.DeepCopy()
+			err = f.client.Patch(ctx, instance, client.MergeFrom(original))
 			if err != nil {
-				log.Errorf("failed to update cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
+				log.Errorf("failed to patch cnsfilevolumeclient instance %s/%s with error: %+v", instance.Namespace, instance.Name, err)
 			}
 			return err
 		}
@@ -415,18 +417,19 @@ func (f *fileVolumeClient) CnsFileVolumeClientExistsForPvc(ctx context.Context,
 
 // removeFinalizer will remove the CNS Finalizer = cns.vmware.com,
 // from a given CnsFileVolumeClient instance.
-func removeFinalizer(ctx context.Context, client client.Client,
+func removeFinalizer(ctx context.Context, c client.Client,
 	instance *v1alpha1.CnsFileVolumeClient) error {
 	log := logger.GetLogger(ctx)
 	for i, finalizer := range instance.Finalizers {
 		if finalizer == cnsoperatortypes.CNSFinalizer {
 			log.Debugf("Removing %q finalizer from CnsFileVolumeClient instance with name: %q on namespace: %q",
 				cnsoperatortypes.CNSFinalizer, instance.Name, instance.Namespace)
+			original := instance.DeepCopy()
 			instance.Finalizers = append(instance.Finalizers[:i], instance.Finalizers[i+1:]...)
-			// Update the instance after removing finalizer
-			err := client.Update(ctx, instance)
+			// Patch the instance after removing finalizer
+			err := c.Patch(ctx, instance, client.MergeFrom(original))
 			if err != nil {
-				log.Errorf("failed to update CnsFileVolumeClient instance with name: %q on namespace: %q",
+				log.Errorf("failed to patch CnsFileVolumeClient instance with name: %q on namespace: %q",
 					instance.Name, instance.Namespace)
 				return err
 			}
