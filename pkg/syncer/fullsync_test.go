@@ -522,6 +522,8 @@ func setupMetadataSyncerForFullSync(
 	volumeOperationsLock["test-vcenter"] = &sync.Mutex{}
 	cnsDeletionMap = make(map[string]map[string]bool)
 	cnsDeletionMap["test-vcenter"] = make(map[string]bool)
+	pvMissingLabeledMap = make(map[string]map[string]bool)
+	pvMissingLabeledMap["test-vcenter"] = make(map[string]bool)
 	cnsCreationMap = make(map[string]map[string]bool)
 	cnsCreationMap["test-vcenter"] = make(map[string]bool)
 
@@ -2065,6 +2067,7 @@ func TestReconcileKeepAfterDeleteVmFlags(t *testing.T) {
 func pvMissingTestSetup(t *testing.T, vc, clusterID string) *metadataSyncInformer {
 	t.Helper()
 	cnsDeletionMap = map[string]map[string]bool{vc: {}}
+	pvMissingLabeledMap = map[string]map[string]bool{vc: {}}
 	clusterIDforVolumeMetadata = clusterID
 	return &metadataSyncInformer{
 		coCommonInterface: &mockCOCommonForFullSync{},
@@ -2246,6 +2249,44 @@ func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
 		map[string]string{}, ms, false, cc, vc)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, count, "should not re-label an already-labeled volume")
+	assert.Len(t, specs, 0)
+	assert.True(t, pvMissingLabeledMap[vc]["vol-1"],
+		"volume found already labeled via live CNS metadata should be recorded in pvMissingLabeledMap")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled verifies that
+// once pvMissingLabeledMap records a volume as labeled, subsequent calls
+// short-circuit and never re-issue an update spec for it — even if the CNS
+// query passed in that cycle doesn't reflect the label (e.g. a stale or
+// incomplete read) — so full sync only ever calls UpdateVolumeMetadata once
+// per volume instead of every cycle.
+func TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	// Simulate a query result that does NOT carry the label (e.g. a stale
+	// read), so the live-metadata check alone would incorrectly conclude
+	// the label still needs to be (re)applied.
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	cnsDeletionMap[vc]["vol-1"] = true
+	pvMissingLabeledMap[vc]["vol-1"] = true
+
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count, "should not reissue UpdateVolumeMetadata once locally recorded as labeled")
 	assert.Len(t, specs, 0)
 }
 

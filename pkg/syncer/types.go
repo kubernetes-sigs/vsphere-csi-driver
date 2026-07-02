@@ -80,6 +80,15 @@ var (
 	// and tests.
 	cnsDeletionMap map[string]map[string]bool
 
+	// pvMissingLabeledMap tracks, per VC, the CNS volume IDs that full sync
+	// has already labeled pv_missing=true. Once a volume is recorded here,
+	// getMissingPVVolumeUpdateSpecs skips it without re-evaluating its CNS
+	// metadata or reissuing UpdateVolumeMetadata, so a volume that remains
+	// PV-missing across many cycles is only ever labeled once. Cleared when
+	// the volume's PV reappears in K8s (see cleanupCnsMaps), so it is
+	// re-evaluated and re-labeled if it goes missing again later.
+	pvMissingLabeledMap map[string]map[string]bool
+
 	// cnsCreationMap tracks volumes that exist in K8s but not in CNS
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is created in CNS
