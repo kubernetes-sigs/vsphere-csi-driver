@@ -609,7 +609,7 @@ const (
 	SupportsExposingStoragePolicyAttributes = "supports_exposing_storage_policy_attributes"
 	// SupportsPerNamespaceNetworkProviders is a WCP capability indicating that network provider
 	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
-	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_providers"
+	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_provider"
 
 	// SupervisorPVCWorkloadTypeAnnotation is the FSS that gates
 	// annotateSupervisorPVCsWithWorkloadType (see pkg/syncer/fullsync.go).

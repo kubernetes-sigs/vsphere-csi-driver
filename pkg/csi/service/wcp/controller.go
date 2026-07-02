@@ -108,7 +108,7 @@ var (
 	// When false, ControllerModifyVolume returns Unimplemented and MODIFY_VOLUME is not advertised
 	// in ControllerGetCapabilities.
 	isVMPVCStoragePolicyMutabilityEnabled bool
-	// isPerNamespaceNetworkProvidersFSSEnabled is true when the supports_per_namespace_network_providers
+	// isPerNamespaceNetworkProvidersFSSEnabled is true when the supports_per_namespace_network_provider
 	// capability is enabled on the supervisor; when true, FVS routing reads the namespace-scoped
 	// NetworkSettings CR per CreateVolume call instead of consulting the cached global provider.
 	isPerNamespaceNetworkProvidersFSSEnabled bool
@@ -242,7 +242,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		} else {
 			cachedGlobalNetworkProvider = np
 			log.Infof("cached global network provider %q from wcp-network-config "+
-				"(supports_per_namespace_network_providers capability disabled)", cachedGlobalNetworkProvider)
+				"(supports_per_namespace_network_provider capability disabled)", cachedGlobalNetworkProvider)
 		}
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 			cnstypes.CnsClusterFlavorWorkload, common.SupportsPerNamespaceNetworkProviders, "", "")
