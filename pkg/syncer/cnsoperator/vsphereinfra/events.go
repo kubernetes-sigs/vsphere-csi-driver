@@ -38,6 +38,11 @@ const (
 	// this session — deleted from vCenter, or moved to a cluster outside this
 	// session's scope.
 	EventHostClusterChanged
+
+	// EventHostVersionChanged fires when a host's ESXi version or build number
+	// changes (e.g. an upgrade or patch). The MoRef field carries the host
+	// moref.
+	EventHostVersionChanged
 )
 
 // InventoryEvent describes a change detected by the PropertyCollector watcher.
@@ -50,5 +55,13 @@ type InventoryEvent struct {
 func OnInventoryChange(ctx context.Context, events []InventoryEvent) {
 	log := logger.GetLogger(ctx)
 	log.Infof("vsphereinfra: OnInventoryChange not yet implemented, received %d event(s)", len(events))
+	// TODO: coalesce events over a short window (e.g. a couple minutes) before
+	// reconciling. A single real-world change (e.g. a host moving clusters) can
+	// cascade into many individual PropertyCollector updates — every datastore
+	// that host mounts flips accessibility in its own batch — so without
+	// coalescing, the same affected storage policy gets reconciled once per
+	// update instead of once for the whole burst. Resolve events to affected
+	// policies (via DsToPolicy/DsToHosts) and dedupe by policy ID, not by raw
+	// event, since several different events can resolve to the same policy.
 	// TODO: implement — look up affected datastores via DsToHosts and enqueue for reconciliation.
 }

@@ -136,7 +136,6 @@ func runPCSession(ctx context.Context, vc *cnsvsphere.VirtualCenter) error {
 	defer func() { _ = cv.Destroy(ctx) }()
 
 	return property.WaitForUpdatesEx(ctx, pc, filter, func(updates []types.ObjectUpdate) bool {
-		log.Infof("vsphereinfra: WaitForUpdatesEx callback: received %d object update(s)", len(updates))
 		events := collectEvents(ctx, updates)
 		if len(events) > 0 {
 			OnInventoryChange(ctx, events)
@@ -173,16 +172,15 @@ func buildWaitFilter(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*proper
 	)
 
 	// Datastore.host — detect mount/unmount and host accessibility changes.
-	// HostSystem — we only care about a host disappearing from view (Leave),
-	// which covers both deletion and moving out of scope (e.g. into a cluster
-	// this session can't see); the property value itself is never inspected,
-	// so "name" is tracked purely to avoid an All=true property fetch.
+	// HostSystem — Leave (deletion or moving out of scope) is always tracked
+	// implicitly regardless of PathSet. summary.config.product.version
+	// detects ESXi version changes on a host that stays in view.
 	filter.Spec.PropSet = append(filter.Spec.PropSet,
 		types.PropertySpec{Type: "Datastore", PathSet: []string{"host"}},
-		types.PropertySpec{Type: "HostSystem", PathSet: []string{"name"}},
+		types.PropertySpec{Type: "HostSystem", PathSet: []string{"summary.config.product.version"}},
 	)
 
-	log.Infof("vsphereinfra: ContainerView created, watching Datastore.host and HostSystem Leave")
+	log.Infof("vsphereinfra: ContainerView created, watching Datastore.host and HostSystem version/Leave")
 	return filter, cv, nil
 }
 
@@ -199,6 +197,13 @@ func buildWaitFilter(ctx context.Context, vc *cnsvsphere.VirtualCenter) (*proper
 //   - Leave: the host is no longer visible to this session — deleted, or
 //     moved to a cluster outside our scope. Either way it has left the
 //     cluster(s) we can see, so emit EventHostClusterChanged.
+//   - Enter: populates HostToVersion baseline (no event) — there is nothing
+//     to compare a first sighting against.
+//   - Modify on version: emits EventHostVersionChanged only when it actually
+//     differs from the cached one; vCenter can re-publish this property
+//     unchanged during unrelated churn (observed in practice), same as
+//     HostSystem.parent and Datastore.host, so update.Kind alone isn't
+//     sufficient here.
 func collectEvents(ctx context.Context, updates []types.ObjectUpdate) []InventoryEvent {
 	log := logger.GetLogger(ctx)
 	cache := GetCache()
@@ -237,9 +242,27 @@ func collectEvents(ctx context.Context, updates []types.ObjectUpdate) []Inventor
 			}
 
 		case "HostSystem":
-			if update.Kind == types.ObjectUpdateKindLeave {
+			switch update.Kind {
+			case types.ObjectUpdateKindLeave:
 				log.Infof("vsphereinfra: host %s left cluster (removed from inventory or moved out of scope)", moref)
+				cache.InvalidateHostVersion(moref)
 				events = append(events, InventoryEvent{Kind: EventHostClusterChanged, MoRef: moref})
+
+			case types.ObjectUpdateKindEnter, types.ObjectUpdateKindModify:
+				for _, change := range update.ChangeSet {
+					if change.Name != "summary.config.product.version" {
+						continue
+					}
+					newVersion, ok := change.Val.(string)
+					if !ok {
+						log.Errorf("vsphereinfra: HostSystem.summary.config.product.version has unexpected type %T, want string", change.Val)
+						continue
+					}
+					if _, changed := cache.UpdateHostVersion(moref, newVersion); changed {
+						log.Infof("vsphereinfra: host %s ESXi version changed", moref)
+						events = append(events, InventoryEvent{Kind: EventHostVersionChanged, MoRef: moref})
+					}
+				}
 			}
 		}
 	}

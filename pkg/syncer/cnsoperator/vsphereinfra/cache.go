@@ -36,6 +36,17 @@ type StoragePolicyInfoCache struct {
 	// affected policies without a separate vCenter round trip. Wire this up
 	// (and add real accessors) once those controllers consume this cache.
 	DsToPolicy map[string][]string
+
+	// HostToVersion tracks the last-known ESXi version string per host
+	// (e.g. "9.2.0"). key: host moref.
+	// Written by the PropertyCollector on HostSystem.summary.config.product.version
+	// changes. Needed because vCenter can re-publish this property with an
+	// unchanged value during unrelated churn (observed: multiple sibling hosts
+	// firing Modify with identical old/new version at the same instant) — the
+	// same class of spurious re-publish seen on HostSystem.parent and
+	// Datastore.host, so update.Kind alone isn't a reliable "did it really
+	// change" signal here either.
+	HostToVersion map[string]string
 }
 
 var (
@@ -48,8 +59,9 @@ var (
 func GetCache() *StoragePolicyInfoCache {
 	cacheOnce.Do(func() {
 		defaultCache = &StoragePolicyInfoCache{
-			DsToHosts:  make(map[string]map[string]bool),
-			DsToPolicy: make(map[string][]string),
+			DsToHosts:     make(map[string]map[string]bool),
+			DsToPolicy:    make(map[string][]string),
+			HostToVersion: make(map[string]string),
 		}
 	})
 	return defaultCache
@@ -86,6 +98,29 @@ func (c *StoragePolicyInfoCache) GetDsHosts(dsID string) (map[string]bool, bool)
 	defer c.mu.RUnlock()
 	hosts, ok := c.DsToHosts[dsID]
 	return hosts, ok
+}
+
+// UpdateHostVersion compares newVersion against the cached ESXi version for a
+// host. Returns the previous value and whether it changed. On the first
+// sighting for a host (no previous entry) changed is false — there is nothing
+// yet to compare against.
+func (c *StoragePolicyInfoCache) UpdateHostVersion(hostID, newVersion string) (oldVersion string, changed bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	prev, ok := c.HostToVersion[hostID]
+	c.HostToVersion[hostID] = newVersion
+	if !ok || prev == newVersion {
+		return prev, false
+	}
+	return prev, true
+}
+
+// InvalidateHostVersion removes cached version info for a host that has left
+// the inventory, so a moref reused later doesn't compare against stale data.
+func (c *StoragePolicyInfoCache) InvalidateHostVersion(hostID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.HostToVersion, hostID)
 }
 
 // hostMapsEqual returns true if both maps have the same keys and values.
