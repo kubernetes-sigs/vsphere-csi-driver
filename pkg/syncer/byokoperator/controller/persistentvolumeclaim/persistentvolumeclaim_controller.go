@@ -27,6 +27,7 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	ctrlcommoon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/common"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -87,7 +89,7 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 		return nil
 	}
 
-	encrypted, profileID, err := r.cryptoClient.IsEncryptedStorageClass(ctx, *pvc.Spec.StorageClassName)
+	encrypted, profileID, err := r.isEncryptedStoragePolicyForPVC(ctx, pvc)
 	if err != nil {
 		return err
 	} else if !encrypted {
@@ -159,6 +161,40 @@ func (r *reconciler) reconcileNormal(ctx context.Context, pvc *corev1.Persistent
 	}
 
 	return r.volumeManager.UpdateVolumeCrypto(ctx, updateSpec)
+}
+
+// isEncryptedStoragePolicyForPVC determines whether the storage policy currently backing
+// the PVC's volume supports encryption. If the PVC's VolumeAttributesClass has taken effect
+// (crypto.IsVACPolicyEffective), its policy takes precedence over the StorageClass's, consistent
+// with CSI ModifyVolume semantics. Otherwise the StorageClass's policy is used, since a
+// ModifyVolume switching the PVC to the VAC's policy may still be pending or in progress.
+func (r *reconciler) isEncryptedStoragePolicyForPVC(
+	ctx context.Context,
+	pvc *corev1.PersistentVolumeClaim,
+) (bool, string, error) {
+	// VAC-based storage-policy mutability is gated behind this capability; when it's disabled,
+	// keep the pre-existing StorageClass-only behavior intact rather than assuming VAC support.
+	// Checked after the (pvc.Spec.VolumeAttributesClassName != nil) condition inside
+	// IsVACPolicyEffective's callers below via short-circuit evaluation, so PVCs with no VAC set
+	// never need to consult the capability at all.
+	if pvc.Spec.VolumeAttributesClassName != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, csicommon.VMPVCStoragePolicyMutability) &&
+		crypto.IsVACPolicyEffective(pvc) {
+		vac := &storagev1.VolumeAttributesClass{}
+		if err := r.Get(ctx, client.ObjectKey{Name: *pvc.Spec.VolumeAttributesClassName}, vac); err != nil {
+			return false, "", client.IgnoreNotFound(err)
+		}
+
+		profileID := crypto.GetStoragePolicyIDFromVAC(vac)
+		if profileID == "" {
+			return false, "", nil
+		}
+
+		encrypted, err := r.cryptoClient.IsEncryptedStorageProfile(ctx, profileID)
+		return encrypted, profileID, err
+	}
+
+	return r.cryptoClient.IsEncryptedStorageClass(ctx, *pvc.Spec.StorageClassName)
 }
 
 func (r *reconciler) findEncryptionClass(
