@@ -883,8 +883,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 		patches.ApplyFunc(clearKeepAfterDeleteVmIfNonRemovable,
 			func(ctx context.Context, c ctrlclient.Client, vm cnsvolume.Manager,
-				pvc *corev1.PersistentVolumeClaim, namespace, volumeID string) error {
-				return nil
+				pvc *corev1.PersistentVolumeClaim, namespace, volumeID string) (*corev1.PersistentVolumeClaim, error) {
+				return pvc, nil
 			})
 		// Force topology validation to fail (simulates zone mismatch — the root cause of bug 3733250)
 		topologyMgr = &mockTopologyService{}
@@ -1501,6 +1501,34 @@ var _ = Describe("validatePVCTopologyCompatibility", func() {
 			}))
 		})
 
+	})
+
+	Context("when the in-memory PVC's resourceVersion is stale relative to the server", func() {
+		// Reproduces the bug-3740243 precondition: an earlier write in the same reconcile pass
+		// (e.g. clearKeepAfterDeleteVmIfNonRemovable) already bumped the PVC's resourceVersion on
+		// the server, but the in-memory pvc object here still carries the old one. A full-object
+		// Update against that stale resourceVersion would be rejected with a 409 Conflict; this
+		// test fails if the code regresses to Update and passes only when a merge patch is used.
+		It("should still succeed by patching instead of updating", func() {
+			_, err := mockK8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			mockK8sClient.PrependReactor("update", "persistentvolumeclaims",
+				func(action k8stesting.Action) (bool, runtime.Object, error) {
+					return true, nil, apierrors.NewConflict(
+						corev1.Resource("persistentvolumeclaims"), pvc.Name,
+						fmt.Errorf("the object has been modified; please apply your changes to the "+
+							"latest version and try again"))
+				})
+
+			err = validatePVCTopologyCompatibility(ctx, mockK8sClient, pvc, volumeDatastoreURL, mockTopologyMgr, mockVC,
+				datastoreAccessibleTopology)
+			Expect(err).To(BeNil())
+
+			topologyAnnotation, exists := pvc.Annotations["csi.vsphere.volume-accessible-topology"]
+			Expect(exists).To(BeTrue())
+			Expect(topologyAnnotation).To(Equal(`[{"topology.kubernetes.io/zone":"zone-1"}]`))
+		})
 	})
 })
 
@@ -3560,11 +3588,16 @@ func TestClearKeepAfterDeleteVm_RemovableFalse_ClearCalled(t *testing.T) {
 	pvc := vmImportPVC(pvcName, ns, vmName)
 	c, mockVM, calls := vmImportTestSetup(t, vm, pvc, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	updatedPVC, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
 	assert.NoError(t, err)
 
 	assert.Equal(t, []string{"vol-1"}, *calls,
 		"UnprotectVolumeFromVMDeletion must be called exactly once for the registered volume")
+	assert.NotNil(t, updatedPVC, "returned PVC must not be nil")
+	assert.Equal(t, "true", updatedPVC.Annotations[common.AnnVMDeleteProtectionCleared],
+		"returned PVC must carry the AnnVMDeleteProtectionCleared annotation")
+	assert.NotEqual(t, pvc.ResourceVersion, updatedPVC.ResourceVersion,
+		"returned PVC must have a refreshed resourceVersion after the patch")
 }
 
 func TestClearKeepAfterDeleteVm_RemovableTrue_NoOp(t *testing.T) {
@@ -3576,7 +3609,7 @@ func TestClearKeepAfterDeleteVm_RemovableTrue_NoOp(t *testing.T) {
 	vm := vmWithVolume(vmName, ns, pvcName, &removable)
 	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
 		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
 	assert.NoError(t, err)
 
@@ -3591,7 +3624,7 @@ func TestClearKeepAfterDeleteVm_RemovableNil_NoOp(t *testing.T) {
 	vm := vmWithVolume(vmName, ns, pvcName, nil)
 	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
 		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
 	assert.NoError(t, err)
 
@@ -3609,7 +3642,7 @@ func TestClearKeepAfterDeleteVm_NoDataSourceRef_NoOp(t *testing.T) {
 		Spec:       corev1.PersistentVolumeClaimSpec{DataSourceRef: nil},
 	}
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
 	assert.NoError(t, err)
 
 	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called without DataSourceRef")
@@ -3619,7 +3652,7 @@ func TestClearKeepAfterDeleteVm_NilPVC_NoOp(t *testing.T) {
 	ctx := context.Background()
 	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, nil, "test-ns", "vol-1")
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, nil, "test-ns", "vol-1")
 	assert.NoError(t, err)
 
 	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when pvc is nil")
@@ -3643,7 +3676,7 @@ func TestClearKeepAfterDeleteVm_NonVMDataSourceRef_NoOp(t *testing.T) {
 		},
 	}
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
 	assert.NoError(t, err)
 
 	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called for non-VirtualMachine DataSourceRef")
@@ -3656,7 +3689,7 @@ func TestClearKeepAfterDeleteVm_VMNotFound_ReturnsError(t *testing.T) {
 	vmName := "missing-vm"
 	c, mockVM, calls := vmImportTestSetup(t, nil, nil, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
 		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
 	assert.Error(t, err, "missing VM CR must surface as an error so the reconciler requeues")
 
@@ -3672,7 +3705,7 @@ func TestClearKeepAfterDeleteVm_ClearAPIError_ReturnsError(t *testing.T) {
 	vm := vmWithVolume(vmName, ns, pvcName, &removable)
 	c, mockVM, calls := vmImportTestSetup(t, vm, nil, fmt.Errorf("boom"))
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
 		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
 	assert.Error(t, err, "underlying VSLM error must surface so the reconciler requeues")
 
@@ -3690,11 +3723,45 @@ func TestClearKeepAfterDeleteVm_PVCClaimNameMismatch_NoOp(t *testing.T) {
 	vm := vmWithVolume(vmName, ns, "other-pvc", &removable)
 	c, mockVM, calls := vmImportTestSetup(t, vm, nil, nil)
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
+	_, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM,
 		vmImportPVC(pvcName, ns, vmName), ns, "vol-1")
 	assert.NoError(t, err)
 
 	assert.Empty(t, *calls, "UnprotectVolumeFromVMDeletion must not be called when no VM volume matches the PVC")
+}
+
+// TestClearAndTopologyChain_NoConflict runs clearKeepAfterDeleteVmIfNonRemovable followed by
+// validatePVCTopologyCompatibility for real (not mocked), mirroring the exact call chain in
+// Reconcile (cnsregistervolume_controller.go ~596-641). It reproduces bug-3740243's precondition —
+// a PVC with a non-removable VM DataSourceRef and no topology annotation yet — and asserts the
+// second call succeeds using the PVC object returned by the first, instead of the stale one.
+func TestClearAndTopologyChain_NoConflict(t *testing.T) {
+	ctx := context.Background()
+	ns := "test-ns"
+	pvcName := "test-pvc"
+	vmName := "test-vm"
+	removable := false
+	vm := vmWithVolume(vmName, ns, pvcName, &removable)
+	pvc := vmImportPVC(pvcName, ns, vmName)
+	c, mockVM, calls := vmImportTestSetup(t, vm, pvc, nil)
+
+	updatedPVC, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"vol-1"}, *calls)
+	assert.Equal(t, "true", updatedPVC.Annotations[common.AnnVMDeleteProtectionCleared])
+
+	k8sclientFake := k8sfake.NewClientset(updatedPVC)
+	mockTopologyMgr := &mockTopologyService{}
+	mockVC := &cnsvsphere.VirtualCenter{}
+	datastoreAccessibleTopology := []map[string]string{
+		{"topology.kubernetes.io/zone": "zone-1"},
+	}
+
+	err = validatePVCTopologyCompatibility(ctx, k8sclientFake, updatedPVC, "dummy-datastore-url",
+		mockTopologyMgr, mockVC, datastoreAccessibleTopology)
+	assert.NoError(t, err, `chained call must not surface "PVC topology validation failed"`)
+	assert.Equal(t, `[{"topology.kubernetes.io/zone":"zone-1"}]`,
+		updatedPVC.Annotations[common.AnnVolumeAccessibleTopology])
 }
 
 // TestCleanupCNSVolume_DiskURLPath verifies that cleanupCNSVolume routes to
@@ -3770,21 +3837,22 @@ func TestClearKeepAfterDeleteVm_AnnotationUpdateFailure_ReturnsError(t *testing.
 
 	pvc := vmImportPVC(pvcName, ns, vmName)
 
-	// Create a fake client with an interceptor that fails on PVC Update
+	// Create a fake client with an interceptor that fails on PVC Patch
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(vm, pvc).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(
+			Patch: func(
 				ctx context.Context,
 				client ctrlclient.WithWatch,
 				obj ctrlclient.Object,
-				opts ...ctrlclient.UpdateOption,
+				patch ctrlclient.Patch,
+				opts ...ctrlclient.PatchOption,
 			) error {
 				if _, ok := obj.(*corev1.PersistentVolumeClaim); ok {
 					return fmt.Errorf("simulated update failure")
 				}
-				return client.Update(ctx, obj, opts...)
+				return client.Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -3797,11 +3865,12 @@ func TestClearKeepAfterDeleteVm_AnnotationUpdateFailure_ReturnsError(t *testing.
 		},
 	}
 
-	err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
+	updatedPVC, err := clearKeepAfterDeleteVmIfNonRemovable(ctx, c, mockVM, pvc, ns, "vol-1")
 
 	// The error should be returned so the reconciler can retry
 	assert.Error(t, err, "annotation update failure must return an error")
 	assert.Contains(t, err.Error(), "simulated update failure")
+	assert.Same(t, pvc, updatedPVC, "on failure the original pvc pointer must be returned unchanged")
 
 	// VSLM call should have been made before the annotation update failed
 	assert.Equal(t, []string{"vol-1"}, *calls,
