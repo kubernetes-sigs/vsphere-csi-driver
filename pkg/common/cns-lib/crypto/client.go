@@ -46,6 +46,8 @@ type Client interface {
 	IsEncryptedStorageProfile(ctx context.Context, profileID string) (bool, error)
 	// MarkEncryptedStorageClass records the provided StorageClass as encrypted.
 	MarkEncryptedStorageClass(ctx context.Context, storageClass *storagev1.StorageClass, encrypted bool) error
+	// MarkEncryptedVAC records the provided VolumeAttributesClass as encrypted.
+	MarkEncryptedVAC(ctx context.Context, vac *storagev1.VolumeAttributesClass, encrypted bool) error
 	// GetEncryptionClass retrieves the encryption class associated with a specific name
 	// and namespace.
 	GetEncryptionClass(ctx context.Context, name, namespace string) (*byokv1.EncryptionClass, error)
@@ -111,14 +113,28 @@ func (c *defaultClient) IsEncryptedStorageClass(ctx context.Context, name string
 }
 
 func (c *defaultClient) IsEncryptedStorageProfile(ctx context.Context, profileID string) (bool, error) {
-	var obj storagev1.StorageClassList
-	if err := c.Client.List(ctx, &obj); err != nil {
+	var scList storagev1.StorageClassList
+	if err := c.Client.List(ctx, &scList); err != nil {
 		return false, err
 	}
 
-	for i := range obj.Items {
-		if pid := GetStoragePolicyID(&obj.Items[i]); pid == profileID {
-			ok, _, err := c.isEncryptedStorageClass(ctx, &obj.Items[i])
+	for i := range scList.Items {
+		if pid := GetStoragePolicyID(&scList.Items[i]); pid == profileID {
+			ok, _, err := c.isEncryptedStorageClass(ctx, &scList.Items[i])
+			return ok, err
+		}
+	}
+
+	// No StorageClass references this policy; it may still be referenced exclusively by a
+	// VolumeAttributesClass, so fall back to scanning those.
+	var vacList storagev1.VolumeAttributesClassList
+	if err := c.Client.List(ctx, &vacList); err != nil {
+		return false, err
+	}
+
+	for i := range vacList.Items {
+		if pid := GetStoragePolicyIDFromVAC(&vacList.Items[i]); pid == profileID {
+			ok, _, err := c.isEncryptedVAC(ctx, &vacList.Items[i])
 			return ok, err
 		}
 	}
@@ -202,6 +218,108 @@ func (c *defaultClient) MarkEncryptedStorageClass(
 
 	// Patch the ConfigMap with the change.
 	return c.Client.Patch(ctx, &obj, objPatch)
+}
+
+func (c *defaultClient) MarkEncryptedVAC(
+	ctx context.Context,
+	vac *storagev1.VolumeAttributesClass,
+	encrypted bool) error {
+
+	log := logger.GetLogger(ctx)
+
+	var (
+		obj = corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: c.csiNamespace,
+				Name:      internal.EncryptedStorageClassNamesConfigMapName,
+			},
+		}
+		ownerRef = internal.GetOwnerRefForVAC(vac)
+	)
+
+	// Get the ConfigMap.
+	err := c.Client.Get(ctx, ctrlclient.ObjectKeyFromObject(&obj), &obj)
+
+	if err != nil {
+		// Return any error other than 404.
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		// The ConfigMap was not found.
+		if !encrypted {
+			// If the goal is to mark the VAC as not encrypted, then we do not need
+			// to actually create the underlying ConfigMap if it does not exist.
+			return nil
+		}
+
+		// The ConfigMap does not already exist and the goal is to mark the VAC as
+		// encrypted, so go ahead and create the ConfigMap and return early.
+		log.Infof("Creating config map %s for storing references to storage classes "+
+			"with encryption capabilities",
+			internal.EncryptedStorageClassNamesConfigMapName)
+		obj.OwnerReferences = []metav1.OwnerReference{ownerRef}
+		return c.Client.Create(ctx, &obj)
+	}
+
+	// The ConfigMap already exists, so check if it needs to be updated.
+	vacIsOwner := slices.Contains(obj.OwnerReferences, ownerRef)
+
+	switch {
+	case encrypted && vacIsOwner:
+		// The VAC should be marked encrypted, which means it should be in the
+		// ConfigMap. Since the VAC is currently set in the ConfigMap, we can
+		// return early.
+		return nil
+	case !encrypted && !vacIsOwner:
+		// The VAC should be marked as not encrypted, which means it should not be
+		// in the ConfigMap. Since the VAC is not currently in the ConfigMap, we
+		// can return early.
+		return nil
+	}
+
+	// Create the patch used to update the ConfigMap.
+	objPatch := ctrlclient.StrategicMergeFrom(obj.DeepCopyObject().(ctrlclient.Object))
+	if encrypted {
+		// Add the VAC as an owner of the ConfigMap.
+		log.Infof("Marking VolumeAttributesClass %s as encrypted", vac.Name)
+		obj.OwnerReferences = append(obj.OwnerReferences, ownerRef)
+	} else {
+		// Remove the VAC as an owner of the ConfigMap.
+		log.Infof("Unmarking VolumeAttributesClass %s as encrypted", vac.Name)
+		obj.OwnerReferences = slices.DeleteFunc(
+			obj.OwnerReferences,
+			func(o metav1.OwnerReference) bool { return o == ownerRef })
+	}
+
+	// Patch the ConfigMap with the change.
+	return c.Client.Patch(ctx, &obj, objPatch)
+}
+
+func (c *defaultClient) isEncryptedVAC(
+	ctx context.Context,
+	vac *storagev1.VolumeAttributesClass,
+) (bool, string, error) {
+	var (
+		obj    corev1.ConfigMap
+		objKey = ctrlclient.ObjectKey{
+			Namespace: c.csiNamespace,
+			Name:      internal.EncryptedStorageClassNamesConfigMapName,
+		}
+		ownerRef = internal.GetOwnerRefForVAC(vac)
+	)
+
+	if err := c.Client.Get(ctx, objKey, &obj); err != nil {
+		return false, "", ctrlclient.IgnoreNotFound(err)
+	}
+
+	if slices.Contains(obj.OwnerReferences, ownerRef) {
+		if profileID := GetStoragePolicyIDFromVAC(vac); profileID != "" {
+			return true, profileID, nil
+		}
+	}
+
+	return false, "", nil
 }
 
 func (c *defaultClient) isEncryptedStorageClass(

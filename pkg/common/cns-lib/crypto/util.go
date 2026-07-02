@@ -67,3 +67,24 @@ func GetStoragePolicyID(sc *storagev1.StorageClass) string {
 	}
 	return ""
 }
+
+// GetStoragePolicyIDFromVAC retrieves the storage policy ID associated with the
+// provided VolumeAttributesClass.
+func GetStoragePolicyIDFromVAC(vac *storagev1.VolumeAttributesClass) string {
+	// vSphere CSI supports case insensitive parameters.
+	for key, value := range vac.Parameters {
+		if strings.ToLower(key) == internal.StorageClassAttributeStoragePolicyID {
+			return value
+		}
+	}
+	return ""
+}
+
+// IsVACPolicyEffective returns true if the PVC's VolumeAttributesClassName is set and
+// its policy has actually taken effect on the underlying volume. A non-nil
+// pvc.Status.ModifyVolumeStatus means a ModifyVolume operation is still pending or in
+// progress, so the volume may still be backed by its previous (StorageClass) policy —
+// callers should keep using the StorageClass's policy until this returns true.
+func IsVACPolicyEffective(pvc *corev1.PersistentVolumeClaim) bool {
+	return pvc.Spec.VolumeAttributesClassName != nil && pvc.Status.ModifyVolumeStatus == nil
+}
