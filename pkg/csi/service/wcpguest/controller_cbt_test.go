@@ -59,6 +59,12 @@ import (
 // sidecar as-is.
 const testSupervisorSnapshotNamespace = "test-sv-ns"
 
+const (
+	testValidChangeID    = "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/12"
+	testInvalidChangeID1 = "52 21 4f 8a 5e 47 9c bd-3b ff e0 12 a3 4c 56 78/12/p0"
+	testInvalidChangeID2 = "*/p0"
+)
+
 // seedSupervisorVolumeSnapshots installs a fake snapshotter client on the controller with a
 // VolumeSnapshot named after every CSI snapshot handle in handles. The guest pvCSI uses a
 // namespace-scoped VolumeSnapshot Get on the Supervisor to translate the target snapshot
@@ -451,6 +457,30 @@ func TestGetMetadataAllocated(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
+	t.Run("negative starting_offset", func(t *testing.T) {
+		req := &csi.GetMetadataAllocatedRequest{
+			SnapshotId:     "snap-1",
+			StartingOffset: -1,
+			MaxResults:     10,
+		}
+		mockStream := &mockAllocatedStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataAllocated(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("negative max_results", func(t *testing.T) {
+		req := &csi.GetMetadataAllocatedRequest{
+			SnapshotId:     "snap-1",
+			StartingOffset: 0,
+			MaxResults:     -1,
+		}
+		mockStream := &mockAllocatedStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataAllocated(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
 	t.Run("supervisor server error", func(t *testing.T) {
 		mockServer.errToReturn = status.Error(codes.NotFound, "snapshot not found")
 
@@ -775,7 +805,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		}
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId:   "snap-1",
+			BaseSnapshotId:   testValidChangeID,
 			TargetSnapshotId: "snap-2",
 			StartingOffset:   0,
 			MaxResults:       10,
@@ -796,7 +826,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		//   - translated only the target CSI handle to the Supervisor VolumeSnapshot
 		//     (namespace, name) using a namespace-scoped Get.
 		require.NotNil(t, mockServer.lastDeltaReq)
-		assert.Equal(t, "snap-1", mockServer.lastDeltaReq.BaseSnapshotId)
+		assert.Equal(t, testValidChangeID, mockServer.lastDeltaReq.BaseSnapshotId)
 		assert.Equal(t, "snap-2", mockServer.lastDeltaReq.TargetSnapshotName)
 		assert.Equal(t, testSupervisorSnapshotNamespace, mockServer.lastDeltaReq.Namespace)
 	})
@@ -819,7 +849,7 @@ func TestGetMetadataDelta(t *testing.T) {
 
 	t.Run("missing target snapshot id", func(t *testing.T) {
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1",
+			BaseSnapshotId: testValidChangeID,
 			StartingOffset: 0,
 			MaxResults:     10,
 		}
@@ -833,11 +863,37 @@ func TestGetMetadataDelta(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
+	t.Run("negative starting_offset", func(t *testing.T) {
+		req := &csi.GetMetadataDeltaRequest{
+			BaseSnapshotId:   testValidChangeID,
+			TargetSnapshotId: "snap-2",
+			StartingOffset:   -1,
+			MaxResults:       10,
+		}
+		mockStream := &mockDeltaStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataDelta(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("negative max_results", func(t *testing.T) {
+		req := &csi.GetMetadataDeltaRequest{
+			BaseSnapshotId:   testValidChangeID,
+			TargetSnapshotId: "snap-2",
+			StartingOffset:   0,
+			MaxResults:       -1,
+		}
+		mockStream := &mockDeltaStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataDelta(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
 	t.Run("supervisor server error", func(t *testing.T) {
 		mockServer.errToReturn = status.Error(codes.Internal, "internal error")
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId:   "snap-1",
+			BaseSnapshotId:   testValidChangeID,
 			TargetSnapshotId: "snap-invalid",
 			StartingOffset:   0,
 			MaxResults:       10,
@@ -852,12 +908,63 @@ func TestGetMetadataDelta(t *testing.T) {
 		assert.Equal(t, codes.Internal, status.Code(err))
 	})
 
+	t.Run("base_snapshot_id is reserved '*'", func(t *testing.T) {
+		mockServer.errToReturn = nil
+
+		req := &csi.GetMetadataDeltaRequest{
+			BaseSnapshotId:   "*",
+			TargetSnapshotId: "snap-2",
+			StartingOffset:   0,
+			MaxResults:       10,
+		}
+
+		mockStream := &mockDeltaStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataDelta(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		assert.Contains(t, err.Error(), "*")
+	})
+
+	t.Run("base_snapshot_id has invalid format - 1", func(t *testing.T) {
+		mockServer.errToReturn = nil
+
+		req := &csi.GetMetadataDeltaRequest{
+			BaseSnapshotId:   testInvalidChangeID1,
+			TargetSnapshotId: "snap-2",
+			StartingOffset:   0,
+			MaxResults:       10,
+		}
+
+		mockStream := &mockDeltaStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataDelta(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		assert.Contains(t, err.Error(), "invalid format")
+	})
+
+	t.Run("base_snapshot_id has invalid format - 2", func(t *testing.T) {
+		mockServer.errToReturn = nil
+
+		req := &csi.GetMetadataDeltaRequest{
+			BaseSnapshotId:   testInvalidChangeID2,
+			TargetSnapshotId: "snap-2",
+			StartingOffset:   0,
+			MaxResults:       10,
+		}
+
+		mockStream := &mockDeltaStreamServer{ctx: ctx}
+		err := ct.controller.GetMetadataDelta(req, mockStream)
+		assert.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		assert.Contains(t, err.Error(), "invalid format")
+	})
+
 	t.Run("minted token rejected by supervisor", func(t *testing.T) {
 		mockServer.errToReturn = nil
 		installFakeTokenMinterForTest(t, "wrong-token", nil)
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId:   "snap-1",
+			BaseSnapshotId:   testValidChangeID,
 			TargetSnapshotId: "snap-2",
 			StartingOffset:   0,
 			MaxResults:       10,
@@ -877,7 +984,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		installFakeTokenMinterForTest(t, "", fmt.Errorf("simulated TokenRequest failure"))
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId:   "snap-1",
+			BaseSnapshotId:   testValidChangeID,
 			TargetSnapshotId: "snap-2",
 			StartingOffset:   0,
 			MaxResults:       10,
@@ -907,7 +1014,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.blockAfterSendsUntilCtxDone = false
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -939,7 +1046,7 @@ func TestGetMetadataDelta(t *testing.T) {
 			WithScheme(runtime.NewScheme()).WithObjects(smsCR).Build()
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -954,7 +1061,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.blockAfterSendsUntilCtxDone = false
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -969,7 +1076,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.blockAfterSendsUntilCtxDone = false
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -984,7 +1091,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.blockAfterSendsUntilCtxDone = false
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -1001,7 +1108,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		}
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx, failOutgoingAfterN: 1}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
@@ -1017,7 +1124,7 @@ func TestGetMetadataDelta(t *testing.T) {
 
 		ctx2, cancel := context.WithCancel(ctx)
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: "snap-1", TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx2}
 		errCh := make(chan error, 1)

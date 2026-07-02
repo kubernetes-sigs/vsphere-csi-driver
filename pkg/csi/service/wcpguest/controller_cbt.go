@@ -41,6 +41,7 @@ import (
 //  2. Builds an external-proto request carrying the security token and the resolved
 //     (namespace, snapshot_name).
 //  3. Streams responses back, translating them into CSI GetMetadataAllocatedResponse messages.
+
 func (c *controller) GetMetadataAllocated(
 	req *csi.GetMetadataAllocatedRequest,
 	server csi.SnapshotMetadata_GetMetadataAllocatedServer) error {
@@ -66,6 +67,14 @@ func (c *controller) GetMetadataAllocated(
 		}
 		if req.SnapshotId == "" {
 			return logger.LogNewErrorCode(log, codes.InvalidArgument, "snapshot ID is required")
+		}
+		if req.StartingOffset < 0 {
+			return logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"starting_offset must be non-negative value")
+		}
+		if req.MaxResults < 0 {
+			return logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"max_results must be non-negative value")
 		}
 
 		svNamespace, svName, err := c.findSupervisorSnapshotByHandle(ctx, req.SnapshotId)
@@ -175,8 +184,21 @@ func (c *controller) GetMetadataDelta(
 			return logger.LogNewErrorCode(log, codes.InvalidArgument,
 				"base snapshot ID (vSphere change-id) is required")
 		}
+		if !common.IsValidChangeId(req.BaseSnapshotId) {
+			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
+				"base_snapshot_id %q has invalid format; provide a valid vSphere changeID",
+				req.BaseSnapshotId)
+		}
 		if req.TargetSnapshotId == "" {
 			return logger.LogNewErrorCode(log, codes.InvalidArgument, "target snapshot ID is required")
+		}
+		if req.StartingOffset < 0 {
+			return logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"starting_offset must be non-negative value")
+		}
+		if req.MaxResults < 0 {
+			return logger.LogNewErrorCode(log, codes.InvalidArgument,
+				"max_results must be non-negative value")
 		}
 
 		svNamespace, svTargetName, err := c.findSupervisorSnapshotByHandle(ctx, req.TargetSnapshotId)
