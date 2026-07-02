@@ -656,6 +656,8 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	}
 	cnsDeletionMap = make(map[string]map[string]bool)
 	cnsDeletionMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
+	pvMissingLabeledMap = make(map[string]map[string]bool)
+	pvMissingLabeledMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 	// PV does not exist in K8S, but volume exists in CNS cache.
 	// Per the cns-health-initiative design, fullsync no longer unregisters
 	// such volumes; instead it labels them with pv_missing=true on their

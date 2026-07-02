@@ -64,6 +64,11 @@ import (
 const (
 	allowedRetriesToPatchCNSVolumeInfo    = 5
 	annCSIvSphereVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
+
+	// querySelectionNameTypeVolumeMetadata is the CNS query selection name for
+	// volume metadata. The vendored cnstypes package does not define this
+	// constant, so it is declared here.
+	querySelectionNameTypeVolumeMetadata = cnstypes.QuerySelectionNameType("VOLUME_METADATA")
 )
 
 // queryVolumeByIDFn is the function used to query a CNS volume by its ID.
@@ -335,7 +340,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 				volumeIDsWithOldClusterID = append(volumeIDsWithOldClusterID, volume.VolumeId)
 			}
 			queryAllResult, err := fullSyncGetQueryResults(ctx, volumeIDsWithOldClusterID,
-				metadataSyncer.configInfo.Cfg.Global.ClusterID, volManager, metadataSyncer)
+				metadataSyncer.configInfo.Cfg.Global.ClusterID, volManager, metadataSyncer, nil)
 			if err != nil {
 				log.Errorf("FullSync for VC %s: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", vc, err)
 				return err
@@ -470,6 +475,34 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap,
 		containerCluster, migrationFeatureStateForFullSync, vc)
 
+	// Re-query the same volume set with VOLUME_METADATA included so that
+	// getMissingPVVolumeUpdateSpecs and getRetainedPVVolumeUpdateSpecs can
+	// read vol.Metadata.EntityMetadata. The main queryAllResult intentionally
+	// omits VOLUME_METADATA to keep the payload small; this secondary query
+	// fetches only what the labeling path needs.
+	var volumeIDsForLabelQuery []cnstypes.CnsVolumeId
+	for _, vol := range queryAllResult.Volumes {
+		volumeIDsForLabelQuery = append(volumeIDsForLabelQuery, vol.VolumeId)
+	}
+	labelQuerySelection := &cnstypes.CnsQuerySelection{
+		Names: []string{
+			string(cnstypes.QuerySelectionNameTypeVolumeType),
+			string(cnstypes.QuerySelectionNameTypeBackingObjectDetails),
+			string(cnstypes.QuerySelectionNameTypeVolumeName),
+			string(querySelectionNameTypeVolumeMetadata),
+		},
+	}
+	labelQueryResults, err := fullSyncGetQueryResults(ctx, volumeIDsForLabelQuery,
+		clusterIDforVolumeMetadata, volManager, metadataSyncer, labelQuerySelection)
+	if err != nil {
+		log.Errorf("FullSync for VC %s: fullSyncGetQueryResults for label query failed with err %+v", vc, err)
+		return err
+	}
+	var volumesWithMetadata []cnstypes.CnsVolume
+	for _, qr := range labelQueryResults {
+		volumesWithMetadata = append(volumesWithMetadata, qr.Volumes...)
+	}
+
 	// Per the cns-health-initiative design (docs/mermaid/cns-health-initiative/
 	// 03-syncer-no-unregister.mmd), CNS volumes whose matching K8s PV cannot
 	// be found are no longer unregistered (the legacy fullSyncDeleteVolumes
@@ -477,7 +510,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	// Instead we label them with `pv_missing=true` on their existing PV-type
 	// CnsKubernetesEntityMetadata, after a two-cycle grace period to absorb
 	// transient races between PV deletion and full-sync execution.
-	missingPVUpdateSpecs, missingPVCount, err := getMissingPVVolumeUpdateSpecs(ctx, queryAllResult.Volumes,
+	missingPVUpdateSpecs, missingPVCount, err := getMissingPVVolumeUpdateSpecs(ctx, volumesWithMetadata,
 		k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync, containerCluster, vc)
 	if err != nil {
 		log.Errorf("FullSync for VC %s: failed to compute pv_missing update specs with err %+v", vc, err)
@@ -488,6 +521,25 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		log.Infof("FullSync for VC %s: applying pv_missing label to %d volume(s)",
 			vc, len(missingPVUpdateSpecs))
 		updateSpecArray = append(updateSpecArray, missingPVUpdateSpecs...)
+	}
+
+	// On Supervisor clusters, label CNS volumes whose Kubernetes PV has
+	// ReclaimPolicy=Retain and is in Released or Available phase (no active
+	// PVC binding, PodVM, or VMService VM consumer). These volumes are safe
+	// to mark as pv_retained=true for VI Admin visibility.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		retainedPVUpdateSpecs, retainedPVCount, err := getRetainedPVVolumeUpdateSpecs(ctx,
+			volumesWithMetadata, k8sPVs, containerCluster, vc)
+		if err != nil {
+			log.Errorf("FullSync for VC %s: failed to compute pv_retained update specs with err %+v", vc, err)
+			return err
+		}
+		prometheus.CnsVolumePVRetainedGaugeVec.WithLabelValues(vc).Set(float64(retainedPVCount))
+		if len(retainedPVUpdateSpecs) > 0 {
+			log.Infof("FullSync for VC %s: applying pv_retained label to %d volume(s)",
+				vc, len(retainedPVUpdateSpecs))
+			updateSpecArray = append(updateSpecArray, retainedPVUpdateSpecs...)
+		}
 	}
 
 	wg := sync.WaitGroup{}
@@ -1191,6 +1243,78 @@ func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCM
 	return metadataList
 }
 
+// healthLabelKeys are labels applied to CNS volume PV entity metadata
+// out-of-band by full sync's own health-labeling routines, which have no
+// counterpart on the actual k8s PV object, so k8s-truth metadata built from
+// pv.GetLabels() never carries them. See preserveHealthLabelsOnK8sPVMetadata.
+//
+// pv_missing is deliberately NOT included here. preserveHealthLabelsOnK8sPVMetadata
+// only ever runs for volumes that have a live k8s PV (fullSyncConstructVolumeMaps
+// iterates pvList), so by construction the volume is not missing at that
+// point — any pv_missing label still present in CNS is stale and must be
+// allowed to drop via the normal k8s-truth diff/overwrite. That overwrite is
+// what clears pv_missing when a matching PV reappears (see
+// getMissingPVVolumeUpdateSpecs and tests/e2e/fullsync_pv_missing.go
+// "pv-missing-cleared"). Only pv_retained belongs here, since a volume can
+// remain legitimately retained-and-unconsumed across many cycles while still
+// having a live PV, and getRetainedPVVolumeUpdateSpecs re-derives eligibility
+// independently every cycle.
+var healthLabelKeys = []string{
+	prometheus.PrometheusPVRetainedLabelKey,
+}
+
+// preserveHealthLabelsOnK8sPVMetadata copies any healthLabelKeys found on the
+// CNS-side PV entity metadata onto the corresponding k8s-side PV entity
+// metadata, in place.
+//
+// Without this, isUpdateRequired's exact label-map comparison (via
+// CompareKubernetesMetadata) sees a health label present only on the CNS
+// side as a difference and triggers a metadata "updateVolume" that rebuilds
+// CNS entity metadata purely from k8s-truth data, silently stripping the
+// label. getRetainedPVVolumeUpdateSpecs only re-adds pv_retained when it
+// isn't already present, based on a CNS query taken earlier in the same full
+// sync cycle, so it doesn't observe the strip happening later in that same
+// cycle — the label only reappears on the next cycle. The net effect,
+// without this preservation, is the label visibly flipping on/off on
+// alternating full sync cycles even though the volume's retained/unconsumed
+// state never changed.
+func preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList []cnstypes.BaseCnsEntityMetadata,
+	cnsMetadataList []cnstypes.BaseCnsEntityMetadata) {
+	var cnsPV *cnstypes.CnsKubernetesEntityMetadata
+	for _, m := range cnsMetadataList {
+		if km, ok := m.(*cnstypes.CnsKubernetesEntityMetadata); ok &&
+			km.EntityType == string(cnstypes.CnsKubernetesEntityTypePV) {
+			cnsPV = km
+			break
+		}
+	}
+	if cnsPV == nil {
+		return
+	}
+	cnsLabels := cnsvsphere.GetLabelsMapFromKeyValue(cnsPV.Labels)
+	for i, m := range k8sMetadataList {
+		km, ok := m.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok || km.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		k8sLabels := cnsvsphere.GetLabelsMapFromKeyValue(km.Labels)
+		if k8sLabels == nil {
+			k8sLabels = make(map[string]string)
+		}
+		changed := false
+		for _, key := range healthLabelKeys {
+			if val, ok := cnsLabels[key]; ok && k8sLabels[key] != val {
+				k8sLabels[key] = val
+				changed = true
+			}
+		}
+		if changed {
+			k8sMetadataList[i] = cnsvsphere.GetCnsKubernetesEntityMetaData(km.EntityName, k8sLabels,
+				km.Delete, km.EntityType, km.Namespace, km.ClusterID, km.ReferredEntity)
+		}
+	}
+}
+
 // fullSyncConstructVolumeMaps builds and returns map of volume to
 // EntityMetadata in CNS (volumeToCnsEntityMetadataMap), map of volume to
 // EntityMetadata in kubernetes (volumeToK8sEntityMetadataMap) and set of
@@ -1253,7 +1377,7 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 		return volumeToCnsEntityMetadataMap, volumeToK8sEntityMetadataMap, volumeClusterDistributionMap, nil
 	}
 	allQueryResults, err := fullSyncGetQueryResults(ctx, queryVolumeIds,
-		clusterIDforVolumeMetadata, volManager, metadataSyncer)
+		clusterIDforVolumeMetadata, volManager, metadataSyncer, nil)
 	if err != nil {
 		log.Errorf("FullSync for VC %s: fullSyncGetQueryResults failed to query volume metadata from vc. Err: %v", vc, err)
 		return nil, nil, nil, err
@@ -1269,6 +1393,7 @@ func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVol
 				}
 			}
 			volumeToCnsEntityMetadataMap[volume.VolumeId.Id] = cnsMetadata
+			preserveHealthLabelsOnK8sPVMetadata(volumeToK8sEntityMetadataMap[volume.VolumeId.Id], cnsMetadata)
 
 			volumeClusterDistributionMap[volume.VolumeId.Id] =
 				hasClusterDistributionSet(ctx, volume, clusterIDforVolumeMetadata,
@@ -1505,6 +1630,15 @@ func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes
 			continue
 		}
 
+		// Already labeled by a previous full sync cycle: skip re-evaluating
+		// this volume's CNS metadata and reissuing UpdateVolumeMetadata. This
+		// short-circuit is purely local (independent of what the current CNS
+		// query returns), so a volume that remains PV-missing indefinitely is
+		// only ever labeled once instead of every cycle.
+		if pvMissingLabeledMap[vc][vol.VolumeId.Id] {
+			continue
+		}
+
 		// PVC is still cached: the PV likely has not surfaced in the lister
 		// yet. Defer to the next full-sync cycle rather than racing the API
 		// server's eventual-consistency.
@@ -1537,6 +1671,15 @@ func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes
 			continue
 		}
 
+		// The volume may already carry the label from before this process
+		// started (e.g. syncer restart), in which case pvMissingLabeledMap
+		// would not know about it yet. Detect that from the live query so we
+		// don't keep re-deriving an update spec for it every cycle.
+		if isPVEntityLabeled(vol, prometheus.PrometheusPVMissingLabelKey, prometheus.PrometheusPVMissingLabelValue) {
+			pvMissingLabeledMap[vc][vol.VolumeId.Id] = true
+			continue
+		}
+
 		updateSpec, ok := buildPVMissingUpdateSpec(ctx, vol, containerCluster, vc)
 		if !ok {
 			// Either the volume has no in-cluster PV-type entity or it is
@@ -1544,9 +1687,29 @@ func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes
 			// cycles continue to no-op cheaply.
 			continue
 		}
+		// Mark labeled now so subsequent cycles short-circuit above,
+		// regardless of whether this cycle's CNS query reflects the label
+		// yet on a later read.
+		pvMissingLabeledMap[vc][vol.VolumeId.Id] = true
 		updateSpecArray = append(updateSpecArray, updateSpec)
 	}
 	return updateSpecArray, len(updateSpecArray), nil
+}
+
+// isPVEntityLabeled reports whether the volume's PV-type CNS entity
+// metadata, scoped to the current cluster, already carries the given label.
+func isPVEntityLabeled(vol cnstypes.CnsVolume, labelKey, labelValue string) bool {
+	for _, em := range vol.Metadata.EntityMetadata {
+		k8sEm, ok := em.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok || k8sEm.ClusterID != clusterIDforVolumeMetadata ||
+			k8sEm.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		if cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)[labelKey] == labelValue {
+			return true
+		}
+	}
+	return false
 }
 
 // buildPVMissingUpdateSpec returns an UpdateSpec that sets pv_missing=true on
@@ -1629,6 +1792,129 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 	}
 	log.Infof("FullSync for VC %s: Adding pv_missing label to volume %q "+
 		"(no matching K8s PV after grace period)", vc, vol.VolumeId.Id)
+	return cnstypes.CnsVolumeMetadataUpdateSpec{
+		VolumeId: cnstypes.CnsVolumeId{Id: vol.VolumeId.Id},
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster:      containerCluster,
+			ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
+			EntityMetadata:        entityMetadata,
+		},
+	}, true
+}
+
+// getRetainedPVVolumeUpdateSpecs returns UpdateSpecs for CNS volumes whose
+// matching Kubernetes PV has ReclaimPolicy=Retain and is in Released or
+// Available phase. A PV in either of these phases has no active PVC binding
+// and therefore no active PodVM or VMService VM consumer — the volume data
+// is retained on the datastore but is no longer serving any workload.
+//
+// The returned count corresponds to what the caller should publish to the
+// pv_retained gauge for this VC.
+func getRetainedPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume,
+	k8sPVs []*v1.PersistentVolume, containerCluster cnstypes.CnsContainerCluster,
+	vc string) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
+	log := logger.GetLogger(ctx)
+	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
+
+	// Build a set of volume IDs for Retain-policy PVs with no active consumer.
+	// Released = was bound, PVC deleted, PV kept by Retain policy.
+	// Available = never bound (or manually reclaimed), no consumer.
+	retainedVolumeIDs := make(map[string]struct{})
+	for _, pv := range k8sPVs {
+		if pv.Spec.PersistentVolumeReclaimPolicy != v1.PersistentVolumeReclaimRetain {
+			continue
+		}
+		if pv.Status.Phase != v1.VolumeReleased && pv.Status.Phase != v1.VolumeAvailable {
+			continue
+		}
+		if pv.Spec.CSI == nil || pv.Spec.CSI.VolumeHandle == "" {
+			continue
+		}
+		retainedVolumeIDs[pv.Spec.CSI.VolumeHandle] = struct{}{}
+		log.Debugf("FullSync for VC %s: PV %q (volume %q) has ReclaimPolicy=Retain and phase=%s",
+			vc, pv.Name, pv.Spec.CSI.VolumeHandle, pv.Status.Phase)
+	}
+
+	if len(retainedVolumeIDs) == 0 {
+		log.Debugf("FullSync for VC %s: no Retain-policy Released/Available PVs found; skipping pv_retained labeling", vc)
+		return nil, 0, nil
+	}
+
+	for _, vol := range cnsVolumeList {
+		if _, isRetained := retainedVolumeIDs[vol.VolumeId.Id]; !isRetained {
+			continue
+		}
+		updateSpec, ok := buildPVRetainedUpdateSpec(ctx, vol, containerCluster, vc)
+		if !ok {
+			continue
+		}
+		updateSpecArray = append(updateSpecArray, updateSpec)
+	}
+	return updateSpecArray, len(updateSpecArray), nil
+}
+
+// buildPVRetainedUpdateSpec returns an UpdateSpec that sets pv_retained=true
+// on the CNS volume's PV-type CnsKubernetesEntityMetadata, preserving any
+// pre-existing labels on those entries.
+//
+// It mirrors buildPVMissingUpdateSpec but applies the pv_retained label to
+// volumes whose K8s PV has ReclaimPolicy=Retain and no active consumer.
+//
+// Returns (spec, false) if there is nothing to update (every PV entity is
+// already labeled, or no candidate entity could be synthesized).
+func buildPVRetainedUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
+	containerCluster cnstypes.CnsContainerCluster, vc string) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
+	log := logger.GetLogger(ctx)
+	var entityMetadata []cnstypes.BaseCnsEntityMetadata
+	foundInClusterPV := false
+	log.Infof("FullSync for VC %s: buildPVRetainedUpdateSpec: volume %q with name %q has %d entity metadata entries",
+		vc, vol.VolumeId.Id, vol.Name, len(vol.Metadata.EntityMetadata))
+	for _, em := range vol.Metadata.EntityMetadata {
+		k8sEm, ok := em.(*cnstypes.CnsKubernetesEntityMetadata)
+		if !ok {
+			continue
+		}
+		if k8sEm.ClusterID != clusterIDforVolumeMetadata {
+			continue
+		}
+		if k8sEm.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
+			continue
+		}
+		foundInClusterPV = true
+		labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+		if labels[prometheus.PrometheusPVRetainedLabelKey] == prometheus.PrometheusPVRetainedLabelValue {
+			log.Infof("FullSync for VC %s: buildPVRetainedUpdateSpec: volume %q PV entity %q"+
+				" already has pv_retained=true label, skipping", vc, vol.VolumeId.Id, k8sEm.EntityName)
+			continue
+		}
+		labels[prometheus.PrometheusPVRetainedLabelKey] = prometheus.PrometheusPVRetainedLabelValue
+		entityMetadata = append(entityMetadata,
+			cnsvsphere.GetCnsKubernetesEntityMetaData(k8sEm.EntityName, labels, false,
+				k8sEm.EntityType, k8sEm.Namespace, k8sEm.ClusterID, k8sEm.ReferredEntity))
+	}
+
+	if !foundInClusterPV && vol.Name != "" {
+		log.Infof("FullSync for VC %s: buildPVRetainedUpdateSpec: volume %q has no in-cluster PV entity;"+
+			" synthesizing one using vol.Name %q", vc, vol.VolumeId.Id, vol.Name)
+		labels := map[string]string{
+			prometheus.PrometheusPVRetainedLabelKey: prometheus.PrometheusPVRetainedLabelValue,
+		}
+		entityMetadata = append(entityMetadata,
+			cnsvsphere.GetCnsKubernetesEntityMetaData(vol.Name, labels, false,
+				string(cnstypes.CnsKubernetesEntityTypePV), "", clusterIDforVolumeMetadata, nil))
+	}
+
+	if len(entityMetadata) == 0 {
+		log.Infof("FullSync for VC %s: buildPVRetainedUpdateSpec: volume %q produced no update specs"+
+			" (foundInClusterPV=%v vol.Name=%q); skipping",
+			vc, vol.VolumeId.Id, foundInClusterPV, vol.Name)
+		return cnstypes.CnsVolumeMetadataUpdateSpec{}, false
+	}
+	log.Infof("FullSync for VC %s: Adding pv_retained label to volume %q "+
+		"(Retain-policy PV with no active consumer)", vc, vol.VolumeId.Id)
 	return cnstypes.CnsVolumeMetadataUpdateSpec{
 		VolumeId: cnstypes.CnsVolumeId{Id: vol.VolumeId.Id},
 		Metadata: cnstypes.CnsVolumeMetadata{
@@ -1760,6 +2046,15 @@ func cleanupCnsMaps(k8sPVs map[string]string, vc string) {
 		if _, existsInK8s := k8sPVs[volID]; existsInK8s {
 			// PV reappeared — clear the grace flag.
 			delete(cnsDeletionMap[vc], volID)
+		}
+	}
+	// Cleanup pvMissingLabeledMap: if the PV reappeared in K8s, forget that
+	// the volume was labeled so it is re-evaluated (and re-labeled) from
+	// scratch if it goes missing again later.
+	pvMissingLabeledMapForVc := pvMissingLabeledMap[vc]
+	for volID := range pvMissingLabeledMapForVc {
+		if _, existsInK8s := k8sPVs[volID]; existsInK8s {
+			delete(pvMissingLabeledMap[vc], volID)
 		}
 	}
 }
