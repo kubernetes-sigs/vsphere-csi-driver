@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -81,6 +82,49 @@ func TestStartPeriodicResyncEnqueues(t *testing.T) {
 		}
 	}
 	assert.Len(t, got, n)
+}
+
+func TestStartPeriodicResyncSkipsBackedOffInstances(t *testing.T) {
+	scheme := testScheme(t)
+	objs := []client.Object{
+		&clusterspiv1alpha1.ClusterStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "backed-off"}},
+		&clusterspiv1alpha1.ClusterStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "eligible"}},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backOffDurationMapMutex.Lock()
+	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
+	nextEligibleReconcile = map[apitypes.NamespacedName]time.Time{
+		{Name: "backed-off"}: time.Now().Add(time.Hour),
+	}
+	backOffDurationMapMutex.Unlock()
+	t.Cleanup(func() {
+		backOffDurationMapMutex.Lock()
+		backOffDuration = nil
+		nextEligibleReconcile = nil
+		backOffDurationMapMutex.Unlock()
+	})
+
+	ch := make(chan event.GenericEvent, 256)
+	StartPeriodicResync(ctx, cli, ch, 50*time.Millisecond)
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, "eligible", e.Object.GetName())
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for eligible instance to be enqueued")
+	}
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, "eligible", e.Object.GetName(),
+			"only the eligible instance should be repeatedly enqueued; backed-off instance should be skipped")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for second tick to enqueue the eligible instance again")
+	}
 }
 
 func TestStartPeriodicResyncStopsOnCancel(t *testing.T) {

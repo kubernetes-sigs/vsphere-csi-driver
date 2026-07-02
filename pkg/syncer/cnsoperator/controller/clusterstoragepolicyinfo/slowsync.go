@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -67,6 +68,11 @@ func StartPeriodicResync(ctx context.Context, c client.Client,
 	ch chan<- event.GenericEvent, interval time.Duration) {
 	log := logger.GetLogger(ctx)
 	go func() {
+		if interval <= 0 {
+			log.Warnf("ClusterStoragePolicyInfo slow sync: interval %s is non-positive, "+
+				"using default %d minutes", interval, defaultSlowSyncIntervalMin)
+			interval = defaultSlowSyncIntervalMin * time.Minute
+		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -80,15 +86,31 @@ func StartPeriodicResync(ctx context.Context, c client.Client,
 					log.Errorf("ClusterStoragePolicyInfo periodic resync: list failed: %v", err)
 					continue
 				}
+				now := time.Now()
+				enqueued := 0
 				for i := range list.Items {
 					obj := &list.Items[i]
+					namespacedName := apitypes.NamespacedName{Name: obj.Name}
+
+					backOffDurationMapMutex.Lock()
+					eligibleAt, backedOff := nextEligibleReconcile[namespacedName]
+					backOffDurationMapMutex.Unlock()
+					if backedOff && now.Before(eligibleAt) {
+						// Instance is still within its error backoff window;
+						// it is already scheduled to reconcile via RequeueAfter,
+						// so skip it here to avoid defeating the backoff.
+						continue
+					}
+
 					select {
 					case ch <- event.GenericEvent{Object: obj}:
+						enqueued++
 					case <-ctx.Done():
 						return
 					}
 				}
-				log.Infof("ClusterStoragePolicyInfo periodic resync: enqueued %d CRs", len(list.Items))
+				log.Infof("ClusterStoragePolicyInfo periodic resync: enqueued %d/%d CRs",
+					enqueued, len(list.Items))
 			}
 		}
 	}()

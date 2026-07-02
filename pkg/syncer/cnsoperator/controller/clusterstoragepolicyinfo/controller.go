@@ -64,8 +64,11 @@ import (
 // Initialized to 1 second for new instances and for instances whose latest
 // reconcile operation succeeded.
 // If the reconcile fails, backoff is incremented exponentially.
+// nextEligibleReconcile is the earliest retry time set on error and cleared
+// on success; slow-sync skips an instance still within this backoff window.
 var (
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
+	nextEligibleReconcile   map[apitypes.NamespacedName]time.Time
 	backOffDurationMapMutex = sync.Mutex{}
 )
 
@@ -188,10 +191,12 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 
 	// Initialize the backoff duration map
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
+	nextEligibleReconcile = make(map[apitypes.NamespacedName]time.Time)
 
 	interval := getSlowSyncInterval(ctx)
 	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
 		StartPeriodicResync(mgrCtx, r.client, resyncCh, interval)
+		<-mgrCtx.Done()
 		return nil
 	})); err != nil {
 		log.Errorf("failed to register periodic resync runnable. Err: %v", err)
@@ -596,6 +601,7 @@ func (r *ReconcileClusterStoragePolicyInfo) completeReconciliationWithSuccess(ct
 	// Reset backOff duration to one second on success.
 	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, namespacedName)
+	delete(nextEligibleReconcile, namespacedName)
 	backOffDurationMapMutex.Unlock()
 
 	log.Infof("Successfully reconciled ClusterStoragePolicyInfo")
@@ -612,6 +618,7 @@ func (r *ReconcileClusterStoragePolicyInfo) completeReconciliationWithError(ctx 
 	backOffDurationMapMutex.Lock()
 	backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
 		types.MaxBackOffDurationForReconciler)
+	nextEligibleReconcile[namespacedName] = time.Now().Add(timeout)
 	backOffDurationMapMutex.Unlock()
 
 	log.Errorf("Failed to reconcile ClusterStoragePolicyInfo. Err: %v",

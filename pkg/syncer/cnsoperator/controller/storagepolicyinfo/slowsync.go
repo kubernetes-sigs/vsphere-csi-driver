@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -62,11 +63,18 @@ func getSlowSyncInterval(ctx context.Context) time.Duration {
 
 // StartPeriodicResync runs a goroutine that, every interval, lists all
 // StoragePolicyInfo CRs across all namespaces and sends them to ch so the
-// controller re-reconciles each one (slow sync).
+// controller re-reconciles each one (slow sync). Instances that are still
+// within their error backoff window (per r.nextEligibleReconcile) are
+// skipped, since they are already scheduled to reconcile via RequeueAfter.
 func StartPeriodicResync(ctx context.Context, c client.Client,
-	ch chan<- event.GenericEvent, interval time.Duration) {
+	ch chan<- event.GenericEvent, interval time.Duration, r *ReconcileStoragePolicyInfo) {
 	log := logger.GetLogger(ctx)
 	go func() {
+		if interval <= 0 {
+			log.Warnf("StoragePolicyInfo slow sync: interval %s is non-positive, "+
+				"using default %d minutes", interval, defaultSlowSyncIntervalMin)
+			interval = defaultSlowSyncIntervalMin * time.Minute
+		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -80,15 +88,34 @@ func StartPeriodicResync(ctx context.Context, c client.Client,
 					log.Errorf("StoragePolicyInfo periodic resync: list failed: %v", err)
 					continue
 				}
+				now := time.Now()
+				enqueued := 0
 				for i := range list.Items {
 					obj := &list.Items[i]
+					namespacedName := apitypes.NamespacedName{
+						Namespace: obj.Namespace,
+						Name:      obj.Name,
+					}
+
+					r.backOffDurationMapMutex.Lock()
+					eligibleAt, backedOff := r.nextEligibleReconcile[namespacedName]
+					r.backOffDurationMapMutex.Unlock()
+					if backedOff && now.Before(eligibleAt) {
+						// Instance is still within its error backoff window;
+						// it is already scheduled to reconcile via RequeueAfter,
+						// so skip it here to avoid defeating the backoff.
+						continue
+					}
+
 					select {
 					case ch <- event.GenericEvent{Object: obj}:
+						enqueued++
 					case <-ctx.Done():
 						return
 					}
 				}
-				log.Infof("StoragePolicyInfo periodic resync: enqueued %d CRs", len(list.Items))
+				log.Infof("StoragePolicyInfo periodic resync: enqueued %d/%d CRs",
+					enqueued, len(list.Items))
 			}
 		}
 	}()

@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -67,8 +68,12 @@ func TestSPIStartPeriodicResyncEnqueues(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	r := &ReconcileStoragePolicyInfo{
+		backOffDuration:       make(map[apitypes.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[apitypes.NamespacedName]time.Time),
+	}
 	ch := make(chan event.GenericEvent, 256)
-	StartPeriodicResync(ctx, cli, ch, 50*time.Millisecond)
+	StartPeriodicResync(ctx, cli, ch, 50*time.Millisecond, r)
 
 	got := make(map[string]bool)
 	deadline := time.After(5 * time.Second)
@@ -83,13 +88,53 @@ func TestSPIStartPeriodicResyncEnqueues(t *testing.T) {
 	assert.Len(t, got, n)
 }
 
+func TestSPIStartPeriodicResyncSkipsBackedOffInstances(t *testing.T) {
+	scheme := testScheme(t)
+	objs := []client.Object{
+		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "backed-off", Namespace: "ns-a"}},
+		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "eligible", Namespace: "ns-a"}},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	r := &ReconcileStoragePolicyInfo{
+		backOffDuration: make(map[apitypes.NamespacedName]time.Duration),
+		nextEligibleReconcile: map[apitypes.NamespacedName]time.Time{
+			{Namespace: "ns-a", Name: "backed-off"}: time.Now().Add(time.Hour),
+		},
+	}
+	ch := make(chan event.GenericEvent, 256)
+	StartPeriodicResync(ctx, cli, ch, 50*time.Millisecond, r)
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, "eligible", e.Object.GetName())
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for eligible instance to be enqueued")
+	}
+
+	select {
+	case e := <-ch:
+		assert.Equal(t, "eligible", e.Object.GetName(),
+			"only the eligible instance should be repeatedly enqueued; backed-off instance should be skipped")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for second tick to enqueue the eligible instance again")
+	}
+}
+
 func TestSPIStartPeriodicResyncStopsOnCancel(t *testing.T) {
 	scheme := testScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	r := &ReconcileStoragePolicyInfo{
+		backOffDuration:       make(map[apitypes.NamespacedName]time.Duration),
+		nextEligibleReconcile: make(map[apitypes.NamespacedName]time.Time),
+	}
 	ch := make(chan event.GenericEvent, 256)
-	StartPeriodicResync(ctx, cli, ch, time.Hour)
+	StartPeriodicResync(ctx, cli, ch, time.Hour, r)
 
 	cancel()
 	time.Sleep(50 * time.Millisecond)
