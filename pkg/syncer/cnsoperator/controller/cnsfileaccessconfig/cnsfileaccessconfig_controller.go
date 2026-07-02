@@ -350,16 +350,18 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 				setInstanceError(ctx, r, instance, msg)
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
+		}
 
-			// Remove PVC protection finalizer from PVC
-			err = removeFinalizerFromPVC(ctx, r.client, instance)
-			if err != nil {
-				msg := fmt.Sprintf("failed to remove finalizer from PVC CnsFileAccessConfig "+
-					"instance: %q on namespace: %q. Error: %+v",
-					instance.Name, instance.Namespace, err)
-				recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
+		// Remove PVC protection finalizer from PVC regardless of whether the underlying
+		// volume was ever provisioned. A PVC that never bound (Spec.VolumeName == "") must
+		// still have its finalizer removed here, otherwise it is left stuck in Terminating.
+		err = removeFinalizerFromPVC(ctx, r.client, instance)
+		if err != nil {
+			msg := fmt.Sprintf("failed to remove finalizer from PVC CnsFileAccessConfig "+
+				"instance: %q on namespace: %q. Error: %+v",
+				instance.Name, instance.Namespace, err)
+			recordEvent(ctx, r, instance, v1.EventTypeWarning, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		err = k8s.RemoveFinalizer(ctx, r.client, instance, cnsoperatortypes.CNSFinalizer)
 		if err != nil {
