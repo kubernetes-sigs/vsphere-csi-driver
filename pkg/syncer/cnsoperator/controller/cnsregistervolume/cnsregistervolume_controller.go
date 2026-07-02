@@ -593,8 +593,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// control flag that CNS auto-sets on a newly registered FCD. This ensures the
 	// FCD lifecycle is governed by the PVC, not by the consuming VM. The clear is
 	// performed via the VSLM endpoint, which is broadly available on older vSphere too.
-	if err = clearKeepAfterDeleteVmIfNonRemovable(ctx, r.client, r.volumeManager,
-		pvc, instance.Namespace, volumeID); err != nil {
+	pvc, err = clearKeepAfterDeleteVmIfNonRemovable(ctx, r.client, r.volumeManager,
+		pvc, instance.Namespace, volumeID)
+	if err != nil {
 		setInstanceError(ctx, r, instance, err.Error())
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
@@ -950,15 +951,31 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 		}
 		pvc.Annotations[common.AnnVolumeAccessibleTopology] = topologyAnnotation
 
-		// Update the PVC in Kubernetes to persist the topology annotation
-		// Note: Using Update instead of PatchObject here because this function receives
-		// a clientset.Interface and creating a controller-runtime client would require
-		// additional configuration that may not be available in test environments
-		_, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+		// Persist the topology annotation via a merge patch (resourceVersion-agnostic) instead of a
+		// full-object Update, so this write can't 409 if the PVC was already mutated earlier in this
+		// same reconcile pass (e.g. by clearKeepAfterDeleteVmIfNonRemovable).
+		patchAnnotations := make(map[string]interface{})
+		for k, v := range pvc.Annotations {
+			patchAnnotations[k] = v
+		}
+		patch := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"annotations": patchAnnotations,
+			},
+		}
+		patchBytes, err := json.Marshal(patch)
 		if err != nil {
-			return logger.LogNewErrorf(log, "failed to update PVC %s/%s with topology annotation: %+v",
+			return logger.LogNewErrorf(log, "failed to marshal topology annotation patch for PVC %s/%s: %+v",
 				pvc.Namespace, pvc.Name, err)
 		}
+		patchedPVC, err := k8sclient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx, pvc.Name,
+			apitypes.MergePatchType, patchBytes, metav1.PatchOptions{})
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to patch PVC %s/%s with topology annotation. PVC: %+v, err: %+v",
+				pvc.Namespace, pvc.Name, pvc, err)
+		}
+		log.Debugf("Patched PVC: %+v", patchedPVC)
+		pvc = patchedPVC
 
 		log.Infof("Successfully added topology annotation %s to PVC %s/%s",
 			topologyAnnotation, pvc.Namespace, pvc.Name)
