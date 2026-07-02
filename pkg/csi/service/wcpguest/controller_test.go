@@ -2041,3 +2041,122 @@ func TestWaitForSupervisorPVCModifyVolume(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+const (
+	vacTestSupervisorNS = "test-namespace-vac"
+	testVACName         = "gold-vac"
+)
+
+// newVACTestController creates a fresh isolated controller for VAC CreateVolume
+// tests. The returned CO interface has the VMPVCStoragePolicyMutabilityFSS
+// disabled by default; callers enable or disable it as needed. The original
+// commonco.ContainerOrchestratorUtility is restored via t.Cleanup.
+func newVACTestController(t *testing.T) (*controller, commonco.COCommonInterface) {
+	t.Helper()
+	supervisorClient := testclient.NewClientset()
+	c := &controller{
+		supervisorClient:    supervisorClient,
+		supervisorNamespace: vacTestSupervisorNS,
+		topologyEnabled:     true,
+	}
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	origCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = co
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = origCO })
+	return c, co
+}
+
+// vacCreateRequest builds a CreateVolumeRequest for block volumes with the
+// given mutable_parameters.
+func vacCreateRequest(mutableParams map[string]string) *csi.CreateVolumeRequest {
+	return &csi.CreateVolumeRequest{
+		Name: testVolumeName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributeSupervisorStorageClass: testStorageClass,
+		},
+		MutableParameters: mutableParams,
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			}},
+		},
+	}
+}
+
+// TestCreateVolumeVACSetsVolumeAttributesClassName tests that CreateVolume sets
+// VolumeAttributesClassName on the supervisor PVC when VMPVCStoragePolicyMutabilityFSS
+// is enabled and svvolumeattributesclass is present in mutable_parameters.
+func TestCreateVolumeVACSetsVolumeAttributesClassName(t *testing.T) {
+	c, co := newVACTestController(t)
+	require.NoError(t, co.EnableFSS(context.Background(), common.VMPVCStoragePolicyMutabilityFSS))
+
+	req := vacCreateRequest(map[string]string{
+		common.AttributeSupervisorVolumeAttributesClass: testVACName,
+	})
+
+	pvc, _, err := runCreateVolumeAndBindSupervisorPVC(t, c, req)
+	require.NoError(t, err)
+	if pvc.Spec.VolumeAttributesClassName == nil {
+		t.Fatalf("expected supervisor PVC to have VolumeAttributesClassName=%q, got nil", testVACName)
+	}
+	if *pvc.Spec.VolumeAttributesClassName != testVACName {
+		t.Fatalf("expected VolumeAttributesClassName=%q, got %q",
+			testVACName, *pvc.Spec.VolumeAttributesClassName)
+	}
+}
+
+// TestCreateVolumeVACFileVolumeRejected tests that CreateVolume returns
+// codes.Unimplemented when a file volume is requested alongside a VAC in
+// mutable_parameters.
+func TestCreateVolumeVACFileVolumeRejected(t *testing.T) {
+	c, co := newVACTestController(t)
+	require.NoError(t, co.EnableFSS(context.Background(), common.VMPVCStoragePolicyMutabilityFSS))
+
+	req := &csi.CreateVolumeRequest{
+		Name: testVolumeName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributeSupervisorStorageClass: testStorageClass,
+		},
+		MutableParameters: map[string]string{
+			common.AttributeSupervisorVolumeAttributesClass: testVACName,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			}},
+		},
+	}
+
+	_, err := c.CreateVolume(context.Background(), req)
+	require.Error(t, err)
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected codes.Unimplemented for file volume + VAC, got %v (err=%v)",
+			status.Code(err), err)
+	}
+}
+
+// TestCreateVolumeVACFSSDisabledIgnoresMutableParams tests that when
+// VMPVCStoragePolicyMutabilityFSS is disabled, mutable_parameters are ignored and
+// VolumeAttributesClassName is NOT set on the supervisor PVC.
+func TestCreateVolumeVACFSSDisabledIgnoresMutableParams(t *testing.T) {
+	c, co := newVACTestController(t)
+	require.NoError(t, co.DisableFSS(context.Background(), common.VMPVCStoragePolicyMutabilityFSS))
+
+	req := vacCreateRequest(map[string]string{
+		common.AttributeSupervisorVolumeAttributesClass: testVACName,
+	})
+
+	pvc, _, err := runCreateVolumeAndBindSupervisorPVC(t, c, req)
+	require.NoError(t, err)
+	if pvc.Spec.VolumeAttributesClassName != nil {
+		t.Fatalf("expected VolumeAttributesClassName to be nil when FSS disabled, got %q",
+			*pvc.Spec.VolumeAttributesClassName)
+	}
+}

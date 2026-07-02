@@ -399,6 +399,13 @@ const (
 	// AttributeSupervisorVolumeSnapshotClass represents name of VolumeSnapshotClass
 	AttributeSupervisorVolumeSnapshotClass = "svvolumesnapshotclass"
 
+	// AttributeSupervisorVolumeAttributesClass represents the name of the supervisor-side
+	// VolumeAttributesClass to use when creating a volume. It is passed in the
+	// mutable_parameters field of the CSI CreateVolumeRequest (sourced from the guest
+	// VolumeAttributesClass parameters), consistent with the CSI spec which requires that
+	// mutable_parameters take precedence over parameters.
+	AttributeSupervisorVolumeAttributesClass = "svvolumeattributesclass"
+
 	// VolumeSnapshotApiGroup represents the VolumeSnapshot API Group name
 	VolumeSnapshotApiGroup = "snapshot.storage.k8s.io"
 
