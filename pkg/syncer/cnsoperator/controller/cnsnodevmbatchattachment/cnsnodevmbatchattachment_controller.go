@@ -544,8 +544,8 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 	// Validate if the VM is present in the same namespace as the batchattach instance/volumes.
 	// This is to prevent any cross namespace attacks.
-	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Spec.InstanceUUID,
-		instance.Namespace)
+	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Name,
+		instance.Spec.InstanceUUID, instance.Namespace)
 	if err != nil {
 		return err
 	}
