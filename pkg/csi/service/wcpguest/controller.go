@@ -104,6 +104,14 @@ const snapshotMetadataServiceCRName = csitypes.Name
 // --service-account-max-token-expiration.
 const snapshotMetadataTokenExpirationSeconds int64 = 3600
 
+// snapMetadataSrvName is the canonical in-cluster DNS name
+// used as the TLS ServerName when dialing the Supervisor Snapshot Metadata
+// Service. Supplying an explicit DNS name (rather than deriving it from the
+// dial address, which is a LoadBalancer IP) means the service certificate
+// only needs DNS SANs — no IP SAN is required, so the cert stays valid
+// regardless of which LoadBalancer IP is allocated.
+const snapMetadataSrvName = "vmware-system-csi-snapshot-metadata-service.vmware-system-csi.svc.cluster.local"
+
 // dialSnapshotMetadata builds the gRPC client connection to the Supervisor
 // Snapshot Metadata Service. It is intentionally a package-level function
 // variable so unit tests can override it to dial an in-process mock with
@@ -2519,7 +2527,7 @@ func (c *controller) getSnapshotMetadataClient(
 			return nil, nil, "", fmt.Errorf("failed to append caCert to pool after base64 decode")
 		}
 	}
-	transportCreds := credentials.NewClientTLSFromCert(certPool, "")
+	transportCreds := credentials.NewClientTLSFromCert(certPool, snapMetadataSrvName)
 
 	// Mint a fresh audience-bound token via TokenRequest on every call.
 	// We pass the bootstrap pvcsi-provider bearer token (loaded by
