@@ -2357,3 +2357,63 @@ func TestGetMissingPVVolumeUpdateSpecs_ForeignClusterIgnored(t *testing.T) {
 	assert.Equal(t, 0, count)
 	assert.Len(t, specs, 0)
 }
+
+// TestPreserveHealthLabelsOnK8sPVMetadata_RetainedCarriedForward verifies
+// that pv_retained survives being copied from CNS-side PV entity metadata
+// onto the k8s-truth PV entity metadata, so the regular full-sync diff
+// doesn't treat its absence on the k8s side as a change to overwrite away
+// (see the "flip" bug this guards against).
+func TestPreserveHealthLabelsOnK8sPVMetadata_RetainedCarriedForward(t *testing.T) {
+	k8sMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{EntityName: "pv-1"},
+			EntityType:        string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+	cnsMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-1",
+				Labels:     []types.KeyValue{{Key: "pv_retained", Value: "true"}},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+
+	preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList, cnsMetadataList)
+
+	k8sPV := k8sMetadataList[0].(*cnstypes.CnsKubernetesEntityMetadata)
+	labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sPV.Labels)
+	assert.Equal(t, "true", labels["pv_retained"], "pv_retained must be carried forward onto k8s-truth metadata")
+}
+
+// TestPreserveHealthLabelsOnK8sPVMetadata_MissingNotCarriedForward verifies
+// that pv_missing is deliberately NOT copied forward. This function only
+// ever runs for volumes with a live k8s PV, so any pv_missing label still on
+// the CNS side is stale; it must be free to drop via the normal diff/
+// overwrite so that a re-created PV clears the label (see
+// tests/e2e/fullsync_pv_missing.go "pv-missing-cleared").
+func TestPreserveHealthLabelsOnK8sPVMetadata_MissingNotCarriedForward(t *testing.T) {
+	k8sMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{EntityName: "pv-1"},
+			EntityType:        string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+	cnsMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-1",
+				Labels:     []types.KeyValue{{Key: "pv_missing", Value: "true"}},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+
+	preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList, cnsMetadataList)
+
+	k8sPV := k8sMetadataList[0].(*cnstypes.CnsKubernetesEntityMetadata)
+	labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sPV.Labels)
+	_, present := labels["pv_missing"]
+	assert.False(t, present, "pv_missing must not be carried forward so it can be dropped when a PV reappears")
+}

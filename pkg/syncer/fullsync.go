@@ -1244,12 +1244,22 @@ func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCM
 }
 
 // healthLabelKeys are labels applied to CNS volume PV entity metadata
-// out-of-band by full sync's own health-labeling routines
-// (getMissingPVVolumeUpdateSpecs, getRetainedPVVolumeUpdateSpecs). They have
-// no counterpart on the actual k8s PV object, so k8s-truth metadata built
-// from pv.GetLabels() never carries them. See preserveHealthLabelsOnK8sPVMetadata.
+// out-of-band by full sync's own health-labeling routines, which have no
+// counterpart on the actual k8s PV object, so k8s-truth metadata built from
+// pv.GetLabels() never carries them. See preserveHealthLabelsOnK8sPVMetadata.
+//
+// pv_missing is deliberately NOT included here. preserveHealthLabelsOnK8sPVMetadata
+// only ever runs for volumes that have a live k8s PV (fullSyncConstructVolumeMaps
+// iterates pvList), so by construction the volume is not missing at that
+// point — any pv_missing label still present in CNS is stale and must be
+// allowed to drop via the normal k8s-truth diff/overwrite. That overwrite is
+// what clears pv_missing when a matching PV reappears (see
+// getMissingPVVolumeUpdateSpecs and tests/e2e/fullsync_pv_missing.go
+// "pv-missing-cleared"). Only pv_retained belongs here, since a volume can
+// remain legitimately retained-and-unconsumed across many cycles while still
+// having a live PV, and getRetainedPVVolumeUpdateSpecs re-derives eligibility
+// independently every cycle.
 var healthLabelKeys = []string{
-	prometheus.PrometheusPVMissingLabelKey,
 	prometheus.PrometheusPVRetainedLabelKey,
 }
 
@@ -1261,12 +1271,13 @@ var healthLabelKeys = []string{
 // CompareKubernetesMetadata) sees a health label present only on the CNS
 // side as a difference and triggers a metadata "updateVolume" that rebuilds
 // CNS entity metadata purely from k8s-truth data, silently stripping the
-// label. getMissingPVVolumeUpdateSpecs/getRetainedPVVolumeUpdateSpecs only
-// re-add the label when it isn't already present, based on a CNS query
-// taken earlier in the same full sync cycle, so they don't observe the
-// strip happening later in that same cycle — the label only reappears on
-// the next cycle. The net effect is the label visibly flipping on/off on
-// alternating full sync cycles.
+// label. getRetainedPVVolumeUpdateSpecs only re-adds pv_retained when it
+// isn't already present, based on a CNS query taken earlier in the same full
+// sync cycle, so it doesn't observe the strip happening later in that same
+// cycle — the label only reappears on the next cycle. The net effect,
+// without this preservation, is the label visibly flipping on/off on
+// alternating full sync cycles even though the volume's retained/unconsumed
+// state never changed.
 func preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList []cnstypes.BaseCnsEntityMetadata,
 	cnsMetadataList []cnstypes.BaseCnsEntityMetadata) {
 	var cnsPV *cnstypes.CnsKubernetesEntityMetadata
