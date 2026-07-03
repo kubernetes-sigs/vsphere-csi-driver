@@ -46,6 +46,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
@@ -3463,6 +3464,13 @@ func TestPopulateTopologyCapabilities_MarkerPolicy(t *testing.T) {
 			}
 			k8sClient := k8sfake.NewSimpleClientset(k8sObjs...)
 
+			// Verify every FVS instance namespace was actually added to the fake client.
+			for _, ns := range tt.namespaces {
+				got, err := k8sClient.CoreV1().Namespaces().Get(ctx, ns.Name, metav1.GetOptions{})
+				require.NoError(t, err)
+				assert.Equal(t, "true", got.Labels[cnsoperatorutil.NamespaceLabelFVSInstance])
+			}
+
 			r := &ReconcileClusterStoragePolicyInfo{
 				client:    fake.NewClientBuilder().WithScheme(scheme).Build(),
 				scheme:    scheme,
@@ -3911,4 +3919,39 @@ func TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA(t *testing.T) {
 	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
 	require.NoError(t, err)
 	assert.False(t, result, "HPLC should be false when not all zones have ESA-enabled clusters")
+}
+
+// TestMapFVSNamespaceToClusterMarkerSPI verifies that any FVS instance namespace event maps to
+// exactly one reconcile request for the single cluster-scoped marker-policy
+// ClusterStoragePolicyInfo, regardless of the triggering object.
+func TestMapFVSNamespaceToClusterMarkerSPI(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	r := &ReconcileClusterStoragePolicyInfo{}
+
+	ns := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "fvs-instance-ns",
+			Labels: map[string]string{cnsoperatorutil.NamespaceLabelFVSInstance: "true"},
+			Annotations: map[string]string{
+				cnsoperatorutil.AnnotationVPCNetworkConfig: "vpc-config-1",
+			},
+		},
+	}
+
+	reqs := r.mapFVSNamespaceToClusterMarkerSPI(ctx, ns)
+	require.Len(t, reqs, 1)
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: common.StorageClassVsanFileServicePolicy},
+	}, reqs[0])
+}
+
+// TestMapFVSNamespaceToClusterMarkerSPI_NilObject verifies the mapper is unconditional: it
+// returns the single marker-policy reconcile request even when the triggering object is nil.
+func TestMapFVSNamespaceToClusterMarkerSPI_NilObject(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	r := &ReconcileClusterStoragePolicyInfo{}
+
+	reqs := r.mapFVSNamespaceToClusterMarkerSPI(ctx, nil)
+	require.Len(t, reqs, 1)
+	assert.Equal(t, common.StorageClassVsanFileServicePolicy, reqs[0].Name)
 }

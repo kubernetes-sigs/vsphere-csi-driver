@@ -162,6 +162,40 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 		},
 	}
 
+	// Trigger re-reconcile of the cluster-wide marker-policy ClusterStoragePolicyInfo when an
+	// FVS instance namespace is created/deleted or its vpc_network_config annotation /
+	// fvs_instance_namespace label changes.
+	nsFVSPredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			if e.Object == nil {
+				return false
+			}
+			return e.Object.GetLabels()[cnsoperatorutil.NamespaceLabelFVSInstance] == "true"
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			oldLabel := e.ObjectOld.GetLabels()[cnsoperatorutil.NamespaceLabelFVSInstance]
+			newLabel := e.ObjectNew.GetLabels()[cnsoperatorutil.NamespaceLabelFVSInstance]
+			if oldLabel != "true" && newLabel != "true" {
+				// Not an FVS instance namespace before or after the update; the
+				// vpc_network_config annotation is set on every supervisor namespace,
+				// so ignore its changes unless this namespace is FVS-relevant.
+				return false
+			}
+			oldAnnotation := e.ObjectOld.GetAnnotations()[cnsoperatorutil.AnnotationVPCNetworkConfig]
+			newAnnotation := e.ObjectNew.GetAnnotations()[cnsoperatorutil.AnnotationVPCNetworkConfig]
+			return oldAnnotation != newAnnotation || oldLabel != newLabel
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			if e.Object == nil {
+				return false
+			}
+			return e.Object.GetLabels()[cnsoperatorutil.NamespaceLabelFVSInstance] == "true"
+		},
+	}
+
 	blder := ctrl.NewControllerManagedBy(mgr).Named("clusterstoragepolicyinfo-controller").
 		For(&clusterspiv1alpha1.ClusterStoragePolicyInfo{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -169,6 +203,11 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 			&storagev1.StorageClass{},
 			handler.EnqueueRequestsFromMapFunc(r.mapObjectToClusterSPI),
 			builder.WithPredicates(scVacPredicates),
+		).
+		Watches(
+			&v1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.mapFVSNamespaceToClusterMarkerSPI),
+			builder.WithPredicates(nsFVSPredicate),
 		)
 
 	// VolumeAttributesClass API is supported from K8s version 1.34 onwards.
@@ -215,6 +254,25 @@ func (r *ReconcileClusterStoragePolicyInfo) mapObjectToClusterSPI(ctx context.Co
 	}
 
 	return []reconcile.Request{{NamespacedName: apitypes.NamespacedName{Name: obj.GetName()}}}
+}
+
+// mapFVSNamespaceToClusterMarkerSPI maps an FVS instance namespace event to a reconcile
+// request for the single cluster-scoped vSAN File Service marker-policy
+// ClusterStoragePolicyInfo. Marker-policy topology depends on FVS instance namespace VPC
+// membership, so any relevant namespace change must re-trigger recomputation.
+func (r *ReconcileClusterStoragePolicyInfo) mapFVSNamespaceToClusterMarkerSPI(ctx context.Context,
+	obj client.Object) []reconcile.Request {
+	log := logger.GetLogger(ctx)
+	nsName := ""
+	if obj != nil {
+		nsName = obj.GetName()
+	}
+	log.Infof("FVS instance namespace %q changed; requeuing marker-policy ClusterStoragePolicyInfo %q",
+		nsName, common.StorageClassVsanFileServicePolicy)
+
+	return []reconcile.Request{{
+		NamespacedName: apitypes.NamespacedName{Name: common.StorageClassVsanFileServicePolicy},
+	}}
 }
 
 var _ reconcile.Reconciler = &ReconcileClusterStoragePolicyInfo{}
