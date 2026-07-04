@@ -468,6 +468,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 	// Initialize cnsDeletionMap used by Full Sync.
 	cnsDeletionMap = make(map[string]map[string]bool)
+	// Initialize pvMissingLabeledMap used by Full Sync.
+	pvMissingLabeledMap = make(map[string]map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync.
 	cnsCreationMap = make(map[string]map[string]bool)
 	// Initialize volumeOperationsLock map
@@ -507,6 +509,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		metadataSyncer.host = vCenter.Config.Host
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
+		pvMissingLabeledMap[metadataSyncer.host] = make(map[string]bool)
 		cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
 		volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
@@ -607,6 +610,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 
 			metadataSyncer.volumeManagers[vcconfig.Host] = volumeManager
 			cnsDeletionMap[vcconfig.Host] = make(map[string]bool)
+			pvMissingLabeledMap[vcconfig.Host] = make(map[string]bool)
 			cnsCreationMap[vcconfig.Host] = make(map[string]bool)
 			volumeInfoCrDeletionMap[vcconfig.Host] = make(map[string]bool)
 			volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}

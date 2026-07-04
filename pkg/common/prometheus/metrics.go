@@ -102,6 +102,14 @@ const (
 	// PrometheusPVMissingLabelKey when the K8s PV is missing.
 	PrometheusPVMissingLabelValue = "true"
 
+	// PrometheusPVRetainedLabelKey is the CNS metadata label key set on a CNS
+	// volume whose Kubernetes PV has ReclaimPolicy=Retain and is in Released or
+	// Available phase (no active PVC binding, PodVM, or VMService VM consumer).
+	PrometheusPVRetainedLabelKey = "pv_retained"
+	// PrometheusPVRetainedLabelValue is the value associated with
+	// PrometheusPVRetainedLabelKey when the PV is retained without a consumer.
+	PrometheusPVRetainedLabelValue = "true"
+
 	// PrometheusPassStatus represents a successful API run.
 	PrometheusPassStatus = "pass"
 	// PrometheusFailStatus represents an unsuccessful API run.
@@ -188,5 +196,16 @@ var (
 	CnsVolumePVMissingGaugeVec = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "vsphere_cns_volume_pv_missing",
 		Help: "Number of CNS volumes whose corresponding Kubernetes PV was not found during the last full sync, per vCenter.",
+	}, []string{"vc"})
+
+	// CnsVolumePVRetainedGaugeVec is a gauge metric that tracks, per vCenter,
+	// the number of CNS volumes whose Kubernetes PV has ReclaimPolicy=Retain
+	// and is in Released or Available phase (no active consumer) in the most
+	// recent full-sync cycle. A non-zero value indicates volumes that have been
+	// labeled with pv_retained=true on the CNS side and may need VI Admin
+	// attention (e.g., data cleanup or manual reclamation).
+	CnsVolumePVRetainedGaugeVec = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "vsphere_cns_volume_pv_retained",
+		Help: "Number of CNS volumes with ReclaimPolicy=Retain PVs in Released/Available phase, per vCenter.",
 	}, []string{"vc"})
 )

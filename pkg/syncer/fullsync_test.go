@@ -522,6 +522,8 @@ func setupMetadataSyncerForFullSync(
 	volumeOperationsLock["test-vcenter"] = &sync.Mutex{}
 	cnsDeletionMap = make(map[string]map[string]bool)
 	cnsDeletionMap["test-vcenter"] = make(map[string]bool)
+	pvMissingLabeledMap = make(map[string]map[string]bool)
+	pvMissingLabeledMap["test-vcenter"] = make(map[string]bool)
 	cnsCreationMap = make(map[string]map[string]bool)
 	cnsCreationMap["test-vcenter"] = make(map[string]bool)
 
@@ -2065,6 +2067,7 @@ func TestReconcileKeepAfterDeleteVmFlags(t *testing.T) {
 func pvMissingTestSetup(t *testing.T, vc, clusterID string) *metadataSyncInformer {
 	t.Helper()
 	cnsDeletionMap = map[string]map[string]bool{vc: {}}
+	pvMissingLabeledMap = map[string]map[string]bool{vc: {}}
 	clusterIDforVolumeMetadata = clusterID
 	return &metadataSyncInformer{
 		coCommonInterface: &mockCOCommonForFullSync{},
@@ -2247,6 +2250,44 @@ func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 0, count, "should not re-label an already-labeled volume")
 	assert.Len(t, specs, 0)
+	assert.True(t, pvMissingLabeledMap[vc]["vol-1"],
+		"volume found already labeled via live CNS metadata should be recorded in pvMissingLabeledMap")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled verifies that
+// once pvMissingLabeledMap records a volume as labeled, subsequent calls
+// short-circuit and never re-issue an update spec for it — even if the CNS
+// query passed in that cycle doesn't reflect the label (e.g. a stale or
+// incomplete read) — so full sync only ever calls UpdateVolumeMetadata once
+// per volume instead of every cycle.
+func TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	// Simulate a query result that does NOT carry the label (e.g. a stale
+	// read), so the live-metadata check alone would incorrectly conclude
+	// the label still needs to be (re)applied.
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	cnsDeletionMap[vc]["vol-1"] = true
+	pvMissingLabeledMap[vc]["vol-1"] = true
+
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count, "should not reissue UpdateVolumeMetadata once locally recorded as labeled")
+	assert.Len(t, specs, 0)
 }
 
 // TestGetMissingPVVolumeUpdateSpecs_SynthesizesPVEntity verifies that volumes
@@ -2315,4 +2356,64 @@ func TestGetMissingPVVolumeUpdateSpecs_ForeignClusterIgnored(t *testing.T) {
 	// vol.Name is empty AND there's no in-cluster PV entity → nothing to label.
 	assert.Equal(t, 0, count)
 	assert.Len(t, specs, 0)
+}
+
+// TestPreserveHealthLabelsOnK8sPVMetadata_RetainedCarriedForward verifies
+// that pv_retained survives being copied from CNS-side PV entity metadata
+// onto the k8s-truth PV entity metadata, so the regular full-sync diff
+// doesn't treat its absence on the k8s side as a change to overwrite away
+// (see the "flip" bug this guards against).
+func TestPreserveHealthLabelsOnK8sPVMetadata_RetainedCarriedForward(t *testing.T) {
+	k8sMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{EntityName: "pv-1"},
+			EntityType:        string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+	cnsMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-1",
+				Labels:     []types.KeyValue{{Key: "pv_retained", Value: "true"}},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+
+	preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList, cnsMetadataList)
+
+	k8sPV := k8sMetadataList[0].(*cnstypes.CnsKubernetesEntityMetadata)
+	labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sPV.Labels)
+	assert.Equal(t, "true", labels["pv_retained"], "pv_retained must be carried forward onto k8s-truth metadata")
+}
+
+// TestPreserveHealthLabelsOnK8sPVMetadata_MissingNotCarriedForward verifies
+// that pv_missing is deliberately NOT copied forward. This function only
+// ever runs for volumes with a live k8s PV, so any pv_missing label still on
+// the CNS side is stale; it must be free to drop via the normal diff/
+// overwrite so that a re-created PV clears the label (see
+// tests/e2e/fullsync_pv_missing.go "pv-missing-cleared").
+func TestPreserveHealthLabelsOnK8sPVMetadata_MissingNotCarriedForward(t *testing.T) {
+	k8sMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{EntityName: "pv-1"},
+			EntityType:        string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+	cnsMetadataList := []cnstypes.BaseCnsEntityMetadata{
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-1",
+				Labels:     []types.KeyValue{{Key: "pv_missing", Value: "true"}},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		},
+	}
+
+	preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList, cnsMetadataList)
+
+	k8sPV := k8sMetadataList[0].(*cnstypes.CnsKubernetesEntityMetadata)
+	labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sPV.Labels)
+	_, present := labels["pv_missing"]
+	assert.False(t, present, "pv_missing must not be carried forward so it can be dropped when a PV reappears")
 }

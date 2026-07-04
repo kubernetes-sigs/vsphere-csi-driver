@@ -178,7 +178,8 @@ func IsValidVolume(ctx context.Context, volume v1.Volume, pod *v1.Pod,
 // if volumeIds is empty, then all volumes from CNS will be retrieved by
 // pagination.
 func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolumeId, clusterID string,
-	volumeManager volumes.Manager, metadataSyncer *metadataSyncInformer) ([]*cnstypes.CnsQueryResult, error) {
+	volumeManager volumes.Manager, metadataSyncer *metadataSyncInformer,
+	querySelection *cnstypes.CnsQuerySelection) ([]*cnstypes.CnsQueryResult, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("FullSync: fullSyncGetQueryResults is called with volumeIds %v for clusterID %s",
 		volumeIds, clusterID)
@@ -199,7 +200,7 @@ func fullSyncGetQueryResults(ctx context.Context, volumeIds []cnstypes.CnsVolume
 		if clusterID != "" {
 			queryFilter.ContainerClusterIds = []string{clusterID}
 		}
-		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, nil)
+		queryResult, err := utils.QueryVolumeUtil(ctx, volumeManager, queryFilter, querySelection)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"queryVolumeUtil failed with err=%+v", err.Error())
