@@ -359,6 +359,11 @@ func (f *fileVolumeClient) GetVMIPFromVMName(ctx context.Context,
 	}
 	err = f.client.Get(ctx, instanceKey, instance)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Infof("cnsfilevolumeclient instance %s does not exist on API server, returning empty IP",
+				fileVolumeName)
+			return "", 0, nil
+		}
 		log.Errorf("failed to get cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
 		return "", 0, err
 	}
