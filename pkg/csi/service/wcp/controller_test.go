@@ -2358,3 +2358,136 @@ func TestSnapshotLockManager(t *testing.T) {
 		}
 	})
 }
+
+// TestCreateFileVolumeVACMutableParams tests the early-return in createFileVolume
+// that rejects requests carrying mutable_parameters when the
+// isVMPVCStoragePolicyMutabilityEnabled flag is set.
+func TestCreateFileVolumeVACMutableParams(t *testing.T) {
+	tests := []struct {
+		name              string
+		fssEnabled        bool
+		mutableParams     map[string]string
+		wantUnimplemented bool
+	}{
+		{
+			name:              "FSS enabled with mutable_parameters rejects file volume",
+			fssEnabled:        true,
+			mutableParams:     map[string]string{"x": "y"},
+			wantUnimplemented: true,
+		},
+		{
+			name:              "FSS enabled with empty mutable_parameters does not reject",
+			fssEnabled:        true,
+			mutableParams:     map[string]string{},
+			wantUnimplemented: false,
+		},
+		{
+			name:              "FSS disabled with mutable_parameters does not reject",
+			fssEnabled:        false,
+			mutableParams:     map[string]string{"x": "y"},
+			wantUnimplemented: false,
+		},
+	}
+
+	ct := getControllerTest(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := isVMPVCStoragePolicyMutabilityEnabled
+			isVMPVCStoragePolicyMutabilityEnabled = tt.fssEnabled
+			defer func() { isVMPVCStoragePolicyMutabilityEnabled = orig }()
+
+			req := &csi.CreateVolumeRequest{
+				Name:              "test-file-vac-" + uuid.New().String(),
+				CapacityRange:     &csi.CapacityRange{RequiredBytes: 1 * common.GbInBytes},
+				Parameters:        map[string]string{},
+				MutableParameters: tt.mutableParams,
+				VolumeCapabilities: []*csi.VolumeCapability{
+					{AccessMode: &csi.VolumeCapability_AccessMode{
+						Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+					}},
+				},
+			}
+
+			// Pass isWorkloadDomainIsolationEnabled=true so that, for the
+			// non-early-return cases, the function exits via the topology path
+			// (codes.FailedPrecondition) rather than reaching the nil authMgr.
+			_, _, err := ct.controller.createFileVolume(ctx, req, true)
+
+			gotUnimplemented := err != nil && status.Code(err) == codes.Unimplemented
+			if gotUnimplemented != tt.wantUnimplemented {
+				t.Fatalf("wantUnimplemented=%v but gotUnimplemented=%v (code=%v, err=%v)",
+					tt.wantUnimplemented, gotUnimplemented, status.Code(err), err)
+			}
+		})
+	}
+}
+
+// TestCreateBlockVolumeVACPolicyOverride tests that when
+// isVMPVCStoragePolicyMutabilityEnabled is true the storagePolicyID from
+// mutable_parameters overrides the one from parameters, so the CNS volume is
+// provisioned under the VAC's storage policy, not the StorageClass's.
+func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
+	ct := getControllerTest(t)
+
+	orig := isVMPVCStoragePolicyMutabilityEnabled
+	isVMPVCStoragePolicyMutabilityEnabled = true
+	defer func() { isVMPVCStoragePolicyMutabilityEnabled = orig }()
+
+	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vacPolicyID, err := pc.ProfileIDByName(ctx, "vSAN Default Storage Policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// parameters carries a fake SC policy; mutable_parameters carries the real
+	// VAC policy. With FSS enabled the mutable policy must win, so the volume
+	// is created under vacPolicyID.
+	reqCreate := &csi.CreateVolumeRequest{
+		Name:          testVolumeName + "-block-vac-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 * common.GbInBytes},
+		Parameters: map[string]string{
+			common.AttributeStoragePolicyID: "sc-storage-policy-id",
+		},
+		MutableParameters: map[string]string{
+			common.AttributeStoragePolicyID: vacPolicyID,
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			}},
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Requisite: []*csi.Topology{},
+			Preferred: []*csi.Topology{},
+		},
+	}
+
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatalf("expected success with mutable policy override; got: %v", err)
+	}
+	defer func() {
+		_, _ = ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+		})
+	}()
+
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: respCreate.Volume.VolumeId}},
+	}
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &queryFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 {
+		t.Fatalf("expected 1 volume in query result, got %d", len(queryResult.Volumes))
+	}
+	if queryResult.Volumes[0].StoragePolicyId != vacPolicyID {
+		t.Fatalf("expected storage policy %q (VAC policy from mutable_parameters), got %q",
+			vacPolicyID, queryResult.Volumes[0].StoragePolicyId)
+	}
+}

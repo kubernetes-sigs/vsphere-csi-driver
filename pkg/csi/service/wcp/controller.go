@@ -728,6 +728,19 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
+	// If VM_PVC_STORAGE_POLICY_MUTABILITY is enabled and mutable_parameters contains a
+	// storagePolicyID (sourced from the VolumeAttributesClass), use it in place of the
+	// StorageClass storagePolicyID. Per the CSI spec, mutable_parameters take precedence
+	// over parameters.
+	if isVMPVCStoragePolicyMutabilityEnabled {
+		for paramName := range req.GetMutableParameters() {
+			if strings.ToLower(paramName) == common.AttributeStoragePolicyID {
+				storagePolicyID = req.GetMutableParameters()[paramName]
+			}
+		}
+	}
+	log.Infof("createBlockVolume: using StoragePolicyID %q for volume %s", storagePolicyID, req.Name)
+
 	// Get VC instance.
 	vc, err := common.GetVCenter(ctx, c.manager)
 	// TODO: Need to extract fault from err returned by GetVirtualCenter.
@@ -1566,6 +1579,14 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 		}
 	}
+
+	// VolumeAttributesClass is not yet supported for file volumes. Reject any request that
+	// carries mutable_parameters (which the external-provisioner populates from the VAC).
+	if isVMPVCStoragePolicyMutabilityEnabled && len(req.GetMutableParameters()) > 0 {
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log,
+			codes.Unimplemented, "VolumeAttributesClass is not supported for file volumes")
+	}
+	log.Infof("createFileVolume: using StoragePolicyID %q for volume %s", storagePolicyID, req.Name)
 
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:      volSizeMB,
