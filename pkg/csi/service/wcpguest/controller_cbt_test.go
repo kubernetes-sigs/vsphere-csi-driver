@@ -94,7 +94,8 @@ type mockSupervisorSnapshotMetadataServer struct {
 	allocatedResponses []*snapshotmetadataapi.GetMetadataAllocatedResponse
 	deltaResponses     []*snapshotmetadataapi.GetMetadataDeltaResponse
 	errToReturn        error
-	// afterSendsReturn is returned from the handler after all configured Sends (e.g. OutOfRange for EOF-like end).
+	// afterSendsReturn is returned from the handler after all configured Sends (e.g. io.EOF for a
+	// normal end of stream, or a non-EOF status such as OutOfRange to simulate a Supervisor error).
 	afterSendsReturn error
 	// blockAfterSendsUntilCtxDone: after sending all responses, block until server.Context() is done,
 	// then return afterSendsReturn (or Canceled).
@@ -597,16 +598,18 @@ func TestGetMetadataAllocated(t *testing.T) {
 		assert.NotEqual(t, codes.OK, status.Code(err))
 	})
 
-	t.Run("OutOfRange from supervisor ends stream", func(t *testing.T) {
+	t.Run("OutOfRange from supervisor propagates as error", func(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 100}}
-		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "end")
+		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "startOffset is out of range")
 		mockServer.blockAfterSendsUntilCtxDone = false
 
-		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
+		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1",
+			StartingOffset: 123456789123456789, MaxResults: 10}
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataAllocated(req, mockStream)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Equal(t, codes.OutOfRange, status.Code(err))
 		assert.Len(t, mockStream.responses, 1)
 	})
 
@@ -1054,18 +1057,20 @@ func TestGetMetadataDelta(t *testing.T) {
 		assert.NotEqual(t, codes.OK, status.Code(err))
 	})
 
-	t.Run("OutOfRange from supervisor ends stream", func(t *testing.T) {
+	t.Run("OutOfRange from supervisor propagates as error", func(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.deltaResponses = []*snapshotmetadataapi.GetMetadataDeltaResponse{{VolumeCapacityBytes: 100}}
-		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "end")
+		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "startOffset is out of range")
 		mockServer.blockAfterSendsUntilCtxDone = false
 
 		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
+			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2",
+			StartingOffset: 123456789123456789, MaxResults: 10,
 		}
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(req, mockStream)
-		assert.NoError(t, err)
+		assert.Error(t, err)
+		assert.Equal(t, codes.OutOfRange, status.Code(err))
 		assert.Len(t, mockStream.responses, 1)
 	})
 
