@@ -109,7 +109,7 @@ func (c *controller) GetMetadataAllocated(
 		for {
 			svResp, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF || status.Code(err) == codes.OutOfRange {
+				if err == io.EOF {
 					break
 				}
 				if status.Code(err) == codes.Canceled || status.Code(err) == codes.DeadlineExceeded {
@@ -236,7 +236,7 @@ func (c *controller) GetMetadataDelta(
 		for {
 			svResp, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF || status.Code(err) == codes.OutOfRange {
+				if err == io.EOF {
 					break
 				}
 				if status.Code(err) == codes.Canceled || status.Code(err) == codes.DeadlineExceeded {
