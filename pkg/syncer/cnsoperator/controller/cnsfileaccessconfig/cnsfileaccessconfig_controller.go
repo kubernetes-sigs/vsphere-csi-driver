@@ -691,14 +691,30 @@ func (r *ReconcileCnsFileAccessConfig) configureNetPermissionsForFileVolume(ctx 
 	instanceLock, _ := volumePermissionLock.(*sync.Mutex)
 	instanceLock.Lock()
 	defer instanceLock.Unlock()
+	cnsFileVolumeClientInstance, err := getFileVolumeClientInstanceFn(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
+	}
+	if removePermission {
+		// CnsFileVolumeClient does not exist for this PVC — nothing was ever configured, so there is
+		// nothing to clean up here. Skip resolving the VM's external IP, which may legitimately fail
+		// while the VM/network objects are being torn down.
+		exists, err := cnsFileVolumeClientInstance.CnsFileVolumeClientExistsForPvc(ctx,
+			instance.Namespace+"/"+instance.Spec.PvcName)
+		if err != nil {
+			return logger.LogNewErrorf(log, "Failed to check if CNSFileVolumeClient exists for PVC %q. Error: %+v",
+				instance.Spec.PvcName, err)
+		}
+		if !exists {
+			log.Infof("No CnsFileVolumeClient found for PVC %q; skipping net permission removal for "+
+				"CnsFileAccessConfig %q", instance.Spec.PvcName, instance.Name)
+			return nil
+		}
+	}
 	tkgVMIP, err := r.getVMExternalIP(ctx, vm)
 	if err != nil {
 		return logger.LogNewErrorf(log, "Failed to get external facing IP address for VM: %s/%s instance. Error: %+v",
 			vm.Namespace, vm.Name, err)
-	}
-	cnsFileVolumeClientInstance, err := getFileVolumeClientInstanceFn(ctx)
-	if err != nil {
-		return logger.LogNewErrorf(log, "Failed to get CNSFileVolumeClient instance. Error: %+v", err)
 	}
 	clientVms, err := cnsFileVolumeClientInstance.GetClientVMsFromIPList(ctx,
 		instance.Namespace+"/"+instance.Spec.PvcName, tkgVMIP)
