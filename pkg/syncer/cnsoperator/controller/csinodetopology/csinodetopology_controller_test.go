@@ -23,19 +23,24 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
+
+func boolPtr(b bool) *bool { return &b }
 
 func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 	var (
@@ -45,8 +50,11 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		testUnexpectedVmName    = "test-unexpected-vm-name"
 		testNodeIDInSpec        = "test-node-id"
 		testSupervisorNamespace = "test-supervisor-namespace"
+		testPVCName             = "test-hostlocalvm-pvc"
 		expectedZoneKey         = corev1.LabelTopologyZone
 		expectedZoneValue       = "zone-1"
+		expectedHostKey         = common.GuestClusterTopologyLabelHost
+		expectedHostValue       = "lvn-dvm-10-161-28-187.dvm.lvn.broadcom.net"
 		testCSINodeTopology     = &csinodetopologyv1alpha1.CSINodeTopology{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: testCSINodeTopologyName,
@@ -63,24 +71,92 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 				NodeID: testNodeIDInSpec,
 			},
 		}
-		testVMwithZone = &vmoperatortypes.VirtualMachine{
+		testVMwithNonRemovableVolume = &vmoperatortypes.VirtualMachine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      testCSINodeTopologyName,
 				Namespace: testSupervisorNamespace,
+			},
+			Spec: vmoperatortypes.VirtualMachineSpec{
+				Volumes: []vmoperatortypes.VirtualMachineVolume{
+					{
+						Name:      testPVCName,
+						Removable: boolPtr(false),
+						VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+							PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+								PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: testPVCName,
+								},
+							},
+						},
+					},
+				},
 			},
 			Status: vmoperatortypes.VirtualMachineStatus{
 				Zone: expectedZoneValue,
 			},
 		}
-		testVMwithoutZone = &vmoperatortypes.VirtualMachine{
+		testVMwithRemovableVolumeOnly = &vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testCSINodeTopologyName,
+				Namespace: testSupervisorNamespace,
+			},
+			Spec: vmoperatortypes.VirtualMachineSpec{
+				Volumes: []vmoperatortypes.VirtualMachineVolume{
+					{
+						Name:      testPVCName,
+						Removable: boolPtr(true),
+						VirtualMachineVolumeSource: vmoperatortypes.VirtualMachineVolumeSource{
+							PersistentVolumeClaim: &vmoperatortypes.PersistentVolumeClaimVolumeSource{
+								PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: testPVCName,
+								},
+							},
+						},
+					},
+				},
+			},
+			Status: vmoperatortypes.VirtualMachineStatus{
+				Zone: expectedZoneValue,
+			},
+		}
+		// v1alpha2 fixtures: production code only fetches v1alpha5 when
+		// enableHostLocalSupportInGuest is true. When it is false, it falls
+		// back to the same utils.GetVirtualMachine (v1alpha2) path used
+		// elsewhere in the codebase, so those test cases need a v1alpha2 VM.
+		testVMwithZoneV1alpha2 = &vmoperatorv1alpha2.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testCSINodeTopologyName,
+				Namespace: testSupervisorNamespace,
+			},
+			Status: vmoperatorv1alpha2.VirtualMachineStatus{
+				Zone: expectedZoneValue,
+			},
+		}
+		testVMwithoutZoneV1alpha2 = &vmoperatorv1alpha2.VirtualMachine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      testCSINodeTopologyName,
 				Namespace: testSupervisorNamespace,
 			},
 		}
-		testUnexpectedVM = &vmoperatortypes.VirtualMachine{
+		testUnexpectedVMv1alpha2 = &vmoperatorv1alpha2.VirtualMachine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      testUnexpectedVmName,
+				Namespace: testSupervisorNamespace,
+			},
+		}
+		testPVCWithTopologyAnnotation = &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testPVCName,
+				Namespace: testSupervisorNamespace,
+				Annotations: map[string]string{
+					common.AnnVolumeAccessibleTopology: `[{"kubernetes.io/hostname":"` + expectedHostValue +
+						`","topology.kubernetes.io/zone":"` + expectedZoneValue + `"}]`,
+				},
+			},
+		}
+		testPVCWithoutTopologyAnnotation = &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testPVCName,
 				Namespace: testSupervisorNamespace,
 			},
 		}
@@ -88,18 +164,87 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 	)
 
 	tests := []struct {
-		name                    string
-		csiNodeTopology         *csinodetopologyv1alpha1.CSINodeTopology
-		vm                      *vmoperatortypes.VirtualMachine
-		expectedTopologyLabels  []csinodetopologyv1alpha1.TopologyLabel
-		expectedCRDStatus       csinodetopologyv1alpha1.CRDStatus
-		expectedReconcileResult reconcile.Result
-		expectedReconcileError  error
+		name                          string
+		csiNodeTopology               *csinodetopologyv1alpha1.CSINodeTopology
+		vm                            *vmoperatortypes.VirtualMachine
+		vmV1alpha2                    *vmoperatorv1alpha2.VirtualMachine
+		enableHostLocalSupportInGuest bool
+		existingPVC                   *corev1.PersistentVolumeClaim
+		expectedTopologyLabels        []csinodetopologyv1alpha1.TopologyLabel
+		expectedCRDStatus             csinodetopologyv1alpha1.CRDStatus
+		expectedReconcileResult       reconcile.Result
+		expectedReconcileError        error
 	}{
 		{
 			name:            "TestWithVmStatusZonePopulated",
 			csiNodeTopology: testCSINodeTopology.DeepCopy(),
-			vm:              testVMwithZone.DeepCopy(),
+			vmV1alpha2:      testVMwithZoneV1alpha2.DeepCopy(),
+			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+				{
+					Key:   expectedZoneKey,
+					Value: expectedZoneValue,
+				},
+			},
+			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
+			expectedReconcileResult: reconcile.Result{},
+			expectedReconcileError:  nil,
+		},
+		{
+			name:                          "TestWithHostLocalSupportEnabled_PVCHasHostnameAnnotation",
+			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
+			vm:                            testVMwithNonRemovableVolume.DeepCopy(),
+			enableHostLocalSupportInGuest: true,
+			existingPVC:                   testPVCWithTopologyAnnotation.DeepCopy(),
+			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+				{
+					Key:   expectedZoneKey,
+					Value: expectedZoneValue,
+				},
+				{
+					Key:   expectedHostKey,
+					Value: expectedHostValue,
+				},
+			},
+			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
+			expectedReconcileResult: reconcile.Result{},
+			expectedReconcileError:  nil,
+		},
+		{
+			name:                          "TestWithHostLocalSupportEnabled_PVCMissingAnnotation",
+			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
+			vm:                            testVMwithNonRemovableVolume.DeepCopy(),
+			enableHostLocalSupportInGuest: true,
+			existingPVC:                   testPVCWithoutTopologyAnnotation.DeepCopy(),
+			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+				{
+					Key:   expectedZoneKey,
+					Value: expectedZoneValue,
+				},
+			},
+			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
+			expectedReconcileResult: reconcile.Result{},
+			expectedReconcileError:  nil,
+		},
+		{
+			name:                          "TestWithHostLocalSupportEnabled_NoNonRemovableVolume",
+			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
+			vm:                            testVMwithRemovableVolumeOnly.DeepCopy(),
+			enableHostLocalSupportInGuest: true,
+			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+				{
+					Key:   expectedZoneKey,
+					Value: expectedZoneValue,
+				},
+			},
+			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
+			expectedReconcileResult: reconcile.Result{},
+			expectedReconcileError:  nil,
+		},
+		{
+			name:                          "TestWithHostLocalSupportDisabled",
+			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
+			vmV1alpha2:                    testVMwithZoneV1alpha2.DeepCopy(),
+			enableHostLocalSupportInGuest: false,
 			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
 				{
 					Key:   expectedZoneKey,
@@ -113,7 +258,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		{
 			name:                    "TestWithVmStatusZoneEmpty",
 			csiNodeTopology:         testCSINodeTopology.DeepCopy(),
-			vm:                      testVMwithoutZone.DeepCopy(),
+			vmV1alpha2:              testVMwithoutZoneV1alpha2.DeepCopy(),
 			expectedTopologyLabels:  nil,
 			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
 			expectedReconcileResult: reconcile.Result{},
@@ -122,7 +267,7 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 		{
 			name:                    "TestWithGetVmFailure",
 			csiNodeTopology:         testCSINodeTopology.DeepCopy(),
-			vm:                      testUnexpectedVM.DeepCopy(),
+			vmV1alpha2:              testUnexpectedVMv1alpha2.DeepCopy(),
 			expectedTopologyLabels:  nil,
 			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologyError,
 			expectedReconcileResult: reconcile.Result{RequeueAfter: time.Second},
@@ -138,29 +283,43 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 			s := scheme.Scheme
 			s.AddKnownTypes(csinodetopologyv1alpha1.SchemeGroupVersion, test.csiNodeTopology)
 
-			fakeClient := fake.NewClientBuilder().
+			fakeClient := ctrlfake.NewClientBuilder().
 				WithScheme(s).
 				WithRuntimeObjects(objs...).
 				Build()
 
-			supervisorObjs := []runtime.Object{test.vm}
-
+			var supervisorObjs []runtime.Object
 			supervisor_scheme := scheme.Scheme
-			supervisor_scheme.AddKnownTypes(vmoperatortypes.GroupVersion, test.vm)
+			if test.vm != nil {
+				supervisorObjs = append(supervisorObjs, test.vm)
+				supervisor_scheme.AddKnownTypes(vmoperatortypes.GroupVersion, test.vm)
+			}
+			if test.vmV1alpha2 != nil {
+				supervisorObjs = append(supervisorObjs, test.vmV1alpha2)
+				supervisor_scheme.AddKnownTypes(vmoperatorv1alpha2.GroupVersion, test.vmV1alpha2)
+			}
 
-			fakeVmOperatorClient := fake.NewClientBuilder().
+			fakeVmOperatorClient := ctrlfake.NewClientBuilder().
 				WithScheme(supervisor_scheme).
 				WithRuntimeObjects(supervisorObjs...).
 				Build()
 
+			var supervisorClientsetObjs []runtime.Object
+			if test.existingPVC != nil {
+				supervisorClientsetObjs = append(supervisorClientsetObjs, test.existingPVC)
+			}
+			supervisorClientset := fake.NewSimpleClientset(supervisorClientsetObjs...)
+
 			r := &ReconcileCSINodeTopology{
-				client:              fakeClient,
-				scheme:              s,
-				configInfo:          &cnsconfig.ConfigurationInfo{},
-				recorder:            record.NewFakeRecorder(testBufferSize),
-				enableTKGsHAinGuest: true,
-				vmOperatorClient:    fakeVmOperatorClient,
-				supervisorNamespace: testSupervisorNamespace,
+				client:                        fakeClient,
+				scheme:                        s,
+				configInfo:                    &cnsconfig.ConfigurationInfo{},
+				recorder:                      record.NewFakeRecorder(testBufferSize),
+				enableTKGsHAinGuest:           true,
+				enableHostLocalSupportInGuest: test.enableHostLocalSupportInGuest,
+				vmOperatorClient:              fakeVmOperatorClient,
+				supervisorNamespace:           testSupervisorNamespace,
+				supervisorClientset:           supervisorClientset,
 			}
 
 			backOffDuration = make(map[types.NamespacedName]time.Duration)

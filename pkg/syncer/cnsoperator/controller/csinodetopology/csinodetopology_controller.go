@@ -18,6 +18,7 @@ package csinodetopology
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,11 +26,14 @@ import (
 	"time"
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -95,6 +99,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		coCommonInterface.IsFSSEnabled(ctx, common.TKGsHA)
 	var vmOperatorClient client.Client
 	var supervisorNamespace string
+	var enableHostLocalSupportInGuest bool
+	var supervisorClientset kubernetes.Interface
 	if enableTKGsHAinGuest {
 		log.Infof("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		restClientConfigForSupervisor :=
@@ -109,6 +115,21 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		if err != nil {
 			log.Errorf("failed to get supervisor namespace. Error: %+v", err)
 			return err
+		}
+
+		enableHostLocalSupportInGuest = coCommonInterface.IsPVCSIFSSEnabled(ctx, common.HostLocalStorageSupportFSS)
+		if enableHostLocalSupportInGuest {
+			log.Infof("The %s FSS is enabled in %s", common.HostLocalStorageSupportFSS, cnstypes.CnsClusterFlavorGuest)
+
+			// Used to read the Supervisor PVC backing the node VM's
+			// non-removable (boot) volume, whose
+			// csi.vsphere.volume-accessible-topology annotation carries the
+			// ESXi hostname.
+			supervisorClientset, err = kubernetes.NewForConfig(restClientConfigForSupervisor)
+			if err != nil {
+				log.Errorf("failed to create supervisor clientset. Error: %+v", err)
+				return err
+			}
 		}
 	}
 
@@ -129,21 +150,25 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme,
 		corev1.EventSource{Component: csinodetopologyv1alpha1.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
-		enableTKGsHAinGuest, vmOperatorClient, supervisorNamespace))
+		enableTKGsHAinGuest, enableHostLocalSupportInGuest, vmOperatorClient, supervisorNamespace,
+		supervisorClientset))
 }
 
 // newReconciler returns a new `reconcile.Reconciler`.
 func newReconciler(mgr manager.Manager, configInfo *cnsconfig.ConfigurationInfo, recorder record.EventRecorder,
-	enableTKGsHAinGuest bool, vmOperatorClient client.Client,
-	supervisorNamespace string) reconcile.Reconciler {
+	enableTKGsHAinGuest bool, enableHostLocalSupportInGuest bool, vmOperatorClient client.Client,
+	supervisorNamespace string, supervisorClientset kubernetes.Interface) reconcile.Reconciler {
 	return &ReconcileCSINodeTopology{
-		client:              mgr.GetClient(),
-		scheme:              mgr.GetScheme(),
-		configInfo:          configInfo,
-		recorder:            recorder,
-		enableTKGsHAinGuest: enableTKGsHAinGuest,
-		vmOperatorClient:    vmOperatorClient,
-		supervisorNamespace: supervisorNamespace}
+		client:                        mgr.GetClient(),
+		scheme:                        mgr.GetScheme(),
+		configInfo:                    configInfo,
+		recorder:                      recorder,
+		enableTKGsHAinGuest:           enableTKGsHAinGuest,
+		enableHostLocalSupportInGuest: enableHostLocalSupportInGuest,
+		vmOperatorClient:              vmOperatorClient,
+		supervisorNamespace:           supervisorNamespace,
+		supervisorClientset:           supervisorClientset,
+	}
 }
 
 // add adds a new Controller to mgr with r as the `reconcile.Reconciler`.
@@ -202,13 +227,15 @@ var _ reconcile.Reconciler = &ReconcileCSINodeTopology{}
 type ReconcileCSINodeTopology struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
-	client              client.Client
-	recorder            record.EventRecorder
-	vmOperatorClient    client.Client
-	scheme              *runtime.Scheme
-	configInfo          *cnsconfig.ConfigurationInfo
-	supervisorNamespace string
-	enableTKGsHAinGuest bool
+	client                        client.Client
+	recorder                      record.EventRecorder
+	vmOperatorClient              client.Client
+	scheme                        *runtime.Scheme
+	configInfo                    *cnsconfig.ConfigurationInfo
+	supervisorNamespace           string
+	enableTKGsHAinGuest           bool
+	enableHostLocalSupportInGuest bool
+	supervisorClientset           kubernetes.Interface
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -391,7 +418,8 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 	}()
 
 	// Fetch topology labels for guest worker node backed by vmop VM.
-	topologyLabels, err := getNodeTopologyInfoForGuest(ctx, instance, r.vmOperatorClient, r.supervisorNamespace)
+	topologyLabels, err := getNodeTopologyInfoForGuest(ctx, instance, r.vmOperatorClient,
+		r.supervisorNamespace, r.enableHostLocalSupportInGuest, r.supervisorClientset)
 	if err != nil {
 		msg := fmt.Sprintf("failed to fetch topology information for the worker node %q. Error: %v",
 			instance.Name, err)
@@ -420,31 +448,134 @@ func (r *ReconcileCSINodeTopology) reconcileForGuest(ctx context.Context, reques
 }
 
 func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv1alpha1.CSINodeTopology,
-	vmOperatorClient client.Client, supervisorNamespace string) ([]csinodetopologyv1alpha1.TopologyLabel, error) {
+	vmOperatorClient client.Client, supervisorNamespace string,
+	enableHostLocalSupportInGuest bool, supervisorClientset kubernetes.Interface) (
+	[]csinodetopologyv1alpha1.TopologyLabel, error) {
 	log := logger.GetLogger(ctx)
 	vmKey := types.NamespacedName{
 		Namespace: supervisorNamespace,
 		Name:      instance.Name, // use the nodeName as the VM key
 	}
-	log.Info("fetching virtual machines with all versions")
-	virtualMachine, _, err := utils.GetVirtualMachine(
-		ctx, vmKey, vmOperatorClient)
-	if err != nil {
-		return nil, logger.LogNewErrorf(log,
-			"failed to get VirtualMachines for the node: %q. Error: %+v", instance.Name, err)
+	var zone, hostname string
+	if enableHostLocalSupportInGuest {
+		// v1alpha5 is needed here (and only here) to read
+		// Spec.Volumes[].Removable, which identifies the boot volume for
+		// host-local topology and is not available on the v1alpha2
+		// VirtualMachine type used below.
+		virtualMachine, err := getVirtualMachineV1alpha5(ctx, vmOperatorClient, vmKey)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to get VirtualMachines for the node: %q. Error: %+v", instance.Name, err)
+		}
+		zone = virtualMachine.Status.Zone
+
+		// For host-local storage, the node VM's non-removable (boot) volume's
+		// backing Supervisor PVC carries the resolved ESXi hostname in its
+		// csi.vsphere.volume-accessible-topology annotation (stamped by the
+		// Supervisor CSI/CNS provisioning path).
+		hostname, err = getHostnameFromNonRemovableVolume(ctx, supervisorClientset, virtualMachine,
+			supervisorNamespace)
+		if err != nil {
+			log.Warnf("failed to resolve ESXi hostname for node %q. Skipping host topology label. Error: %+v",
+				instance.Name, err)
+			hostname = ""
+		}
+	} else {
+		log.Info("fetching virtual machines with all versions")
+		virtualMachine, _, err := utils.GetVirtualMachine(ctx, vmKey, vmOperatorClient)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to get VirtualMachines for the node: %q. Error: %+v", instance.Name, err)
+		}
+		zone = virtualMachine.Status.Zone
 	}
+
 	var topologyLabels []csinodetopologyv1alpha1.TopologyLabel
-	if virtualMachine.Status.Zone != "" {
-		topologyLabels = make([]csinodetopologyv1alpha1.TopologyLabel, 0)
+	if zone != "" {
 		topologyLabels = append(topologyLabels,
 			csinodetopologyv1alpha1.TopologyLabel{
 				Key:   corev1.LabelTopologyZone,
-				Value: virtualMachine.Status.Zone,
+				Value: zone,
+			},
+		)
+	}
+	if hostname != "" {
+		topologyLabels = append(topologyLabels,
+			csinodetopologyv1alpha1.TopologyLabel{
+				Key:   common.GuestClusterTopologyLabelHost,
+				Value: hostname,
 			},
 		)
 	}
 
 	return topologyLabels, nil
+}
+
+// getHostnameFromNonRemovableVolume resolves the ESXi hostname for a
+// host-local node VM. It finds the VM's non-removable volume (the boot
+// disk, marked removable=false by VM Operator to protect it from accidental
+// removal), fetches the Supervisor PVC backing that volume, and reads the
+// "kubernetes.io/hostname" segment out of the PVC's
+// csi.vsphere.volume-accessible-topology annotation.
+func getHostnameFromNonRemovableVolume(ctx context.Context, supervisorClientset kubernetes.Interface,
+	virtualMachine *vmoperatorv1alpha5.VirtualMachine, supervisorNamespace string) (string, error) {
+	log := logger.GetLogger(ctx)
+
+	var pvcName string
+	for _, vol := range virtualMachine.Spec.Volumes {
+		if vol.Removable != nil && !*vol.Removable && vol.PersistentVolumeClaim != nil {
+			pvcName = vol.PersistentVolumeClaim.ClaimName
+			break
+		}
+	}
+	if pvcName == "" {
+		return "", fmt.Errorf("no non-removable volume with a PVC found on VirtualMachine %q", virtualMachine.Name)
+	}
+
+	pvc, err := supervisorClientset.CoreV1().PersistentVolumeClaims(supervisorNamespace).Get(
+		ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get PVC %q: %w", pvcName, err)
+	}
+
+	rawTopology, ok := pvc.Annotations[common.AnnVolumeAccessibleTopology]
+	if !ok || rawTopology == "" {
+		return "", fmt.Errorf("PVC %q has no %q annotation", pvcName, common.AnnVolumeAccessibleTopology)
+	}
+	var segmentsList []map[string]string
+	if err := json.Unmarshal([]byte(rawTopology), &segmentsList); err != nil {
+		return "", fmt.Errorf("failed to parse %q annotation on PVC %q: %w",
+			common.AnnVolumeAccessibleTopology, pvcName, err)
+	}
+	for _, segments := range segmentsList {
+		if hostname := segments[corev1.LabelHostname]; hostname != "" {
+			return hostname, nil
+		}
+	}
+	log.Infof("PVC %q's %q annotation did not contain a %q key", pvcName, common.AnnVolumeAccessibleTopology,
+		corev1.LabelHostname)
+	return "", nil
+}
+
+// getVirtualMachineV1alpha5 fetches a VirtualMachine using the v1alpha5 API
+// version. This function is specific to this controller because
+// Spec.Volumes[].Removable (needed to identify the boot volume for
+// host-local topology) is not available on the v1alpha2 VirtualMachine type
+// used by the rest of the codebase.
+func getVirtualMachineV1alpha5(ctx context.Context, vmOperatorClient client.Client,
+	vmKey types.NamespacedName) (*vmoperatorv1alpha5.VirtualMachine, error) {
+	log := logger.GetLogger(ctx)
+	vm := &vmoperatorv1alpha5.VirtualMachine{}
+	log.Infof("getVirtualMachineV1alpha5: fetching VirtualMachine with v1alpha5 API "+
+		"name: %s, namespace: %s", vmKey.Name, vmKey.Namespace)
+	if err := vmOperatorClient.Get(ctx, vmKey, vm); err != nil {
+		log.Errorf("getVirtualMachineV1alpha5: failed to get VirtualMachine "+
+			"with name %s and namespace %s, error %v", vmKey.Name, vmKey.Namespace, err)
+		return nil, err
+	}
+	log.Infof("getVirtualMachineV1alpha5: successfully fetched the VirtualMachine "+
+		"with name %s and namespace %s", vmKey.Name, vmKey.Namespace)
+	return vm, nil
 }
 
 func updateCRStatus(ctx context.Context, r *ReconcileCSINodeTopology, instance *csinodetopologyv1alpha1.CSINodeTopology,
