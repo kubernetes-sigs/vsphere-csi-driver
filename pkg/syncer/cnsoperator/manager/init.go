@@ -27,6 +27,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -381,10 +382,15 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				return err
 			}
 
-			// Create StoragePolicyInfo CRD in the guest cluster.
-			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+			// Create StoragePolicyInfo CRD in the guest cluster as Cluster-scoped.
+			// StoragePolicyInfo is Namespaced on the Supervisor (one per tenant namespace),
+			// but a guest cluster is provisioned inside a single Supervisor namespace and is
+			// therefore single-tenant, so the guest gets one Cluster-scoped StoragePolicyInfo
+			// per policy. The same manifest is reused with its scope overridden here.
+			err = k8s.CreateCustomResourceDefinitionFromManifestWithScope(ctx,
 				cnsoperatorconfig.EmbedStoragePolicyInfoCRFile,
-				cnsoperatorconfig.EmbedStoragePolicyInfoCRFileName)
+				cnsoperatorconfig.EmbedStoragePolicyInfoCRFileName,
+				apiextensionsv1.ClusterScoped)
 			if err != nil {
 				crdName := cnsoperatorv1alpha1.StoragePolicyInfoPlural +
 					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
