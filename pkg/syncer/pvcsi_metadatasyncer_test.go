@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	fakesnapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -77,8 +76,8 @@ func runSnapshotDeletedRemoveAnnotation(
 		runtimeObjs = append(runtimeObjs, vs.DeepCopy())
 	}
 
-	guestClient := fakesnapshotclient.NewSimpleClientset(guestObjs...)
-	supervisorClient := fakesnapshotclient.NewSimpleClientset(supervisorSnapshotObjs...)
+	guestClient := newFakeSnapshotClientset(guestObjs...)
+	supervisorClient := newFakeSnapshotClientset(supervisorSnapshotObjs...)
 	runtimeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(runtimeObjs...).Build()
 
 	snapshotDeletedRemoveAnnotation(context.Background(), guestVS, guestClient,
@@ -239,8 +238,8 @@ func TestSnapshotDeletedRemoveAnnotation(t *testing.T) {
 		// No supervisor VS seeded -> Get returns NotFound.
 
 		scheme := buildSDAScheme(t)
-		guestClient := fakesnapshotclient.NewSimpleClientset(guestVSC.DeepCopy())
-		supervisorClient := fakesnapshotclient.NewSimpleClientset()
+		guestClient := newFakeSnapshotClientset(guestVSC.DeepCopy())
+		supervisorClient := newFakeSnapshotClientset()
 		runtimeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 		// Should not panic and should return without error.

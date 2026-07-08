@@ -25,14 +25,27 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
-	fakesnapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/fake"
+	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	snapshotscheme "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/scheme"
+	groupsnapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1"
+	fakegroupsnapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1/fake"
+	groupsnapshotv1beta1 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1beta1"
+	fakegroupsnapshotv1beta1 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1beta1/fake"
+	groupsnapshotv1beta2 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1beta2"
+	fakegroupsnapshotv1beta2 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumegroupsnapshot/v1beta2/fake"
+	snapshotv1client "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumesnapshot/v1"
+	fakesnapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned/typed/volumesnapshot/v1/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/discovery"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -48,6 +61,65 @@ import (
 // Pointer helper function
 func ptrTo[T any](v T) *T {
 	return &v
+}
+
+// fakeSnapshotClientset is a local, non-deprecated stand-in for the vendored
+// fakesnapshotclient.NewSimpleClientset. That constructor is marked deprecated in favor of
+// NewClientset, but NewClientset is only generated when the client is built with
+// --with-applyconfig, which our vendored external-snapshotter/client/v8 module is not — so no
+// replacement constructor actually exists for any published version of this dependency (checked
+// up to v8.6.0). This type replicates NewSimpleClientset's construction using only the same
+// exported building blocks NewSimpleClientset itself uses, so tests don't depend on the
+// deprecated symbol.
+type fakeSnapshotClientset struct {
+	k8stesting.Fake
+	discovery *fakediscovery.FakeDiscovery
+	tracker   k8stesting.ObjectTracker
+}
+
+func (c *fakeSnapshotClientset) Discovery() discovery.DiscoveryInterface {
+	return c.discovery
+}
+
+func (c *fakeSnapshotClientset) GroupsnapshotV1() groupsnapshotv1.GroupsnapshotV1Interface {
+	return &fakegroupsnapshotv1.FakeGroupsnapshotV1{Fake: &c.Fake}
+}
+
+func (c *fakeSnapshotClientset) GroupsnapshotV1beta1() groupsnapshotv1beta1.GroupsnapshotV1beta1Interface {
+	return &fakegroupsnapshotv1beta1.FakeGroupsnapshotV1beta1{Fake: &c.Fake}
+}
+
+func (c *fakeSnapshotClientset) GroupsnapshotV1beta2() groupsnapshotv1beta2.GroupsnapshotV1beta2Interface {
+	return &fakegroupsnapshotv1beta2.FakeGroupsnapshotV1beta2{Fake: &c.Fake}
+}
+
+func (c *fakeSnapshotClientset) SnapshotV1() snapshotv1client.SnapshotV1Interface {
+	return &fakesnapshotv1.FakeSnapshotV1{Fake: &c.Fake}
+}
+
+var _ snapshotterClientSet.Interface = &fakeSnapshotClientset{}
+
+// newFakeSnapshotClientset builds a fake snapshotterClientSet.Interface pre-populated with the
+// given objects, equivalent to fakesnapshotclient.NewSimpleClientset(objects...).
+func newFakeSnapshotClientset(objects ...runtime.Object) snapshotterClientSet.Interface {
+	o := k8stesting.NewObjectTracker(snapshotscheme.Scheme, snapshotscheme.Codecs.UniversalDecoder())
+	for _, obj := range objects {
+		if err := o.Add(obj); err != nil {
+			panic(err)
+		}
+	}
+
+	cs := &fakeSnapshotClientset{tracker: o}
+	cs.discovery = &fakediscovery.FakeDiscovery{Fake: &cs.Fake}
+	cs.AddReactor("*", "*", k8stesting.ObjectReaction(o))
+	cs.AddWatchReactor("*", func(action k8stesting.Action) (handled bool, ret watch.Interface, err error) {
+		w, err := o.Watch(action.GetResource(), action.GetNamespace())
+		if err != nil {
+			return false, nil, err
+		}
+		return true, w, nil
+	})
+	return cs
 }
 
 func TestGenerateVolumeNodeAffinity(t *testing.T) {
@@ -2253,8 +2325,8 @@ func runReconcileAnnotations(t *testing.T, supervisorVSs []*snapv1.VolumeSnapsho
 		guestObjs = append(guestObjs, vs.DeepCopy())
 	}
 
-	supervisorClient := fakesnapshotclient.NewSimpleClientset(supervisorObjs...)
-	guestClient := fakesnapshotclient.NewSimpleClientset(guestObjs...)
+	supervisorClient := newFakeSnapshotClientset(supervisorObjs...)
+	guestClient := newFakeSnapshotClientset(guestObjs...)
 	runtimeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(runtimeObjs...).Build()
 
 	err := reconcileSupervisorSnapshotAnnotations(context.Background(), guestClient, supervisorClient,
