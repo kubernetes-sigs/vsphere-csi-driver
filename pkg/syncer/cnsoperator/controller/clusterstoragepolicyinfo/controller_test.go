@@ -516,6 +516,31 @@ func TestEnsureClusterSPIInstance(t *testing.T) {
 		assert.Nil(t, instance)
 	})
 
+	t.Run("Return existing instance unchanged when neither SC nor VAC exist yet", func(t *testing.T) {
+		existingInstance := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-name",
+			},
+		}
+
+		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingInstance).Build()
+		recorder := record.NewFakeRecorder(10)
+		r := &ReconcileClusterStoragePolicyInfo{
+			client:   client,
+			scheme:   scheme,
+			recorder: recorder,
+		}
+
+		// Simulates a ClusterSPI pre-created by full sync ahead of any StorageClass/VAC. It must be
+		// returned as-is so the caller still proceeds to ensure the InfraStoragePolicyInfo CR exists.
+		instance, wasCreated, err := r.ensureClusterSPIInstance(ctx, existingInstance, "test-name", nil, nil)
+		require.NoError(t, err)
+		assert.False(t, wasCreated)
+		require.NotNil(t, instance)
+		assert.Equal(t, "test-name", instance.Name)
+		assert.Empty(t, instance.OwnerReferences)
+	})
+
 	t.Run("Update owner references when instance exists", func(t *testing.T) {
 		existingInstance := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1450,6 +1475,86 @@ func TestExtractIopsLimit(t *testing.T) {
 	}
 }
 
+func TestGetStorageTopologyTypeFromPolicy(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	topologyRule := func(value string) cnsvsphere.SpbmPolicyRule {
+		return cnsvsphere.SpbmPolicyRule{
+			Ns:     pbmTopologyNamespace,
+			CapID:  pbmTopologyCapabilityID,
+			PropID: pbmTopologyPropertyID,
+			Value:  value,
+		}
+	}
+	policyWithRule := func(rule cnsvsphere.SpbmPolicyRule) []cnsvsphere.SpbmPolicyContent {
+		return []cnsvsphere.SpbmPolicyContent{
+			{
+				ID:       "test-policy",
+				Profiles: []cnsvsphere.SpbmPolicySubProfile{{Rules: []cnsvsphere.SpbmPolicyRule{rule}}},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		policyContent []cnsvsphere.SpbmPolicyContent
+		expected      string
+	}{
+		{
+			name:          "empty policy content",
+			policyContent: []cnsvsphere.SpbmPolicyContent{},
+			expected:      "",
+		},
+		{
+			name:          "Zonal topology maps to zonal",
+			policyContent: policyWithRule(topologyRule(pbmTopologyValueZonal)),
+			expected:      "zonal",
+		},
+		{
+			name:          "CrossZonal topology maps to zonal",
+			policyContent: policyWithRule(topologyRule(pbmTopologyValueCrossZonal)),
+			expected:      "zonal",
+		},
+		{
+			name:          "value comparison is case-insensitive",
+			policyContent: policyWithRule(topologyRule("zonal")),
+			expected:      "zonal",
+		},
+		{
+			name:          "HostLocal topology is not zone-aware",
+			policyContent: policyWithRule(topologyRule("HostLocal")),
+			expected:      "",
+		},
+		{
+			name: "policy without topology capability",
+			policyContent: policyWithRule(cnsvsphere.SpbmPolicyRule{
+				Ns:     vsanIopsLimitNs,
+				PropID: vsanIopsLimitPropID,
+				Value:  "100",
+			}),
+			expected: "",
+		},
+		{
+			name: "topology capability on a later sub-profile",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{Rules: []cnsvsphere.SpbmPolicyRule{{Ns: vsanIopsLimitNs, PropID: vsanIopsLimitPropID, Value: "100"}}},
+						{Rules: []cnsvsphere.SpbmPolicyRule{topologyRule(pbmTopologyValueZonal)}},
+					},
+				},
+			},
+			expected: "zonal",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getStorageTopologyTypeFromPolicy(ctx, tt.policyContent))
+		})
+	}
+}
+
 func TestPopulatePerformanceCapabilities(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	iops500 := int64(500)
@@ -1832,6 +1937,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 		expectedSC      *storagev1.StorageClass
 		expectedError   string
 		expectedErrType error
+		expectNilNoErr  bool
 	}{
 		{
 			name:      "Single matching StorageClass",
@@ -1891,7 +1997,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 			expectedErrType: fmt.Errorf(""),
 		},
 		{
-			name:      "No matching StorageClass should error",
+			name:      "No matching StorageClass returns nil, no error",
 			profileID: "non-existent-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -1901,8 +2007,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					},
 				},
 			},
-			expectedError:   "no StorageClass found referencing storage policy ID \"non-existent-policy\"",
-			expectedErrType: fmt.Errorf(""),
+			expectNilNoErr: true,
 		},
 		{
 			name:      "Skip WaitForFirstConsumer StorageClasses",
@@ -1941,7 +2046,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 			},
 		},
 		{
-			name:      "StorageClass with nil parameters",
+			name:      "StorageClass with nil parameters returns nil, no error",
 			profileID: "test-policy-nil",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -1949,18 +2054,16 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					Parameters: nil,
 				},
 			},
-			expectedError:   "no StorageClass found referencing storage policy ID \"test-policy-nil\"",
-			expectedErrType: fmt.Errorf(""),
+			expectNilNoErr: true,
 		},
 		{
-			name:            "Empty StorageClass list",
-			profileID:       "any-policy",
-			storageClasses:  []*storagev1.StorageClass{},
-			expectedError:   "no StorageClass found referencing storage policy ID \"any-policy\"",
-			expectedErrType: fmt.Errorf(""),
+			name:           "Empty StorageClass list returns nil, no error",
+			profileID:      "any-policy",
+			storageClasses: []*storagev1.StorageClass{},
+			expectNilNoErr: true,
 		},
 		{
-			name:      "StorageClass with empty parameters map",
+			name:      "StorageClass with empty parameters map returns nil, no error",
 			profileID: "test-policy-empty",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -1968,11 +2071,10 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					Parameters: map[string]string{},
 				},
 			},
-			expectedError:   "no StorageClass found referencing storage policy ID \"test-policy-empty\"",
-			expectedErrType: fmt.Errorf(""),
+			expectNilNoErr: true,
 		},
 		{
-			name:      "StorageClass with matching key but different value",
+			name:      "StorageClass with matching key but different value returns nil, no error",
 			profileID: "desired-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -1982,8 +2084,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					},
 				},
 			},
-			expectedError:   "no StorageClass found referencing storage policy ID \"desired-policy\"",
-			expectedErrType: fmt.Errorf(""),
+			expectNilNoErr: true,
 		},
 	}
 
@@ -2005,6 +2106,9 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 			if tt.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Nil(t, result)
+			} else if tt.expectNilNoErr {
+				require.NoError(t, err)
 				assert.Nil(t, result)
 			} else {
 				require.NoError(t, err)
@@ -2394,7 +2498,7 @@ func testFindStoragePolicyProfile(ctx context.Context, instance *clusterspiv1alp
 func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx context.Context,
 	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
-	mockVCConfig *mockVirtualCenter) error {
+	mockVCConfig *mockVirtualCenter, policyContent []cnsvsphere.SpbmPolicyContent) error {
 
 	log := logger.GetLogger(ctx)
 
@@ -2404,15 +2508,23 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
 
-	// Get the StorageTopologyType parameter value from StorageClass
-	topologyType, err := getStorageTopologyType(ctx, storageClass)
-	if err != nil {
-		log.Errorf("Storage policy %s does not have StorageTopologyType parameter, skipping topology population: %v",
-			profileID, err)
-		return err
+	var topologyType string
+	if storageClass != nil {
+		// Get the StorageTopologyType parameter value from StorageClass
+		topologyType, err = getStorageTopologyType(ctx, storageClass)
+		if err != nil {
+			log.Errorf("Storage policy %s does not have StorageTopologyType parameter, skipping topology population: %v",
+				profileID, err)
+			return err
+		}
+		log.Infof("Storage policy %s has topology type: %q", profileID, topologyType)
+	} else {
+		// No StorageClass references this policy yet; derive the topology type directly from the
+		// policy's PBM capabilities, mirroring production behavior.
+		topologyType = getStorageTopologyTypeFromPolicy(ctx, policyContent)
+		log.Infof("No StorageClass found for storage policy %s; derived topology type %q from PBM policy content",
+			profileID, topologyType)
 	}
-
-	log.Infof("Storage policy %s has topology type: %q", profileID, topologyType)
 
 	// Initialize topology status with the topology type
 	infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
@@ -2453,6 +2565,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 		name             string
 		profileID        string
 		storageClasses   []*storagev1.StorageClass
+		policyContent    []cnsvsphere.SpbmPolicyContent
 		topologyMgr      commoncotypes.ControllerTopologyService
 		mockVCConfig     *mockVirtualCenter
 		expectedError    string
@@ -2511,7 +2624,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			},
 		},
 		{
-			name:      "StorageClass not found error",
+			name:      "StorageClass not found derives topology from PBM policy content",
 			profileID: "non-existent-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2521,12 +2634,31 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 					},
 				},
 			},
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "non-existent-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     pbmTopologyNamespace,
+									CapID:  pbmTopologyCapabilityID,
+									PropID: pbmTopologyPropertyID,
+									Value:  pbmTopologyValueZonal,
+								},
+							},
+						},
+					},
+				},
+			},
 			topologyMgr: &mockControllerTopologyService{},
 			mockVCConfig: &mockVirtualCenter{
 				compatibleHubs: []pbmtypes.PbmPlacementHub{},
 			},
-			expectedError: "failed to get StorageClass for policy: no StorageClass found referencing " +
-				"storage policy ID \"non-existent-policy\"",
+			expectedTopology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{},
+			},
 		},
 		{
 			name:      "Invalid topology type error",
@@ -2662,7 +2794,8 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			}
 
 			// Call the function under test
-			err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, tt.profileID, tt.mockVCConfig)
+			err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, tt.profileID, tt.mockVCConfig,
+				tt.policyContent)
 
 			// Verify results
 			if tt.expectedError != "" {
@@ -2738,7 +2871,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 		// Execute - use the test wrapper to avoid VirtualCenter issues
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-id", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
-		})
+		}, nil)
 
 		// Verify
 		require.NoError(t, err)
@@ -2788,7 +2921,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 		// Execute - use the test wrapper to avoid VirtualCenter issues
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-no-topo", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
-		})
+		}, nil)
 
 		// Verify
 		require.NoError(t, err)

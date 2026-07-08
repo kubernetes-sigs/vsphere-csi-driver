@@ -108,7 +108,7 @@ func TestPopulateTopologyCapabilities_PopulatesDsToPolicyCache(t *testing.T) {
 	// that reuse the same datastore IDs.
 	t.Cleanup(func() { vsphereinfra.GetCache().SetDatastoresForPolicy(clusterSPI.Name, nil) })
 
-	err := r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil, clusterDatastoreCache)
+	err := r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil, clusterDatastoreCache, nil)
 	require.NoError(t, err)
 
 	// Only zone-a's cluster mounts the compatible datastore (ds-1).
@@ -153,12 +153,14 @@ func TestPopulateTopologyCapabilities_CacheEntryClearedWhenNoLongerCompatible(t 
 
 	// First reconcile: ds-1 is compatible.
 	withMockCompatibleDatastores(t, "ds-1")
-	require.NoError(t, r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil, clusterDatastoreCache))
+	require.NoError(t, r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil,
+		clusterDatastoreCache, nil))
 	require.ElementsMatch(t, []string{"test-policy-2"}, vsphereinfra.GetCache().PoliciesForDatastore("ds-1"))
 
 	// Second reconcile: PBM now reports no compatible datastores at all.
 	withMockCompatibleDatastores(t)
-	require.NoError(t, r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil, clusterDatastoreCache))
+	require.NoError(t, r.populateTopologyCapabilities(ctx, clusterSPI, infraSPI, "profile-1", nil,
+		clusterDatastoreCache, nil))
 
 	assert.Empty(t, vsphereinfra.GetCache().PoliciesForDatastore("ds-1"),
 		"stale cache entry must be cleared once the policy is no longer compatible with ds-1")
