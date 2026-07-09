@@ -118,6 +118,10 @@ var (
 	// vsan-file-service-policy-latebinding storage classes; legacy non-FVS paths do not use this
 	// value. Empty when the per-namespace capability is on (in which case the value is unused).
 	cachedGlobalNetworkProvider string
+	// isHostLocalStorageSupportEnabled is true when the supports_host_local_storage capability is
+	// enabled on the supervisor. When false, CreateVolume requests carrying the hostLocalPolicy
+	// parameter are rejected with Unimplemented.
+	isHostLocalStorageSupportEnabled bool
 )
 
 var getCandidateDatastores = cnsvsphere.GetCandidateDatastoresInCluster
@@ -271,6 +275,12 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	if !isVMPVCStoragePolicyMutabilityEnabled {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.VMPVCStoragePolicyMutability, "", "")
+	}
+	isHostLocalStorageSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.HostLocalStorageSupport)
+	if !isHostLocalStorageSupportEnabled {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.HostLocalStorageSupport, "", "")
 	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
@@ -686,6 +696,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		err                       error
 		isLinkedCloneRequest      bool
 		linkedCloneSupportEnabled bool
+		isHostLocalRequest        bool
 	)
 	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 	// Support case insensitive parameters.
@@ -725,7 +736,17 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 					"linked clone volumes is not supported. Request: %+v", req)
 			}
+		case strings.ToLower(common.AttributeHostLocalPolicy):
+			isHostLocalRequest = strings.EqualFold(req.Parameters[paramName], "true")
 		}
+	}
+
+	// Host-local provisioning requires the supports_host_local_storage capability to be enabled
+	// on the supervisor. If the request is marked host-local but the capability is off, reject it.
+	if isHostLocalRequest && !isHostLocalStorageSupportEnabled {
+		return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
+			"host-local storage policy volume provisioning is not supported: "+
+				"supports_host_local_storage capability is not enabled. Request: %+v", req)
 	}
 
 	// If VM_PVC_STORAGE_POLICY_MUTABILITY is enabled and mutable_parameters contains a
@@ -784,6 +805,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		hostnameLabelPresent, zoneLabelPresent = checkTopologyKeysFromAccessibilityReqs(topologyRequirement)
 		if zoneLabelPresent && hostnameLabelPresent {
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
+			// CNS rejects a CnsVolumeCreateSpec that sets both `hosts` and `activeClusters`
+			// ("createSpecs.hosts and createSpecs.activeClusters cannot both be set"). For a
+			// host-local request the candidate hosts (built below) are supplied instead of
+			// clusters, so vSphereClusterMorefs is intentionally left empty here.
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
 				if storageTopologyType == "" {
@@ -1040,6 +1065,20 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
+	// For host-local storage policy requests, resolve the candidate hosts from the hostnames
+	// present in the accessibility requirement and supply them to CNS. CNS selects the final host.
+	// hostMoIDToTopology captures the zone + hostname of each candidate host from the same request,
+	// so the accessible topology of the CNS-selected host can be resolved without a vCenter call.
+	var hostMoRefs []types.ManagedObjectReference
+	var hostMoIDToTopology map[string]map[string]string
+	if isHostLocalRequest {
+		hostMoRefs, hostMoIDToTopology, err = getHostMoRefsForHostLocalVolume(ctx, topologyRequirement,
+			commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx))
+		if err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+	}
+
 	// Create CreateVolumeSpec and populate values.
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:              volSizeMB,
@@ -1052,6 +1091,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		ContentSourceSnapshotID: contentSourceSnapshotID,
 		CryptoKeyID:             cryptoKeyID,
 		IsLinkedCloneRequest:    isLinkedCloneRequest,
+		Hosts:                   hostMoRefs,
 	}
 
 	volFromSnapshotOnTargetDs := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -1141,7 +1181,37 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 
 	// Calculate accessible topology for the provisioned volume in case of topology aware environment.
 	if isTKGSHAEnabled {
-		if hostnameLabelPresent {
+		if isHostLocalRequest {
+			// For host-local volumes, build the PV node affinity (zone + hostname) from the host
+			// that CNS selected, reported in the placement result. Publishing both keys pins pods
+			// to the specific host the volume was provisioned on.
+			var segments map[string]string
+			if volumeInfo.Host != nil {
+				segments, err = getHostLocalAccessibleTopology(ctx, *volumeInfo.Host, hostMoIDToTopology)
+			} else {
+				err = logger.LogNewErrorf(log, "CNS did not return a host in the placement result "+
+					"for host-local volume %q", volumeInfo.VolumeID.Id)
+			}
+			if err != nil {
+				// The provisioned volume is unusable without correct host affinity, so clean it up.
+				log.Errorf("Encountered error building host-local topology after creating volume. Cleaning up...")
+				deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+				if deleteOpReqError != nil {
+					log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+						"out. Error received: %+v", deleteOpReqError)
+				} else {
+					if _, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+						volumeInfo.VolumeID.Id, true); deleteVolumeError != nil {
+						log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+							"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+					}
+				}
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to build accessible topology for host-local volume %q. Error: %+v",
+					volumeInfo.VolumeID.Id, err)
+			}
+			resp.Volume.AccessibleTopology = []*csi.Topology{{Segments: segments}}
+		} else if hostnameLabelPresent {
 			// Configure the volumeTopology in the response so that the external
 			// provisioner will properly sets up the nodeAffinity for this volume.
 			resp.Volume.AccessibleTopology = topologyRequirement.GetPreferred()

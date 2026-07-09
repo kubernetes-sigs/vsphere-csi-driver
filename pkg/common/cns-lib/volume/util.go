@@ -334,6 +334,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 	log := logger.GetLogger(ctx)
 	var datastoreURL string
 	var placementClusters []types.ManagedObjectReference
+	var placementHost *types.ManagedObjectReference
 	volumeCreateResult := interface{}(taskResult).(*cnstypes.CnsVolumeCreateResult)
 	log.Debugf("volumeCreateResult.PlacementResults :%v", volumeCreateResult.PlacementResults)
 	if volumeCreateResult.PlacementResults != nil {
@@ -342,6 +343,12 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 			// For the datastore which the volume is provisioned, placementFaults
 			// will not be set.
 			if len(placementResult.PlacementFaults) == 0 {
+				// For host-local volumes, CNS reports the selected host in the winning
+				// placement result. Capture it so the caller can build PV node affinity.
+				if placementResult.Host != nil {
+					placementHost = placementResult.Host
+					log.Debugf("placementHost:%v for volume:%q", placementHost, volumeID)
+				}
 				if len(placementResult.Clusters) != 0 {
 					placementClusters = placementResult.Clusters
 					log.Debugf("placementClusters:%v for volume:%q", placementClusters, volumeID)
@@ -368,6 +375,7 @@ func getCnsVolumeInfoFromTaskResult(ctx context.Context, virtualCenter *cnsvsphe
 		DatastoreURL: datastoreURL,
 		VolumeID:     volumeID,
 		Clusters:     placementClusters,
+		Host:         placementHost,
 	}, "", nil
 }
 

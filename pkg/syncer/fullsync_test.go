@@ -632,6 +632,10 @@ func (m *mockCOCommonForFullSync) GetNodeIDtoNameMap(ctx context.Context) map[st
 	return make(map[string]string)
 }
 
+func (m *mockCOCommonForFullSync) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	return make(map[string]string)
+}
+
 func (m *mockCOCommonForFullSync) GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool {
 	return make(map[string]bool)
 }

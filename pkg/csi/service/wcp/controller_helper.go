@@ -65,7 +65,8 @@ func validateCreateBlockReqParam(paramName, value string) bool {
 		paramName == common.AttributePvcNamespace ||
 		paramName == common.AttributeStorageClassName ||
 		paramName == common.AttributeIsLinkedCloneKey ||
-		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true"))
+		(paramName == common.AttributeHostLocal && strings.EqualFold(value, "true")) ||
+		(strings.EqualFold(paramName, common.AttributeHostLocalPolicy) && strings.EqualFold(value, "true"))
 }
 
 const (
@@ -513,6 +514,81 @@ func checkTopologyKeysFromAccessibilityReqs(topologyRequirement *csi.TopologyReq
 		}
 	}
 	return hostnameLabelPresent, zoneLabelPresent
+}
+
+// getHostMoRefsForHostLocalVolume collects the kubernetes.io/hostname values present in the
+// topology requirement's Preferred segments and resolves each to its ESX HostSystem MoRef using
+// the node name -> host MoID map maintained by the container orchestrator (no per-call rebuild).
+// The returned host MoRefs are supplied to CNS as the candidate host set for a host-local volume:
+// a single host for WaitForFirstConsumer (Case A) where the pod is already scheduled, or the full
+// candidate set for Immediate binding (Case B) where CNS selects the final host.
+//
+// It also returns a request-scoped map of host MoID -> {zone, hostname} harvested from the same
+// Preferred segments. Since CNS always selects from the candidate hosts supplied here, this map lets
+// the caller resolve the accessible topology of the CNS-selected host with a pure in-memory lookup,
+// avoiding any vCenter call.
+func getHostMoRefsForHostLocalVolume(ctx context.Context,
+	topologyRequirement *csi.TopologyRequirement,
+	nodeNameToID map[string]string) ([]vimtypes.ManagedObjectReference, map[string]map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	if topologyRequirement == nil || len(topologyRequirement.GetPreferred()) == 0 {
+		return nil, nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"host-local volume provisioning requires an accessibility requirement with hostname information")
+	}
+
+	seen := make(map[string]struct{})
+	var hostMoRefs []vimtypes.ManagedObjectReference
+	hostMoIDToTopology := make(map[string]map[string]string)
+	for _, topology := range topologyRequirement.GetPreferred() {
+		segments := topology.GetSegments()
+		hostname, ok := segments[v1.LabelHostname]
+		if !ok || hostname == "" {
+			continue
+		}
+		if _, dup := seen[hostname]; dup {
+			continue
+		}
+		seen[hostname] = struct{}{}
+		hostMoID, found := nodeNameToID[hostname]
+		if !found {
+			return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
+				"failed to resolve ESX host MoID for node %q while provisioning host-local volume", hostname)
+		}
+		hostMoRefs = append(hostMoRefs, vimtypes.ManagedObjectReference{Type: "HostSystem", Value: hostMoID})
+		// Record the zone + hostname for this host from the same Preferred segment. Both keys are
+		// expected to be present for host-local provisioning.
+		hostTopology := map[string]string{v1.LabelHostname: hostname}
+		if zone, hasZone := segments[v1.LabelTopologyZone]; hasZone && zone != "" {
+			hostTopology[v1.LabelTopologyZone] = zone
+		}
+		hostMoIDToTopology[hostMoID] = hostTopology
+	}
+	if len(hostMoRefs) == 0 {
+		return nil, nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"host-local volume provisioning requires at least one hostname in the accessibility requirement")
+	}
+	return hostMoRefs, hostMoIDToTopology, nil
+}
+
+// getHostLocalAccessibleTopology returns the topology segment map (zone + hostname) to publish as PV
+// node affinity for the host that CNS selected for a host-local volume. CNS always selects from the
+// candidate hosts supplied at CreateVolume time, so the host's zone and hostname are already known
+// from the request-scoped hostMoID -> {zone, hostname} map built in getHostMoRefsForHostLocalVolume.
+// This is a pure in-memory lookup, with no vCenter call.
+func getHostLocalAccessibleTopology(ctx context.Context, hostRef vimtypes.ManagedObjectReference,
+	hostMoIDToTopology map[string]map[string]string) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	segments, ok := hostMoIDToTopology[hostRef.Value]
+	if !ok {
+		return nil, logger.LogNewErrorf(log,
+			"host %q selected by CNS is not among the candidate hosts supplied for the volume", hostRef.Value)
+	}
+	if segments[v1.LabelHostname] == "" || segments[v1.LabelTopologyZone] == "" {
+		return nil, logger.LogNewErrorf(log,
+			"incomplete topology (zone/hostname) for host %q selected by CNS: %+v", hostRef.Value, segments)
+	}
+	return segments, nil
 }
 
 // GetVolumeToHostMapping returns a map containing VM MoID to host MoID and VolumeID

@@ -135,6 +135,10 @@ func (m *MockCOCommonInterface) GetNodeIDtoNameMap(ctx context.Context) map[stri
 	return args.Get(0).(map[string]string)
 }
 
+func (m *MockCOCommonInterface) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	return make(map[string]string)
+}
+
 func (m *MockCOCommonInterface) GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool {
 	args := m.Called(ctx, volumeIDs)
 	return args.Get(0).(map[string]bool)

@@ -132,13 +132,21 @@ func CreateBlockVolumeUtil(
 	}
 
 	if IsMultiClusterPerZoneEnabled && len(sharedDatastores) == 0 {
-		for _, ref := range vSphereClusterMorefs {
-			clusterMorefs = append(clusterMorefs, vim25types.ManagedObjectReference{
-				Type:  "ClusterComputeResource",
-				Value: ref,
-			})
+		// CNS rejects a CnsVolumeCreateSpec that sets both `hosts` and `activeClusters`
+		// ("createSpecs.hosts and createSpecs.activeClusters cannot both be set"). For host-local
+		// storage policy provisioning, supply only the candidate hosts; CNS selects the final host
+		// from this set and does not need the active clusters in that case.
+		if len(spec.Hosts) != 0 {
+			createSpec.Hosts = spec.Hosts
+		} else {
+			for _, ref := range vSphereClusterMorefs {
+				clusterMorefs = append(clusterMorefs, vim25types.ManagedObjectReference{
+					Type:  "ClusterComputeResource",
+					Value: ref,
+				})
+			}
+			createSpec.ActiveClusters = clusterMorefs
 		}
-		createSpec.ActiveClusters = clusterMorefs
 	} else {
 		var datastores []vim25types.ManagedObjectReference
 		if opts.FilterSuspendedDatastores {

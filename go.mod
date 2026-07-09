@@ -25,7 +25,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260423003402-51227659e236
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20260626202036-4f3bb257838c
-	github.com/vmware/govmomi v0.55.0
+	github.com/vmware/govmomi v0.55.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.46.0
