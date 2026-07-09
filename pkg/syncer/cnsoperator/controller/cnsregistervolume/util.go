@@ -364,7 +364,17 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 			ContainerCluster: containerCluster,
 		},
 	}
-	if instance.Spec.VolumeID != "" {
+	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" &&
+		isDataProtectionSnapshotServiceEnabled {
+		// Both fields supplied and DataProtectionSnapshotService WCP capability is active:
+		// CNS locates the VMDK by URL and stamps the provided FCD UUID onto it
+		// (VKSRegisterVolume restore path — ss-metadata-manager supplies both fields).
+		// Guard is required: older vCenters do not support both fields and would return an error.
+		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
+			BackingDiskId:      instance.Spec.VolumeID,
+			BackingDiskUrlPath: instance.Spec.DiskURLPath,
+		}
+	} else if instance.Spec.VolumeID != "" {
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
 			BackingDiskId: instance.Spec.VolumeID,
 		}

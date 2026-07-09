@@ -92,6 +92,10 @@ var (
 	isTKGSHAEnabled                         bool
 	isMultipleClustersPerVsphereZoneEnabled bool
 	isSharedDiskEnabled                     bool
+	// isDataProtectionSnapshotServiceEnabled caches the DataProtectionSnapshotService
+	// WCP capability at controller startup. Set once in Add(); late enablement triggers
+	// a pod restart which re-evaluates this value.
+	isDataProtectionSnapshotServiceEnabled bool
 )
 
 // Add creates a new CnsRegisterVolume Controller and adds it to the Manager,
@@ -111,6 +115,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	isTKGSHAEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 	isMultipleClustersPerVsphereZoneEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.MultipleClustersPerVsphereZone)
+	isDataProtectionSnapshotServiceEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.DataProtectionSnapshotService)
 
 	var volumeInfoService cnsvolumeinfo.VolumeInfoService
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
@@ -1206,9 +1212,19 @@ func checkExistingPVCDataSourceRef(ctx context.Context, k8sclient clientset.Inte
 // CnsRegisterVolume instance.
 func validateCnsRegisterVolumeSpec(ctx context.Context, instance *cnsregistervolumev1alpha1.CnsRegisterVolume) error {
 	var msg string
+	// Both VolumeID and DiskURLPath may be set by ss-metadata-manager for the VKSRegisterVolume
+	// restore path: CNS locates the VMDK by URL and stamps the provided FCD UUID onto it.
+	// This combination is only permitted when the DataProtectionSnapshotService WCP capability
+	// is active on the Supervisor; on older Supervisors the original rejection is preserved.
 	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" {
-		msg = "VolumeID and DiskURLPath cannot be specified together"
-	} else if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
+		if !isDataProtectionSnapshotServiceEnabled {
+			return errors.New("VolumeID and DiskURLPath cannot be specified together")
+		}
+		// Capability is active: both fields are valid. The single-field checks below
+		// (AccessMode requirement, duplicate-PV lookup) do not apply to this path.
+		return nil
+	}
+	if instance.Spec.DiskURLPath != "" && instance.Spec.AccessMode != "" &&
 		instance.Spec.AccessMode != v1.ReadWriteOnce {
 		if isSharedDiskEnabled {
 			if instance.Spec.AccessMode == v1.ReadWriteMany &&

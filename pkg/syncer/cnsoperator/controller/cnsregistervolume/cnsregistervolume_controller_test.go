@@ -1817,6 +1817,190 @@ func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndAccessMode(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
+// both VolumeID and DiskURLPath are accepted when the DataProtectionSnapshotService WCP capability
+// is active (VKSRegisterVolume restore path via ss-metadata-manager).
+func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEnabled(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			VolumeID:    "fcd-uuid-123456",
+			DiskURLPath: "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds",
+			AccessMode:  corev1.ReadWriteOnce,
+		},
+	}
+
+	isSharedDiskEnabled = false
+	isDataProtectionSnapshotServiceEnabled = true
+	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
+	assert.NoError(t, err)
+}
+
+// TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDisabled verifies that
+// both VolumeID and DiskURLPath are rejected when the DataProtectionSnapshotService WCP capability
+// is absent, preserving the original behaviour on older Supervisors.
+func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDisabled(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			VolumeID:    "fcd-uuid-123456",
+			DiskURLPath: "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds",
+			AccessMode:  corev1.ReadWriteOnce,
+		},
+	}
+
+	isSharedDiskEnabled = false
+	isDataProtectionSnapshotServiceEnabled = false
+	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
+	assert.EqualError(t, err, "VolumeID and DiskURLPath cannot be specified together")
+}
+
+// TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
+// when both VolumeID and DiskURLPath are set and the DataProtectionSnapshotService WCP capability
+// is active, BackingObjectDetails carries both fields.
+func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled(t *testing.T) {
+	volumeID := "fcd-uuid-123456"
+	diskURL := "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			VolumeID:    volumeID,
+			DiskURLPath: diskURL,
+			AccessMode:  corev1.ReadWriteOnce,
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+	}
+
+	isDataProtectionSnapshotServiceEnabled = true
+	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
+	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
+	assert.Equal(t, diskURL, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be DiskURLPath")
+}
+
+// TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityDisabled verifies that
+// when both VolumeID and DiskURLPath are set but the DataProtectionSnapshotService WCP capability
+// is absent (older vCenter), the spec falls back to VolumeID-only to avoid sending an unsupported
+// API call to the vCenter.
+func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityDisabled(t *testing.T) {
+	volumeID := "fcd-uuid-123456"
+	diskURL := "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			VolumeID:    volumeID,
+			DiskURLPath: diskURL,
+			AccessMode:  corev1.ReadWriteOnce,
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+	}
+
+	isDataProtectionSnapshotServiceEnabled = false
+	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
+	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
+	assert.Empty(t, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be empty — capability not active")
+}
+
+// TestConstructCreateSpecForInstanceWithVolumeIDOnly verifies the single-VolumeID path is unchanged.
+func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
+	volumeID := "fcd-uuid-only"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   volumeID,
+			AccessMode: corev1.ReadWriteOnce,
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+	}
+
+	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
+	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
+	assert.Empty(t, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be empty")
+}
+
+// TestConstructCreateSpecForInstanceWithDiskURLPathOnly verifies the single-DiskURLPath path is unchanged.
+func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
+	diskURL := "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:     "pvc-1",
+			DiskURLPath: diskURL,
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+	}
+
+	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
+	assert.Empty(t, backing.BackingDiskId, "BackingDiskId should be empty")
+	assert.Equal(t, diskURL, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be DiskURLPath")
+}
+
 func TestIsBlockVolumeRegisterRequestWithSharedBlockVolume(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{
