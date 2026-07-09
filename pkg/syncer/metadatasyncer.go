@@ -84,6 +84,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/featurestates"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/storagepool"
 )
 
@@ -409,6 +410,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsExposingStoragePolicyAttributes) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.SupportsExposingStoragePolicyAttributes, "", "")
+		} else {
+			// SupportsExposingStoragePolicyAttributes is enabled — start the shared
+			// vSphere inventory watcher used by ClusterSPI and InfraSPI controllers.
+			vc, vcErr := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			if vcErr != nil {
+				return logger.LogNewErrorf(log, "failed to get vCenter instance for inventory watcher: %v", vcErr)
+			}
+			vsphereinfra.StartInventoryWatcher(ctx, vc)
 		}
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsPerNamespaceNetworkProviders) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
