@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
@@ -65,7 +66,10 @@ import (
 // which a request for this instance will be requeued.
 // Initialized to 1 second for new instances and for instances whose latest
 // reconcile operation succeeded.
-// If the reconcile fails, backoff is incremented exponentially.
+// If the reconcile fails, backoff is incremented exponentially. A value greater
+// than one second therefore means the instance is currently backed off after a
+// failure; slow-sync skips such instances, since they are already scheduled to
+// reconcile via RequeueAfter.
 var (
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
@@ -187,6 +191,16 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 		)
 	}
 
+	// Channel for periodic resync; a ticker-driven goroutine lists all
+	// ClusterStoragePolicyInfo CRs on a configurable interval and pushes them
+	// here so the controller re-reconciles each one against the vCenter.
+	// source.Channel drains this into controller-runtime's internal work queue,
+	// so a small buffer is sufficient to avoid blocking between sends and reads.
+	// If the buffer does fill up (e.g. reconciles are slow), the sender skips the
+	// remaining CRs for that tick instead of blocking; see StartPeriodicResync.
+	resyncCh := make(chan event.GenericEvent, 256)
+	blder = blder.WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{}))
+
 	err := blder.WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
 		Complete(r)
 	if err != nil {
@@ -196,6 +210,16 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 
 	// Initialize the backoff duration map
 	backOffDuration = make(map[apitypes.NamespacedName]time.Duration)
+
+	interval := getSlowSyncInterval(ctx)
+	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
+		StartPeriodicResync(mgrCtx, r.client, resyncCh, interval)
+		<-mgrCtx.Done()
+		return nil
+	})); err != nil {
+		log.Errorf("failed to register periodic resync runnable. Err: %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -615,7 +639,7 @@ func (r *ReconcileClusterStoragePolicyInfo) completeReconciliationWithError(ctx 
 		types.MaxBackOffDurationForReconciler)
 	backOffDurationMapMutex.Unlock()
 
-	log.Errorf("Failed to reconcile ClusterStoragePolicyInfo. Err: %v",
+	log.Errorf("Failed to reconcile ClusterStoragePolicyInfo %q. Err: %v",
 		namespacedName.Name, err)
 
 	return reconcile.Result{RequeueAfter: timeout}, nil
