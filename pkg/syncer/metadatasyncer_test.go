@@ -1411,6 +1411,200 @@ func TestMergeStoragePolicyReserved(t *testing.T) {
 	}
 }
 
+// buildSyncerWithPVCs returns a metadataSyncInformer whose pvcLister is populated with the given PVCs.
+func buildSyncerWithPVCs(t *testing.T, pvcs ...*v1.PersistentVolumeClaim) *metadataSyncInformer {
+	t.Helper()
+	objs := make([]runtime.Object, 0, len(pvcs))
+	for _, pvc := range pvcs {
+		objs = append(objs, pvc)
+	}
+	k8sClient := testclient.NewClientset(objs...)
+	informerFactory := informers.NewSharedInformerFactory(k8sClient, 0)
+	// Register the listers before starting the factory so the informers are actually started
+	// and their caches populated.
+	pvLister := informerFactory.Core().V1().PersistentVolumes().Lister()
+	pvcLister := informerFactory.Core().V1().PersistentVolumeClaims().Lister()
+	stopCh := make(chan struct{})
+	// Close the stop channel when the test finishes so the started informers shut down
+	// instead of leaking goroutines across the test suite.
+	t.Cleanup(func() { close(stopCh) })
+	informerFactory.Start(stopCh)
+	for _, synced := range informerFactory.WaitForCacheSync(stopCh) {
+		if !synced {
+			t.Fatal("Failed to sync informer cache")
+		}
+	}
+	return &metadataSyncInformer{
+		pvLister:  pvLister,
+		pvcLister: pvcLister,
+	}
+}
+
+// modifyingPVC builds a Bound PVC with a ModifyVolumeStatus set to the given target VAC and status.
+func modifyingPVC(name, namespace, size, targetVAC string,
+	status v1.PersistentVolumeClaimModifyVolumeStatus) *v1.PersistentVolumeClaim {
+	return &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: v1.PersistentVolumeClaimSpec{
+			Resources: v1.VolumeResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceStorage: resource.MustParse(size)},
+			},
+		},
+		Status: v1.PersistentVolumeClaimStatus{
+			Phase: v1.ClaimBound,
+			ModifyVolumeStatus: &v1.ModifyVolumeStatus{
+				TargetVolumeAttributesClassName: targetVAC,
+				Status:                          status,
+			},
+		},
+	}
+}
+
+func TestCalculateModifyVolumeReservedForNamespace(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "test-ns"
+
+	// fakeVACMapping resolves "vac1" -> "policy1".
+	fakeVACMapping := func(ctx context.Context) (map[string]string, error) {
+		return map[string]string{"vac1": "policy1"}, nil
+	}
+	// unavailableVACMapping simulates the VolumeAttributesClass API being unavailable.
+	unavailableVACMapping := func(ctx context.Context) (map[string]string, error) {
+		return nil, nil
+	}
+
+	tests := []struct {
+		name        string
+		pvcs        []*v1.PersistentVolumeClaim
+		vacMapping  func(ctx context.Context) (map[string]string, error)
+		expectNil   bool
+		expectError bool
+		expected    map[string]string // storagePolicyID -> expected reserved quantity
+	}{
+		{
+			name: "No modifying PVCs returns nil",
+			pvcs: []*v1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "bound-pvc", Namespace: namespace},
+					Status:     v1.PersistentVolumeClaimStatus{Phase: v1.ClaimBound},
+				},
+			},
+			vacMapping: fakeVACMapping,
+			expectNil:  true,
+		},
+		{
+			name: "PVC with Pending modify status is counted",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vac1", v1.PersistentVolumeClaimModifyVolumePending),
+			},
+			vacMapping: fakeVACMapping,
+			expected:   map[string]string{"policy1": "10Gi"},
+		},
+		{
+			name: "PVC with InProgress modify status is counted",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vac1", v1.PersistentVolumeClaimModifyVolumeInProgress),
+			},
+			vacMapping: fakeVACMapping,
+			expected:   map[string]string{"policy1": "10Gi"},
+		},
+		{
+			name: "PVC with Infeasible modify status is not counted",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vac1", v1.PersistentVolumeClaimModifyVolumeInfeasible),
+			},
+			vacMapping: fakeVACMapping,
+			expectNil:  true,
+		},
+		{
+			name: "PVC whose target VAC is unresolvable is skipped",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vacX", v1.PersistentVolumeClaimModifyVolumeInProgress),
+			},
+			vacMapping: fakeVACMapping,
+			expected:   map[string]string{},
+		},
+		{
+			name: "PVC with empty target VAC is skipped",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "", v1.PersistentVolumeClaimModifyVolumeInProgress),
+			},
+			vacMapping: fakeVACMapping,
+			expected:   map[string]string{},
+		},
+		{
+			name: "VAC API unavailable returns nil",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vac1", v1.PersistentVolumeClaimModifyVolumeInProgress),
+			},
+			vacMapping: unavailableVACMapping,
+			expectNil:  true,
+		},
+		{
+			name: "Multiple PVCs to same policy are summed",
+			pvcs: []*v1.PersistentVolumeClaim{
+				modifyingPVC("pvc1", namespace, "10Gi", "vac1", v1.PersistentVolumeClaimModifyVolumePending),
+				modifyingPVC("pvc2", namespace, "5Gi", "vac1", v1.PersistentVolumeClaimModifyVolumeInProgress),
+			},
+			vacMapping: fakeVACMapping,
+			expected:   map[string]string{"policy1": "15Gi"},
+		},
+	}
+
+	orig := fetchVACToStoragePolicyMapping
+	defer func() { fetchVACToStoragePolicyMapping = orig }()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetchVACToStoragePolicyMapping = tt.vacMapping
+			metadataSyncer := buildSyncerWithPVCs(t, tt.pvcs...)
+
+			result, err := calculateModifyVolumeReservedForNamespace(ctx, namespace, metadataSyncer)
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			if tt.expectNil {
+				assert.Nil(t, result)
+				return
+			}
+			assert.NotNil(t, result)
+			assert.Equal(t, len(tt.expected), len(result))
+			for policyID, want := range tt.expected {
+				got, ok := result[policyID]
+				if !assert.True(t, ok, "expected policy %q in result", policyID) || got == nil {
+					continue
+				}
+				wantQty := resource.MustParse(want)
+				assert.Equalf(t, 0, got.Cmp(wantQty), "policy %q: got %s want %s", policyID, got.String(), want)
+			}
+		})
+	}
+}
+
+func TestFetchVACToStoragePolicyMapping(t *testing.T) {
+	ctx := context.Background()
+	orig := vacAPIAvailableCheck
+	defer func() { vacAPIAvailableCheck = orig }()
+
+	t.Run("VAC API not available returns nil map", func(t *testing.T) {
+		vacAPIAvailableCheck = func(ctx context.Context) (bool, error) { return false, nil }
+		result, err := fetchVACToStoragePolicyMapping(ctx)
+		assert.NoError(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("VAC API discovery error is soft-skipped", func(t *testing.T) {
+		vacAPIAvailableCheck = func(ctx context.Context) (bool, error) {
+			return false, errors.New("discovery error")
+		}
+		result, err := fetchVACToStoragePolicyMapping(ctx)
+		assert.NoError(t, err)
+		assert.Nil(t, result)
+	})
+}
+
 func TestCalculateSPRReservedForNamespace(t *testing.T) {
 	ctx := context.Background()
 

@@ -1329,6 +1329,27 @@ func syncStorageQuotaReserved(ctx context.Context,
 			totalStoragePolicyReserved = mergeStoragePolicyReserved(vsReserved, totalStoragePolicyReserved)
 		}
 
+		// Check if the VM/PVC storage-policy mutability FSS is enabled before accounting for
+		// in-flight ModifyVolume (VolumeAttributesClass change) operations.
+		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+			// calculate reserved values for PVCs undergoing a ModifyVolume operation
+			modifyVolumeReserved, err := calculateModifyVolumeReservedForNamespace(ctx, ns, metadataSyncer)
+			if err != nil {
+				log.Errorf("syncStorageQuotaReserved: error while calculating expected ModifyVolume reserved value"+
+					" for given namespace %q, Error: %v", ns, err)
+				continue
+			}
+			if modifyVolumeReserved != nil {
+				if !validateReservedValues(modifyVolumeReserved) {
+					log.Errorf("syncStorageQuotaReserved: error while calculating expected ModifyVolume reserved value"+
+						" for given namespace %q, Error: %v", ns, errors.New("expected reserved is negative value"))
+					continue
+				}
+				hasValidData = true
+				totalStoragePolicyReserved = mergeStoragePolicyReserved(modifyVolumeReserved, totalStoragePolicyReserved)
+			}
+		}
+
 		// Check if storage policy reservation related FSS is enabled
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WCPMobilityNonDisruptiveImport) {
 			// calculate expected reserved values for StoragePolicyReservation CRs for given namespace
@@ -1584,6 +1605,91 @@ func calculateVolumeSnapshotReservedForNamespace(ctx context.Context,
 	return storagePolicyIdToReservedMap, nil
 }
 
+// calculateModifyVolumeReservedForNamespace calculates the expected reserved value for PVCs that are
+// currently undergoing a ModifyVolume (VolumeAttributesClass / storage-policy mutability) operation in
+// the given namespace. Until the modify completes, the PVC's capacity is anticipated consumption on the
+// target storage policy that has not yet been reflected in that policy's Used, so it is counted as
+// reserved against the target VAC's storage policy ID. Returns a map of storage policy ID to expected
+// reserved value.
+func calculateModifyVolumeReservedForNamespace(ctx context.Context,
+	namespace string, metadataSyncer *metadataSyncInformer) (map[string]*resource.Quantity, error) {
+	log := logger.GetLogger(ctx)
+	log.Debugf("calculateModifyVolumeReservedForNamespace: Fetching PersistentVolumeClaim for namespace %q",
+		namespace)
+	pvcList, err := metadataSyncer.pvcLister.PersistentVolumeClaims(namespace).List(labels.NewSelector())
+	if err != nil {
+		log.Errorf("calculateModifyVolumeReservedForNamespace: unable to fetch all pvc from namespace %q, Error %v",
+			namespace, err)
+		return nil, err
+	}
+	// First pass: identify PVCs that have an in-flight ModifyVolume operation. Avoid listing VACs
+	// unless there is at least one such PVC, which is the common case.
+	var candidates []*v1.PersistentVolumeClaim
+	for _, pvc := range pvcList {
+		if pvc.DeletionTimestamp != nil {
+			continue
+		}
+		// A ModifyVolume only applies to an already-provisioned (Bound) volume; a Pending PVC has no PV
+		// yet and cannot have ModifyVolumeStatus populated. This guards against double-counting with
+		// calculatePVCReservedForNamespace's pending-PVC branch.
+		if pvc.Status.Phase != v1.ClaimBound {
+			continue
+		}
+		if pvc.Status.ModifyVolumeStatus == nil {
+			continue
+		}
+		// Only Pending and InProgress modify operations hold a reservation. An Infeasible modify will
+		// never consume the target policy, so it must not be counted.
+		status := pvc.Status.ModifyVolumeStatus.Status
+		if status != v1.PersistentVolumeClaimModifyVolumePending &&
+			status != v1.PersistentVolumeClaimModifyVolumeInProgress {
+			continue
+		}
+		candidates = append(candidates, pvc)
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	vacToStoragePolicyIDMap, err := fetchVACToStoragePolicyMapping(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if vacToStoragePolicyIDMap == nil {
+		// VolumeAttributesClass API unavailable; nothing to account for.
+		return nil, nil
+	}
+
+	storagePolicyToReservedMap := make(map[string]*resource.Quantity)
+	for _, pvc := range candidates {
+		targetVAC := pvc.Status.ModifyVolumeStatus.TargetVolumeAttributesClassName
+		if targetVAC == "" {
+			log.Debugf("calculateModifyVolumeReservedForNamespace: empty target VAC for PVC %q/%q, skipping",
+				pvc.Namespace, pvc.Name)
+			continue
+		}
+		storagePolicyID, ok := vacToStoragePolicyIDMap[targetVAC]
+		if !ok || storagePolicyID == "" {
+			log.Debugf("calculateModifyVolumeReservedForNamespace: target VAC %q for PVC %q/%q could not be "+
+				"resolved to a storage policy ID, skipping", targetVAC, pvc.Namespace, pvc.Name)
+			continue
+		}
+		if pvc.Spec.Resources.Requests == nil {
+			log.Debugf("calculateModifyVolumeReservedForNamespace: pvc resources not populated, continuing "+
+				"processing others Name: %q, Namespace: %q", pvc.Name, pvc.Namespace)
+			continue
+		}
+		if storagePolicyToReservedMap[storagePolicyID] == nil {
+			storagePolicyToReservedMap[storagePolicyID] = resource.NewQuantity(0, resource.BinarySI)
+		}
+		pvcSize := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+		log.Debugf("calculateModifyVolumeReservedForNamespace: PVC %q/%q is undergoing ModifyVolume to VAC %q, "+
+			"adding capacity to reserved for storage policy %q", pvc.Namespace, pvc.Name, targetVAC, storagePolicyID)
+		storagePolicyToReservedMap[storagePolicyID].Add(pvcSize)
+	}
+	return storagePolicyToReservedMap, nil
+}
+
 // calculateSPRReservedForNamespace calculates the expected reserved capacity values for StoragePolicyReservation
 // CRs in the given namespace and returns map of storage policy ID to expected reserved capacity for that policy.
 func calculateSPRReservedForNamespace(ctx context.Context, cnsOperatorClient client.Client,
@@ -1828,6 +1934,48 @@ var fetchStorageClassToStoragePolicyMapping = func(ctx context.Context) (map[str
 		storageClassToStoragePolicy[sc.Name] = sc.Parameters["storagePolicyID"]
 	}
 	return storageClassToStoragePolicy, nil
+}
+
+// fetchVACToStoragePolicyMapping fetches all VolumeAttributesClasses and returns a mapping of
+// VAC name to its storage policy ID (read from the VAC's own parameters). It returns (nil, nil)
+// when the VolumeAttributesClass API is unavailable (e.g. pre-1.34 clusters), so callers can
+// treat that as a soft-skip rather than an error. The FSS gate is applied by the caller.
+var fetchVACToStoragePolicyMapping = func(ctx context.Context) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	log.Debug("fetchVACToStoragePolicyMapping: Fetching VolumeAttributesClasses and creating mapping " +
+		"for VAC name and storagepolicyid")
+	// Skip if the VolumeAttributesClass API is not available on this cluster.
+	vacSupported, err := vacAPIAvailableCheck(ctx)
+	if err != nil {
+		log.Warnf("fetchVACToStoragePolicyMapping: Could not discover VolumeAttributesClass API; "+
+			"skipping VAC mapping. Err: %v", err)
+		return nil, nil
+	}
+	if !vacSupported {
+		log.Debug("fetchVACToStoragePolicyMapping: VolumeAttributesClass API not available; skipping VAC mapping")
+		return nil, nil
+	}
+	k8sconfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("fetchVACToStoragePolicyMapping: Failed to get KubeConfig. err: %v", err)
+		return nil, err
+	}
+	k8sClient, err := clientset.NewForConfig(k8sconfig)
+	if err != nil {
+		log.Errorf("fetchVACToStoragePolicyMapping: Failed to create kubernetes client. Err: %+v", err)
+		return nil, err
+	}
+	vacList, err := k8sClient.StorageV1().VolumeAttributesClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Errorf("fetchVACToStoragePolicyMapping: Failed to list VolumeAttributesClasses. Err: %+v", err)
+		return nil, err
+	}
+	vacToStoragePolicy := make(map[string]string)
+	for i := range vacList.Items {
+		vac := vacList.Items[i]
+		vacToStoragePolicy[vac.Name] = getStoragePolicyIDFromVAC(&vac)
+	}
+	return vacToStoragePolicy, nil
 }
 
 // initCnsVolumeOperationRequestCRInformer creates and starts an informer for CnsVolumeOperationRequest custom resource.
