@@ -23,12 +23,14 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -173,14 +175,20 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	if err != nil {
 		log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorPVC. Err: %v", err)
 	}
-	// Set csi.vsphere-volume labels and CNS finalizer (SVPVCSnapshotProtectionFinalizer FSS) and/or
-	// backfill the guest-cluster-snapshot annotation (ImprovedVolumeVisiblity FSS) on the Supervisor
-	// VolumeSnapshot which is requested from the TKC Cluster.
-	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) ||
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+	// Set csi.vsphere-volume label and CNS finalizer (SVPVCSnapshotProtectionFinalizer FSS) on the
+	// Supervisor VolumeSnapshot which is requested from the TKC Cluster.
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
 		err = setGuestClusterDetailsOnSupervisorSnapshot(ctx, metadataSyncer, supervisorNamespace)
 		if err != nil {
-			log.Warnf("FullSync: Failed to set Guest Cluster data on SupervisorSnapshot. Err: %v", err)
+			log.Warnf("FullSync: Failed to set Guest Cluster label/finalizer on SupervisorSnapshot. Err: %v", err)
+		}
+	}
+	// Reconcile (add and remove) the guest-cluster-snapshot annotation on the Supervisor
+	// VolumeSnapshot requested from the TKC Cluster (ImprovedVolumeVisibility FSS).
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		err = syncSupervisorSnapshotAnnotations(ctx, metadataSyncer, supervisorNamespace)
+		if err != nil {
+			log.Warnf("FullSync: Failed to reconcile guest-cluster-snapshot annotation on SupervisorSnapshot. Err: %v", err)
 		}
 	}
 	// Add change-id annotation on guest cluster VolumeSnapshots from corresponding supervisor VolumeSnapshots,
@@ -638,6 +646,39 @@ func getGuestAndSupervisorSnapshotClients(ctx context.Context, metadataSyncer *m
 	return guestClient, supervisorClient, supervisorRestConfig, nil
 }
 
+// getCachedSnapshotClients returns the guest snapshotter client, supervisor snapshotter client, and a
+// supervisor controller-runtime client, lazily creating and caching them on the metadataSyncInformer
+// on first use. Subsequent calls — from full sync and from the pvcsiSnapshotDeleted event handler —
+// reuse the cached instances instead of constructing fresh HTTP clients each time. It is safe for
+// concurrent callers; creation is serialized under snapClientMu.
+func getCachedSnapshotClients(ctx context.Context, metadataSyncer *metadataSyncInformer) (
+	snapshotterClientSet.Interface, snapshotterClientSet.Interface, client.Client, error) {
+	metadataSyncer.snapClientMu.Lock()
+	defer metadataSyncer.snapClientMu.Unlock()
+
+	if metadataSyncer.guestSnapClient == nil || metadataSyncer.supervisorSnapClient == nil ||
+		metadataSyncer.supervisorSnapRestConf == nil {
+		guestClient, supervisorClient, supervisorRestConfig, err :=
+			getGuestAndSupervisorSnapshotClients(ctx, metadataSyncer)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		metadataSyncer.guestSnapClient = guestClient
+		metadataSyncer.supervisorSnapClient = supervisorClient
+		metadataSyncer.supervisorSnapRestConf = supervisorRestConfig
+	}
+	if metadataSyncer.supervisorSnapRuntimeClient == nil {
+		runtimeClient, err := newRuntimeClientWithSnapshotScheme(metadataSyncer.supervisorSnapRestConf)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create controller-runtime client for "+
+				"supervisor cluster. Error: %w", err)
+		}
+		metadataSyncer.supervisorSnapRuntimeClient = runtimeClient
+	}
+	return metadataSyncer.guestSnapClient, metadataSyncer.supervisorSnapClient,
+		metadataSyncer.supervisorSnapRuntimeClient, nil
+}
+
 // vscProcessFunc is a function that processes a single VSC with its supervisor snapshot.
 type vscProcessFunc func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent,
 	supervisorVS *snapv1.VolumeSnapshot) error
@@ -690,8 +731,15 @@ func processVolumeSnapshotContents(ctx context.Context, vscItems []snapv1.Volume
 		supervisorVS, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
 			Get(ctx, *vsc.Status.SnapshotHandle, metav1.GetOptions{})
 		if err != nil {
-			log.Debugf("processVolumeSnapshotContents: supervisor VolumeSnapshot %q not found for VSC %q. Error: %v",
-				*vsc.Status.SnapshotHandle, vsc.Name, err)
+			if apierrors.IsNotFound(err) {
+				log.Debugf("processVolumeSnapshotContents: supervisor VolumeSnapshot %q not found for VSC %q; skipping",
+					*vsc.Status.SnapshotHandle, vsc.Name)
+			} else {
+				// Transient error (not a clean NotFound): surface it so the missed label/finalizer
+				// update is visible. Skip this VSC; the next full sync re-attempts it.
+				log.Errorf("processVolumeSnapshotContents: failed to get supervisor VolumeSnapshot %q for VSC %q. "+
+					"Skipping. Error: %v", *vsc.Status.SnapshotHandle, vsc.Name, err)
+			}
 			continue
 		}
 		if err := processFunc(ctx, &vsc, supervisorVS); err != nil {
@@ -714,77 +762,165 @@ func newRuntimeClientWithSnapshotScheme(restConfig *restclient.Config) (client.C
 	return client.New(restConfig, client.Options{Scheme: scheme})
 }
 
+// markSnapshotAnnotation ensures the guest-cluster-snapshot annotation on the supervisor
+// VolumeSnapshot matches the value derived from the corresponding guest VolumeSnapshotContent. It
+// mutates svVS in place and returns true when the annotation had to be written (i.e. a patch is
+// required).
+//
+// It is both idempotent and self-healing: it is a no-op (returns false) only when the existing
+// annotation already equals the desired value. When the annotation is missing, partially cleared
+// (e.g. by removeSnapshotAnnotation after the guest snapshot disappeared) or otherwise stale, it
+// rebuilds the full value so the identity fields are restored once the guest snapshot is observed
+// again — closing the window where a partially-cleared annotation would never be repopulated.
+func markSnapshotAnnotation(svVS *snapv1.VolumeSnapshot, guestVSC *snapv1.VolumeSnapshotContent,
+	clusterName string) (bool, error) {
+	guestSnapAnnot := common.BuildGuestSnapshotAnnotation(clusterName,
+		guestVSC.Spec.VolumeSnapshotRef.Name, guestVSC.Spec.VolumeSnapshotRef.Namespace, guestVSC.Name)
+	jsonAnnotation, err := json.Marshal(guestSnapAnnot)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal guest cluster snapshot annotation: %w", err)
+	}
+	// json.Marshal sorts map keys, so the serialized form is deterministic and safe to compare.
+	if existing, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]; ok && existing == string(jsonAnnotation) {
+		return false, nil
+	}
+	if svVS.Annotations == nil {
+		svVS.Annotations = make(map[string]string)
+	}
+	svVS.Annotations[common.AnnKeyGuestClusterSnapshot] = string(jsonAnnotation)
+	return true, nil
+}
+
+// removeSnapshotAnnotation selectively clears the guest snapshot identity fields (name and
+// namespace) from the guest-cluster-snapshot annotation on the supervisor VolumeSnapshot while
+// preserving the cluster-identity field (clusterName) and the VolumeSnapshotContent name
+// (volumeSnapshotContentName) for auditing. This mirrors the PVC cleanup in pvcsiVolumeDeleted,
+// which retains cluster-identity fields after the guest object is gone. It is used when the
+// corresponding guest snapshot no longer exists.
+//
+// It deliberately leaves the guest-cluster ownership label intact, because the CNSSnapshotFinalizer
+// cleanup path (RemoveCNSFinalizerFromSnapIfTKGClusterDeleted) parses that label to identify the
+// owning guest cluster. It mutates svVS in place and returns true when the annotation was changed
+// (i.e. a patch is required); it is an idempotent no-op (returns false) once the snapshot identity
+// fields are already cleared, so the full-sync reconcile does not patch on every pass.
+func removeSnapshotAnnotation(ctx context.Context, svVS *snapv1.VolumeSnapshot) bool {
+	log := logger.GetLogger(ctx)
+	annVal, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]
+	if !ok {
+		return false
+	}
+	var annMap map[string]string
+	if jsonErr := json.Unmarshal([]byte(annVal), &annMap); jsonErr != nil {
+		// Unparseable annotation: we cannot selectively preserve fields, so remove it entirely.
+		log.Warnf("failed to unmarshal %s on VolumeSnapshot %q: %v; removing annotation entirely",
+			common.AnnKeyGuestClusterSnapshot, svVS.Name, jsonErr)
+		delete(svVS.Annotations, common.AnnKeyGuestClusterSnapshot)
+		return true
+	}
+	// Selectively clear the guest snapshot identity fields; only name and namespace are cleared.
+	// Cluster-identity (clusterName) and the VolumeSnapshotContent name (volumeSnapshotContentName)
+	// are preserved for auditing.
+	changed := false
+	for _, k := range []string{
+		common.GuestClusterAnnotKeyName,
+		common.GuestClusterAnnotKeyNamespace,
+	} {
+		if _, present := annMap[k]; present {
+			delete(annMap, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return false
+	}
+	updated, marshalErr := json.Marshal(annMap)
+	if marshalErr != nil {
+		log.Warnf("failed to re-marshal %s on VolumeSnapshot %q: %v; removing annotation entirely",
+			common.AnnKeyGuestClusterSnapshot, svVS.Name, marshalErr)
+		delete(svVS.Annotations, common.AnnKeyGuestClusterSnapshot)
+		return true
+	}
+	svVS.Annotations[common.AnnKeyGuestClusterSnapshot] = string(updated)
+	return true
+}
+
+// clearSupervisorSnapshotAnnotation clears the guest-snapshot identity fields from the supervisor
+// VolumeSnapshot via removeSnapshotAnnotation, but ONLY when the annotation positively confirms it
+// belongs to the dynamically-provisioned VSC whose name we derived ("snapcontent-<uid>", passed as
+// guestVSCName). The annotation must parse and its volumeSnapshotContentName must equal guestVSCName.
+//
+// Any other state — annotation absent, unparseable, or referencing a different/empty VSC name — is
+// treated as "cannot safely conclude this is a deleted dynamic snapshot", so the annotation is left
+// untouched. This deliberately errs on the side of not stripping a statically-provisioned snapshot's
+// annotation (whose VSC name does not follow the convention) rather than risk removing it. It mutates
+// svVS in place and returns true when a patch is required.
+func clearSupervisorSnapshotAnnotation(ctx context.Context, svVS *snapv1.VolumeSnapshot,
+	guestVSCName string) bool {
+	log := logger.GetLogger(ctx)
+	annVal, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]
+	if !ok {
+		return false
+	}
+	var annMap map[string]string
+	if jsonErr := json.Unmarshal([]byte(annVal), &annMap); jsonErr != nil {
+		log.Debugf("reconcileSupervisorSnapshotAnnotations: skipping supervisor VolumeSnapshot %q; "+
+			"annotation %s is unparseable (%v), leaving it untouched",
+			svVS.Name, common.AnnKeyGuestClusterSnapshot, jsonErr)
+		return false
+	}
+	if vscName := annMap[common.GuestClusterAnnotKeyVSCName]; vscName != guestVSCName {
+		log.Debugf("reconcileSupervisorSnapshotAnnotations: skipping supervisor VolumeSnapshot %q; "+
+			"annotation references VSC %q, not derived name %q (possibly static provisioning)",
+			svVS.Name, vscName, guestVSCName)
+		return false
+	}
+	return removeSnapshotAnnotation(ctx, svVS)
+}
+
+// setGuestClusterDetailsOnSupervisorSnapshot adds the guest-cluster ownership label and the
+// CNSSnapshotFinalizer to supervisor VolumeSnapshots created by this guest cluster. It walks the
+// guest cluster's VolumeSnapshotContents and patches the corresponding supervisor VolumeSnapshot.
+// It is gated by the SVPVCSnapshotProtectionFinalizer FSS by its caller.
+//
+// NOTE: the guest-cluster-snapshot annotation (ImprovedVolumeVisibility FSS) is intentionally NOT
+// handled here; that lives in reconcileSupervisorSnapshotAnnotations so the annotation add/remove
+// logic stays self-contained and decoupled from the label/finalizer protection workflow.
 func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyncer *metadataSyncInformer,
 	supervisorNamespace string) error {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Fullsync: Querying guest cluster API server for all VSC objects.")
-	snapshotterClient, supervisorSnapshotterClient, supervisorRestConfig, err :=
-		getGuestAndSupervisorSnapshotClients(ctx, metadataSyncer)
+	snapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient, err :=
+		getCachedSnapshotClients(ctx, metadataSyncer)
 	if err != nil {
 		log.Errorf("setGuestClusterDetailsOnSupervisorSnapshot: failed to create snapshotter clients. Error: %v", err)
 		return err
 	}
 
-	snapshotProtectionEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-		common.SVPVCSnapshotProtectionFinalizer)
-	improvedVisibilityEnabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx,
-		common.ImprovedVolumeVisibility)
-
-	// Define the processor for supervisor snapshots. Label and finalizer mutations
-	// are gated by SVPVCSnapshotProtectionFinalizer; the guest-cluster annotation
-	// backfill is gated by ImprovedVolumeVisiblity. All applicable mutations are
-	// batched into a single PatchObject call.
+	// Add the guest-cluster ownership label and CNSSnapshotFinalizer on the supervisor
+	// VolumeSnapshot. All applicable mutations are batched into a single PatchObject call.
 	processFunc := func(ctx context.Context, vsc *snapv1.VolumeSnapshotContent, svVS *snapv1.VolumeSnapshot) error {
 		original := svVS.DeepCopy()
 		patchNeeded := false
 
-		if snapshotProtectionEnabled {
-			// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
-			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-			if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
-				if svVS.Labels == nil {
-					svVS.Labels = make(map[string]string)
-				}
-				svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-				patchNeeded = true
+		// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
+		key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+			metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+		if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+			if svVS.Labels == nil {
+				svVS.Labels = make(map[string]string)
 			}
-			// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present
-			// already, to prevent accidental deletion from supervisor cluster.
-			if !slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
-				svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
-				patchNeeded = true
-			}
+			svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+			patchNeeded = true
 		}
-
-		// Backfill the guest-cluster-snapshot annotation on the supervisor VolumeSnapshot
-		// for snapshots created before the feature was enabled (upgrade path).
-		if improvedVisibilityEnabled {
-			if _, ok := svVS.Annotations[common.AnnKeyGuestClusterSnapshot]; !ok {
-				guestSnapAnnot := common.BuildGuestSnapshotAnnotation(
-					metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-					vsc.Spec.VolumeSnapshotRef.Name, vsc.Spec.VolumeSnapshotRef.Namespace, vsc.Name)
-				jsonAnnotation, err := json.Marshal(guestSnapAnnot)
-				if err != nil {
-					log.Errorf("failed to marshal guest cluster snapshot annotation: %v", err)
-				} else {
-					if svVS.Annotations == nil {
-						svVS.Annotations = make(map[string]string)
-					}
-					svVS.Annotations[common.AnnKeyGuestClusterSnapshot] = string(jsonAnnotation)
-					patchNeeded = true
-				}
-			}
+		// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present
+		// already, to prevent accidental deletion from supervisor cluster.
+		if !slices.Contains(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer) {
+			svVS.ObjectMeta.Finalizers = append(svVS.ObjectMeta.Finalizers, cnsoperatortypes.CNSSnapshotFinalizer)
+			patchNeeded = true
 		}
 
 		if patchNeeded {
-			supervisorRuntimeClient, err := newRuntimeClientWithSnapshotScheme(supervisorRestConfig)
-			if err != nil {
-				return fmt.Errorf("failed to create controller-runtime client for supervisor cluster. Error: %w", err)
-			}
-
-			err = k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS)
-			if err != nil {
+			if err := k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS); err != nil {
 				return fmt.Errorf("failed to patch supervisor Snapshot %q with guest cluster details in %q namespace. Error: %w",
 					*vsc.Status.SnapshotHandle, supervisorNamespace, err)
 			}
@@ -794,6 +930,144 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 
 	return processVSCsFromGuestCluster(ctx, snapshotterClient, supervisorSnapshotterClient, supervisorNamespace,
 		processFunc)
+}
+
+// syncSupervisorSnapshotAnnotations wires up the snapshotter clients and delegates the
+// guest-cluster-snapshot annotation reconcile to reconcileSupervisorSnapshotAnnotations. It is
+// gated by the ImprovedVolumeVisibility FSS by its caller.
+func syncSupervisorSnapshotAnnotations(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	supervisorNamespace string) error {
+	log := logger.GetLogger(ctx)
+	guestSnapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient, err :=
+		getCachedSnapshotClients(ctx, metadataSyncer)
+	if err != nil {
+		log.Errorf("syncSupervisorSnapshotAnnotations: failed to create snapshotter clients. Error: %v", err)
+		return err
+	}
+	return reconcileSupervisorSnapshotAnnotations(ctx,
+		guestSnapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient,
+		supervisorNamespace,
+		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
+		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName)
+}
+
+// reconcileSupervisorSnapshotAnnotations performs a single-pass, two-way reconcile of ONLY the
+// guest-cluster-snapshot annotation on supervisor VolumeSnapshots that belong to this guest
+// cluster.
+//
+// It lists supervisor VolumeSnapshots in supervisorNamespace once and, for each VolumeSnapshot
+// whose name is prefixed with "<clusterUID>-" (created by this guest cluster via the pvCSI
+// CreateSnapshot path), derives the dynamically-provisioned guest VolumeSnapshotContent name
+// ("snapcontent-<uid>") and looks it up in the guest cluster:
+//
+//   - guest VSC exists -> markSnapshotAnnotation (add/backfill the annotation if missing).
+//   - guest VSC gone    -> removeSnapshotAnnotation (strip the annotation). The ownership label,
+//     managed by setGuestClusterDetailsOnSupervisorSnapshot, is deliberately left untouched.
+//
+// Transient errors on the guest VSC lookup are skipped (never treated as "deleted") so a flaky
+// guest API call cannot wrongly strip annotations.
+func reconcileSupervisorSnapshotAnnotations(ctx context.Context,
+	guestSnapshotterClient, supervisorSnapshotterClient snapshotterClientSet.Interface,
+	supervisorRuntimeClient client.Client, supervisorNamespace, clusterUID, clusterName string) error {
+	log := logger.GetLogger(ctx)
+
+	if clusterUID == "" {
+		return logger.LogNewError(log, "reconcileSupervisorSnapshotAnnotations: guest cluster UID is empty; "+
+			"cannot safely reconcile supervisor snapshot annotations")
+	}
+	namePrefix := clusterUID + "-"
+
+	const pageSize = 500
+
+	listOptions := metav1.ListOptions{Limit: pageSize}
+	for {
+		svVSList, err := supervisorSnapshotterClient.SnapshotV1().VolumeSnapshots(supervisorNamespace).
+			List(ctx, listOptions)
+		if err != nil {
+			log.Errorf("reconcileSupervisorSnapshotAnnotations: failed to list supervisor VolumeSnapshots "+
+				"in namespace %q. Error: %v", supervisorNamespace, err)
+			return err
+		}
+
+		for i := range svVSList.Items {
+			svVS := &svVSList.Items[i]
+			// Only consider supervisor VolumeSnapshots created by this guest cluster.
+			if !strings.HasPrefix(svVS.Name, namePrefix) {
+				continue
+			}
+			// Reconstruct the dynamically-provisioned guest VolumeSnapshotContent name. The
+			// supervisor VolumeSnapshot name is "<clusterUID>-<guestVS.UID>" and the guest VSC is
+			// named "snapcontent-<guestVS.UID>" (external-snapshotter dynamic naming convention).
+			guestVSCName := "snapcontent-" + strings.TrimPrefix(svVS.Name, namePrefix)
+			guestVSC, getErr := guestSnapshotterClient.SnapshotV1().VolumeSnapshotContents().
+				Get(ctx, guestVSCName, metav1.GetOptions{})
+
+			original := svVS.DeepCopy()
+			patchNeeded := false
+
+			switch {
+			case getErr == nil:
+				// Guest VSC exists. Trust it only once it is a ready vSphere snapshot whose handle
+				// maps back to this supervisor VolumeSnapshot.
+				if !isReadyVolumeSnapshotContent(guestVSC) ||
+					guestVSC.Status == nil || guestVSC.Status.SnapshotHandle == nil ||
+					*guestVSC.Status.SnapshotHandle != svVS.Name {
+					continue
+				}
+				// A guest VSC can outlive its guest VolumeSnapshot under a Retain deletion policy.
+				// Only (re)populate the annotation when the guest VolumeSnapshot itself still exists;
+				// otherwise full sync would resurrect identity fields that the delete event already
+				// cleared, oscillating on every pass. If the guest VolumeSnapshot is gone, treat it as
+				// deleted and clear the identity fields instead — never update a supervisor
+				// VolumeSnapshot for a guest VolumeSnapshot we no longer have.
+				vsRef := guestVSC.Spec.VolumeSnapshotRef
+				_, vsErr := guestSnapshotterClient.SnapshotV1().VolumeSnapshots(vsRef.Namespace).
+					Get(ctx, vsRef.Name, metav1.GetOptions{})
+				switch {
+				case vsErr == nil:
+					changed, mErr := markSnapshotAnnotation(svVS, guestVSC, clusterName)
+					if mErr != nil {
+						log.Errorf("reconcileSupervisorSnapshotAnnotations: failed to build annotation for "+
+							"supervisor VolumeSnapshot %q. Error: %v", svVS.Name, mErr)
+					} else if changed {
+						patchNeeded = true
+					}
+				case apierrors.IsNotFound(vsErr):
+					if clearSupervisorSnapshotAnnotation(ctx, svVS, guestVSCName) {
+						patchNeeded = true
+					}
+				default:
+					log.Errorf("reconcileSupervisorSnapshotAnnotations: transient error fetching guest "+
+						"VolumeSnapshot %q/%q for supervisor VolumeSnapshot %q. Skipping. Error: %v",
+						vsRef.Namespace, vsRef.Name, svVS.Name, vsErr)
+					continue
+				}
+			case apierrors.IsNotFound(getErr):
+				// Guest VSC no longer exists, so the guest snapshot is gone. Clear the identity fields.
+				if clearSupervisorSnapshotAnnotation(ctx, svVS, guestVSCName) {
+					patchNeeded = true
+				}
+			default:
+				log.Errorf("reconcileSupervisorSnapshotAnnotations: transient error fetching guest VSC %q for "+
+					"supervisor VolumeSnapshot %q. Skipping. Error: %v", guestVSCName, svVS.Name, getErr)
+				continue
+			}
+
+			if patchNeeded {
+				if err := k8s.PatchObject(ctx, supervisorRuntimeClient, original, svVS); err != nil {
+					log.Errorf("reconcileSupervisorSnapshotAnnotations: failed to patch supervisor "+
+						"VolumeSnapshot %q in namespace %q. Error: %v", svVS.Name, supervisorNamespace, err)
+					continue
+				}
+			}
+		}
+
+		if svVSList.Continue == "" {
+			break
+		}
+		listOptions.Continue = svVSList.Continue
+	}
+	return nil
 }
 
 // reconcileGuestSnapshotAnnotation reconciles the change-id annotation between supervisor and guest snapshots

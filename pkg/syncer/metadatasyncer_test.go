@@ -2177,8 +2177,38 @@ func TestSnapshotDeleted(t *testing.T) {
 				BoundVolumeSnapshotContentName: &contentName,
 			},
 		}
+		// A bound snapshot reaches pvcsiSnapshotDeleted, which is gated by the
+		// ImprovedVolumeVisibility FSS. With the FSS disabled it must return early without
+		// attempting to create real clients. The annotation-removal path itself is covered by
+		// TestSnapshotDeletedRemoveAnnotation.
+		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(tt, err)
+		fssDisabledSyncer := &metadataSyncInformer{coCommonInterface: co}
 		assert.NotPanics(tt, func() {
-			snapshotDeleted(snap, syncer)
+			snapshotDeleted(snap, fssDisabledSyncer)
 		})
+	})
+
+	t.Run("SnapshotWithValidContentName_FSSEnabled_NamespaceError", func(tt *testing.T) {
+		contentName := "snapcontent-xyz"
+		snap := &snapshotv1.VolumeSnapshot{
+			ObjectMeta: metav1.ObjectMeta{Name: "snap1", Namespace: "ns1"},
+			Status: &snapshotv1.VolumeSnapshotStatus{
+				BoundVolumeSnapshotContentName: &contentName,
+			},
+		}
+		// Build a syncer with the ImprovedVolumeVisibility FSS enabled so
+		// pvcsiSnapshotDeleted proceeds past the FSS gate and reaches the
+		// namespace-resolution step. The namespace lookup itself will fail in the
+		// test environment (no namespace file), causing an early return — the assertion
+		// here guards against any panic on that path.
+		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(tt, err)
+		assert.NoError(tt, co.(interface {
+			EnableFSS(context.Context, string) error
+		}).EnableFSS(context.Background(), common.ImprovedVolumeVisibility))
+		fssEnabledSyncer := &metadataSyncInformer{coCommonInterface: co}
+
+		assert.NotPanics(tt, func() { snapshotDeleted(snap, fssEnabledSyncer) })
 	})
 }

@@ -491,7 +491,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			}
 		}
 		// The bound supervisor volume name is not known yet; it is added below
-		// once the supervisor PVC is bound (see ImprovedVolumeVisiblity patch).
+		// once the supervisor PVC is bound (see ImprovedVolumeVisibility patch).
 		guestPvcAnnot := common.BuildGuestPvcAnnotation(c.tanzukubernetesClusterUID,
 			c.tanzukubernetesClusterName, pvcName, pvcNamespace, "")
 
