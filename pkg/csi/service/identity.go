@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -69,11 +70,15 @@ func (driver *vsphereCSIDriver) GetPluginCapabilities(
 		},
 	}
 
-	// Advertise SnapshotMetadata service for CBT support if CBT feature is enabled.
+	// Advertise SnapshotMetadata service for CBT support if CBT feature is enabled for both
+	// Supervisor and guest cluster CSI drivers.
 	// The SnapshotMetadata service provides GetMetadataAllocated and GetMetadataDelta RPCs
 	// for efficient backup and restore operations (CSI spec v1.10.0+).
 	if commonco.ContainerOrchestratorUtility != nil &&
-		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		((clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)) ||
+			(clusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API_FSS))) {
 		caps = append(caps, &csi.PluginCapability{
 			Type: &csi.PluginCapability_Service_{
 				Service: &csi.PluginCapability_Service{
