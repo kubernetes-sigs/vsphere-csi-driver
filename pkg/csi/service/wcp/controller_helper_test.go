@@ -2,7 +2,6 @@ package wcp
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -328,8 +327,8 @@ func TestGetSnapshotLimitForNamespace(t *testing.T) {
 // accepts the host-local policy marker only when its value is "true", and continues to accept the
 // existing block-volume parameters while rejecting unknown ones.
 func TestValidateCreateBlockReqParamHostLocalPolicy(t *testing.T) {
-	// The caller lowercases the parameter name before validation.
-	hostLocalParam := strings.ToLower(common.AttributeHostLocalPolicy)
+	// The constant is already lowercase; the caller lowercases incoming parameter names too.
+	hostLocalParam := common.AttributeHostLocalPolicy
 	tests := []struct {
 		name      string
 		paramName string

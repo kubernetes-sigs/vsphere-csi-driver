@@ -736,7 +736,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 					"linked clone volumes is not supported. Request: %+v", req)
 			}
-		case strings.ToLower(common.AttributeHostLocalPolicy):
+		case common.AttributeHostLocalPolicy:
 			isHostLocalRequest = strings.EqualFold(req.Parameters[paramName], "true")
 		}
 	}
@@ -1075,6 +1075,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		hostMoRefs, hostMoIDToTopology, err = getHostMoRefsForHostLocalVolume(ctx, topologyRequirement,
 			commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx))
 		if err != nil {
+			log.Errorf("failed to resolve candidate hosts for host-local volume %q. Error: %+v", req.Name, err)
 			return nil, csifault.CSIInternalFault, err
 		}
 	}

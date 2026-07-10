@@ -82,12 +82,13 @@ const (
 	AttributeHostLocal = "hostlocal"
 
 	// AttributeHostLocalPolicy is a CreateVolume parameter injected by the external
-	// provisioner when the requested StorageClass uses a host-local storage policy.
-	// When set to "true" (and the supports_host_local_storage capability is enabled),
-	// the WCP CSI controller provisions the volume against target hosts supplied to
-	// CNS and builds PV node affinity from the host CNS selects. Using this marker
-	// avoids a PBM lookup during provisioning.
-	AttributeHostLocalPolicy = "hostLocalPolicy"
+	// provisioner (as "hostLocalPolicy") when the requested StorageClass uses a
+	// host-local storage policy. When set to "true" (and the supports_host_local_storage
+	// capability is enabled), the WCP CSI controller provisions the volume against target
+	// hosts supplied to CNS and builds PV node affinity from the host CNS selects. Using
+	// this marker avoids a PBM lookup during provisioning. Stored lowercase to match the
+	// case-insensitive parameter names received in CreateVolumeRequest.
+	AttributeHostLocalPolicy = "hostlocalpolicy"
 
 	// AttributePvName represents the name of the PV
 	AttributePvName = "csi.storage.k8s.io/pv/name"
