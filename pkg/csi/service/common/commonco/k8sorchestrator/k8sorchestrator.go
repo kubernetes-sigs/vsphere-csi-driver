@@ -207,12 +207,15 @@ func (m *volumeNameToNodesMap) get(volumeName string) []string {
 	return m.items[volumeName]
 }
 
-// Map of nodeID to node names in the cluster. Key is the nodeID
-// and value is the corresponding node name. The methods to add
-// and remove entries from the map in a threadsafe manner are defined.
+// Bidirectional map of nodeID (ESXi host MoID) to node name in the cluster.
+// items maps nodeID -> node name; nameToID maps node name -> nodeID. Both
+// directions are maintained together so consumers that need the reverse
+// (node name -> host MoID) lookup do not have to rebuild it on every call.
+// The methods to add and remove entries in a threadsafe manner are defined.
 type nodeIDToNameMap struct {
 	*sync.RWMutex
-	items map[string]string
+	items    map[string]string
+	nameToID map[string]string
 }
 
 // Adds an entry to nodeIDToNameMap in a thread safe manner.
@@ -220,13 +223,29 @@ func (m *nodeIDToNameMap) add(nodeID, nodeName string) {
 	m.Lock()
 	defer m.Unlock()
 	m.items[nodeID] = nodeName
+	m.nameToID[nodeName] = nodeID
 }
 
 // Removes an entry from nodeIDToNameMap in a thread safe manner.
 func (m *nodeIDToNameMap) remove(nodeID string) {
 	m.Lock()
 	defer m.Unlock()
+	if nodeName, ok := m.items[nodeID]; ok {
+		delete(m.nameToID, nodeName)
+	}
 	delete(m.items, nodeID)
+}
+
+// getNameToIDCopy returns a copy of the node name -> host MoID map under a read
+// lock so callers get a race-free snapshot they can iterate safely.
+func (m *nodeIDToNameMap) getNameToIDCopy() map[string]string {
+	m.RLock()
+	defer m.RUnlock()
+	nameToIDCopy := make(map[string]string, len(m.nameToID))
+	for name, id := range m.nameToID {
+		nameToIDCopy[name] = id
+	}
+	return nameToIDCopy
 }
 
 // Map of volume ID to volume name.
@@ -1989,8 +2008,9 @@ func initNodeIDToNameMap(ctx context.Context) error {
 
 	log.Debugf("Initializing node ID to node name map")
 	k8sOrchestratorInstance.nodeIDToNameMap = &nodeIDToNameMap{
-		RWMutex: &sync.RWMutex{},
-		items:   make(map[string]string),
+		RWMutex:  &sync.RWMutex{},
+		items:    make(map[string]string),
+		nameToID: make(map[string]string),
 	}
 
 	// Set up kubernetes resource listener to listen events on Node
@@ -2078,6 +2098,14 @@ func nodeRemove(obj interface{}) {
 // GetNodeIDtoNameMap returns a map containing the nodeID to node name
 func (c *K8sOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
 	return c.nodeIDToNameMap.items
+}
+
+// GetNodeNameToHostMoIDMap returns a race-free copy of the node name to ESXi host MoID map,
+// maintained by the node informer. Used by host-local volume provisioning to resolve the
+// candidate hosts from the hostnames in the accessibility requirement without rebuilding the
+// reverse map on every CreateVolume call.
+func (c *K8sOrchestrator) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	return c.nodeIDToNameMap.getNameToIDCopy()
 }
 
 // GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set

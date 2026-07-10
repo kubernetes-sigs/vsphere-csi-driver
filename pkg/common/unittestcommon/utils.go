@@ -488,6 +488,19 @@ func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string
 	return nodeIDToNamesMap
 }
 
+// GetNodeNameToHostMoIDMap returns the configured node name to ESXi host MoID map,
+// or an empty map when unset.
+func (c *FakeK8SOrchestrator) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	if c.NodeNameToHostMoID == nil {
+		return map[string]string{}
+	}
+	nodeNameToHostMoIDCopy := make(map[string]string, len(c.NodeNameToHostMoID))
+	for name, id := range c.NodeNameToHostMoID {
+		nodeNameToHostMoIDCopy[name] = id
+	}
+	return nodeNameToHostMoIDCopy
+}
+
 // GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
 // to true if volumeID key is fake attached else false
 func (c *FakeK8SOrchestrator) GetFakeAttachedVolumes(ctx context.Context, volumeID []string) map[string]bool {

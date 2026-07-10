@@ -362,3 +362,35 @@ func TestSetWcpCapabilitiesMap_Success(t *testing.T) {
 	val, _ = WcpCapabilitiesMap.Load("CapabilityB")
 	assert.Equal(t, false, val)
 }
+
+// TestNodeIDToNameMapBidirectional verifies the nodeIDToNameMap keeps the forward (host MoID ->
+// node name) and reverse (node name -> host MoID) directions consistent across add/remove, and that
+// getNameToIDCopy returns an independent snapshot.
+func TestNodeIDToNameMapBidirectional(t *testing.T) {
+	m := &nodeIDToNameMap{
+		RWMutex:  &sync.RWMutex{},
+		items:    make(map[string]string),
+		nameToID: make(map[string]string),
+	}
+
+	m.add("host-1", "node-a")
+	m.add("host-2", "node-b")
+
+	assert.Equal(t, "node-a", m.items["host-1"])
+	assert.Equal(t, "host-1", m.nameToID["node-a"])
+	assert.Equal(t, "host-2", m.nameToID["node-b"])
+
+	// Snapshot is a copy: mutating it must not affect the underlying map.
+	snapshot := m.getNameToIDCopy()
+	assert.Equal(t, map[string]string{"node-a": "host-1", "node-b": "host-2"}, snapshot)
+	snapshot["node-a"] = "mutated"
+	assert.Equal(t, "host-1", m.nameToID["node-a"])
+
+	// Remove clears both directions.
+	m.remove("host-1")
+	_, forwardExists := m.items["host-1"]
+	_, reverseExists := m.nameToID["node-a"]
+	assert.False(t, forwardExists)
+	assert.False(t, reverseExists)
+	assert.Equal(t, "host-2", m.nameToID["node-b"])
+}

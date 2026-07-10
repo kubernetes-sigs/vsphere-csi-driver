@@ -50,6 +50,9 @@ type FakeK8SOrchestrator struct {
 	csiNodeTopologyInstances []interface{}
 	// PVCs for testing
 	pvcs []*v1.PersistentVolumeClaim
+	// NodeNameToHostMoID is the node name -> ESXi host MoID map returned by
+	// GetNodeNameToHostMoIDMap in tests. Nil returns an empty map.
+	NodeNameToHostMoID map[string]string
 }
 
 // volumeMigration holds mocked migrated volume information

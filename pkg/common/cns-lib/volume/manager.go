@@ -188,6 +188,9 @@ type CnsVolumeInfo struct {
 	DatastoreURL string
 	VolumeID     cnstypes.CnsVolumeId
 	Clusters     []vim25types.ManagedObjectReference
+	// Host is the ESX HostSystem MoRef that CNS selected for a host-local volume, as reported in
+	// the CNS placement result. Nil for non-host-local volumes.
+	Host *vim25types.ManagedObjectReference
 }
 
 type CnsSnapshotInfo struct {

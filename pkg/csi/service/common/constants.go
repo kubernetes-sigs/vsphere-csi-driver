@@ -81,6 +81,15 @@ const (
 	// the given storage policy. For Example: HostLocal: "True".
 	AttributeHostLocal = "hostlocal"
 
+	// AttributeHostLocalPolicy is a CreateVolume parameter injected by the external
+	// provisioner (as "hostLocalPolicy") when the requested StorageClass uses a
+	// host-local storage policy. When set to "true" (and the supports_host_local_storage
+	// capability is enabled), the WCP CSI controller provisions the volume against target
+	// hosts supplied to CNS and builds PV node affinity from the host CNS selects. Using
+	// this marker avoids a PBM lookup during provisioning. Stored lowercase to match the
+	// case-insensitive parameter names received in CreateVolumeRequest.
+	AttributeHostLocalPolicy = "hostlocalpolicy"
+
 	// AttributePvName represents the name of the PV
 	AttributePvName = "csi.storage.k8s.io/pv/name"
 
@@ -670,6 +679,13 @@ const (
 	// control flag has been cleared due to VM ownerRef presence. This prevents
 	// redundant VSLM calls on syncer restarts or during periodic resyncs.
 	AnnVMDeleteProtectionCleared = "cns.vmware.com/vm-delete-protection-cleared"
+
+	// HostLocalStorageSupport is the WCP capability for host-local storage policy
+	// provisioning. When enabled on the supervisor, the CSI driver honors the
+	// hostLocalPolicy volume parameter, supplies target hosts to CNS in the
+	// CnsVolumeCreateSpec, and builds PV node affinity from the host returned in
+	// the CNS placement result.
+	HostLocalStorageSupport = "supports_host_local_storage"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -691,6 +707,7 @@ var WCPFeatureStates = map[string]struct{}{
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
+	HostLocalStorageSupport:                 {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -710,6 +727,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SupportsExposingStoragePolicyAttributes: {},
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
+	HostLocalStorageSupport:                 {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a

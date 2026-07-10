@@ -70,6 +70,8 @@ type COCommonInterface interface {
 	GetNodesForVolumes(ctx context.Context, volumeIds []string) map[string][]string
 	// GetNodeIDtoNameMap returns a map of node ID  to node names
 	GetNodeIDtoNameMap(ctx context.Context) map[string]string
+	// GetNodeNameToHostMoIDMap returns a map of node name to ESXi host MoID.
+	GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string
 	// GetFakeAttachedVolumes returns a map of volumeIDs to a bool, which is set
 	// to true if volumeID key is fake attached else false
 	GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool

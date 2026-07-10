@@ -354,6 +354,11 @@ func (m *mockCOCommon) GetNodeIDtoNameMap(ctx context.Context) map[string]string
 	panic("implement me")
 }
 
+func (m *mockCOCommon) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockCOCommon) GetFakeAttachedVolumes(ctx context.Context, volumeIDs []string) map[string]bool {
 	//TODO implement me
 	panic("implement me")

@@ -20,6 +20,7 @@ import (
 	"errors"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -85,6 +86,10 @@ type CreateVolumeSpec struct {
 	ContentSourceSnapshotID string // SnapshotID from VolumeContentSource in CreateVolumeRequest
 	CapacityMB              int64
 	IsLinkedCloneRequest    bool
+	// Hosts holds the candidate ESX HostSystem MoRefs supplied to CNS for host-local storage
+	// policy provisioning. CNS selects the final host from this set and returns it in the
+	// placement result. Empty for non-host-local volumes.
+	Hosts []vim25types.ManagedObjectReference
 }
 
 // StorageClassParams represents the storage class parameterss
