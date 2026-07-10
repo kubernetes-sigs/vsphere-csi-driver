@@ -27,6 +27,9 @@ import (
 	"github.com/google/uuid"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -106,6 +109,149 @@ func isDatastoreAccessibleToAZClusters(ctx context.Context, vc *vsphere.VirtualC
 		}
 	}
 	return false
+}
+
+// buildClusterToZoneMap inverts the AvailabilityZone -> clusters map (zone -> []clusterMoID)
+// into a clusterMoID -> zone map, used to derive the zone of a host-local volume from the
+// cluster its backing ESX host belongs to.
+func buildClusterToZoneMap(azClustersMap map[string][]string) map[string]string {
+	clusterToZone := make(map[string]string)
+	for zone, clusters := range azClustersMap {
+		for _, cluster := range clusters {
+			clusterToZone[cluster] = zone
+		}
+	}
+	return clusterToZone
+}
+
+// checkDatastorePolicyCompatibilityFn allows tests to substitute the PBM compatibility check.
+var checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility
+
+// checkDatastorePolicyCompatibility reports whether the given datastore is PBM-compatible with
+// the storage policy, using vc.PbmCheckCompatibility. A datastore is compatible when its MoRef
+// appears in the policy's compatible-datastore set (hubs with no compatibility error).
+func checkDatastorePolicyCompatibility(ctx context.Context, vc *vsphere.VirtualCenter,
+	dsInfo *vsphere.DatastoreInfo, storagePolicyID string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	compat, err := vc.PbmCheckCompatibility(ctx,
+		[]vimtypes.ManagedObjectReference{dsInfo.Reference()}, storagePolicyID)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"failed to check PBM compatibility of datastore %q with policy %q: %v",
+			dsInfo.Info.Url, storagePolicyID, err)
+	}
+	for _, hub := range compat.CompatibleDatastores() {
+		if hub.HubId == dsInfo.Reference().Value {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// getHostLocalAccessibleTopologyFn is the function used to resolve the accessible
+// topology of a host-local volume. It is a variable so that tests can substitute a
+// fake implementation without needing gomonkey.
+var getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology
+
+// getHostLocalAccessibleTopology returns the PV node-affinity topology segments for a
+// host-local volume, pinned to the single ESX host that mounts the datastore:
+// {topology.kubernetes.io/zone, kubernetes.io/hostname}.
+//
+// Derivation (per feature requirements):
+//   - host: Datastore.host[0] — the first host mount of the datastore.
+//   - hostname: the kubernetes.io/hostname value for that host, obtained by reversing
+//     the node-name -> ESX-host-MoID map (on a supervisor the node name equals the
+//     kubernetes.io/hostname label value).
+//   - zone: derived from the cluster the host belongs to (host.parent) via clusterToZone,
+//     which is the inverted AvailabilityZone -> clusters map.
+//
+// Registration cannot proceed if any segment cannot be derived, so this returns an error
+// (not an empty result) when the datastore has no host mount, the host has no matching
+// supervisor node, or the host's cluster has no zone mapping.
+func getHostLocalAccessibleTopology(ctx context.Context, vc *vsphere.VirtualCenter,
+	dsInfo *vsphere.DatastoreInfo, clusterToZone map[string]string) ([]map[string]string, error) {
+	log := logger.GetLogger(ctx)
+
+	// Datastore.host[0]: the ESX host that mounts the host-local datastore.
+	var dsMo mo.Datastore
+	if err := dsInfo.Properties(ctx, dsInfo.Reference(), []string{"host"}, &dsMo); err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to retrieve host mounts for datastore %q: %v", dsInfo.Info.Url, err)
+	}
+	if len(dsMo.Host) == 0 {
+		return nil, logger.LogNewErrorf(log,
+			"host-local datastore %q has no host mounts", dsInfo.Info.Url)
+	}
+	hostRef := dsMo.Host[0].Key
+
+	// hostname: reverse the node-name -> host-MoID map to resolve the host to its node name,
+	// which is the kubernetes.io/hostname value on a supervisor.
+	nodeNameToHostMoID := commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx)
+	hostname := ""
+	for nodeName, hostMoID := range nodeNameToHostMoID {
+		if hostMoID == hostRef.Value {
+			hostname = nodeName
+			break
+		}
+	}
+	if hostname == "" {
+		return nil, logger.LogNewErrorf(log,
+			"failed to resolve kubernetes.io/hostname for ESX host %q backing host-local datastore %q",
+			hostRef.Value, dsInfo.Info.Url)
+	}
+
+	// zone: derive from the cluster the host belongs to (host.parent).
+	hostObj := object.NewHostSystem(vc.Client.Client, hostRef)
+	var hostMo mo.HostSystem
+	if err := hostObj.Properties(ctx, hostRef, []string{"parent"}, &hostMo); err != nil {
+		return nil, logger.LogNewErrorf(log,
+			"failed to retrieve parent cluster for ESX host %q: %v", hostRef.Value, err)
+	}
+	if hostMo.Parent == nil {
+		return nil, logger.LogNewErrorf(log,
+			"ESX host %q backing host-local datastore %q has no parent cluster", hostRef.Value, dsInfo.Info.Url)
+	}
+	zone, ok := clusterToZone[hostMo.Parent.Value]
+	if !ok || zone == "" {
+		return nil, logger.LogNewErrorf(log,
+			"no zone mapping found for cluster %q (host %q); host-local registration requires a "+
+				"zone derived from the host's cluster", hostMo.Parent.Value, hostRef.Value)
+	}
+
+	segment := map[string]string{
+		v1.LabelTopologyZone: zone,
+		v1.LabelHostname:     hostname,
+	}
+	log.Infof("host-local datastore %q resolved to host %q (node %q) in cluster %q, topology: %+v",
+		dsInfo.Info.Url, hostRef.Value, hostname, hostMo.Parent.Value, segment)
+	return []map[string]string{segment}, nil
+}
+
+// buildNodeAffinityFromSegments builds a PV VolumeNodeAffinity from topology segments.
+// Each segment contributes one NodeSelectorTerm whose match expressions require every
+// segment key to equal its value (In operator), so both the zone and hostname keys of a
+// host-local segment become required node-selector terms on the PV.
+func buildNodeAffinityFromSegments(segments []map[string]string) *v1.VolumeNodeAffinity {
+	if len(segments) == 0 {
+		return nil
+	}
+	var terms []v1.NodeSelectorTerm
+	for _, segment := range segments {
+		expressions := make([]v1.NodeSelectorRequirement, 0, len(segment))
+		for key, value := range segment {
+			expressions = append(expressions, v1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: v1.NodeSelectorOpIn,
+				Values:   []string{value},
+			})
+		}
+		terms = append(terms, v1.NodeSelectorTerm{MatchExpressions: expressions})
+	}
+	return &v1.VolumeNodeAffinity{
+		Required: &v1.NodeSelector{
+			NodeSelectorTerms: terms,
+		},
+	}
 }
 
 // clearKeepAfterDeleteVmIfNonRemovable clears the keepAfterDeleteVm control flag

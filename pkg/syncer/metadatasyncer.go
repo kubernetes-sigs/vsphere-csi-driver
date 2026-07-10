@@ -397,6 +397,13 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.WCPMobilityNonDisruptiveImport, "", "")
 		}
+		// HostLocalStorageSupport gates host-local volume registration via CNSRegisterVolume. If the
+		// capability is not enabled yet (e.g. VC upgraded before the supervisor), poll the capabilities
+		// CR and restart the syncer container when it flips to enabled so the feature becomes active.
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.HostLocalStorageSupport) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.HostLocalStorageSupport, "", "")
+		}
 		if !isSharedDiskEabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")

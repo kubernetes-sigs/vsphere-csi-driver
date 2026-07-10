@@ -374,7 +374,98 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+	// Detect whether the volume uses a vSAN host-local storage policy. This is gated on the
+	// supports_host_local_storage capability; re-checking IsFSSEnabled here (rather than caching it
+	// at startup) picks up late enablement of the capability on the running syncer. A host-local
+	// volume lives on the local storage of a single ESX host, so the regular "accessible to all
+	// hosts" gate and the intersection-based topology computation are replaced with a node-driven
+	// resolution below. When the capability is off or the policy is not host-local, isHostLocal
+	// stays false and the existing behavior is preserved.
+	isHostLocal := false
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.HostLocalStorageSupport) {
+		isHostLocal, err = vc.IsHostLocalStoragePolicy(ctx, volume.StoragePolicyId)
+		if err != nil {
+			msg := fmt.Sprintf("failed to determine host-local status for storage policy %s: %+v",
+				volume.StoragePolicyId, err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
+
+	// datastoreAccessibleTopology holds the PV/PVC topology segments. For host-local volumes it is
+	// populated by the node-driven resolver below; otherwise it is computed later from shared
+	// datastores in the IsPodVMOnStretchSupervisorFSSEnabled block.
+	var datastoreAccessibleTopology []map[string]string
+
+	if isHostLocal {
+		// Bypass the shared-datastore "accessible to all hosts" gate. Build the clusterMoID -> zone
+		// map (inverted AvailabilityZone map) used both to discover the candidate clusters that may
+		// hold the datastore and to derive the zone from the host's cluster.
+		var clusterToZone map[string]string
+		if topologyMgr != nil {
+			clusterToZone = buildClusterToZoneMap(topologyMgr.GetAZClustersMap(ctx))
+		}
+		candidateClusterIDs := make([]string, 0, len(clusterToZone))
+		for clusterID := range clusterToZone {
+			candidateClusterIDs = append(candidateClusterIDs, clusterID)
+		}
+		if len(candidateClusterIDs) == 0 {
+			candidateClusterIDs = clusterComputeResourceMoIds
+		}
+
+		// Resolve the datastore object the disk lives on.
+		dsInfo, dsErr := cnsvsphere.GetDatastoreInfoByURL(ctx, vc, candidateClusterIDs, volume.DatastoreUrl)
+		if dsErr != nil || dsInfo == nil {
+			log.Errorf("failed to resolve datastore %s for host-local volume %s: %+v",
+				volume.DatastoreUrl, volumeID, dsErr)
+			setInstanceError(ctx, r, instance,
+				"host-local volume in the spec is on a datastore not found in the namespace's clusters")
+			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			// permanent failure and not requeue.
+			return reconcile.Result{}, nil
+		}
+
+		// Requirement: the host-local policy must be PBM-compatible with the datastore the disk
+		// lives on. Reject registration if it is not.
+		compatible, compatErr := checkDatastorePolicyCompatibilityFn(ctx, vc, dsInfo, volume.StoragePolicyId)
+		if compatErr != nil {
+			// Transient PBM/VC error: requeue without cleanup.
+			setInstanceError(ctx, r, instance,
+				fmt.Sprintf("failed to verify PBM compatibility for host-local volume %s: %+v", volumeID, compatErr))
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		if !compatible {
+			log.Errorf("host-local policy %s is not PBM-compatible with datastore %s for volume %s",
+				volume.StoragePolicyId, volume.DatastoreUrl, volumeID)
+			setInstanceError(ctx, r, instance,
+				"host-local storage policy is not compatible with the datastore the disk lives on")
+			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			// permanent failure and not requeue.
+			return reconcile.Result{}, nil
+		}
+
+		// Derive the PV topology from Datastore.host[0] -> {zone (from host's cluster), hostname}.
+		datastoreAccessibleTopology, err = getHostLocalAccessibleTopologyFn(ctx, vc, dsInfo, clusterToZone)
+		if err != nil {
+			log.Errorf("failed to resolve host-local topology for volume %s on datastore %s: %+v",
+				volumeID, volume.DatastoreUrl, err)
+			setInstanceError(ctx, r, instance,
+				fmt.Sprintf("failed to resolve host-local topology for volume %s: %+v", volumeID, err))
+			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			// permanent failure and not requeue.
+			return reconcile.Result{}, nil
+		}
+	} else if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 		if workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1 {
 			if isMultipleClustersPerVsphereZoneEnabled {
 				// Get zones assigned to the namespace
@@ -473,9 +564,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Calculate accessible topology for the provisioned volume.
-	var datastoreAccessibleTopology []map[string]string
-	if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+	// Calculate accessible topology for the provisioned volume. datastoreAccessibleTopology is
+	// declared earlier and, for host-local volumes, is already populated by the node-driven
+	// resolver, so build the PV node affinity from it directly (covering all configurations,
+	// including non-stretched supervisors). Otherwise fall back to the shared-datastore topology.
+	if isHostLocal {
+		pvNodeAffinity = buildNodeAffinityFromSegments(datastoreAccessibleTopology)
+	} else if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 		if workloadDomainIsolationEnabled {
 			datastoreAccessibleTopology, err = topologyMgr.GetTopologyInfoFromNodes(ctx,
 				commoncotypes.WCPRetrieveTopologyInfoParams{
@@ -627,10 +722,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 
-		// Validate topology compatibility if PVC exists and can be reused
-		if topologyMgr != nil {
+		// Validate topology compatibility if PVC exists and can be reused. For host-local volumes the
+		// topology is already resolved (datastoreAccessibleTopology is non-empty) and topologyMgr is
+		// not consulted, so run the validation even when topologyMgr is nil (e.g. non-stretched
+		// supervisor) to ensure the reused PVC gets the {zone, hostname} annotation.
+		if topologyMgr != nil || isHostLocal {
 			err = validatePVCTopologyCompatibility(ctx, k8sclient, pvc, volume.DatastoreUrl, topologyMgr, vc,
-				datastoreAccessibleTopology)
+				datastoreAccessibleTopology, isHostLocal)
 			if err != nil {
 				msg := fmt.Sprintf("PVC topology validation failed: %v", err)
 				log.Error(msg)
@@ -926,7 +1024,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 // with the volume's actual placement zone.
 func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.Interface, pvc *v1.PersistentVolumeClaim,
 	volumeDatastoreURL string, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string) error {
+	vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, isHostLocal bool) error {
 	log := logger.GetLogger(ctx)
 
 	// Check if PVC has topology annotation
@@ -991,16 +1089,24 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 			pvc.Namespace, pvc.Name, err)
 	}
 
-	// Get volume topology from datastore URL
-	volumeTopologySegments, err := topologyMgr.GetTopologyInfoFromNodes(ctx,
-		commoncotypes.WCPRetrieveTopologyInfoParams{
-			DatastoreURL:        volumeDatastoreURL,
-			StorageTopologyType: "",
-			TopologyRequirement: nil,
-			Vc:                  vc,
-		})
-	if err != nil {
-		return fmt.Errorf("failed to get topology for volume datastore %s: %v", volumeDatastoreURL, err)
+	// Determine the volume's actual topology. For host-local volumes the caller already resolved the
+	// node-driven {zone, hostname} topology; reuse it directly and skip the shared-datastore
+	// intersection recompute (GetTopologyInfoFromNodes), which would incorrectly drop the single-host
+	// datastore and reject the PVC.
+	var volumeTopologySegments []map[string]string
+	if isHostLocal && len(datastoreAccessibleTopology) > 0 {
+		volumeTopologySegments = datastoreAccessibleTopology
+	} else {
+		volumeTopologySegments, err = topologyMgr.GetTopologyInfoFromNodes(ctx,
+			commoncotypes.WCPRetrieveTopologyInfoParams{
+				DatastoreURL:        volumeDatastoreURL,
+				StorageTopologyType: "",
+				TopologyRequirement: nil,
+				Vc:                  vc,
+			})
+		if err != nil {
+			return fmt.Errorf("failed to get topology for volume datastore %s: %v", volumeDatastoreURL, err)
+		}
 	}
 
 	// Check if volume topology segments are compatible with PVC topology segments
