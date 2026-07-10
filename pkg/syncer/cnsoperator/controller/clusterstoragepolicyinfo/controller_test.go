@@ -2433,8 +2433,9 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 		// Empty compatible hubs means no zones are accessible
 		accessibleZones = []string{}
 	}
-	// In a real implementation, this would call cnsoperatorutil.GetAccessibleZonesForPolicy
-	// which requires complex VirtualCenter mocking that's more suitable for integration tests
+	// In a real implementation, this would call
+	// cnsoperatorutil.GetAccessibleZonesAndDatastoresForPolicy, which requires complex
+	// VirtualCenter mocking that's more suitable for integration tests
 
 	// Update InfraSPI with topology information including accessible zones
 	infraSPI.Status.Topology.AccessibleZones = accessibleZones
@@ -2680,8 +2681,9 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 					// For accessible zones, we can only verify the structure since the actual
 					// zone population requires complex VirtualCenter mocking
 					assert.NotNil(t, infraSPI.Status.Topology.AccessibleZones)
-					// In our simplified test, zones will be empty because cnsoperatorutil.GetAccessibleZonesForPolicy
-					// requires complex VirtualCenter mocking which is beyond the scope of unit tests
+					// In our simplified test, zones will be empty because
+					// cnsoperatorutil.GetAccessibleZonesAndDatastoresForPolicy requires complex
+					// VirtualCenter mocking which is beyond the scope of unit tests
 					assert.Equal(t, []string{}, infraSPI.Status.Topology.AccessibleZones)
 				}
 			}

@@ -565,23 +565,36 @@ func GetPolicyCompatibleDatastores(ctx context.Context, vc *cnsvsphere.VirtualCe
 	return compatibleDSIDs, nil
 }
 
-// GetAccessibleZonesForPolicy determines which zones are accessible to the datastores
-// compatible with the given storage policy.
-func GetAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
+// GetAccessibleZonesAndDatastoresForPolicy determines which zones are
+// accessible to the datastores compatible with the given storage policy, and
+// returns the flat set of compatible datastore morefs behind those zones
+// (deduped across zones that share a datastore).
+func GetAccessibleZonesAndDatastoresForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
 	vc *cnsvsphere.VirtualCenter, profileID string,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) ([]string, error) {
+	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) (zones []string, dsIDs []string, err error) {
 	log := logger.GetLogger(ctx)
 
 	zoneCompatibleDS, err := GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID, clusterDatastoreCache)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Convert map to slice of zones that have compatible datastores
-	zones := make([]string, 0)
+	// A zone is accessible if it has at least one compatible datastore.
+	zones = make([]string, 0, len(zoneCompatibleDS))
+	seenDsIDs := make(map[string]struct{})
 	for zone, compatibleDS := range zoneCompatibleDS {
-		if len(compatibleDS) > 0 {
-			zones = append(zones, zone)
+		if len(compatibleDS) == 0 {
+			continue
+		}
+		zones = append(zones, zone)
+		for _, ds := range compatibleDS {
+			dsID := ds.Reference().Value
+
+			if _, ok := seenDsIDs[dsID]; ok {
+				continue
+			}
+			seenDsIDs[dsID] = struct{}{}
+			dsIDs = append(dsIDs, dsID)
 		}
 	}
 
@@ -591,7 +604,7 @@ func GetAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.
 		log.Infof("Storage policy %s is accessible from zones: %v", profileID, zones)
 	}
 
-	return zones, nil
+	return zones, dsIDs, nil
 }
 
 // GetPolicyCompatibleDatastoresPerZone returns compatible datastores grouped by zone.

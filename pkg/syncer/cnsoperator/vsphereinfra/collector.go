@@ -201,7 +201,10 @@ func buildWaitFilter(
 //
 // Datastore updates:
 //   - Enter: populates DsToHosts baseline (no event).
-//   - Leave: emits EventDatastoreRemoved and clears cached state.
+//   - Leave: clears cached state and emits EventDatastoreRemoved, carrying the
+//     just-cleared policy names in its Policies field — the cache no longer
+//     has them by the time OnInventoryChange sees this event, so it can't
+//     resolve them the normal way.
 //   - Modify on host: emits EventDatastoreHostChanged only when the set of
 //     mounting hosts actually changed (added/removed), matching how InfraSPI
 //     itself determines datastore accessibility — it checks HostSystem.datastore
@@ -254,8 +257,8 @@ func collectEvents(ctx context.Context, updates []types.ObjectUpdate) []Inventor
 
 			case types.ObjectUpdateKindLeave:
 				log.Infof("vsphereinfra: datastore %s removed from vCenter inventory", moref)
-				cache.InvalidateDatastore(moref)
-				events = append(events, InventoryEvent{Kind: EventDatastoreRemoved, MoRef: moref})
+				removedPolicies := cache.InvalidateDatastore(moref)
+				events = append(events, InventoryEvent{Kind: EventDatastoreRemoved, MoRef: moref, Policies: removedPolicies})
 
 			case types.ObjectUpdateKindModify:
 				for _, change := range update.ChangeSet {

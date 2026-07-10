@@ -619,7 +619,7 @@ func TestGetTKGVMIP_PerNamespaceVDSUsesVMIP(t *testing.T) {
 	assert.Equal(t, "192.0.2.10", ip)
 }
 
-// --- helpers for GetPolicyCompatibleDatastoresPerZone / GetAccessibleZonesForPolicy ----
+// --- helpers for GetPolicyCompatibleDatastoresPerZone / GetAccessibleZonesAndDatastoresForPolicy ----
 
 // mockTopologyService is a minimal ControllerTopologyService for unit tests.
 type mockTopologyService struct {
@@ -796,20 +796,22 @@ func TestGetPolicyCompatibleDatastoresPerZone_MultipleClustersPerZone(t *testing
 	})
 }
 
-// --- GetAccessibleZonesForPolicy tests ------------------------------------------------
+// --- GetAccessibleZonesAndDatastoresForPolicy tests -----------------------------------
 
-// TestGetAccessibleZonesForPolicy_NilTopologyManager verifies that a nil topology
-// manager returns an error.
-func TestGetAccessibleZonesForPolicy_NilTopologyManager(t *testing.T) {
+// TestGetAccessibleZonesAndDatastoresForPolicy_NilTopologyManager verifies that a nil
+// topology manager returns an error.
+func TestGetAccessibleZonesAndDatastoresForPolicy_NilTopologyManager(t *testing.T) {
 	ctx := context.Background()
-	zones, err := GetAccessibleZonesForPolicy(ctx, nil, nil, "policy-1", nil)
+	zones, dsIDs, err := GetAccessibleZonesAndDatastoresForPolicy(ctx, nil, nil, "policy-1", nil)
 	assert.Error(t, err)
 	assert.Nil(t, zones)
+	assert.Nil(t, dsIDs)
 }
 
-// TestGetAccessibleZonesForPolicy_NoCompatibleDatastores verifies that zones without
-// any compatible datastores are excluded from the result.
-func TestGetAccessibleZonesForPolicy_NoCompatibleDatastores(t *testing.T) {
+// TestGetAccessibleZonesAndDatastoresForPolicy_NoCompatibleDatastores verifies that
+// zones without any compatible datastores are excluded from the result, and no
+// datastore morefs are returned either.
+func TestGetAccessibleZonesAndDatastoresForPolicy_NoCompatibleDatastores(t *testing.T) {
 	ctx := context.Background()
 	topo := &mockTopologyService{
 		azClustersMap: map[string][]string{"zone-a": {"cluster-1"}},
@@ -819,15 +821,18 @@ func TestGetAccessibleZonesForPolicy_NoCompatibleDatastores(t *testing.T) {
 	}
 	// No compatible datastores → zone-a should not appear.
 	withCompatibleDSIDs(map[string]struct{}{}, func() {
-		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		zones, dsIDs, err := GetAccessibleZonesAndDatastoresForPolicy(ctx, topo, nil, "policy-1", cache)
 		require.NoError(t, err)
 		assert.Empty(t, zones)
+		assert.Empty(t, dsIDs)
 	})
 }
 
-// TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned verifies that only
-// zones containing at least one compatible datastore are included in the result.
-func TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned(t *testing.T) {
+// TestGetAccessibleZonesAndDatastoresForPolicy_OnlyZonesWithCompatibleDSReturned verifies
+// that only zones containing at least one compatible datastore are included in the
+// result, and that the returned datastore morefs are exactly the compatible ones,
+// deduped.
+func TestGetAccessibleZonesAndDatastoresForPolicy_OnlyZonesWithCompatibleDSReturned(t *testing.T) {
 	ctx := context.Background()
 	topo := &mockTopologyService{
 		azClustersMap: map[string][]string{
@@ -844,9 +849,11 @@ func TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned(t *testin
 	compatible := map[string]struct{}{"ds-match": {}, "ds-match2": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		zones, dsIDs, err := GetAccessibleZonesAndDatastoresForPolicy(ctx, topo, nil, "policy-1", cache)
 		require.NoError(t, err)
 		sort.Strings(zones)
 		assert.Equal(t, []string{"zone-also-has", "zone-has-ds"}, zones)
+		sort.Strings(dsIDs)
+		assert.Equal(t, []string{"ds-match", "ds-match2"}, dsIDs)
 	})
 }

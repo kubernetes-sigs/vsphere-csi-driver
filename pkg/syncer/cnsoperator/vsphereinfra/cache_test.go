@@ -122,14 +122,84 @@ func TestGetDsHosts(t *testing.T) {
 func TestInvalidateDatastore(t *testing.T) {
 	c := newTestCache()
 	c.UpdateDsHosts("ds-1", hostSet("host-1"))
-	c.DsToPolicy["ds-1"] = []string{"policy-1"}
+	c.DsToPolicy["ds-1"] = []string{"policy-1", "policy-2"}
 
-	c.InvalidateDatastore("ds-1")
+	removedPolicies := c.InvalidateDatastore("ds-1")
 
+	assert.ElementsMatch(t, []string{"policy-1", "policy-2"}, removedPolicies,
+		"must return the policies the datastore was compatible with before invalidation")
 	_, ok := c.GetDsHosts("ds-1")
 	assert.False(t, ok)
 	_, ok = c.DsToPolicy["ds-1"]
 	assert.False(t, ok)
+}
+
+func TestInvalidateDatastore_NoPoliciesRecorded(t *testing.T) {
+	c := newTestCache()
+	c.UpdateDsHosts("ds-1", hostSet("host-1"))
+
+	removedPolicies := c.InvalidateDatastore("ds-1")
+
+	assert.Empty(t, removedPolicies)
+}
+
+func TestSetDatastoresForPolicy(t *testing.T) {
+	t.Run("populates a fresh policy", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1", "ds-2"})
+
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-1"))
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-2"))
+	})
+
+	t.Run("shrinking the datastore set drops the stale entry", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1", "ds-2"})
+
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1"})
+
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-1"))
+		assert.Empty(t, c.PoliciesForDatastore("ds-2"), "ds-2 is no longer compatible, its entry must be removed")
+	})
+
+	t.Run("growing the datastore set adds the new entry", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1"})
+
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1", "ds-2"})
+
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-1"))
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-2"))
+	})
+
+	t.Run("empty datastore set clears every entry for the policy", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1", "ds-2"})
+
+		c.SetDatastoresForPolicy("policy-1", nil)
+
+		assert.Empty(t, c.PoliciesForDatastore("ds-1"))
+		assert.Empty(t, c.PoliciesForDatastore("ds-2"))
+	})
+
+	t.Run("does not disturb other policies sharing a datastore", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1"})
+		c.SetDatastoresForPolicy("policy-2", []string{"ds-1"})
+
+		c.SetDatastoresForPolicy("policy-1", nil)
+
+		assert.ElementsMatch(t, []string{"policy-2"}, c.PoliciesForDatastore("ds-1"))
+	})
+
+	t.Run("re-setting the identical datastore set is idempotent", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1"})
+
+		c.SetDatastoresForPolicy("policy-1", []string{"ds-1"})
+
+		assert.Equal(t, []string{"policy-1"}, c.PoliciesForDatastore("ds-1"))
+	})
 }
 
 func TestUpdateHostVersion(t *testing.T) {

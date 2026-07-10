@@ -16,7 +16,10 @@ limitations under the License.
 
 package vsphereinfra
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // StoragePolicyInfoCache is a shared in-memory cache used by the
 // PropertyCollector watcher and the storage-policy-info
@@ -28,12 +31,12 @@ type StoragePolicyInfoCache struct {
 	// Written by the PropertyCollector on Datastore.host changes.
 	DsToHosts map[string]map[string]struct{}
 
-	// TODO: not yet written or read by anything. Intended for the
-	// clusterstoragepolicyinfo/storagepolicyinfo controllers to record which
-	// storage policies a datastore is compatible with (after a PBM query), so
-	// EventDatastoreHostChanged/EventHostClusterChanged handlers can look up
-	// affected policies without a separate vCenter round trip. Wire this up
-	// (and add real accessors) once those controllers consume this cache.
+	// DsToPolicy records which storage policies a datastore is compatible
+	// with, keyed by datastore moref. Written by the clusterstoragepolicyinfo
+	// controller (SetDatastoresForPolicy) after each policy's PBM compatibility
+	// query, and read by OnInventoryChange (via PoliciesForDatastore) to
+	// resolve an inventory change to the policies it affects, without a
+	// separate vCenter round trip.
 	DsToPolicy map[string][]string
 
 	// HostToVersion tracks the last-known ESXi version string per host
@@ -72,12 +75,24 @@ func GetCache() *StoragePolicyInfoCache {
 	return defaultCache
 }
 
-// InvalidateDatastore removes all cache entries associated with a deleted datastore.
-func (c *StoragePolicyInfoCache) InvalidateDatastore(dsID string) {
+// InvalidateDatastore removes all cache entries associated with a deleted
+// datastore, returning the policy names it was last recorded as compatible
+// with. A deleted datastore no longer resolves to anything once this returns
+// (PoliciesForDatastore(dsID) goes back to empty), so callers that still need
+// to notify those policies about the removal must use the returned list
+// instead of trying to look it up afterwards.
+func (c *StoragePolicyInfoCache) InvalidateDatastore(dsID string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	policies := c.DsToPolicy[dsID]
 	delete(c.DsToHosts, dsID)
 	delete(c.DsToPolicy, dsID)
+	if len(policies) == 0 {
+		return nil
+	}
+	cp := make([]string, len(policies))
+	copy(cp, policies)
+	return cp
 }
 
 // UpdateDsHosts compares newHosts (the current set of host morefs mounting
@@ -120,6 +135,65 @@ func (c *StoragePolicyInfoCache) GetDsHosts(dsID string) (map[string]struct{}, b
 		cp[h] = struct{}{}
 	}
 	return cp, true
+}
+
+// DatastoresForHost returns the morefs of all datastores currently known to
+// mount the given host, by scanning DsToHosts for membership.
+func (c *StoragePolicyInfoCache) DatastoresForHost(hostID string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var datastores []string
+	for dsID, hosts := range c.DsToHosts {
+		if _, ok := hosts[hostID]; ok {
+			datastores = append(datastores, dsID)
+		}
+	}
+	return datastores
+}
+
+// PoliciesForDatastore returns a copy of the K8s compliant names
+// compatible with the given datastore.
+func (c *StoragePolicyInfoCache) PoliciesForDatastore(dsID string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	policies := c.DsToPolicy[dsID]
+	if len(policies) == 0 {
+		return nil
+	}
+	cp := make([]string, len(policies))
+	copy(cp, policies)
+	return cp
+}
+
+// SetDatastoresForPolicy replaces the set of datastores recorded as
+// compatible with policyName with dsIDs, so a datastore the policy is no
+// longer compatible with doesn't keep a stale entry pointing back to it.
+func (c *StoragePolicyInfoCache) SetDatastoresForPolicy(policyName string, dsIDs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	stillCompatible := make(map[string]struct{}, len(dsIDs))
+	for _, dsID := range dsIDs {
+		stillCompatible[dsID] = struct{}{}
+	}
+
+	for dsID, policies := range c.DsToPolicy {
+		if _, ok := stillCompatible[dsID]; ok {
+			continue
+		}
+		policies = slices.DeleteFunc(policies, func(p string) bool { return p == policyName })
+		if len(policies) == 0 {
+			delete(c.DsToPolicy, dsID)
+		} else {
+			c.DsToPolicy[dsID] = policies
+		}
+	}
+
+	for dsID := range stillCompatible {
+		if !slices.Contains(c.DsToPolicy[dsID], policyName) {
+			c.DsToPolicy[dsID] = append(c.DsToPolicy[dsID], policyName)
+		}
+	}
 }
 
 // UpdateHostVersion compares newVersion against the cached ESXi version for a
