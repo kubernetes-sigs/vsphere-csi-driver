@@ -1,0 +1,86 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: hostinforequests.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: HostInfoRequest
+    listKind: HostInfoRequestList
+    plural: hostinforequests
+    singular: hostinforequest
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          HostInfoRequest lets a guest cluster ask the Supervisor's CNS Syncer to
+          resolve a Supervisor VM's IP to the ESXi hostname/moid it is running on,
+          by having Syncer (which has unscoped Supervisor cluster access) list
+          Node objects directly - something pvCSI's own namespace-scoped
+          ProviderServiceAccount cannot do, since Nodes are cluster-scoped.
+          Instances live in the guest cluster's Supervisor namespace, named after
+          the CSINodeTopology instance (guest node name) that requested them.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: HostInfoRequestSpec defines the desired state of HostInfoRequest.
+            properties:
+              nodeIP:
+                description: |-
+                  NodeIP is the Supervisor VM's InternalIP that needs to be resolved to
+                  an ESXi hostname/moid. Sourced from the guest node's
+                  VirtualMachine.Status.NodeName.
+                type: string
+            required:
+            - nodeIP
+            type: object
+          status:
+            description: HostInfoRequestStatus defines the observed state of HostInfoRequest.
+            properties:
+              errorMessage:
+                description: ErrorMessage is set when `Status` is "Error".
+                type: string
+              esxiHostMoid:
+                description: |-
+                  EsxiHostMoid is the resolved Node's "vmware-system-esxi-node-moid"
+                  annotation value. Read this only after `Status` is set to "Success".
+                type: string
+              hostname:
+                description: |-
+                  Hostname is the resolved Supervisor Node's name. Read this only after
+                  `Status` is set to "Success".
+                type: string
+              status:
+                description: |-
+                  Status can have the following values: "Success", "Error". Empty means
+                  the request has not been reconciled yet.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

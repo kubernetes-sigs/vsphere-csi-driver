@@ -51,6 +51,8 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
 	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/config"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	hostinforequestconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/hostinforequest/config"
+	hostinforequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/hostinforequest/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/controller"
@@ -90,6 +92,9 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 		}
 		if err := csinodetopologyv1alpha1.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add csinodetopologyv1alpha1 to global scheme: %+v", err)
+		}
+		if err := hostinforequestv1alpha1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add hostinforequestv1alpha1 to global scheme: %+v", err)
 		}
 		if err := internalapis.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add internalapis to global scheme: %+v", err)
@@ -188,6 +193,20 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				crdNameStoragePolicyInfo := cnsoperatorv1alpha1.StoragePolicyInfoPlural +
 					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
 				log.Errorf("failed to create %q CRD. Err: %+v", crdNameStoragePolicyInfo, err)
+				return err
+			}
+		}
+		if cnsOperator.coCommonInterface.IsFSSEnabled(ctx, common.HostLocalStorageSupport) {
+			// Create HostInfoRequest CRD. This is created in the Supervisor
+			// cluster only - guest clusters cannot list cluster-scoped Node
+			// objects themselves (their ProviderServiceAccount is scoped to a
+			// single namespace), so pvCSI creates a namespaced
+			// HostInfoRequest CR here for CNS Syncer to resolve.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, hostinforequestconfig.EmbedHostInfoRequestFile,
+				hostinforequestconfig.EmbedHostInfoRequestFileName)
+			if err != nil {
+				crdNameHostInfoRequest := "hostinforequests." + hostinforequestv1alpha1.GroupName
+				log.Errorf("failed to create %q CRD. Err: %+v", crdNameHostInfoRequest, err)
 				return err
 			}
 		}

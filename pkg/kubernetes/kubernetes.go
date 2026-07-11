@@ -71,6 +71,7 @@ import (
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
+	hostinforequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/hostinforequest/v1alpha1"
 )
 
 const (
@@ -282,6 +283,11 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		err = cnsvolumeinfov1alpha1.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add CNSVolumeInfo to scheme with error: %+v", err)
+			return nil, err
+		}
+		err = hostinforequestv1alpha1.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add HostInfoRequest to scheme with error: %+v", err)
 			return nil, err
 		}
 
