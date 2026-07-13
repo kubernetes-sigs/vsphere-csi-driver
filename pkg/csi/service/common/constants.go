@@ -343,6 +343,12 @@ const (
 	// topology labels applied on the node by vSphere CSI driver.
 	TopologyLabelsDomain = "topology.csi.vmware.com"
 
+	// GuestClusterTopologyLabelHost is the host-scoped topology key published on VKS/guest cluster
+	// CSINode objects when host-local storage provisioning is available. It must be translated to
+	// v1.LabelHostname ("kubernetes.io/hostname") on the Supervisor PVC's requested/accessible
+	// topology annotations, since the Supervisor only recognizes the standard hostname label.
+	GuestClusterTopologyLabelHost = TopologyLabelsDomain + "/host"
+
 	// AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
 	AnnGuestClusterRequestedTopology = "csi.vsphere.volume-requested-topology"
 
@@ -686,6 +692,9 @@ const (
 	// CnsVolumeCreateSpec, and builds PV node affinity from the host returned in
 	// the CNS placement result.
 	HostLocalStorageSupport = "supports_host_local_storage"
+	// HostLocalStorageSupportFSS is the pvCSI FSS paired with HostLocalStorageSupport
+	// on the supervisor.
+	HostLocalStorageSupportFSS = "host-local-storage-support"
 )
 
 var WCPFeatureStates = map[string]struct{}{
@@ -740,4 +749,5 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	VsanFileVolumeServiceSupportFSS: VsanFileVolumeService,
 	CSI_Backup_API_FSS:              CSI_Backup_API,
 	VMPVCStoragePolicyMutabilityFSS: VMPVCStoragePolicyMutability,
+	HostLocalStorageSupportFSS:      HostLocalStorageSupport,
 }
