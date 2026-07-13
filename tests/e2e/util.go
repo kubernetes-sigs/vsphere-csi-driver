@@ -87,7 +87,6 @@ import (
 	"k8s.io/pod-security-admission/api"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
@@ -7641,6 +7640,9 @@ func getStoragePolicyUsedAndReservedQuotaDetails(ctx context.Context, restConfig
 
 	var totalQuotaUsed, totalQuotaReserved, storagePolicyQuotaCRUsed, storagePolicyQuotaCRReserved *resource.Quantity
 	var storagePolicyUsageCRUsed, storagePolicyUsageCRReserved *resource.Quantity
+
+	//Waiting for quota metrics to settle to prevent intermittent failures from previous test runs.
+	time.Sleep(2 * time.Minute)
 
 	totalQuotaUsed, totalQuotaReserved = getTotalQuotaConsumedByStoragePolicy(ctx, restConfig,
 		storagePolicyName, namespace, islatebinding)
