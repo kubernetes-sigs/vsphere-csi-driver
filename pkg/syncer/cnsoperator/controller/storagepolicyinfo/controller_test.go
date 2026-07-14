@@ -1068,12 +1068,12 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy(t *testing.T) {
 	}
 
 	r := &ReconcileStoragePolicyInfo{
-		client:              fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:              scheme,
-		zonesProvider:       zp,
-		k8sClient:           k8sClient,
-		dynamicClient:       dc,
-		markerPolicyEnabled: true,
+		client:                  fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                  scheme,
+		zonesProvider:           zp,
+		k8sClient:               k8sClient,
+		dynamicClient:           dc,
+		IsVsanFileVolumeService: true,
 	}
 
 	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
@@ -1114,12 +1114,12 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NoFVSNamespaces(t *testing.T) {
 	}
 
 	r := &ReconcileStoragePolicyInfo{
-		client:              fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:              scheme,
-		zonesProvider:       &mockZonesProvider{},
-		k8sClient:           k8sClient,
-		dynamicClient:       dc,
-		markerPolicyEnabled: true,
+		client:                  fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                  scheme,
+		zonesProvider:           &mockZonesProvider{},
+		k8sClient:               k8sClient,
+		dynamicClient:           dc,
+		IsVsanFileVolumeService: true,
 	}
 
 	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
@@ -1146,9 +1146,9 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology(t *testing.T) {
 	}
 
 	r := &ReconcileStoragePolicyInfo{
-		client:              fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:              scheme,
-		markerPolicyEnabled: true,
+		client:                  fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                  scheme,
+		IsVsanFileVolumeService: true,
 	}
 
 	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
@@ -1191,10 +1191,10 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_FSSDisabled(t *testing.T) {
 		},
 	}
 	r := &ReconcileStoragePolicyInfo{
-		client:              fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:              scheme,
-		zonesProvider:       zp,
-		markerPolicyEnabled: false,
+		client:                  fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:                  scheme,
+		zonesProvider:           zp,
+		IsVsanFileVolumeService: false,
 	}
 
 	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)

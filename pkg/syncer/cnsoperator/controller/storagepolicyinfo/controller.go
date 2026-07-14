@@ -133,32 +133,32 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	// watch, and the syncMarkerPolicyTopology branch) is a distinct feature gated
 	// by the VsanFileVolumeService capability. Regular policy topology reconciles
 	// regardless of this flag.
-	markerPolicyEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService)
-	if !markerPolicyEnabled {
+	IsVsanFileVolumeService := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VsanFileVolumeService)
+	if !IsVsanFileVolumeService {
 		log.Infof("StoragePolicyInfo Controller: capability %q is not activated; "+
 			"marker-policy topology support is disabled", common.VsanFileVolumeService)
 	}
 
 	return add(mgr, newReconciler(mgr, configInfo, recorder,
 		commonco.ContainerOrchestratorUtility,
-		k8sclient, dynamicClient, markerPolicyEnabled))
+		k8sclient, dynamicClient, IsVsanFileVolumeService))
 }
 
 func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	recorder record.EventRecorder, zp zonesProvider,
 	k8sClient kubernetes.Interface, dynamicClient dynamic.Interface,
-	markerPolicyEnabled bool) *ReconcileStoragePolicyInfo {
+	IsVsanFileVolumeService bool) *ReconcileStoragePolicyInfo {
 
 	return &ReconcileStoragePolicyInfo{
-		client:              mgr.GetClient(),
-		scheme:              mgr.GetScheme(),
-		configInfo:          configInfo,
-		recorder:            recorder,
-		zonesProvider:       zp,
-		k8sClient:           k8sClient,
-		dynamicClient:       dynamicClient,
-		markerPolicyEnabled: markerPolicyEnabled,
-		backOffDuration:     make(map[apitypes.NamespacedName]time.Duration),
+		client:                  mgr.GetClient(),
+		scheme:                  mgr.GetScheme(),
+		configInfo:              configInfo,
+		recorder:                recorder,
+		zonesProvider:           zp,
+		k8sClient:               k8sClient,
+		dynamicClient:           dynamicClient,
+		IsVsanFileVolumeService: IsVsanFileVolumeService,
+		backOffDuration:         make(map[apitypes.NamespacedName]time.Duration),
 	}
 }
 
@@ -180,7 +180,7 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	// can list only marker SPIs without a full cross-namespace scan. Only registered
 	// when marker-policy support is enabled; the index and the FVS-namespace watch
 	// below are wired together since the watch's map func lists by this index.
-	if r.markerPolicyEnabled {
+	if r.IsVsanFileVolumeService {
 		if err := mgr.GetFieldIndexer().IndexField(ctx, &spiv1alpha1.StoragePolicyInfo{},
 			spiMarkerIndexField, func(obj client.Object) []string {
 				if common.IsvSANFileServiceMarkerPolicyName(obj.GetName()) {
@@ -276,7 +276,7 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	// The FVS-namespace watch re-triggers marker-policy SPIs on namespace changes.
 	// Only wired when marker-policy support is enabled, matching the marker index
 	// above (mapFVSNamespaceToMarkerSPIs lists by that index).
-	if r.markerPolicyEnabled {
+	if r.IsVsanFileVolumeService {
 		ctrlBuilder = ctrlBuilder.Watches(
 			&v1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(r.mapFVSNamespaceToMarkerSPIs),
@@ -402,11 +402,11 @@ type ReconcileStoragePolicyInfo struct {
 	zonesProvider zonesProvider
 	k8sClient     kubernetes.Interface
 	dynamicClient dynamic.Interface
-	// markerPolicyEnabled mirrors the VsanFileVolumeService capability read at
+	// IsVsanFileVolumeService mirrors the VsanFileVolumeService capability read at
 	// controller start. When false, marker-policy topology support (the marker
 	// field index, the FVS-namespace watch, and the syncMarkerPolicyTopology
 	// branch) is disabled and only regular policy topology is reconciled.
-	markerPolicyEnabled bool
+	IsVsanFileVolumeService bool
 	// backOffDuration tracks per-instance requeue delays, incremented
 	// exponentially on failure and reset to 1s on success. A value greater than
 	// one second means the instance is currently backed off after a failure;
@@ -598,7 +598,7 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 	// topology rather than from InfraSPI zones filtered by namespace Zone CRs. This
 	// path is only taken when marker-policy support is enabled; otherwise a marker
 	// policy falls through to the regular namespace-filtered topology path.
-	if r.markerPolicyEnabled && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
+	if r.IsVsanFileVolumeService && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
 		return r.syncMarkerPolicyTopology(ctx, instance, infraSPI)
 	}
 

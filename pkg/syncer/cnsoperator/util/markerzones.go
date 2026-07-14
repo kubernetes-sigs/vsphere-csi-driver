@@ -68,30 +68,30 @@ func VPCPathForNamespace(ctx context.Context, dc dynamic.Interface,
 		return "", fmt.Errorf("get namespace %q: %w", namespace, err)
 	}
 
-	crName := ns.Annotations[AnnotationVPCNetworkConfig]
-	if crName == "" {
+	vpcConfigName := ns.Annotations[AnnotationVPCNetworkConfig]
+	if vpcConfigName == "" {
 		return "", fmt.Errorf("namespace %q has no %q annotation", namespace, AnnotationVPCNetworkConfig)
 	}
 
-	cr, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, crName, metav1.GetOptions{})
+	vpcConfig, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, vpcConfigName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("get VPCNetworkConfiguration %q: %w", crName, err)
+		return "", fmt.Errorf("get VPCNetworkConfiguration %q: %w", vpcConfigName, err)
 	}
 
-	path := vpcPathFromVPCNetworkConfiguration(cr)
+	path := vpcPathFromVPCNetworkConfiguration(vpcConfig)
 	if path == "" {
 		return "", fmt.Errorf("no VPC path in status.vpcs for VPCNetworkConfiguration %q (namespace %q)",
-			crName, namespace)
+			vpcConfigName, namespace)
 	}
 
-	log.Debugf("Namespace %q uses VPC path %q (VPCNetworkConfiguration %q)", namespace, path, crName)
+	log.Debugf("Namespace %q uses VPC path %q (VPCNetworkConfiguration %q)", namespace, path, vpcConfigName)
 	return path, nil
 }
 
-// collectFVSZones iterates over all fvs_instance_namespace=true namespaces and calls zonesFn on
+// GetFVSZones iterates over all fvs_instance_namespace=true namespaces and calls zonesFn on
 // each one whose VPC path satisfies matchVPCPath (empty string means accept all VPC paths).
 // Returns the sorted union of all zone sets returned by zonesFn.
-func collectFVSZones(ctx context.Context, dc dynamic.Interface,
+func GetFVSZones(ctx context.Context, dc dynamic.Interface,
 	k8sClient kubernetes.Interface, matchVPCPath string,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
@@ -106,24 +106,24 @@ func collectFVSZones(ctx context.Context, dc dynamic.Interface,
 	zonesSet := make(map[string]struct{})
 	for i := range nsList.Items {
 		ns := &nsList.Items[i]
-		crName := ns.Annotations[AnnotationVPCNetworkConfig]
-		if crName == "" {
+		vpcConfigName := ns.Annotations[AnnotationVPCNetworkConfig]
+		if vpcConfigName == "" {
 			log.Debugf("Skipping namespace %q: missing %q annotation", ns.Name, AnnotationVPCNetworkConfig)
 			continue
 		}
 
 		if matchVPCPath != "" {
-			cr, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, crName, metav1.GetOptions{})
+			vpcConfig, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, vpcConfigName, metav1.GetOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					log.Debugf("VPCNetworkConfiguration %q for namespace %q not found; skipping",
-						crName, ns.Name)
+						vpcConfigName, ns.Name)
 					continue
 				}
 				return nil, fmt.Errorf("get VPCNetworkConfiguration %q for namespace %q: %w",
-					crName, ns.Name, err)
+					vpcConfigName, ns.Name, err)
 			}
-			if vpcPathFromVPCNetworkConfiguration(cr) != matchVPCPath {
+			if vpcPathFromVPCNetworkConfiguration(vpcConfig) != matchVPCPath {
 				continue
 			}
 		}
@@ -151,7 +151,7 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
-	zones, err := collectFVSZones(ctx, nil, k8sClient, "", zonesFn)
+	zones, err := GetFVSZones(ctx, nil, k8sClient, "", zonesFn)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx context.Context, dc d
 	}
 	log.Infof("Namespace %q has VPC path %q", namespace, consumerVPCPath)
 
-	zones, err := collectFVSZones(ctx, dc, k8sClient, consumerVPCPath, zonesFn)
+	zones, err := GetFVSZones(ctx, dc, k8sClient, consumerVPCPath, zonesFn)
 	if err != nil {
 		return nil, err
 	}
