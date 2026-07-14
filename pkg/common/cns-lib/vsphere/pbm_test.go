@@ -603,3 +603,80 @@ func TestPbmQueryMatchingHub_LoggingBehavior(t *testing.T) {
 		assert.Contains(t, expectedErrorLog, errorMsg)
 	})
 }
+
+func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
+	hostLocalCapability := pbmtypes.PbmCapabilityInstance{
+		Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+			Namespace: "com.vmware.storage.hostlocalstorage",
+			Id:        "hostLocalStorage",
+		},
+	}
+
+	tests := []struct {
+		name        string
+		subprofiles *pbmtypes.PbmCapabilitySubProfileConstraints
+		want        bool
+	}{
+		{
+			name: "hostLocalStorage capability present",
+			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
+				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+					{Capability: []pbmtypes.PbmCapabilityInstance{hostLocalCapability}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "hostLocalStorage capability alongside other capabilities",
+			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
+				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+					{Capability: []pbmtypes.PbmCapabilityInstance{
+						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "hostFailuresToTolerate"}},
+						hostLocalCapability,
+					}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "no hostLocalStorage capability",
+			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
+				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+					{Capability: []pbmtypes.PbmCapabilityInstance{
+						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "hostFailuresToTolerate"}},
+					}},
+				},
+			},
+			want: false,
+		},
+		{
+			name:        "nil subprofiles",
+			subprofiles: nil,
+			want:        false,
+		},
+		{
+			name: "matching id but different namespace (vSAN locality, not host-local storage)",
+			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
+				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+					{Capability: []pbmtypes.PbmCapabilityInstance{
+						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "locality"}},
+					}},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsHostLocalStorageCapabilityPolicy(tt.subprofiles))
+		})
+	}
+}
+
+func TestIsHostLocalStoragePolicyEmptyPolicyID(t *testing.T) {
+	vc := &VirtualCenter{}
+	isHostLocal, err := vc.IsHostLocalStoragePolicy(context.Background(), "")
+	assert.NoError(t, err)
+	assert.False(t, isHostLocal)
+}

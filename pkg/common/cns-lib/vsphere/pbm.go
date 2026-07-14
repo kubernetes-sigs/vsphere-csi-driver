@@ -189,6 +189,67 @@ func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []str
 	return simplifyProfileStructs(ctx, profiles), err
 }
 
+const (
+	// hostLocalStorageNamespace and hostLocalStorageCapabilityID identify the SPBM capability
+	// that marks a storage policy as host-local storage. This mirrors the check used by the WCP
+	// control plane; the hostlocalstorage namespace defines exactly one capability
+	// (hostLocalStorage) and it carries no constraint/property instances, so it must be matched
+	// directly against the capability id rather than via PbmRetrieveContent/SpbmPolicyContent,
+	// which only emits a rule per PropertyInstance and would silently drop a property-less
+	// capability like this one. This does NOT match vSAN Direct or vSAN locality/SNA policies.
+	hostLocalStorageNamespace    = "com.vmware.storage.hostlocalstorage"
+	hostLocalStorageCapabilityID = "hostLocalStorage"
+)
+
+// IsHostLocalStorageCapabilityPolicy reports whether the SPBM capability subprofile constraints
+// contain the com.vmware.storage.hostlocalstorage/hostLocalStorage capability.
+func IsHostLocalStorageCapabilityPolicy(subprofiles *pbmtypes.PbmCapabilitySubProfileConstraints) bool {
+	if subprofiles == nil {
+		return false
+	}
+	for _, subprofile := range subprofiles.SubProfiles {
+		for _, capIns := range subprofile.Capability {
+			if capIns.Id.Namespace == hostLocalStorageNamespace && capIns.Id.Id == hostLocalStorageCapabilityID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsHostLocalStoragePolicy fetches the SPBM profile for the given policyID and reports whether
+// it carries the host-local storage capability. An empty policyID returns (false, nil).
+func (vc *VirtualCenter) IsHostLocalStoragePolicy(ctx context.Context, policyID string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	if policyID == "" {
+		return false, nil
+	}
+	if err := vc.ConnectPbm(ctx); err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return false, err
+	}
+	profiles, err := vc.PbmClient.RetrieveContent(ctx, []pbmtypes.PbmProfileId{{UniqueId: policyID}})
+	if err != nil {
+		log.Errorf("failed to retrieve SPBM profile for policy %q: %v", policyID, err)
+		return false, err
+	}
+	for _, baseProfile := range profiles {
+		profile, ok := baseProfile.(*pbmtypes.PbmCapabilityProfile)
+		if !ok {
+			continue
+		}
+		constraints, ok := profile.Constraints.(*pbmtypes.PbmCapabilitySubProfileConstraints)
+		if !ok {
+			continue
+		}
+		if IsHostLocalStorageCapabilityPolicy(constraints) {
+			return true, nil
+		}
+	}
+	log.Infof("storage policy %q does not carry the host-local storage capability", policyID)
+	return false, nil
+}
+
 // QueryAllProfileDetails queries all profiles of a specific category from vCenter SPBM.
 // This uses the queryProfileDetails API to get all profiles in the specified category.
 func (vc *VirtualCenter) QueryAllProfileDetails(ctx context.Context, profileCategory string,
