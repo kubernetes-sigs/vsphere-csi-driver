@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -38,7 +39,7 @@ var vpcNetworkConfigurationGVR = schema.GroupVersionResource{
 const (
 	// AnnotationVPCNetworkConfig is set on supervisor namespaces; value is the VPCNetworkConfiguration CR name.
 	AnnotationVPCNetworkConfig = "nsx.vmware.com/vpc_network_config"
-	// NamespaceLabelFVSInstance marks FVS instance namespaces.
+	// NamespaceLabelFVSInstance marks FVS instance namespaces (supervisor namespaces that host FileVolume CRs).
 	// Expected label value is "true".
 	NamespaceLabelFVSInstance = "fvs_instance_namespace"
 )
@@ -67,32 +68,31 @@ func VPCPathForNamespace(ctx context.Context, dc dynamic.Interface,
 		return "", fmt.Errorf("get namespace %q: %w", namespace, err)
 	}
 
-	crName := ns.Annotations[AnnotationVPCNetworkConfig]
-	if crName == "" {
+	vpcConfigName := ns.Annotations[AnnotationVPCNetworkConfig]
+	if vpcConfigName == "" {
 		return "", fmt.Errorf("namespace %q has no %q annotation", namespace, AnnotationVPCNetworkConfig)
 	}
 
-	cr, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, crName, metav1.GetOptions{})
+	vpcConfig, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, vpcConfigName, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("get VPCNetworkConfiguration %q: %w", crName, err)
+		return "", fmt.Errorf("get VPCNetworkConfiguration %q: %w", vpcConfigName, err)
 	}
 
-	path := vpcPathFromVPCNetworkConfiguration(cr)
+	path := vpcPathFromVPCNetworkConfiguration(vpcConfig)
 	if path == "" {
 		return "", fmt.Errorf("no VPC path in status.vpcs for VPCNetworkConfiguration %q (namespace %q)",
-			crName, namespace)
+			vpcConfigName, namespace)
 	}
 
-	log.Debugf("Namespace %q uses VPC path %q (VPCNetworkConfiguration %q)", namespace, path, crName)
+	log.Debugf("Namespace %q uses VPC path %q (VPCNetworkConfiguration %q)", namespace, path, vpcConfigName)
 	return path, nil
 }
 
-// GetZonesForvSANFileServiceMarkerPolicy returns the union of zones (via zonesFn) across ALL
-// fvs_instance_namespace=true namespaces that carry the AnnotationVPCNetworkConfig annotation.
-// This is the cluster-wide accessible zone algorithm for the vSAN File Service marker policy,
-// used to populate InfraStoragePolicyInfo.
-func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
-	k8sClient kubernetes.Interface,
+// GetFVSZones iterates over all fvs_instance_namespace=true namespaces and calls zonesFn on
+// each one whose VPC path satisfies matchVPCPath (empty string means accept all VPC paths).
+// Returns the sorted union of all zone sets returned by zonesFn.
+func GetFVSZones(ctx context.Context, dc dynamic.Interface,
+	k8sClient kubernetes.Interface, matchVPCPath string,
 	zonesFn func(string) map[string]struct{}) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
@@ -106,11 +106,28 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	zonesSet := make(map[string]struct{})
 	for i := range nsList.Items {
 		ns := &nsList.Items[i]
-		if ns.Annotations[AnnotationVPCNetworkConfig] == "" {
-			log.Debugf("Skipping namespace %q: missing %q annotation",
-				ns.Name, AnnotationVPCNetworkConfig)
+		vpcConfigName := ns.Annotations[AnnotationVPCNetworkConfig]
+		if vpcConfigName == "" {
+			log.Debugf("Skipping namespace %q: missing %q annotation", ns.Name, AnnotationVPCNetworkConfig)
 			continue
 		}
+
+		if matchVPCPath != "" {
+			vpcConfig, err := dc.Resource(vpcNetworkConfigurationGVR).Get(ctx, vpcConfigName, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Debugf("VPCNetworkConfiguration %q for namespace %q not found; skipping",
+						vpcConfigName, ns.Name)
+					continue
+				}
+				return nil, fmt.Errorf("get VPCNetworkConfiguration %q for namespace %q: %w",
+					vpcConfigName, ns.Name, err)
+			}
+			if vpcPathFromVPCNetworkConfiguration(vpcConfig) != matchVPCPath {
+				continue
+			}
+		}
+
 		nsZones := zonesFn(ns.Name)
 		log.Debugf("Namespace %q contributes zones: %v", ns.Name, nsZones)
 		for z := range nsZones {
@@ -122,6 +139,46 @@ func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
 	for z := range zonesSet {
 		zones = append(zones, z)
 	}
+	return zones, nil
+}
+
+// GetZonesForvSANFileServiceMarkerPolicy returns the union of zones (via zonesFn) across ALL
+// fvs_instance_namespace=true namespaces that carry the AnnotationVPCNetworkConfig annotation.
+// This is the cluster-wide accessible zone algorithm for the vSAN File Service marker policy,
+// used to populate InfraStoragePolicyInfo.
+func GetZonesForvSANFileServiceMarkerPolicy(ctx context.Context,
+	k8sClient kubernetes.Interface,
+	zonesFn func(string) map[string]struct{}) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	zones, err := GetFVSZones(ctx, nil, k8sClient, "", zonesFn)
+	if err != nil {
+		return nil, err
+	}
 	log.Infof("Accessible zones for vSAN File Service: %v", zones)
+	return zones, nil
+}
+
+// GetZonesForvSANFileServiceMarkerPolicyByNamespace returns the union of zones (via zonesFn)
+// across all fvs_instance_namespace=true namespaces whose VPC path matches the consumer
+// namespace's VPC path.
+// This is the per-namespace accessible zone algorithm for the vSAN File Service marker policy,
+// used to populate namespace-level StoragePolicyInfo.
+func GetZonesForvSANFileServiceMarkerPolicyByNamespace(ctx context.Context, dc dynamic.Interface,
+	k8sClient kubernetes.Interface, namespace string,
+	zonesFn func(string) map[string]struct{}) ([]string, error) {
+	log := logger.GetLogger(ctx)
+
+	consumerVPCPath, err := VPCPathForNamespace(ctx, dc, k8sClient, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve VPC path for namespace %q: %w", namespace, err)
+	}
+	log.Infof("Namespace %q has VPC path %q", namespace, consumerVPCPath)
+
+	zones, err := GetFVSZones(ctx, dc, k8sClient, consumerVPCPath, zonesFn)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("Namespace %q marker-policy accessible zones: %v", namespace, zones)
 	return zones, nil
 }
