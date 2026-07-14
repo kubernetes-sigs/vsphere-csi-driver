@@ -407,6 +407,13 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		} else {
 			volumeType = prometheus.PrometheusBlockVolumeType
 		}
+		// isHostLocalStorageSupportFSSEnabled ANDs the pvCSI-side host-local-storage-support FSS
+		// with the Supervisor's supports_host_local_storage capability, via
+		// common.WCPFeatureStateAssociatedWithPVCSI. Used both when building the requested-topology
+		// annotation below and when building the accessible-topology response after the Supervisor
+		// PVC is bound.
+		isHostLocalStorageSupportFSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.HostLocalStorageSupportFSS)
 
 		// Get PVC name and disk size for the supervisor cluster
 		// We use default prefix 'pvc-' for pvc created in the guest cluster, it is mandatory.
@@ -559,8 +566,28 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
+					// Reject the request if it carries the VKS host-scoped topology key while the
+					// host-local-storage-support FSS/capability is disabled. Silently dropping the
+					// host key here would let the volume be provisioned without honoring the
+					// topology constraint the guest scheduler required (e.g. a pod already bound to
+					// a specific node via WaitForFirstConsumer), which is worse than failing fast.
+					// Mirrors the equivalent rejection in pkg/csi/service/wcp/controller.go.
+					translatedPreferred := make([]*csi.Topology, 0, len(req.AccessibilityRequirements.Preferred))
+					for _, t := range req.AccessibilityRequirements.Preferred {
+						if _, hasHostKey := t.Segments[common.GuestClusterTopologyLabelHost]; hasHostKey &&
+							!isHostLocalStorageSupportFSSEnabled {
+							msg := fmt.Sprintf("host-local storage policy volume provisioning is not supported: "+
+								"%s FSS/capability is not enabled, but requested topology contains %s. Request: %+v",
+								common.HostLocalStorageSupportFSS, common.GuestClusterTopologyLabelHost, req)
+							return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
+						}
+						translatedPreferred = append(translatedPreferred, &csi.Topology{
+							Segments: translateTopologyHostKey(t.Segments, common.GuestClusterTopologyLabelHost,
+								corev1.LabelHostname, true),
+						})
+					}
 					// Generate volume topology requirement annotation.
-					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(req.AccessibilityRequirements.Preferred)
+					topologyAnnotation, err := generateGuestClusterRequestedTopologyJSON(translatedPreferred)
 					if err != nil {
 						msg := fmt.Sprintf("failed to generate accessibility topology for pvc with name: %s "+
 							"on namespace: %s from supervisorCluster. Error: %+v",
@@ -723,10 +750,17 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 			log.Infof("Volume %q created is accessible from zones: %+v", supervisorPVCName,
 				accessibleTopologies)
 
-			// Add topology segments to the CreateVolumeResponse.
+			// Add topology segments to the CreateVolumeResponse. The hostname key is always
+			// translated back to the VKS host key when present, regardless of the current
+			// host-local-storage-support FSS/capability state: by this point the volume's host
+			// pinning in CNS (if any) is already a committed fact, so dropping the key here
+			// (e.g. on an idempotent retry against an already-bound PVC, or if the
+			// FSS/capability was toggled off after the volume was created) would misrepresent
+			// it and could let Kubernetes schedule the pod where the volume can't attach.
 			for _, topoSegments := range accessibleTopologies {
 				volumeTopology := &csi.Topology{
-					Segments: topoSegments,
+					Segments: translateTopologyHostKey(topoSegments, corev1.LabelHostname,
+						common.GuestClusterTopologyLabelHost, true),
 				}
 				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}

@@ -999,6 +999,30 @@ func generateVolumeAccessibleTopologyFromPVCAnnotation(claim *v1.PersistentVolum
 	return volumeAccessibleTopologyArray, nil
 }
 
+// translateTopologyHostKey returns a copy of segments with fromKey renamed to
+// toKey. If keepHostKey is false, fromKey is dropped instead of renamed
+// (used when the host-local FSS/capability is disabled, so a host-scoped
+// key is never forwarded across the guest/supervisor boundary where the
+// other side wouldn't recognize it, or would misinterpret its value).
+// Segments without fromKey are returned unchanged.
+func translateTopologyHostKey(segments map[string]string, fromKey, toKey string,
+	keepHostKey bool) map[string]string {
+	val, ok := segments[fromKey]
+	if !ok {
+		return segments
+	}
+	translated := make(map[string]string, len(segments))
+	for k, v := range segments {
+		if k != fromKey {
+			translated[k] = v
+		}
+	}
+	if keepHostKey {
+		translated[toKey] = val
+	}
+	return translated
+}
+
 // vmOperatorAPIGroup is the API group for vmoperator VirtualMachine resources.
 const vmOperatorAPIGroup = "vmoperator.vmware.com"
 
