@@ -638,6 +638,11 @@ func (c *FakeK8SOrchestrator) GetZonesForNamespace(ns string) map[string]struct{
 	return nil
 }
 
+// RegisterZoneEventHandler registers a callback invoked whenever a Zone CR is
+// added, updated, or deleted.
+func (c *FakeK8SOrchestrator) RegisterZoneEventHandler(ctx context.Context, handler func(namespace string)) {
+}
+
 func (c *FakeK8SOrchestrator) IsLinkedCloneRequest(ctx context.Context, pvcName string,
 	pvcNamespace string) (bool, error) {
 	return false, nil

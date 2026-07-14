@@ -108,6 +108,11 @@ type COCommonInterface interface {
 	// StartZonesInformer starts a dynamic informer which listens on Zones CR in
 	// topology.tanzu.vmware.com/v1alpha1 API group.
 	StartZonesInformer(ctx context.Context, restClientConfig *restclient.Config, namespace string) error
+	// RegisterZoneEventHandler registers a callback invoked whenever a Zone CR is
+	// added, updated, or deleted. The callback receives the namespace of the
+	// changed Zone. It may be called before or after StartZonesInformer — the
+	// handler is attached to the informer as soon as both have happened.
+	RegisterZoneEventHandler(ctx context.Context, handler func(namespace string))
 	// GetZonesForNamespace fetches the zones associated with a namespace when
 	// WorkloadDomainIsolation is supported in supervisor.
 	GetZonesForNamespace(ns string) map[string]struct{}

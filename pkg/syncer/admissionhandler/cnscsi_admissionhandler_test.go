@@ -219,6 +219,10 @@ func (m *MockCOCommonInterface) StartZonesInformer(ctx context.Context,
 	return args.Error(0)
 }
 
+func (m *MockCOCommonInterface) RegisterZoneEventHandler(ctx context.Context, handler func(namespace string)) {
+	m.Called(ctx, handler)
+}
+
 func (m *MockCOCommonInterface) GetZonesForNamespace(ns string) map[string]struct{} {
 	args := m.Called(ns)
 	return args.Get(0).(map[string]struct{})

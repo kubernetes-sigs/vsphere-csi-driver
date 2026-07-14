@@ -592,6 +592,9 @@ func (m *mockCOCommonForFullSync) StartZonesInformer(ctx context.Context, cfg *r
 	return nil
 }
 
+func (m *mockCOCommonForFullSync) RegisterZoneEventHandler(ctx context.Context, handler func(namespace string)) {
+}
+
 func (m *mockCOCommonForFullSync) UpdatePersistentVolumeLabel(
 	ctx context.Context, pvName string, labelKey string, labelValue string,
 ) error {

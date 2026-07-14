@@ -427,6 +427,11 @@ func (m *mockCOCommon) StartZonesInformer(ctx context.Context,
 	panic("implement me")
 }
 
+func (m *mockCOCommon) RegisterZoneEventHandler(ctx context.Context, handler func(namespace string)) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m *mockCOCommon) PreLinkedCloneCreateAction(ctx context.Context, pvcNamespace string,
 	pvcName string) error {
 	//TODO implement me

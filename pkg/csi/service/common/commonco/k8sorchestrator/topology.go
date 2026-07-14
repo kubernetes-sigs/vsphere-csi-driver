@@ -143,6 +143,13 @@ var (
 	zoneInformer cache.SharedIndexInformer
 	// startZoneInformerOnce ensures zone informer is started only once
 	startZoneInformerOnce sync.Once
+	// zoneEventHandlers holds callbacks invoked on Zone CR add/update/delete,
+	// each receiving the namespace of the changed Zone. Registered via
+	// RegisterZoneEventHandler and attached to zoneInformer in StartZonesInformer.
+	zoneEventHandlers []func(namespace string)
+	// zoneEventHandlersLock guards zoneEventHandlers from concurrent
+	// registration and invocation.
+	zoneEventHandlersLock sync.RWMutex
 )
 
 // nodeVolumeTopology implements the commoncotypes.NodeTopologyService interface. It stores
@@ -1699,6 +1706,14 @@ func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context, restClientConf
 		}
 		zoneInformer = dynInformer.Informer()
 
+		// Attach every handler registered so far (via RegisterZoneEventHandler)
+		// to the new informer. RegisterZoneEventHandler attaches directly when
+		// called after this point, so handlers are picked up regardless of the
+		// order in which RegisterZoneEventHandler and StartZonesInformer are called.
+		if err := attachZoneEventHandlers(ctx, zoneInformer); err != nil {
+			return logger.LogNewErrorf(log, "failed to attach zone event handlers. Error: %+v", err)
+		}
+
 		stopCh = make(chan struct{})
 		go func() {
 			log.Info("Informer to watch on Zones CR starting..")
@@ -1719,6 +1734,88 @@ func (c *K8sOrchestrator) StartZonesInformer(ctx context.Context, restClientConf
 		}
 	})
 	return initErr
+}
+
+// RegisterZoneEventHandler registers a callback invoked whenever a Zone CR is
+// added, updated, or deleted. The callback receives the namespace of the changed
+// Zone. If the zone informer is already running (started by another caller via
+// StartZonesInformer), the dispatcher is attached to it immediately; otherwise
+// the handler is picked up when StartZonesInformer later creates the informer
+// (see attachZoneEventHandlers), so registration order relative to
+// StartZonesInformer does not matter.
+func (c *K8sOrchestrator) RegisterZoneEventHandler(ctx context.Context, handler func(namespace string)) {
+	if handler == nil {
+		return
+	}
+	zoneEventHandlersLock.Lock()
+	zoneEventHandlers = append(zoneEventHandlers, handler)
+	informer := zoneInformer
+	zoneEventHandlersLock.Unlock()
+
+	// If the zone informer is already running, attach the dispatcher now.
+	// SharedIndexInformer allows AddEventHandler after Start as long as the
+	// informer has not been stopped.
+	if informer != nil {
+		if err := addZoneEventDispatcher(informer); err != nil {
+			log := logger.GetLogger(ctx)
+			// Log but don't fail — the handler is still in zoneEventHandlers
+			// and will be attached the next time the zone informer is (re)started.
+			log.Warnf("RegisterZoneEventHandler: failed to attach event handler to zone informer: %v", err)
+		}
+	}
+}
+
+// attachZoneEventHandlers attaches the Zone event dispatcher to a freshly
+// created zone informer so every handler registered so far via
+// RegisterZoneEventHandler starts receiving events immediately.
+func attachZoneEventHandlers(ctx context.Context, informer cache.SharedIndexInformer) error {
+	log := logger.GetLogger(ctx)
+	zoneEventHandlersLock.RLock()
+	hasHandlers := len(zoneEventHandlers) > 0
+	zoneEventHandlersLock.RUnlock()
+	if !hasHandlers {
+		log.Debug("attachZoneEventHandlers: no zone event handlers registered yet")
+		return nil
+	}
+	return addZoneEventDispatcher(informer)
+}
+
+// addZoneEventDispatcher wires the given zone informer's add/update/delete
+// events to notifyZoneEventHandlers, which fans them out to every callback
+// registered via RegisterZoneEventHandler.
+func addZoneEventDispatcher(informer cache.SharedIndexInformer) error {
+	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			notifyZoneEventHandlers(obj)
+		},
+		UpdateFunc: func(_ interface{}, newObj interface{}) {
+			notifyZoneEventHandlers(newObj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			// Unwrap a missed-delete tombstone (same pattern as topoCRDeleted).
+			if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = tombstone.Obj
+			}
+			notifyZoneEventHandlers(obj)
+		},
+	})
+	return err
+}
+
+// notifyZoneEventHandlers extracts the namespace from the changed Zone object and
+// invokes every registered Zone event handler with it.
+func notifyZoneEventHandlers(obj interface{}) {
+	zone, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return
+	}
+	namespace := zone.GetNamespace()
+
+	zoneEventHandlersLock.RLock()
+	defer zoneEventHandlersLock.RUnlock()
+	for _, handler := range zoneEventHandlers {
+		handler(namespace)
+	}
 }
 
 // GetZonesForNamespace fetches the zones associated with a namespace.
