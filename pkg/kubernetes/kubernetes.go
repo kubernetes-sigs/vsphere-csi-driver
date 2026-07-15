@@ -30,6 +30,7 @@ import (
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -249,6 +250,12 @@ func NewClientForGroup(ctx context.Context, config *restclient.Config, groupName
 		}
 		log.Info("adding scheme for vm-operator version v1alpha2")
 		err = vmoperatortypes.AddToScheme(scheme)
+		if err != nil {
+			log.Errorf("failed to add to scheme with err: %+v", err)
+			return nil, err
+		}
+		log.Info("adding scheme for vm-operator version v1alpha5")
+		err = vmoperatorv1alpha5.AddToScheme(scheme)
 		if err != nil {
 			log.Errorf("failed to add to scheme with err: %+v", err)
 			return nil, err
