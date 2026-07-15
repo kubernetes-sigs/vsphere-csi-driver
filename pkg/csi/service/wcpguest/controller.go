@@ -412,7 +412,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// common.WCPFeatureStateAssociatedWithPVCSI. Used both when building the requested-topology
 		// annotation below and when building the accessible-topology response after the Supervisor
 		// PVC is bound.
-		isHostLocalStorageSupportFSSEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		isHostLocalStorageSupportFSSEnabled := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
 			common.HostLocalStorageSupportFSS)
 
 		// Get PVC name and disk size for the supervisor cluster
