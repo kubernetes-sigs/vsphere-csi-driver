@@ -30,6 +30,18 @@ import (
 // +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone
 type VolumeCapability string
 
+const (
+	// SupportsVolumeModeBlock indicates that the policy supports PersistentVolume with Block volume mode.
+	SupportsVolumeModeBlock VolumeCapability = "SupportsPersistentVolumeBlock"
+	// SupportsVolumeModeFilesystem indicates that the policy supports PersistentVolume with Filesystem volume mode.
+	SupportsVolumeModeFilesystem VolumeCapability = "SupportsPersistentVolumeFilesystem"
+	// SupportsHighPerformanceLinkedClone indicates that the policy supports high-performance linked clones
+	// on vSAN ESA clusters with ESXi 9.1 or above hosts.
+	SupportsHighPerformanceLinkedClone VolumeCapability = "SupportsHighPerformanceLinkedClone"
+	// SupportsLinkedClone indicates that the policy supports linked clones with at least one ESXi 9.1+ host.
+	SupportsLinkedClone VolumeCapability = "SupportsLinkedClone"
+)
+
 // Topology describes topology accessibility for the storage policy within a namespace.
 type Topology struct {
 	// TopologyType describes the type of topology for the storage policy.

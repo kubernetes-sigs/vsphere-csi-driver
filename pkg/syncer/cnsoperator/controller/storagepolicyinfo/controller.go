@@ -24,6 +24,7 @@ import (
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +51,7 @@ import (
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -58,6 +60,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 // zonesProvider is the narrow slice of COCommonInterface that this controller
@@ -489,6 +492,9 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
+	// Populate VolumeCapabilities from InfraStoragePolicyInfo.
+	syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI)
+
 	if setErr := r.setSPISuccess(ctx, instance, "Successfully synced topology"); setErr != nil {
 		log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
 			request.NamespacedName, setErr)
@@ -621,6 +627,96 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 		instance.Status.TopologyInfo.TopologyType,
 		instance.Status.TopologyInfo.AccessibleZones)
 	return nil
+}
+
+// syncVolumeCapabilitiesFromInfraSPI populates the namespace-scoped
+// StoragePolicyInfo volume capabilities from the cluster-scoped
+// InfraStoragePolicyInfo, with no additional vCenter calls.
+// SupportsVolumeModeFilesystem is always true, independent of InfraSPI.
+// SupportsVolumeModeBlock and SupportsHighPerformanceLinkedClone are cluster-wide
+// (not namespace-filtered like topology), so they are copied as-is from InfraSPI.
+// SupportsLinkedClone is recomputed for just the zones accessible to this
+// namespace; see supportsLinkedCloneForNamespace.
+func syncVolumeCapabilitiesFromInfraSPI(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) {
+	infraCaps := infraSPI.Status.VolumeCapabilities
+
+	instance.Status.VolumeCapabilities = map[spiv1alpha1.VolumeCapability]bool{
+		spiv1alpha1.SupportsVolumeModeFilesystem:       true,
+		spiv1alpha1.SupportsVolumeModeBlock:            infraCaps[infraspiv1alpha1.SupportsVolumeModeBlock],
+		spiv1alpha1.SupportsHighPerformanceLinkedClone: infraCaps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone],
+		spiv1alpha1.SupportsLinkedClone:                supportsLinkedCloneForNamespace(ctx, instance, infraSPI, infraCaps),
+	}
+}
+
+// supportsLinkedCloneForNamespace determines whether SupportsLinkedClone should be
+// true for this namespace's StoragePolicyInfo. When the policy has no topology
+// (non-zonal), there is no per-namespace zone subset to check against, so the
+// InfraSPI-computed cluster-wide result is used directly. Otherwise LinkedClone
+// support is recomputed over just the namespace's accessible zones (already
+// namespace-filtered by syncTopologyFromInfraSPI) via computeLinkedCloneForNamespace.
+func supportsLinkedCloneForNamespace(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	infraCaps map[infraspiv1alpha1.VolumeCapability]bool) bool {
+	if instance.Status.TopologyInfo == nil {
+		return infraCaps[infraspiv1alpha1.SupportsLinkedClone]
+	}
+	return computeLinkedCloneForNamespace(ctx, infraSPI.Name, instance.Status.TopologyInfo.AccessibleZones)
+}
+
+// computeLinkedCloneForNamespace determines whether the storage policy identified by
+// policyName (its K8s-compliant name) supports LinkedClone within nsZones, using only
+// data already cached elsewhere in the process — no additional vCenter calls are made:
+//
+//   - policy → compatible datastores, and zone → datastores: util.PolicyDatastoreCache,
+//     populated by the clusterstoragepolicyinfo controller while reconciling InfraSPI.
+//   - datastore → hosts, and host ESXi version: vsphereinfra.StoragePolicyInfoCache,
+//     kept live by the PropertyCollector inventory watcher.
+//
+// LinkedClone is supported for the namespace if any host mounting a policy-compatible
+// datastore within one of nsZones is running ESXi 9.1 or above.
+func computeLinkedCloneForNamespace(ctx context.Context, policyName string, nsZones []string) bool {
+	compatibleDS, ok := util.GetPolicyDatastoreCache().GetPolicyDatastores(policyName)
+	if !ok || len(compatibleDS) == 0 {
+		return false
+	}
+
+	for _, zone := range nsZones {
+		zoneDS, ok := util.GetPolicyDatastoreCache().GetZoneDatastores(zone)
+		if !ok {
+			continue
+		}
+		for dsID := range zoneDS {
+			if _, compatible := compatibleDS[dsID]; !compatible {
+				continue
+			}
+			hosts, ok := vsphereinfra.GetCache().GetDsHosts(dsID)
+			if !ok {
+				continue
+			}
+			for hostID := range hosts {
+				if hostSupportsLinkedClone(ctx, hostID) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// hostSupportsLinkedClone reports whether a host cached by the inventory watcher is
+// running ESXi 9.1 or above. Returns false if the host's version has not been observed
+// yet, or on a version-parse error.
+func hostSupportsLinkedClone(ctx context.Context, hostID string) bool {
+	version, found := vsphereinfra.GetCache().GetHostVersion(hostID)
+	if !found {
+		return false
+	}
+	supported, err := cnsvsphere.IsvSphereVersion91orAbove(ctx, vimtypes.AboutInfo{Version: version})
+	if err != nil {
+		return false
+	}
+	return supported
 }
 
 // syncMarkerPolicyTopology populates the namespace-scoped StoragePolicyInfo

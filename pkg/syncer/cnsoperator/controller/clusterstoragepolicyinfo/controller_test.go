@@ -3627,7 +3627,7 @@ func TestCheckLinkedClone_NoZones(t *testing.T) {
 	ctx := context.Background()
 	topoMgr := &mockControllerTopologyService{azClustersMap: map[string][]string{}}
 	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
-	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", topoMgr, nil)
+	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", "test-policy", topoMgr, nil)
 	assert.NoError(t, err)
 	assert.False(t, lc, "LC must be false when there are no zones")
 	assert.Empty(t, perZone)
@@ -3637,7 +3637,7 @@ func TestCheckLinkedClone_NoZones(t *testing.T) {
 // an error when called without a topology manager.
 func TestCheckLinkedClone_NilTopologyManager(t *testing.T) {
 	ctx := context.Background()
-	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil, nil)
+	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", "test-policy", nil, nil)
 	assert.Error(t, err)
 	assert.False(t, lc)
 	assert.Nil(t, perZone)

@@ -137,6 +137,15 @@ func (c *StoragePolicyInfoCache) UpdateHostVersion(hostID, newVersion string) (o
 	return prev, true
 }
 
+// GetHostVersion returns the last-known ESXi version string for a host and
+// whether it has been observed yet.
+func (c *StoragePolicyInfoCache) GetHostVersion(hostID string) (version string, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	version, found = c.HostToVersion[hostID]
+	return version, found
+}
+
 // InvalidateHostVersion removes cached version info for a host that has left
 // the inventory, so a moref reused later doesn't compare against stale data.
 func (c *StoragePolicyInfoCache) InvalidateHostVersion(hostID string) {

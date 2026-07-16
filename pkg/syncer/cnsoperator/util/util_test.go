@@ -671,7 +671,7 @@ func withCompatibleDSIDs(ids map[string]struct{}, fn func()) {
 // topology manager returns an error immediately.
 func TestGetPolicyCompatibleDatastoresPerZone_NilTopologyManager(t *testing.T) {
 	ctx := context.Background()
-	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, nil, nil, "policy-1", nil)
+	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, nil, nil, "policy-1", "policy-1", nil)
 	assert.Error(t, err)
 	assert.Nil(t, result)
 }
@@ -681,7 +681,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_NilTopologyManager(t *testing.T) {
 func TestGetPolicyCompatibleDatastoresPerZone_NoZones(t *testing.T) {
 	ctx := context.Background()
 	topo := &mockTopologyService{azClustersMap: map[string][]string{}}
-	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", nil)
+	result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", nil)
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
@@ -703,7 +703,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_AllCompatible(t *testing.T) {
 	compatible := map[string]struct{}{"ds-1": {}, "ds-2": {}, "ds-3": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		assert.Len(t, result["zone-a"], 2)
 		assert.Len(t, result["zone-b"], 1)
@@ -723,7 +723,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_SomeCompatible(t *testing.T) {
 	compatible := map[string]struct{}{"ds-match": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		require.Len(t, result["zone-a"], 1)
 		assert.Equal(t, "ds-match", result["zone-a"][0].Reference().Value)
@@ -743,7 +743,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_NoneCompatible(t *testing.T) {
 	compatible := map[string]struct{}{"ds-other": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		assert.Empty(t, result["zone-a"])
 	})
@@ -767,7 +767,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_MultipleZonesSameDatastore(t *test
 	compatible := map[string]struct{}{"ds-shared": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		assert.Len(t, result["zone-a"], 1)
 		assert.Len(t, result["zone-b"], 1)
@@ -790,7 +790,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_MultipleClustersPerZone(t *testing
 	compatible := map[string]struct{}{"ds-1": {}, "ds-2": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", cache)
+		result, err := GetPolicyCompatibleDatastoresPerZone(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		assert.Len(t, result["zone-a"], 2)
 	})
@@ -802,7 +802,7 @@ func TestGetPolicyCompatibleDatastoresPerZone_MultipleClustersPerZone(t *testing
 // manager returns an error.
 func TestGetAccessibleZonesForPolicy_NilTopologyManager(t *testing.T) {
 	ctx := context.Background()
-	zones, err := GetAccessibleZonesForPolicy(ctx, nil, nil, "policy-1", nil)
+	zones, err := GetAccessibleZonesForPolicy(ctx, nil, nil, "policy-1", "policy-1", nil)
 	assert.Error(t, err)
 	assert.Nil(t, zones)
 }
@@ -819,7 +819,7 @@ func TestGetAccessibleZonesForPolicy_NoCompatibleDatastores(t *testing.T) {
 	}
 	// No compatible datastores → zone-a should not appear.
 	withCompatibleDSIDs(map[string]struct{}{}, func() {
-		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		assert.Empty(t, zones)
 	})
@@ -844,7 +844,7 @@ func TestGetAccessibleZonesForPolicy_OnlyZonesWithCompatibleDSReturned(t *testin
 	compatible := map[string]struct{}{"ds-match": {}, "ds-match2": {}}
 
 	withCompatibleDSIDs(compatible, func() {
-		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", cache)
+		zones, err := GetAccessibleZonesForPolicy(ctx, topo, nil, "policy-1", "policy-1", cache)
 		require.NoError(t, err)
 		sort.Strings(zones)
 		assert.Equal(t, []string{"zone-also-has", "zone-has-ds"}, zones)

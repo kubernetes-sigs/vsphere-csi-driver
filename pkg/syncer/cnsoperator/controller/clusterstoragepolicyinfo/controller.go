@@ -765,7 +765,7 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	log.Infof("Storage policy %s: populating accessible zones", profileID)
 
 	accessibleZones, err := cnsoperatorutil.GetAccessibleZonesForPolicy(ctx, r.topologyMgr, vc, profileID,
-		clusterDatastoreCache)
+		infraSPI.Name, clusterDatastoreCache)
 	if err != nil {
 		return fmt.Errorf("failed to get accessible zones: %w", err)
 	}

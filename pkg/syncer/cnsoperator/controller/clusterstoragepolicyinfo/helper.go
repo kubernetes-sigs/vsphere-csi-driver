@@ -488,7 +488,7 @@ func populateVolumeCapabilities(ctx context.Context,
 		clusterDatastoreCache = make(map[string][]*cnsvsphere.DatastoreInfo)
 	}
 
-	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, topologyMgr, clusterDatastoreCache)
+	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, infraSPI.Name, topologyMgr, clusterDatastoreCache)
 	if err != nil {
 		log.Errorf("Failed to check SupportsLinkedClone for policy %s: %v", profileID, err)
 		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
@@ -528,7 +528,7 @@ func populateVolumeCapabilities(ctx context.Context,
 // ESXi 9.1+ hosts. LC is true only when every zone that has compatible datastores also has at
 // least one ESXi 9.1+ host mounting those datastores.
 func checkLinkedClone(ctx context.Context,
-	vc *cnsvsphere.VirtualCenter, profileID string,
+	vc *cnsvsphere.VirtualCenter, profileID string, policyName string,
 	topologyMgr commoncotypes.ControllerTopologyService,
 	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo,
 ) (bool, map[string]map[string]vimtypes.ManagedObjectReference, error) {
@@ -544,7 +544,7 @@ func checkLinkedClone(ctx context.Context,
 	}
 
 	zoneCompatibleDS, err := cnsoperatorutil.GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID,
-		clusterDatastoreCache)
+		policyName, clusterDatastoreCache)
 	if err != nil {
 		return false, nil, err
 	}

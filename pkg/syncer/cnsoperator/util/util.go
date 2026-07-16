@@ -566,13 +566,16 @@ func GetPolicyCompatibleDatastores(ctx context.Context, vc *cnsvsphere.VirtualCe
 }
 
 // GetAccessibleZonesForPolicy determines which zones are accessible to the datastores
-// compatible with the given storage policy.
+// compatible with the given storage policy. policyName is the policy's K8s-compliant
+// name, used only to key the PolicyDatastoreCache populated as a side effect (see
+// GetPolicyCompatibleDatastoresPerZone).
 func GetAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, profileID string,
+	vc *cnsvsphere.VirtualCenter, profileID string, policyName string,
 	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
-	zoneCompatibleDS, err := GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID, clusterDatastoreCache)
+	zoneCompatibleDS, err := GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID, policyName,
+		clusterDatastoreCache)
 	if err != nil {
 		return nil, err
 	}
@@ -595,8 +598,14 @@ func GetAccessibleZonesForPolicy(ctx context.Context, topologyMgr commoncotypes.
 }
 
 // GetPolicyCompatibleDatastoresPerZone returns compatible datastores grouped by zone.
+// policyName is the policy's K8s-compliant name (the name shared by the
+// InfraStoragePolicyInfo/StoragePolicyInfo CRs); it is used only to key the
+// PolicyDatastoreCache entries this function populates as a byproduct of its PBM
+// compatibility query and cluster→datastore enumeration, letting the namespace-scoped
+// StoragePolicyInfo controller re-derive namespace-scoped volume capabilities without
+// any additional vCenter calls.
 func GetPolicyCompatibleDatastoresPerZone(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, profileID string,
+	vc *cnsvsphere.VirtualCenter, profileID string, policyName string,
 	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) (map[string][]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 
@@ -621,6 +630,7 @@ func GetPolicyCompatibleDatastoresPerZone(ctx context.Context, topologyMgr commo
 	}
 
 	log.Infof("Found %d compatible datastores for policy %s", len(compatibleDSIDs), profileID)
+	GetPolicyDatastoreCache().UpdatePolicyDatastores(policyName, compatibleDSIDs)
 
 	result := make(map[string][]*cnsvsphere.DatastoreInfo)
 
@@ -647,6 +657,14 @@ func GetPolicyCompatibleDatastoresPerZone(ctx context.Context, topologyMgr commo
 			}
 			zoneDS = append(zoneDS, clusterDS...)
 		}
+
+		// zoneDS holds every datastore in the zone, independent of policy compatibility;
+		// cache it so other policies' namespace-scoped capability checks can reuse it.
+		zoneDSIDs := make(map[string]struct{}, len(zoneDS))
+		for _, ds := range zoneDS {
+			zoneDSIDs[ds.Reference().Value] = struct{}{}
+		}
+		GetPolicyDatastoreCache().UpdateZoneDatastores(zone, zoneDSIDs)
 
 		// Filter to compatible datastores for this zone
 		var compatibleDatastores []*cnsvsphere.DatastoreInfo
