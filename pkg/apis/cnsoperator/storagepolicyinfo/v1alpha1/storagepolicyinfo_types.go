@@ -45,6 +45,27 @@ type Topology struct {
 	AccessibleZones []string `json:"accessibleZones"`
 }
 
+// ClusterStoragePolicyInfoReference identifies the cluster-scoped ClusterStoragePolicyInfo
+// that carries the non-topology attributes (encryption, performance, volume capabilities)
+// for the same storage policy.
+type ClusterStoragePolicyInfoReference struct {
+	// Name is the name of the referenced ClusterStoragePolicyInfo. It is always equal to
+	// this object's own name, since both share the same K8sCompliantName of the storage policy.
+	Name string `json:"name"`
+
+	// Kind is the kind of the referenced object, i.e. "ClusterStoragePolicyInfo".
+	Kind string `json:"kind"`
+
+	// APIGroup is the API group and version of the referenced object, i.e. "cns.vmware.com/v1alpha1".
+	APIGroup string `json:"apiGroup"`
+}
+
+// StoragePolicyInfoSpec defines the desired state of StoragePolicyInfo.
+type StoragePolicyInfoSpec struct {
+	// ClusterStoragePolicyInfoRef points to the corresponding cluster-scoped ClusterStoragePolicyInfo.
+	ClusterStoragePolicyInfoRef ClusterStoragePolicyInfoReference `json:"clusterStoragePolicyInfoRef"`
+}
+
 // StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
 // +k8s:openapi-gen=true
 type StoragePolicyInfoStatus struct {
@@ -76,10 +97,10 @@ type StoragePolicyInfoStatus struct {
 // storage policy. One instance is created per namespace per storage policy that is
 // assigned to that namespace.
 type StoragePolicyInfo struct {
+	Spec              StoragePolicyInfoSpec `json:"spec,omitempty"`
 	metav1.TypeMeta   `json:",inline"`
+	Status            StoragePolicyInfoStatus `json:"status,omitempty"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Status StoragePolicyInfoStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
