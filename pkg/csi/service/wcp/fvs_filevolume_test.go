@@ -1280,6 +1280,14 @@ func TestExpandFileVolumeViaFVS_ErrorPhase(t *testing.T) {
 					opts ...ctrlclient.UpdateOption) error {
 					if fv, ok := obj.(*fvv1alpha1.FileVolume); ok {
 						fv.Status.Phase = fvv1alpha1.FileVolumePhaseError
+						fv.Status.Conditions = []metav1.Condition{
+							{
+								Type:    "BackendReady",
+								Status:  metav1.ConditionFalse,
+								Reason:  "VdfsConnectionFailed",
+								Message: "resize: vdfs grpc dial vsock:2:1570: context deadline exceeded",
+							},
+						}
 					}
 					return w.Update(ctx, obj, opts...)
 				},
@@ -1292,6 +1300,9 @@ func TestExpandFileVolumeViaFVS_ErrorPhase(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
 	require.Contains(t, err.Error(), "Error phase")
+	// The FileVolume's failing condition must surface so the resize event names the backend cause.
+	require.Contains(t, err.Error(), "VdfsConnectionFailed")
+	require.Contains(t, err.Error(), "vdfs grpc dial")
 }
 
 // TestDeleteFileVolumeViaFVS_StuckFinalizer simulates an FVS controller that has not yet drained
@@ -1403,6 +1414,155 @@ func TestCreateFileVolumeViaFVS_ExistingFVGetError(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, csifault.CSIInternalFault, fault)
 	require.Contains(t, err.Error(), "failed to check for existing FileVolume")
+}
+
+// TestSummarizeFileVolumeConditions verifies that only not-True conditions are rendered, with their
+// reason and message, so the underlying backend failure surfaces in the CSI error.
+func TestSummarizeFileVolumeConditions(t *testing.T) {
+	cases := []struct {
+		name        string
+		conditions  []metav1.Condition
+		wantExact   string
+		wantContain []string
+	}{
+		{
+			name:      "no conditions",
+			wantExact: "no conditions reported",
+		},
+		{
+			name: "only true conditions are excluded",
+			conditions: []metav1.Condition{
+				{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Provisioned", Message: "all good"},
+			},
+			wantExact: "no failing conditions reported",
+		},
+		{
+			name: "single failing backend condition",
+			conditions: []metav1.Condition{
+				{
+					Type:    "BackendReady",
+					Status:  metav1.ConditionFalse,
+					Reason:  "VdfsConnectionFailed",
+					Message: "create: vdfs grpc dial vsock:2:1570: context deadline exceeded",
+				},
+			},
+			wantContain: []string{"BackendReady=VdfsConnectionFailed", "vdfs grpc dial vsock:2:1570"},
+		},
+		{
+			name: "multiple failing conditions joined",
+			conditions: []metav1.Condition{
+				{Type: "Ready", Status: metav1.ConditionFalse, Reason: "BackendVolumeAssignmentNotReady",
+					Message: "One or more required conditions are not ready"},
+				{Type: "BackendReady", Status: metav1.ConditionFalse, Reason: "VdfsConnectionFailed",
+					Message: "context deadline exceeded"},
+			},
+			wantContain: []string{
+				"Ready=BackendVolumeAssignmentNotReady",
+				"BackendReady=VdfsConnectionFailed",
+				"; ",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fv := &fvv1alpha1.FileVolume{Status: fvv1alpha1.FileVolumeStatus{Conditions: tc.conditions}}
+			got := summarizeFileVolumeConditions(fv)
+			if tc.wantExact != "" {
+				require.Equal(t, tc.wantExact, got)
+			}
+			for _, sub := range tc.wantContain {
+				require.Contains(t, got, sub)
+			}
+		})
+	}
+}
+
+// TestCreateFileVolumeViaFVS_ErrorPhasePropagatesCondition verifies that when an existing FileVolume
+// is in Error phase, createFileVolumeViaFVS surfaces the failing condition (reason + message) in the
+// returned error so the consuming PVC event names the backend cause rather than only "Error phase".
+func TestCreateFileVolumeViaFVS_ErrorPhasePropagatesCondition(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+	consumerAnn := "pvc-ns-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	instAnn := "inst-ns-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	sameVPCPath := "/orgs/default/projects/default/vpcs/same-vpc"
+	pvcUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+	k8s := k8sfake.NewClientset(
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "pvc-ns",
+				Annotations: map[string]string{AnnotationVPCNetworkConfig: consumerAnn},
+			},
+		},
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "inst-ns",
+				Labels:      map[string]string{NamespaceLabelFVSInstance: "true"},
+				Annotations: map[string]string{AnnotationVPCNetworkConfig: instAnn},
+			},
+		},
+	)
+	dyn := newTestDynamicClient(t,
+		testVPCNetworkConfigurationCR(consumerAnn, sameVPCPath),
+		testVPCNetworkConfigurationCR(instAnn, sameVPCPath),
+	)
+
+	origZones := fvsZonesForNamespace
+	defer func() { fvsZonesForNamespace = origZones }()
+	fvsZonesForNamespace = func(ns string) map[string]struct{} {
+		if ns == "pvc-ns" || ns == "inst-ns" {
+			return map[string]struct{}{"zone-a": {}}
+		}
+		return nil
+	}
+
+	// Existing FileVolume already in Error phase carrying the backend failure condition. This exercises
+	// the Phase 1 reuse path, so no healthy FileVolumeService is required.
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: pvcUID, Namespace: "inst-ns"},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase: fvv1alpha1.FileVolumePhaseError,
+			Conditions: []metav1.Condition{
+				{
+					Type:    "BackendReady",
+					Status:  metav1.ConditionFalse,
+					Reason:  "VdfsConnectionFailed",
+					Message: "create: vdfs grpc dial vsock:2:1570: context deadline exceeded",
+				},
+			},
+		},
+	}
+	fvClient := ctrlfake.NewClientBuilder().
+		WithScheme(newFileVolumeSchemeForTest(t)).
+		WithObjects(existing).
+		Build()
+
+	c := &controller{
+		k8sClient:        k8s,
+		dynamicClient:    dyn,
+		namespaceLister:  testNamespaceLister(t, k8s),
+		fileVolumeClient: fvClient,
+	}
+
+	req := &csi.CreateVolumeRequest{
+		Name: "pvc-" + pvcUID,
+		Parameters: map[string]string{
+			common.AttributePvcNamespace: "pvc-ns",
+			common.AttributePvcName:      "my-pvc",
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Preferred: []*csi.Topology{{Segments: map[string]string{v1.LabelTopologyZone: "zone-a"}}},
+		},
+	}
+
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	require.Nil(t, resp)
+	require.Error(t, err)
+	require.Equal(t, csifault.CSIInternalFault, fault)
+	require.Contains(t, err.Error(), "Error phase")
+	require.Contains(t, err.Error(), "VdfsConnectionFailed")
+	require.Contains(t, err.Error(), "vdfs grpc dial")
 }
 
 // TestReservedFVSStorageClassGuard documents the invariant the new CreateVolume guard relies on:
