@@ -439,7 +439,7 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 			Spec: fvv1alpha1.FileVolumeSpec{
 				PvcUID:    pvcUID,
 				Size:      *qty,
-				Protocols: []fvv1alpha1.FileVolumeProtocol{fvv1alpha1.FileVolumeProtocolNFSv4},
+				Protocols: []fvv1alpha1.FileVolumeProtocol{fvv1alpha1.FileVolumeProtocolNFSv41},
 			},
 		}
 		log.Infof("Creating FileVolume CR for PVC %s/%s: %+v", pvcNamespace, pvcName, fvTyped)
