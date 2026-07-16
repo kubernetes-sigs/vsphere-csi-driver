@@ -34,6 +34,7 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -57,6 +58,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
 
@@ -1141,50 +1143,110 @@ func TestValidateStoragePolicyExistsOnVcenter_WithRealVCenter(t *testing.T) {
 	t.Skip("Skipping real vCenter test - requires connection, fault handling tested separately")
 }
 
-func TestRecordEvent_Warning(t *testing.T) {
+// TestRecordEvent_DoesNotMutateBackOffDuration verifies that recordEvent only emits a
+// Kubernetes Event and never touches backOffDuration. That map's sole writers must be
+// completeReconciliationWithError/completeReconciliationWithSuccess (the overall outcome of one
+// Reconcile call) — if recordEvent also reset/doubled it, a ClusterStoragePolicyInfo status
+// success recorded here would clobber the shared counter before a later failure within the same
+// Reconcile call (e.g. the InfraStoragePolicyInfo status update) got a chance to compound it,
+// which is exactly what previously kept a repeatedly-failing instance stuck oscillating between
+// a 1s and 2s backoff instead of growing exponentially.
+func TestRecordEvent_DoesNotMutateBackOffDuration(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
-
 	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
 	}
-
-	// Initialize backoff map for testing
-	backOffDuration = make(map[types.NamespacedName]time.Duration)
 	namespacedName := types.NamespacedName{Name: "test-cspi"}
-	backOffDuration[namespacedName] = time.Second
-
 	r := &ReconcileClusterStoragePolicyInfo{recorder: record.NewFakeRecorder(10)}
-	r.recordEvent(ctx, cspi, v1.EventTypeWarning, "test warning")
 
-	// Verify backoff duration was doubled
-	backOffDurationMapMutex.Lock()
-	duration := backOffDuration[namespacedName]
-	backOffDurationMapMutex.Unlock()
+	for _, tt := range []struct {
+		name      string
+		eventType string
+		msg       string
+	}{
+		{"warning", v1.EventTypeWarning, "test warning"},
+		{"normal", v1.EventTypeNormal, "test success"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backOffDuration = make(map[types.NamespacedName]time.Duration)
+			backOffDuration[namespacedName] = 4 * time.Second
 
-	assert.Equal(t, 2*time.Second, duration, "expected backoff duration to be doubled")
+			r.recordEvent(ctx, cspi, tt.eventType, tt.msg)
+
+			backOffDurationMapMutex.Lock()
+			duration := backOffDuration[namespacedName]
+			backOffDurationMapMutex.Unlock()
+			assert.Equal(t, 4*time.Second, duration, "recordEvent must not modify backOffDuration")
+		})
+	}
 }
 
-func TestRecordEvent_Normal(t *testing.T) {
+// TestBackOffDuration_GrowsAcrossRepeatedClusterSuccessInfraFailure is a regression test for the
+// real-world sequence that used to defeat exponential backoff: on every Reconcile,
+// ClusterStoragePolicyInfo's own status update succeeds (recordEvent Normal) but
+// InfraStoragePolicyInfo's fails (completeReconciliationWithError), over and over. Before
+// recordEvent stopped touching backOffDuration, the per-reconcile success reset it to 1s right
+// before the failure doubled it once to 2s, so it could never climb past 2s no matter how many
+// consecutive failures occurred. It must now double on every iteration instead.
+func TestBackOffDuration_GrowsAcrossRepeatedClusterSuccessInfraFailure(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
+	namespacedName := types.NamespacedName{Name: "test-cspi"}
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+	backOffDuration[namespacedName] = time.Second
 
 	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-cspi"},
+		ObjectMeta: metav1.ObjectMeta{Name: namespacedName.Name},
 	}
-
-	// Initialize backoff map for testing with higher duration
-	backOffDuration = make(map[types.NamespacedName]time.Duration)
-	namespacedName := types.NamespacedName{Name: "test-cspi"}
-	backOffDuration[namespacedName] = 30 * time.Second
-
 	r := &ReconcileClusterStoragePolicyInfo{recorder: record.NewFakeRecorder(10)}
-	r.recordEvent(ctx, cspi, v1.EventTypeNormal, "test success")
 
-	// Verify backoff duration was reset to 1 second
-	backOffDurationMapMutex.Lock()
-	duration := backOffDuration[namespacedName]
-	backOffDurationMapMutex.Unlock()
+	want := time.Second
+	for i := 0; i < 4; i++ {
+		// ClusterStoragePolicyInfo's own status update succeeds every time.
+		r.recordEvent(ctx, cspi, v1.EventTypeNormal, "cluster spi synced")
+		// But InfraStoragePolicyInfo's status update fails every time, so the overall
+		// Reconcile call ends in completeReconciliationWithError.
+		_, _ = r.completeReconciliationWithError(ctx, namespacedName, backOffDuration[namespacedName],
+			assert.AnError)
 
-	assert.Equal(t, time.Second, duration, "expected backoff duration to be reset to 1 second")
+		want = min(want*2, cnsoperatortypes.MaxBackOffDurationForReconciler)
+		backOffDurationMapMutex.Lock()
+		got := backOffDuration[namespacedName]
+		backOffDurationMapMutex.Unlock()
+		assert.Equal(t, want, got, "iteration %d: backoff must keep doubling despite the "+
+			"per-reconcile ClusterStoragePolicyInfo success", i)
+	}
+}
+
+// TestRecordInfraSPIEvent_DoesNotMutateBackOffDuration is the InfraStoragePolicyInfo-side
+// counterpart of TestRecordEvent_DoesNotMutateBackOffDuration; see its doc comment.
+func TestRecordInfraSPIEvent_DoesNotMutateBackOffDuration(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-infraspi"},
+	}
+	namespacedName := types.NamespacedName{Name: "test-infraspi"}
+	r := &ReconcileClusterStoragePolicyInfo{recorder: record.NewFakeRecorder(10)}
+
+	for _, tt := range []struct {
+		name      string
+		eventType string
+		msg       string
+	}{
+		{"warning", v1.EventTypeWarning, "test warning"},
+		{"normal", v1.EventTypeNormal, "test success"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backOffDuration = make(map[types.NamespacedName]time.Duration)
+			backOffDuration[namespacedName] = 4 * time.Second
+
+			r.recordInfraSPIEvent(ctx, infraSPI, tt.eventType, tt.msg)
+
+			backOffDurationMapMutex.Lock()
+			duration := backOffDuration[namespacedName]
+			backOffDurationMapMutex.Unlock()
+			assert.Equal(t, 4*time.Second, duration, "recordInfraSPIEvent must not modify backOffDuration")
+		})
+	}
 }
 
 // Helper function to simulate the policy existence check logic for testing
@@ -3840,8 +3902,8 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 			infraSPI.Name = tt.k8sCompliantName
 
 			// Call populateVolumeCapabilities with minimal required parameters
-			// We pass nil for vc, topologyMgr, and clusterDatastoreCache since we only want to test the logic
-			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil)
+			// We pass nil for vc and zoneCompatibleDS since we only want to test the logic
+			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil)
 
 			// For marker policies, there should be no error since we skip the HPLC check
 			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
@@ -3902,22 +3964,21 @@ func TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts(t *testing.T) {
 }
 
 // TestCheckLinkedClone_NoZones verifies that checkLinkedClone returns
-// LC=false when the topology manager reports no zones (empty azClustersMap).
+// LC=false when there are no zones with compatible datastores (empty zoneCompatibleDS).
 func TestCheckLinkedClone_NoZones(t *testing.T) {
 	ctx := context.Background()
-	topoMgr := &mockControllerTopologyService{azClustersMap: map[string][]string{}}
 	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
-	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", topoMgr, nil)
+	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", map[string][]*cnsvsphere.DatastoreInfo{})
 	assert.NoError(t, err)
 	assert.False(t, lc, "LC must be false when there are no zones")
 	assert.Empty(t, perZone)
 }
 
-// TestCheckLinkedClone_NilTopologyManager verifies that checkLinkedClone returns
-// an error when called without a topology manager.
-func TestCheckLinkedClone_NilTopologyManager(t *testing.T) {
+// TestCheckLinkedClone_NilVC verifies that checkLinkedClone returns an error when called
+// without a vCenter client.
+func TestCheckLinkedClone_NilVC(t *testing.T) {
 	ctx := context.Background()
-	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil, nil)
+	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil)
 	assert.Error(t, err)
 	assert.False(t, lc)
 	assert.Nil(t, perZone)
@@ -3985,6 +4046,74 @@ func setupLCSim(t *testing.T, numClusters, hostsPerCluster int) (
 	return
 }
 
+// setupLCSimIsolatedDatastores creates a VPX model with numClusters clusters (one host each) and
+// one datastore exclusively mounted per cluster. Unlike setupLCSim, whose single datastore is
+// shared by every host in the datacenter (the vcsim VPX default), this gives each cluster its
+// own datastore so a 9.1+ host in one cluster can't be mistaken for ESXi 9.1+ coverage of
+// another cluster's zone.
+func setupLCSimIsolatedDatastores(t *testing.T, numClusters int) (
+	ctx context.Context,
+	vc *cnsvsphere.VirtualCenter,
+	model *simulator.Model,
+	clusterRefs []vimtypes.ManagedObjectReference,
+	datastores []*cnsvsphere.DatastoreInfo,
+	stop func(),
+) {
+	t.Helper()
+	ctx = logger.NewContextWithLogger(context.Background())
+	model = simulator.VPX()
+	model.Datacenter = 1
+	model.Cluster = numClusters
+	model.ClusterHost = 1
+	model.Host = 0
+	model.Machine = 0
+	model.Datastore = numClusters
+	require.NoError(t, model.Create())
+	s := model.Service.NewServer()
+	c, err := govmomi.NewClient(ctx, s.URL, true)
+	if err != nil {
+		s.Close()
+		model.Remove()
+		t.Fatalf("failed to create govmomi client: %v", err)
+	}
+	vc = &cnsvsphere.VirtualCenter{
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Client:      c,
+		ClientMutex: &sync.Mutex{},
+	}
+	stop = func() { s.Close(); model.Remove() }
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, numClusters)
+	dsObjs := model.Map().All("Datastore")
+	require.Len(t, dsObjs, numClusters)
+
+	clusterRefs = make([]vimtypes.ManagedObjectReference, numClusters)
+	datastores = make([]*cnsvsphere.DatastoreInfo, numClusters)
+	for i, cl := range clusters {
+		clusterRef := cl.Reference()
+		clusterRefs[i] = clusterRef
+		hostRefs := hostRefsInCluster(model, clusterRef)
+		hostSet := make(map[string]struct{}, len(hostRefs))
+		for _, h := range hostRefs {
+			hostSet[h.Value] = struct{}{}
+		}
+
+		// Restrict this datastore's mount list to only the current cluster's hosts; by
+		// default vcsim mounts every datastore on every host in the datacenter.
+		dsObj := dsObjs[i].(*simulator.Datastore)
+		var mounts []vimtypes.DatastoreHostMount
+		for _, m := range dsObj.Host {
+			if _, ok := hostSet[m.Key.Value]; ok {
+				mounts = append(mounts, m)
+			}
+		}
+		dsObj.Host = mounts
+		datastores[i] = dsInfoFromSim(c, dsObj.Reference())
+	}
+	return
+}
+
 // dsInfoFromSim wraps a simulator datastore reference in a cnsvsphere.DatastoreInfo.
 func dsInfoFromSim(c *govmomi.Client, ref vimtypes.ManagedObjectReference) *cnsvsphere.DatastoreInfo {
 	return &cnsvsphere.DatastoreInfo{
@@ -4017,6 +4146,31 @@ func hostRefsInCluster(model *simulator.Model, clusterRef vimtypes.ManagedObject
 ) []vimtypes.ManagedObjectReference {
 	c := model.Map().Get(clusterRef).(*simulator.ClusterComputeResource)
 	return c.Host
+}
+
+// datastoresForCluster returns the datastores mounted by hosts in the given cluster, via a
+// direct HostSystem.datastore property query. Deliberately not
+// cnsvsphere.GetCandidateDatastoresInCluster/VirtualCenter.GetHostsByCluster: those attempt to
+// (re)connect using VirtualCenterConfig, which the bare simulator-backed VC built by setupLCSim
+// doesn't have, and the call fails trying to read a real vSphere config file.
+func datastoresForCluster(t *testing.T, ctx context.Context, vc *cnsvsphere.VirtualCenter, model *simulator.Model,
+	clusterRef vimtypes.ManagedObjectReference) []*cnsvsphere.DatastoreInfo {
+	t.Helper()
+	pc := property.DefaultCollector(vc.Client.Client)
+	seen := make(map[string]struct{})
+	var datastores []*cnsvsphere.DatastoreInfo
+	for _, hostRef := range hostRefsInCluster(model, clusterRef) {
+		var hostMo mo.HostSystem
+		require.NoError(t, pc.RetrieveOne(ctx, hostRef, []string{"datastore"}, &hostMo))
+		for _, dsRef := range hostMo.Datastore {
+			if _, ok := seen[dsRef.Value]; ok {
+				continue
+			}
+			seen[dsRef.Value] = struct{}{}
+			datastores = append(datastores, dsInfoFromSim(vc.Client, dsRef))
+		}
+	}
+	return datastores
 }
 
 // --- fetchESXi91HostsForDatastore tests -----------------------------------------------
@@ -4091,6 +4245,54 @@ func TestFetchESXi91HostsForDatastore_AllESXi91(t *testing.T) {
 	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
 	require.NoError(t, err)
 	assert.Len(t, hosts, len(hostRefs), "all ESXi 9.1+ hosts should be returned")
+}
+
+// --- checkLinkedClone simulator tests --------------------------------------------------
+
+// TestCheckLinkedClone_SingleZoneAllHostsESXi91 verifies LC=true when the only zone's
+// compatible datastore is mounted only by ESXi 9.1+ hosts.
+func TestCheckLinkedClone_SingleZoneAllHostsESXi91(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 1, 2)
+	defer stop()
+
+	clusterRef := model.Map().All("ClusterComputeResource")[0].Reference()
+	for _, hostRef := range hostRefsInCluster(model, clusterRef) {
+		setHostESXiVersion(model, hostRef, "9.1.0")
+	}
+
+	clusterDS := datastoresForCluster(t, ctx, vc, model, clusterRef)
+	require.NotEmpty(t, clusterDS)
+
+	zoneCompatibleDS := map[string][]*cnsvsphere.DatastoreInfo{"zone-a": clusterDS}
+
+	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS)
+	require.NoError(t, err)
+	assert.True(t, lc, "LC should be true when the zone's datastore is mounted only by ESXi 9.1+ hosts")
+	assert.NotEmpty(t, perZone["zone-a"])
+}
+
+// TestCheckLinkedClone_OneZoneMissingESXi91Host verifies LC=false when only one of two
+// zones has a qualifying ESXi 9.1+ host (LC requires every zone with compatible
+// datastores to have at least one).
+func TestCheckLinkedClone_OneZoneMissingESXi91Host(t *testing.T) {
+	ctx, vc, model, clusters, datastores, stop := setupLCSimIsolatedDatastores(t, 2)
+	defer stop()
+
+	for _, hostRef := range hostRefsInCluster(model, clusters[0]) {
+		setHostESXiVersion(model, hostRef, "9.1.0")
+	}
+	for _, hostRef := range hostRefsInCluster(model, clusters[1]) {
+		setHostESXiVersion(model, hostRef, "7.0.3")
+	}
+
+	zoneCompatibleDS := map[string][]*cnsvsphere.DatastoreInfo{
+		"zone-a": {datastores[0]},
+		"zone-b": {datastores[1]},
+	}
+
+	lc, _, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS)
+	require.NoError(t, err)
+	assert.False(t, lc, "LC must be false when not every zone has a qualifying ESXi 9.1+ host")
 }
 
 // --- checkHighPerformanceLinkedClone simulator tests ----------------------------------

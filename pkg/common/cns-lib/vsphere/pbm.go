@@ -169,6 +169,46 @@ func (vc *VirtualCenter) PbmQueryMatchingHub(ctx context.Context,
 	return res.Returnval, nil
 }
 
+// PbmCheckRequirementsForZoneTopology performs an SPBM placement compatibility check for
+// profileID using a PbmPlacementZoneTopologyRequirement scoped to clusterMoIDs.
+// For each datastore that is both policy-compatible and
+// mounted on at least one of the clusterMoIDs, the result's
+// HubInfo.ZoneClusters field indicates which of clusterMoIDs it is mounted on.
+func (vc *VirtualCenter) PbmCheckRequirementsForZoneTopology(ctx context.Context,
+	profileID string, clusterMoIDs []string) (pbm.PlacementCompatibilityResult, error) {
+	log := logger.GetLogger(ctx)
+	err := vc.ConnectPbm(ctx)
+	if err != nil {
+		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
+		return nil, err
+	}
+
+	clusters := make([]pbmtypes.PbmServerObjectRef, 0, len(clusterMoIDs))
+	for _, moID := range clusterMoIDs {
+		clusters = append(clusters, pbmtypes.PbmServerObjectRef{
+			ObjectType: string(pbmtypes.PbmObjectTypeCluster),
+			Key:        moID,
+		})
+	}
+
+	requirement := &pbmtypes.PbmPlacementZoneTopologyRequirement{
+		PbmPlacementCapabilityProfileRequirement: pbmtypes.PbmPlacementCapabilityProfileRequirement{
+			ProfileId: pbmtypes.PbmProfileId{UniqueId: profileID},
+		},
+		Clusters: clusters,
+	}
+
+	res, err := vc.PbmClient.CheckRequirements(ctx, nil, nil,
+		[]pbmtypes.BasePbmPlacementRequirement{requirement})
+	if err != nil {
+		log.Errorf("failed to check zone topology placement requirements for profile %s: %v", profileID, err)
+		return nil, err
+	}
+
+	log.Infof("Found %d placement results for profile %s across %d clusters", len(res), profileID, len(clusterMoIDs))
+	return res, nil
+}
+
 // PbmRetrieveContent fetches the policy content of all given policies from SPBM.
 func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []string) ([]SpbmPolicyContent, error) {
 

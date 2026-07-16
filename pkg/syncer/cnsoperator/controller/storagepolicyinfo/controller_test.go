@@ -18,6 +18,7 @@ package storagepolicyinfo
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,10 +58,15 @@ func testScheme(t *testing.T) *runtime.Scheme {
 }
 
 // mockZonesProvider is a minimal test double for the zonesProvider interface.
-// Only GetZonesForNamespace carries real behaviour; tests set zonesForNamespace
-// to control which zones are returned per namespace.
+// zonesForNamespace controls which zones GetZonesForNamespace reports per namespace.
+// GetActiveClustersForNamespaceInRequestedZones defaults to treating every zone in
+// zonesForNamespace as having an active cluster (returning a synthetic cluster moref for it),
+// so existing tests that only care about zone-name assignment don't need to opt into the
+// active-cluster check explicitly. Tests exercising that check set inactiveZones to mark
+// specific assigned zones as having no active cluster for the namespace.
 type mockZonesProvider struct {
 	zonesForNamespace map[string]map[string]struct{}
+	inactiveZones     map[string]map[string]struct{}
 }
 
 func (m *mockZonesProvider) StartZonesInformer(_ context.Context, _ *restclient.Config, _ string) error {
@@ -72,6 +78,26 @@ func (m *mockZonesProvider) GetZonesForNamespace(ns string) map[string]struct{} 
 		return m.zonesForNamespace[ns]
 	}
 	return nil
+}
+
+func (m *mockZonesProvider) GetActiveClustersForNamespaceInRequestedZones(_ context.Context,
+	ns string, zones []string) ([]string, error) {
+	nsZones := m.zonesForNamespace[ns]
+	inactive := m.inactiveZones[ns]
+	var activeClusters []string
+	for _, zone := range zones {
+		if _, assigned := nsZones[zone]; !assigned {
+			continue
+		}
+		if _, isInactive := inactive[zone]; isInactive {
+			continue
+		}
+		activeClusters = append(activeClusters, "cluster-for-"+zone)
+	}
+	if len(activeClusters) == 0 {
+		return nil, fmt.Errorf("could not find active cluster for the namespace %q in requested zones: %v", ns, zones)
+	}
+	return activeClusters, nil
 }
 
 var _ zonesProvider = &mockZonesProvider{}
@@ -468,6 +494,7 @@ func TestNamespaceFilteredZones(t *testing.T) {
 	tests := []struct {
 		name          string
 		nsZones       map[string]struct{} // zones for "ns1"; nil = no constraint
+		inactiveZones map[string]struct{} // subset of nsZones with no active cluster for ns1
 		clusterZones  []string
 		expectedZones []string
 	}{
@@ -495,18 +522,38 @@ func TestNamespaceFilteredZones(t *testing.T) {
 			clusterZones:  nil,
 			expectedZones: nil,
 		},
+		{
+			name:          "zone assigned to namespace but with no active cluster is excluded",
+			nsZones:       map[string]struct{}{"az1": {}, "az2": {}},
+			inactiveZones: map[string]struct{}{"az2": {}},
+			clusterZones:  []string{"az1", "az2"},
+			expectedZones: []string{"az1"},
+		},
+		{
+			name:          "namespace assigned to zone but active on no cluster in any zone returns empty",
+			nsZones:       map[string]struct{}{"az1": {}},
+			inactiveZones: map[string]struct{}{"az1": {}},
+			clusterZones:  []string{"az1"},
+			expectedZones: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var zonesMap map[string]map[string]struct{}
+			var zonesMap, inactiveMap map[string]map[string]struct{}
 			if tt.nsZones != nil {
 				zonesMap = map[string]map[string]struct{}{"ns1": tt.nsZones}
 			}
+			if tt.inactiveZones != nil {
+				inactiveMap = map[string]map[string]struct{}{"ns1": tt.inactiveZones}
+			}
 			r := &ReconcileStoragePolicyInfo{
-				client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
-				scheme:        scheme,
-				zonesProvider: &mockZonesProvider{zonesForNamespace: zonesMap},
+				client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+				scheme: scheme,
+				zonesProvider: &mockZonesProvider{
+					zonesForNamespace: zonesMap,
+					inactiveZones:     inactiveMap,
+				},
 			}
 
 			got := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)

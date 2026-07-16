@@ -17,27 +17,33 @@ limitations under the License.
 package vsphereinfra
 
 import (
+	"context"
+	"maps"
 	"slices"
 	"sync"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
-// StoragePolicyInfoCache is a shared in-memory cache used by the
-// PropertyCollector watcher and the storage-policy-info
-// controllers.
+// StoragePolicyInfoCache is a shared in-memory cache written by two independent producers and
+// read by the namespace-scoped storagepolicyinfo controller to avoid extra vCenter round trips:
+//
+//   - The PropertyCollector inventory watcher (collector.go), which keeps live, topology-shaped
+//     facts about vCenter (which hosts mount a datastore, which hosts belong to a cluster, each
+//     host's ESXi version) fresh via a standing WaitForUpdatesEx session — independent of any
+//     storage policy.
+//   - The clusterstoragepolicyinfo controller (pkg/syncer/cnsoperator/controller/
+//     clusterstoragepolicyinfo), which writes policy-specific facts (which datastores/zones a
+//     policy is compatible with, which clusters have vSAN-ESA enabled) as a byproduct of each
+//     ClusterStoragePolicyInfo/InfraStoragePolicyInfo reconcile.
 type StoragePolicyInfoCache struct {
 	mu sync.RWMutex
+
+	// --- Populated by the PropertyCollector inventory watcher ---
 
 	// DsToHosts tracks the last-known set of hosts mounting each datastore.
 	// Written by the PropertyCollector on Datastore.host changes.
 	DsToHosts map[string]map[string]struct{}
-
-	// DsToPolicy records which storage policies a datastore is compatible
-	// with, keyed by datastore moref. Written by the clusterstoragepolicyinfo
-	// controller (SetDatastoresForPolicy) after each policy's PBM compatibility
-	// query, and read by OnInventoryChange (via PoliciesForDatastore) to
-	// resolve an inventory change to the policies it affects, without a
-	// separate vCenter round trip.
-	DsToPolicy map[string][]string
 
 	// HostToVersion tracks the last-known ESXi version string per host
 	// (e.g. "9.2.0"). key: host moref.
@@ -54,6 +60,21 @@ type StoragePolicyInfoCache struct {
 	// matches how InfraSPI itself queries hosts (GetHostsByCluster, per known
 	// zone-registered cluster).
 	ClusterToHosts map[string]map[string]struct{}
+
+	// --- Populated by the clusterstoragepolicyinfo controller ---
+
+	// DsToPolicy records which storage policies a datastore is compatible
+	// with, keyed by datastore moref.
+	DsToPolicy map[string][]string
+
+	// PolicyZoneDatastores tracks, per storage policy, the datastores compatible with that
+	// policy within each zone. key: policy K8s-compliant name; inner key: zone name;
+	// innermost key: datastore moref.
+	PolicyZoneDatastores map[string]map[string]map[string]struct{}
+
+	// ClusterToESAEnabled records whether a cluster has vSAN-ESA enabled, keyed by cluster
+	// moref.
+	ClusterToESAEnabled map[string]bool
 }
 
 var (
@@ -66,10 +87,14 @@ var (
 func GetCache() *StoragePolicyInfoCache {
 	cacheOnce.Do(func() {
 		defaultCache = &StoragePolicyInfoCache{
+			// Populated by the PropertyCollector inventory watcher.
 			DsToHosts:      make(map[string]map[string]struct{}),
-			DsToPolicy:     make(map[string][]string),
 			HostToVersion:  make(map[string]string),
 			ClusterToHosts: make(map[string]map[string]struct{}),
+			// Populated by the clusterstoragepolicyinfo controller.
+			DsToPolicy:           make(map[string][]string),
+			PolicyZoneDatastores: make(map[string]map[string]map[string]struct{}),
+			ClusterToESAEnabled:  make(map[string]bool),
 		}
 	})
 	return defaultCache
@@ -196,6 +221,65 @@ func (c *StoragePolicyInfoCache) SetDatastoresForPolicy(policyName string, dsIDs
 	}
 }
 
+// SetDatastoresForPolicyZones replaces the entire per-zone compatible-datastore map recorded
+// for policyName, so a zone the policy is no longer compatible with doesn't keep a stale
+// entry. zoneDatastores maps zone name to the datastore morefs compatible with policyName in
+// that zone. A nil zoneDatastores clears policyName's entry entirely; a non-nil-but-empty map
+// is recorded as-is, so PolicyDataAvailable can distinguish "policy reconciled, zero compatible
+// datastores in any zone" from "policy not reconciled yet".
+func (c *StoragePolicyInfoCache) SetDatastoresForPolicyZones(policyName string, zoneDatastores map[string][]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if zoneDatastores == nil {
+		delete(c.PolicyZoneDatastores, policyName)
+		return
+	}
+	zones := make(map[string]map[string]struct{}, len(zoneDatastores))
+	for zone, dsIDs := range zoneDatastores {
+		set := make(map[string]struct{}, len(dsIDs))
+		for _, dsID := range dsIDs {
+			set[dsID] = struct{}{}
+		}
+		zones[zone] = set
+	}
+	c.PolicyZoneDatastores[policyName] = zones
+}
+
+// GetDatastoresForPolicyZone returns a copy of the cached datastore set compatible with
+// policyName within zone, and whether the entry exists.
+func (c *StoragePolicyInfoCache) GetDatastoresForPolicyZone(ctx context.Context,
+	policyName, zone string) (map[string]struct{}, bool) {
+	log := logger.GetLogger(ctx)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	zones, ok := c.PolicyZoneDatastores[policyName]
+	if !ok {
+		log.Debugf("GetDatastoresForPolicyZone: no entry cached for policy %q; "+
+			"either it hasn't been reconciled yet, or it has no compatible datastores in any zone", policyName)
+		return nil, false
+	}
+	ds, ok := zones[zone]
+	if !ok {
+		log.Debugf("GetDatastoresForPolicyZone: policy %q is cached, but has no compatible datastores "+
+			"in zone %q; cached zones for this policy: %v", policyName, zone, slices.Collect(maps.Keys(zones)))
+		return nil, false
+	}
+	cp := make(map[string]struct{}, len(ds))
+	for id := range ds {
+		cp[id] = struct{}{}
+	}
+	return cp, true
+}
+
+// GetHostVersion returns the last-known ESXi version string for a host and
+// whether it has been observed yet.
+func (c *StoragePolicyInfoCache) GetHostVersion(hostID string) (version string, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	version, found = c.HostToVersion[hostID]
+	return version, found
+}
+
 // UpdateHostVersion compares newVersion against the cached ESXi version for a
 // host. Returns the previous value and whether it changed. On the first
 // sighting for a host (no previous entry) changed is false — there is nothing
@@ -262,11 +346,42 @@ func (c *StoragePolicyInfoCache) InvalidateCluster(clusterID string) []string {
 	defer c.mu.Unlock()
 	hosts := c.ClusterToHosts[clusterID]
 	delete(c.ClusterToHosts, clusterID)
+	delete(c.ClusterToESAEnabled, clusterID)
 	result := make([]string, 0, len(hosts))
 	for h := range hosts {
 		result = append(result, h)
 	}
 	return result
+}
+
+// ClusterForHost returns the moref of the cluster the given host currently
+// belongs to, by scanning ClusterToHosts for membership (mirrors
+// DatastoresForHost). A host belongs to at most one cluster at steady state.
+func (c *StoragePolicyInfoCache) ClusterForHost(hostID string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for clusterID, hosts := range c.ClusterToHosts {
+		if _, ok := hosts[hostID]; ok {
+			return clusterID, true
+		}
+	}
+	return "", false
+}
+
+// SetClusterESAEnabled records whether the given cluster has vSAN-ESA enabled.
+func (c *StoragePolicyInfoCache) SetClusterESAEnabled(clusterID string, esa bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ClusterToESAEnabled[clusterID] = esa
+}
+
+// GetClusterESAEnabled returns the last-known vSAN-ESA state for a cluster and
+// whether it has been observed/computed yet.
+func (c *StoragePolicyInfoCache) GetClusterESAEnabled(clusterID string) (esa bool, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	esa, found = c.ClusterToESAEnabled[clusterID]
+	return esa, found
 }
 
 // hostSetsEqual returns true if both sets contain the same host morefs.
