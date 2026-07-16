@@ -96,6 +96,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			createStoragePolicyUsageCRS(ctx, metadataSyncer)
 		}
 	}
+
 	// Sync VolumeInfo CRs for the below conditions:
 	// Either it is a Vanilla k8s deployment with Multi-VC configuration or, it's a StretchSupervisor cluster
 	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 ||
@@ -247,6 +248,12 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	if err != nil {
 		log.Errorf("failed to get virtual center instance for VC: %s. Error: %v", vc, err)
 		return err
+	}
+
+	// Ensure a ClusterStoragePolicyInfo CR exists for every storage policy on the VC, even if no
+	// StorageClass/VolumeAttributesClass references it yet. Reuses the VC instance fetched above.
+	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		clusterStoragePolicyInfoFullSync(ctx, metadataSyncer, vc, vcenter)
 	}
 
 	// Iterate through all the k8sPVs to find all PVs with node affinity missing and

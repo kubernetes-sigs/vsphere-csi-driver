@@ -316,7 +316,10 @@ func populateEncryptionCapabilities(ctx context.Context,
 }
 
 // getStorageClassForPolicy returns the StorageClass that references the given storage policy ID.
-// Returns error if no StorageClass is found or if multiple StorageClasses reference the same policy.
+// Returns (nil, nil) if no StorageClass references the policy yet — this is an expected state for
+// policies whose ClusterStoragePolicyInfo/InfraStoragePolicyInfo CRs were created ahead of any
+// StorageClass (see full sync). Returns an error only if multiple StorageClasses reference the
+// same policy, which is a genuine misconfiguration.
 func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
 	profileID string) (*storagev1.StorageClass, error) {
 	log := logger.GetLogger(ctx)
@@ -353,7 +356,8 @@ func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
 	// Validate exactly one StorageClass found
 	switch len(matchingSCs) {
 	case 0:
-		return nil, fmt.Errorf("no StorageClass found referencing storage policy ID %q", profileID)
+		log.Debugf("No StorageClass found referencing storage policy ID %q", profileID)
+		return nil, nil
 	case 1:
 		log.Infof("Found StorageClass %q referencing storage policy ID %q", matchingSCs[0].Name, profileID)
 		return matchingSCs[0], nil
@@ -365,6 +369,54 @@ func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
 		return nil, fmt.Errorf("multiple StorageClasses (%v) found referencing storage policy ID %q, expected exactly one",
 			scNames, profileID)
 	}
+}
+
+// PBM capability that carries a storage policy's zone-availability topology, independent of any
+// StorageClass. vSphere encodes this directly on the policy via the consumption-domain namespace;
+// this mirrors the supervisor (wcpsvc) PolicyTopology helper so we can derive the topology type
+// when no StorageClass references the policy yet.
+const (
+	pbmTopologyNamespace    = "com.vmware.storage.consumptiondomain"
+	pbmTopologyCapabilityID = "StorageTopology"
+	pbmTopologyPropertyID   = "StorageTopologyType"
+
+	// PBM StorageTopologyType values. Both Zonal and CrossZonal are zone-aware and map to the
+	// InfraStoragePolicyInfo "zonal" TopologyType; anything else (including HostLocal or an absent
+	// capability) maps to the empty "no topology" value.
+	pbmTopologyValueZonal      = "Zonal"
+	pbmTopologyValueCrossZonal = "CrossZonal"
+)
+
+// getStorageTopologyTypeFromPolicy derives the topology type ("zonal" or "" for no topology)
+// directly from the storage policy's PBM content, without requiring a StorageClass. It looks for
+// the consumption-domain StorageTopology capability on any sub-profile and returns "zonal" when the
+// policy declares Zonal or CrossZonal availability. This is the vCenter/PBM-native source of truth
+// and is used when no StorageClass references the policy (e.g. CRs pre-created by full sync).
+func getStorageTopologyTypeFromPolicy(ctx context.Context, policyContent []cnsvsphere.SpbmPolicyContent) string {
+	log := logger.GetLogger(ctx)
+
+	for _, content := range policyContent {
+		for _, subProfile := range content.Profiles {
+			for _, rule := range subProfile.Rules {
+				if rule.Ns != pbmTopologyNamespace || rule.CapID != pbmTopologyCapabilityID ||
+					rule.PropID != pbmTopologyPropertyID {
+					continue
+				}
+				log.Debugf("Storage policy %s declares PBM StorageTopologyType %q", content.ID, rule.Value)
+				// CrossZonal is not currently supported as a distinct topology; it is treated the
+				// same as Zonal until cross-zonal provisioning is implemented.
+				if strings.EqualFold(rule.Value, pbmTopologyValueZonal) ||
+					strings.EqualFold(rule.Value, pbmTopologyValueCrossZonal) {
+					return "zonal"
+				}
+				// Any other declared value (e.g. HostLocal) is not zone-aware.
+				return ""
+			}
+		}
+	}
+
+	log.Debugf("No PBM StorageTopology capability found in policy content; defaulting to no topology")
+	return ""
 }
 
 // isZonalTopologyPolicy checks if the StorageClass has zonal topology configured

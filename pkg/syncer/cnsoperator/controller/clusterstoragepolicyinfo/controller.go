@@ -365,9 +365,9 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	// If no instance returned, it means both SC and VAC are gone - nothing to manage.
-	// No need to return an error as in the next reconcile, the CR should get a deletionTimestamp
-	// which will anyway trigger a deletion event.
+	// If no instance returned, the CR doesn't exist and neither does a backing SC/VAC - nothing to manage.
+	// If the CR already existed (e.g. pre-created by full sync) it is returned even without a backing
+	// SC/VAC so InfraStoragePolicyInfo creation below still proceeds.
 	if instance == nil {
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
@@ -418,8 +418,18 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
 
+	policyContent, err := vc.PbmRetrieveContent(ctx, []string{profile.ID})
+	if err != nil {
+		log.Errorf("Failed to retrieve policy content for profile %s: %v", profile.ID, err)
+		errorMsg := fmt.Sprintf("Failed to retrieve policy content: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+			log.Errorf("Failed to set error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
 	// Sync storage policy attributes for ClusterSPI instance.
-	err = r.syncClusterSPIAttributes(ctx, instance, vc, profile)
+	err = r.syncClusterSPIAttributes(ctx, instance, profile, vc, policyContent)
 	if err != nil {
 		log.Errorf("Failed to sync storage policy attributes for %q: %v.", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to sync storage policy attributes: %v", err)
@@ -436,7 +446,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	}
 
 	// Sync InfraSPI attributes for InfraSPI instance.
-	err = r.syncInfraSPIAttributes(ctx, instance, infraSPI, vc, profile)
+	err = r.syncInfraSPIAttributes(ctx, instance, infraSPI, vc, profile, policyContent)
 	if err != nil {
 		log.Errorf("Failed to sync InfraSPI attributes for %q: %v.", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to sync InfraSPI attributes: %v", err)
@@ -525,14 +535,17 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureClusterSPIInstance(ctx context
 	*clusterspiv1alpha1.ClusterStoragePolicyInfo, bool, error) {
 	log := logger.GetLogger(ctx)
 
-	// If neither SC nor VAC exists, nothing to manage
+	// If neither SC nor VAC exists, there are no owner references to manage. If the instance already
+	// exists (e.g. pre-created by full sync ahead of any StorageClass), return it as-is so the caller
+	// still proceeds to ensure the InfraStoragePolicyInfo CR. If it doesn't exist, there's nothing to do;
+	// the reactive SC/VAC create event will trigger creation later.
 	if sc == nil && vac == nil {
 		if instance != nil {
-			log.Warnf("ClusterStoragePolicyInfo %q exists but no matching StorageClass or VolumeAttributesClass found",
-				name)
-		} else {
-			log.Debugf("No StorageClass or VolumeAttributesClass found for %q, nothing to create", name)
+			log.Debugf("ClusterStoragePolicyInfo %q exists but no matching StorageClass or VolumeAttributesClass "+
+				"found yet", name)
+			return instance, false, nil
 		}
+		log.Debugf("No StorageClass or VolumeAttributesClass found for %q, nothing to create", name)
 		return nil, false, nil
 	}
 
@@ -719,19 +732,12 @@ func (r *ReconcileClusterStoragePolicyInfo) completeReconciliationWithError(ctx 
 
 // syncClusterSPIAttributes syncs storage policy attributes from vCenter.
 func (r *ReconcileClusterStoragePolicyInfo) syncClusterSPIAttributes(ctx context.Context,
-	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, vc *cnsvsphere.VirtualCenter,
-	profile *cnsvsphere.ProfileDetail) error {
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, profile *cnsvsphere.ProfileDetail,
+	vc *cnsvsphere.VirtualCenter, policyContent []cnsvsphere.SpbmPolicyContent) error {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Syncing storage policy attributes for ClusterStoragePolicyInfo %q (policy ID: %s, name: %s)",
 		instance.Name, profile.ID, profile.Name)
-
-	// Retrieve policy content for analysis
-	policyContent, err := vc.PbmRetrieveContent(ctx, []string{profile.ID})
-	if err != nil {
-		log.Errorf("Failed to retrieve policy content for profile %s: %v", profile.ID, err)
-		return fmt.Errorf("failed to retrieve policy content: %w", err)
-	}
 
 	if len(policyContent) == 0 {
 		log.Warnf("No policy content found for profile %s", profile.ID)
@@ -755,11 +761,12 @@ func (r *ReconcileClusterStoragePolicyInfo) syncClusterSPIAttributes(ctx context
 	return overallErr
 }
 
-// syncInfraSPIAttributes syncs InfraStoragePolicyInfo attributes from vCenter
+// syncInfraSPIAttributes syncs InfraStoragePolicyInfo attributes from vCenter.
 func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.Context,
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
-	vc *cnsvsphere.VirtualCenter, profile *cnsvsphere.ProfileDetail) error {
+	vc *cnsvsphere.VirtualCenter, profile *cnsvsphere.ProfileDetail,
+	policyContent []cnsvsphere.SpbmPolicyContent) error {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Syncing InfraSPI attributes for %q (policy ID: %s, name: %s)",
@@ -772,7 +779,8 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	clusterDatastoreCache := make(map[string][]*cnsvsphere.DatastoreInfo)
 
 	// Populate topology capabilities for InfraSPI.
-	if err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc, clusterDatastoreCache); err != nil {
+	if err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc,
+		clusterDatastoreCache, policyContent); err != nil {
 		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
 	}
@@ -786,11 +794,13 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	return overallErr
 }
 
-// populateTopologyCapabilities populates topology information for the storage policy in InfraSPI
+// populateTopologyCapabilities populates topology information for the storage policy in InfraSPI.
 func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx context.Context,
 	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
-	vc *cnsvsphere.VirtualCenter, clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) error {
+	vc *cnsvsphere.VirtualCenter,
+	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo,
+	clusterSPIPolicyContent []cnsvsphere.SpbmPolicyContent) error {
 	log := logger.GetLogger(ctx)
 
 	// Marker policies (e.g. vSAN File Service) derive their cluster-wide accessible zones from
@@ -813,21 +823,33 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 		return nil
 	}
 
-	// Get StorageClass that references this policy
+	// Determine the topology type for this policy. Prefer the StorageClass's StorageTopologyType
+	// parameter when a StorageClass references the policy; otherwise derive it directly from the
+	// policy's PBM capabilities. Deriving from PBM lets us populate topology for policies whose CRs
+	// were created ahead of any StorageClass (see full sync).
 	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
 	if err != nil {
 		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
 
-	// Get the StorageTopologyType parameter value from StorageClass
-	topologyType, err := getStorageTopologyType(ctx, storageClass)
-	if err != nil {
-		log.Errorf("Storage policy %s does not have StorageTopologyType parameter, skipping topology population: %v",
-			profileID, err)
-		return err
+	var topologyType string
+	if storageClass != nil {
+		// Get the StorageTopologyType parameter value from StorageClass
+		topologyType, err = getStorageTopologyType(ctx, storageClass)
+		if err != nil {
+			log.Errorf("Storage policy %s does not have a valid StorageTopologyType parameter: %v",
+				profileID, err)
+			return err
+		}
+		log.Infof("Storage policy %s has topology type %q from StorageClass %q", profileID, topologyType,
+			storageClass.Name)
+	} else {
+		// No StorageClass references this policy yet; derive the topology type directly from the
+		// policy's PBM capabilities.
+		topologyType = getStorageTopologyTypeFromPolicy(ctx, clusterSPIPolicyContent)
+		log.Infof("No StorageClass found for storage policy %s; derived topology type %q from PBM policy content",
+			profileID, topologyType)
 	}
-
-	log.Infof("Storage policy %s has topology type: %q", profileID, topologyType)
 
 	// Initialize topology status with the topology type
 	infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
