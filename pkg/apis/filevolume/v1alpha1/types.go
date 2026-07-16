@@ -34,12 +34,12 @@ const (
 	FileVolumePhaseError        FileVolumePhase = "Error"
 )
 
-// FileVolumeProtocol defines the file sharing protocol supported by a FileVolume (e.g., nfs3, nfs4)
+// FileVolumeProtocol defines the file sharing protocol supported by a FileVolume (e.g., nfs3, nfs4.1)
 type FileVolumeProtocol string
 
 const (
-	FileVolumeProtocolNFSv3 FileVolumeProtocol = "nfs3"
-	FileVolumeProtocolNFSv4 FileVolumeProtocol = "nfs4"
+	FileVolumeProtocolNFSv3  FileVolumeProtocol = "nfs3"
+	FileVolumeProtocolNFSv41 FileVolumeProtocol = "nfs4.1"
 )
 
 // FileVolumeSpec defines the desired state of FileVolume.
@@ -66,9 +66,9 @@ type FileVolumeSpec struct {
 
 	// *Optional*
 	// Protocols defines the file sharing protocols supported by this volume.
-	// If not specified, defaults to nfs4 (set by mutating webhook). Immutable after creation.
+	// If not specified, defaults to nfs4.1 (set by mutating webhook). Immutable after creation.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:Items:Enum=nfs3;nfs4
+	// +kubebuilder:validation:Items:Enum=nfs3;nfs4.1
 	// +optional
 	Protocols []FileVolumeProtocol `json:"protocols,omitempty"`
 
