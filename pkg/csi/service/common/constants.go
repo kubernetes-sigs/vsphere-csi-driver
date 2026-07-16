@@ -627,7 +627,10 @@ const (
 	// CSI_Backup_API_FSS is an FSS for Changed Block Tracking(CBT) support in pvCSI
 	CSI_Backup_API_FSS = "CSI_Backup_API"
 	// SupportsExposingStoragePolicyAttributes is the supervisor capability that gates exposing
-	// storage policy attributes to devops users.
+	// storage policy attributes to devops users. The same name is reused as the pvCSI FSS in
+	// guest clusters (see WCPFeatureStateAssociatedWithPVCSI), so the guest installs the
+	// ClusterStoragePolicyInfo and StoragePolicyInfo CRDs only when both the pvCSI FSS and this
+	// supervisor capability are enabled. InfraStoragePolicyInfo is not used in guest clusters.
 	SupportsExposingStoragePolicyAttributes = "supports_exposing_storage_policy_attributes"
 	// SupportsPerNamespaceNetworkProviders is a WCP capability indicating that network provider
 	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
@@ -758,11 +761,12 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 // on supervisor cluster. If PVCSI feature is enabled, then we need to check if associated Capability is enabled
 // or not on the supervisor cluster to decide if effective value of this FSS is enabled or disabled.
 var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
-	WorkloadDomainIsolationFSS:      WorkloadDomainIsolation,
-	LinkedCloneSupportFSS:           LinkedCloneSupport,
-	VsanFileVolumeServiceSupportFSS: VsanFileVolumeService,
-	CSI_Backup_API_FSS:              CSI_Backup_API,
-	VMPVCStoragePolicyMutabilityFSS: VMPVCStoragePolicyMutability,
-	HostLocalStorageSupportFSS:      HostLocalStorageSupport,
-	VKSRegisterVolume:               DataProtectionSnapshotService,
+	WorkloadDomainIsolationFSS:              WorkloadDomainIsolation,
+	LinkedCloneSupportFSS:                   LinkedCloneSupport,
+	VsanFileVolumeServiceSupportFSS:         VsanFileVolumeService,
+	CSI_Backup_API_FSS:                      CSI_Backup_API,
+	VMPVCStoragePolicyMutabilityFSS:         VMPVCStoragePolicyMutability,
+	HostLocalStorageSupportFSS:              HostLocalStorageSupport,
+	VKSRegisterVolume:                       DataProtectionSnapshotService,
+	SupportsExposingStoragePolicyAttributes: SupportsExposingStoragePolicyAttributes,
 }
