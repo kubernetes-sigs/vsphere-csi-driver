@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/vim25/types"
 )
 
@@ -217,6 +218,31 @@ func TestCollectEvents_DatastoreLeave(t *testing.T) {
 	assert.Equal(t, []InventoryEvent{{Kind: EventDatastoreRemoved, MoRef: ds}}, events)
 	_, ok := GetCache().GetDsHosts(ds)
 	assert.False(t, ok)
+}
+
+// TestCollectEvents_DatastoreLeave_CarriesPreResolvedPolicies verifies that
+// EventDatastoreRemoved carries the policies the datastore was compatible
+// with in its Policies field. By the time OnInventoryChange sees this event,
+// InvalidateDatastore has already cleared DsToPolicy for this datastore, so
+// PoliciesForDatastore(MoRef) would return nothing — the event must carry
+// this information itself instead.
+func TestCollectEvents_DatastoreLeave_CarriesPreResolvedPolicies(t *testing.T) {
+	ds := uniqueID(t, "ds")
+	collectEvents(context.Background(), []types.ObjectUpdate{
+		datastoreUpdate(ds, types.ObjectUpdateKindEnter, map[string]bool{"host-1": true}),
+	})
+	GetCache().SetDatastoresForPolicy(uniqueID(t, "policy"), []string{ds})
+
+	events := collectEvents(context.Background(), []types.ObjectUpdate{
+		{Obj: types.ManagedObjectReference{Type: "Datastore", Value: ds}, Kind: types.ObjectUpdateKindLeave},
+	})
+
+	require.Len(t, events, 1)
+	assert.Equal(t, EventDatastoreRemoved, events[0].Kind)
+	assert.Equal(t, ds, events[0].MoRef)
+	assert.Equal(t, []string{uniqueID(t, "policy")}, events[0].Policies)
+	assert.Empty(t, GetCache().PoliciesForDatastore(ds),
+		"the cache entry itself must still be cleared, independent of the event carrying the policy names")
 }
 
 func TestCollectEvents_HostVersion_Changed(t *testing.T) {

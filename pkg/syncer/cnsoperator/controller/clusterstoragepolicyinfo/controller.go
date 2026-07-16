@@ -60,6 +60,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 // backOffDuration is a map of ClusterStoragePolicyInfo names to the time after
@@ -220,7 +221,78 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 		log.Errorf("failed to register periodic resync runnable. Err: %v", err)
 		return err
 	}
+
+	if err := mgr.Add(manager.RunnableFunc(func(mgrCtx context.Context) error {
+		forwardInventoryPolicyChanges(mgrCtx, resyncCh)
+		return nil
+	})); err != nil {
+		log.Errorf("failed to register inventory watcher policy-change forwarder runnable. Err: %v", err)
+		return err
+	}
 	return nil
+}
+
+// forwardInventoryPolicyChanges relays storage policy names coalesced by the
+// shared PropertyCollector inventory watcher (see vsphereinfra.OnInventoryChange)
+// onto ch, so this controller re-reconciles the named ClusterStoragePolicyInfo
+// against the vCenter.
+func forwardInventoryPolicyChanges(ctx context.Context, ch chan<- event.GenericEvent) {
+	forwardPolicyChanges(ctx, vsphereinfra.PolicyChanges(), ch)
+}
+
+// forwardPolicyChanges is forwardInventoryPolicyChanges with its source
+// channel injected, so tests can drive it without reaching into vsphereinfra's
+// process-wide PolicyChanges() channel.
+func forwardPolicyChanges(ctx context.Context, src <-chan string, dst chan<- event.GenericEvent) {
+	log := logger.GetLogger(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("ClusterStoragePolicyInfo inventory policy-change forwarder stopping")
+			return
+		case policyName, ok := <-src:
+			if !ok {
+				log.Infof("ClusterStoragePolicyInfo inventory policy-change forwarder stopping: source channel closed")
+				return
+			}
+			if policyName == "" {
+				log.Warnf("ClusterStoragePolicyInfo inventory policy-change forwarder: received empty policy name, skipping")
+				continue
+			}
+			namespacedName := apitypes.NamespacedName{Name: policyName}
+			backOffDurationMapMutex.Lock()
+			backoff := backOffDuration[namespacedName]
+			backOffDurationMapMutex.Unlock()
+			if backoff > time.Second {
+				// A backoff greater than one second means this instance is already scheduled to
+				// reconcile via RequeueAfter after a prior failure. Forwarding
+				// it now would just add a redundant, immediate reconcile on top
+				// of that already-pending one.
+				log.Debugf("ClusterStoragePolicyInfo inventory policy-change forwarder: "+
+					"%q is backed off and already scheduled to reconcile, skipping", policyName)
+				continue
+			}
+
+			obj := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: policyName},
+			}
+			select {
+			case dst <- event.GenericEvent{Object: obj}:
+				log.Infof("ClusterStoragePolicyInfo inventory policy-change forwarder: "+
+					"queued %q for reconciliation", policyName)
+			case <-ctx.Done():
+				return
+			default:
+				// resyncCh is full; do not block this forwarder waiting for a
+				// slot. The policy stays out of the coalescing queue at this
+				// point (see queuePolicyReconcile), so it will be re-queued by
+				// the next inventory event that affects it, or picked up by
+				// the periodic slow-sync in the meantime.
+				log.Warnf("ClusterStoragePolicyInfo inventory policy-change forwarder: "+
+					"resync channel full, dropping reconcile for %q", policyName)
+			}
+		}
+	}
 }
 
 // mapObjectToClusterSPI maps any client.Object to a ClusterStoragePolicyInfo reconcile request.
@@ -764,15 +836,23 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 
 	log.Infof("Storage policy %s: populating accessible zones", profileID)
 
-	accessibleZones, err := cnsoperatorutil.GetAccessibleZonesForPolicy(ctx, r.topologyMgr, vc, profileID,
-		clusterDatastoreCache)
+	// GetAccessibleZonesAndDatastoresForPolicy returns the flat set of
+	// compatible datastore morefs needed for the DsToPolicy cache update
+	// below alongside the accessible zones, from the same PBM query.
+	accessibleZones, dsIDs, err := cnsoperatorutil.GetAccessibleZonesAndDatastoresForPolicy(ctx, r.topologyMgr, vc,
+		profileID, clusterDatastoreCache)
 	if err != nil {
 		return fmt.Errorf("failed to get accessible zones: %w", err)
 	}
 
+	// Record which datastores this policy is compatible with, so the shared
+	// PropertyCollector inventory watcher (vsphereinfra.OnInventoryChange) can
+	// resolve a future datastore/host topology change straight to this policy
+	// without a separate vCenter round trip.
+	vsphereinfra.GetCache().SetDatastoresForPolicy(clusterSPI.Name, dsIDs)
+
 	// Update InfraSPI with topology information including accessible zones
 	infraSPI.Status.Topology.AccessibleZones = accessibleZones
-	log.Infof("Storage policy %s is accessible in zones: %v", profileID, accessibleZones)
 
 	return nil
 }
