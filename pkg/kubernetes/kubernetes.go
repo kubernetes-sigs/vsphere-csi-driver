@@ -529,6 +529,23 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, embedFiles 
 	return createCustomResourceDefinition(ctx, manifestcrd)
 }
 
+// CreateCustomResourceDefinitionFromManifestWithScope creates a custom resource
+// definition from a manifest file, overriding its scope before creation. This is
+// used when the same CRD manifest is installed with a different scope in different
+// clusters. For example, StoragePolicyInfo is Namespaced on the Supervisor but is
+// installed as Cluster-scoped in guest clusters (which are single-tenant).
+func CreateCustomResourceDefinitionFromManifestWithScope(ctx context.Context, embedFiles embed.FS,
+	fileName string, scope apiextensionsv1.ResourceScope) error {
+	log := logger.GetLogger(ctx)
+	manifestcrd, err := getCRDFromManifest(ctx, embedFiles, fileName)
+	if err != nil {
+		log.Errorf("Failed to read the CRD spec from manifest file: %s with err: %+v", fileName, err)
+		return err
+	}
+	manifestcrd.Spec.Scope = scope
+	return createCustomResourceDefinition(ctx, manifestcrd)
+}
+
 // GetNodeIdFromCSINode gets the UUID from CSINode object
 func GetNodeIdFromCSINode(csiNode *storagev1.CSINode) string {
 	drivers := csiNode.Spec.Drivers
