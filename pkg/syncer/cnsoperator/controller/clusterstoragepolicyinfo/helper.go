@@ -42,6 +42,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 // ownerReferenceKey returns OwnerReference key which is concatenated from the APIVersion, Kind and Name.
@@ -783,5 +784,6 @@ func isClusterESAEnabled(ctx context.Context, pc *property.Collector,
 	esa := ok && cfgEx.VsanConfigInfo != nil &&
 		cfgEx.VsanConfigInfo.VsanEsaEnabled != nil && *cfgEx.VsanConfigInfo.VsanEsaEnabled
 	checkedClusters[clusterValue] = esa
+	vsphereinfra.GetCache().SetClusterESAEnabled(clusterValue, esa)
 	return esa, nil
 }

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -50,6 +51,7 @@ import (
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -58,6 +60,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 // zonesProvider is the narrow slice of COCommonInterface that this controller
@@ -489,6 +492,18 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
+	// Populate VolumeCapabilities from InfraStoragePolicyInfo.
+	if err := syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI); err != nil {
+		log.Errorf("Failed to sync volume capabilities for StoragePolicyInfo %q: %v",
+			request.NamespacedName, err)
+		if setErr := r.setSPIError(ctx, instance,
+			fmt.Sprintf("Failed to sync volume capabilities: %v", err)); setErr != nil {
+			log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
+				request.NamespacedName, setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
 	if setErr := r.setSPISuccess(ctx, instance, "Successfully synced topology"); setErr != nil {
 		log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
 			request.NamespacedName, setErr)
@@ -621,6 +636,165 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 		instance.Status.TopologyInfo.TopologyType,
 		instance.Status.TopologyInfo.AccessibleZones)
 	return nil
+}
+
+// syncVolumeCapabilitiesFromInfraSPI populates the namespace-scoped
+// StoragePolicyInfo volume capabilities from the cluster-scoped
+// InfraStoragePolicyInfo, with no additional vCenter calls.
+// SupportsVolumeModeFilesystem is always true, independent of InfraSPI.
+// SupportsVolumeModeBlock is cluster-wide (not namespace-filtered like topology), so
+// it is copied as-is from InfraSPI. SupportsLinkedClone and
+// SupportsHighPerformanceLinkedClone are recomputed for just the zones accessible to
+// this namespace; see linkedCloneCapabilitiesForNamespace.
+func syncVolumeCapabilitiesFromInfraSPI(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+	infraCaps := infraSPI.Status.VolumeCapabilities
+
+	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, instance, infraSPI, infraCaps)
+	if err != nil {
+		return err
+	}
+
+	instance.Status.VolumeCapabilities = map[spiv1alpha1.VolumeCapability]bool{
+		spiv1alpha1.SupportsVolumeModeFilesystem:       true,
+		spiv1alpha1.SupportsVolumeModeBlock:            infraCaps[infraspiv1alpha1.SupportsVolumeModeBlock],
+		spiv1alpha1.SupportsLinkedClone:                lc,
+		spiv1alpha1.SupportsHighPerformanceLinkedClone: hplc,
+	}
+	return nil
+}
+
+// linkedCloneCapabilitiesForNamespace determines SupportsLinkedClone and
+// SupportsHighPerformanceLinkedClone for this namespace's StoragePolicyInfo. When the
+// policy has no topology (non-zonal), there is no per-namespace zone subset to check
+// against, so the InfraSPI-computed cluster-wide results are used directly. Otherwise
+// both are recomputed over just the namespace's accessible zones (already
+// namespace-filtered by syncTopologyFromInfraSPI) via computeLinkedCloneForNamespace /
+// computeHPLCForNamespace.
+func linkedCloneCapabilitiesForNamespace(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	infraCaps map[infraspiv1alpha1.VolumeCapability]bool) (lc bool, hplc bool, err error) {
+	if instance.Status.TopologyInfo == nil {
+		return infraCaps[infraspiv1alpha1.SupportsLinkedClone],
+			infraCaps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone], nil
+	}
+
+	nsZones := instance.Status.TopologyInfo.AccessibleZones
+	lc, err = computeLinkedCloneForNamespace(ctx, infraSPI.Name, nsZones)
+	if err != nil {
+		return false, false, err
+	}
+	hplc, err = computeHPLCForNamespace(ctx, infraSPI.Name, nsZones, lc)
+	if err != nil {
+		return false, false, err
+	}
+	return lc, hplc, nil
+}
+
+// computeLinkedCloneForNamespace determines whether the storage policy identified by
+// policyName (its K8s-compliant name) supports LinkedClone within nsZones, using only
+// data already cached by vsphereinfra.StoragePolicyInfoCache — no additional vCenter
+// calls are made. LinkedClone is supported for the namespace if any host mounting a
+// policy-compatible datastore within one of nsZones is running ESXi 9.1 or above.
+// See anyQualifyingHostForNamespace for the cache fields this relies on.
+func computeLinkedCloneForNamespace(ctx context.Context, policyName string, nsZones []string) (bool, error) {
+	return anyQualifyingHostForNamespace(ctx, policyName, nsZones, hostSupportsLinkedClone)
+}
+
+// computeHPLCForNamespace determines whether SupportsHighPerformanceLinkedClone is true
+// for nsZones. HPLC requires LinkedClone support first — if lcSupported is false, HPLC is
+// false without evaluating the vSAN-ESA condition. Otherwise it looks for a qualifying
+// host (ESXi 9.1+) whose cluster has vSAN-ESA enabled
+// (hostSupportsHighPerformanceLinkedClone), using only cached data — no additional
+// vCenter calls.
+func computeHPLCForNamespace(ctx context.Context, policyName string, nsZones []string,
+	lcSupported bool) (bool, error) {
+	if !lcSupported {
+		return false, nil
+	}
+	return anyQualifyingHostForNamespace(ctx, policyName, nsZones, hostSupportsHighPerformanceLinkedClone)
+}
+
+// anyQualifyingHostForNamespace walks every host mounting a datastore that is both
+// compatible with policyName and within one of nsZones, returning true as soon as
+// qualifies reports true for one of them. No additional vCenter calls are made:
+//
+//   - policy → compatible datastores: DsToPolicy, populated by
+//     util.GetPolicyCompatibleDatastoresPerZone/GetAccessibleZonesAndDatastoresForPolicy
+//     while the clusterstoragepolicyinfo controller reconciles InfraSPI.
+//   - zone → datastores: ZoneToDatastores, populated as a byproduct of the same call,
+//     independent of any storage policy.
+//   - datastore → hosts: DsToHosts, kept live by the PropertyCollector inventory watcher.
+func anyQualifyingHostForNamespace(ctx context.Context, policyName string, nsZones []string,
+	qualifies func(ctx context.Context, hostID string) (bool, error)) (bool, error) {
+	compatibleDS := vsphereinfra.GetCache().GetDatastoresForPolicy(policyName)
+	if len(compatibleDS) == 0 {
+		return false, nil
+	}
+	compatibleDSSet := make(map[string]struct{}, len(compatibleDS))
+	for _, dsID := range compatibleDS {
+		compatibleDSSet[dsID] = struct{}{}
+	}
+
+	for _, zone := range nsZones {
+		zoneDS, ok := vsphereinfra.GetCache().GetZoneDatastores(zone)
+		if !ok {
+			continue
+		}
+		for dsID := range zoneDS {
+			if _, compatible := compatibleDSSet[dsID]; !compatible {
+				continue
+			}
+			hosts, ok := vsphereinfra.GetCache().GetDsHosts(dsID)
+			if !ok {
+				continue
+			}
+			for hostID := range hosts {
+				qualified, err := qualifies(ctx, hostID)
+				if err != nil {
+					return false, err
+				}
+				if qualified {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+// hostSupportsLinkedClone reports whether a host cached by the inventory watcher is
+// running ESXi 9.1 or above. Returns false if the host's version has not been observed
+// yet; returns an error if the cached version string can't be parsed.
+func hostSupportsLinkedClone(ctx context.Context, hostID string) (bool, error) {
+	version, found := vsphereinfra.GetCache().GetHostVersion(hostID)
+	if !found {
+		return false, nil
+	}
+	supported, err := cnsvsphere.IsvSphereVersion91orAbove(ctx, vimtypes.AboutInfo{Version: version})
+	if err != nil {
+		return false, fmt.Errorf("failed to parse ESXi version %q for host %q: %w", version, hostID, err)
+	}
+	return supported, nil
+}
+
+// hostSupportsHighPerformanceLinkedClone reports whether a host cached by the inventory
+// watcher both is ESXi 9.1+ and belongs to a cluster with vSAN-ESA enabled
+// (ClusterForHost/GetClusterESAEnabled, populated by the clusterstoragepolicyinfo
+// controller's isClusterESAEnabled check while reconciling InfraSPI). Returns false if
+// the host's cluster, or that cluster's vSAN-ESA state, has not been observed/computed
+// yet.
+func hostSupportsHighPerformanceLinkedClone(ctx context.Context, hostID string) (bool, error) {
+	lc, err := hostSupportsLinkedClone(ctx, hostID)
+	if err != nil || !lc {
+		return false, err
+	}
+	clusterID, ok := vsphereinfra.GetCache().ClusterForHost(hostID)
+	if !ok {
+		return false, nil
+	}
+	esa, found := vsphereinfra.GetCache().GetClusterESAEnabled(clusterID)
+	return found && esa, nil
 }
 
 // syncMarkerPolicyTopology populates the namespace-scoped StoragePolicyInfo

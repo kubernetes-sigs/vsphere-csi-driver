@@ -54,6 +54,22 @@ type StoragePolicyInfoCache struct {
 	// matches how InfraSPI itself queries hosts (GetHostsByCluster, per known
 	// zone-registered cluster).
 	ClusterToHosts map[string]map[string]struct{}
+
+	// ZoneToDatastores tracks the last-known set of datastores in each zone,
+	// independent of any storage policy. key: zone name; inner key: datastore
+	// moref. Written by util.GetPolicyCompatibleDatastoresPerZone as a byproduct
+	// of its cluster→datastore enumeration, which runs regardless of which
+	// policy triggered it, so the namespace-scoped storagepolicyinfo controller
+	// can intersect a policy's compatible datastores (DsToPolicy) against a
+	// namespace's accessible zones without any additional vCenter call.
+	ZoneToDatastores map[string]map[string]struct{}
+
+	// ClusterToESAEnabled records whether a cluster has vSAN-ESA enabled, keyed
+	// by cluster moref. Written by the clusterstoragepolicyinfo controller
+	// (isClusterESAEnabled) as a byproduct of its per-reconcile vSAN-ESA check,
+	// so the namespace-scoped storagepolicyinfo controller can determine
+	// SupportsHighPerformanceLinkedClone without any additional vCenter call.
+	ClusterToESAEnabled map[string]bool
 }
 
 var (
@@ -66,10 +82,12 @@ var (
 func GetCache() *StoragePolicyInfoCache {
 	cacheOnce.Do(func() {
 		defaultCache = &StoragePolicyInfoCache{
-			DsToHosts:      make(map[string]map[string]struct{}),
-			DsToPolicy:     make(map[string][]string),
-			HostToVersion:  make(map[string]string),
-			ClusterToHosts: make(map[string]map[string]struct{}),
+			DsToHosts:           make(map[string]map[string]struct{}),
+			DsToPolicy:          make(map[string][]string),
+			HostToVersion:       make(map[string]string),
+			ClusterToHosts:      make(map[string]map[string]struct{}),
+			ZoneToDatastores:    make(map[string]map[string]struct{}),
+			ClusterToESAEnabled: make(map[string]bool),
 		}
 	})
 	return defaultCache
@@ -196,6 +214,57 @@ func (c *StoragePolicyInfoCache) SetDatastoresForPolicy(policyName string, dsIDs
 	}
 }
 
+// SetZoneDatastores replaces the set of datastores recorded for zone.
+func (c *StoragePolicyInfoCache) SetZoneDatastores(zone string, dsIDs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	set := make(map[string]struct{}, len(dsIDs))
+	for _, dsID := range dsIDs {
+		set[dsID] = struct{}{}
+	}
+	c.ZoneToDatastores[zone] = set
+}
+
+// GetZoneDatastores returns a copy of the cached datastore set for a zone and
+// whether the entry exists.
+func (c *StoragePolicyInfoCache) GetZoneDatastores(zone string) (map[string]struct{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ds, ok := c.ZoneToDatastores[zone]
+	if !ok {
+		return nil, false
+	}
+	cp := make(map[string]struct{}, len(ds))
+	for id := range ds {
+		cp[id] = struct{}{}
+	}
+	return cp, true
+}
+
+// GetDatastoresForPolicy returns the morefs of all datastores currently
+// recorded (via DsToPolicy) as compatible with policyName, by scanning
+// DsToPolicy for membership (mirrors DatastoresForHost).
+func (c *StoragePolicyInfoCache) GetDatastoresForPolicy(policyName string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var datastores []string
+	for dsID, policies := range c.DsToPolicy {
+		if slices.Contains(policies, policyName) {
+			datastores = append(datastores, dsID)
+		}
+	}
+	return datastores
+}
+
+// GetHostVersion returns the last-known ESXi version string for a host and
+// whether it has been observed yet.
+func (c *StoragePolicyInfoCache) GetHostVersion(hostID string) (version string, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	version, found = c.HostToVersion[hostID]
+	return version, found
+}
+
 // UpdateHostVersion compares newVersion against the cached ESXi version for a
 // host. Returns the previous value and whether it changed. On the first
 // sighting for a host (no previous entry) changed is false — there is nothing
@@ -262,11 +331,42 @@ func (c *StoragePolicyInfoCache) InvalidateCluster(clusterID string) []string {
 	defer c.mu.Unlock()
 	hosts := c.ClusterToHosts[clusterID]
 	delete(c.ClusterToHosts, clusterID)
+	delete(c.ClusterToESAEnabled, clusterID)
 	result := make([]string, 0, len(hosts))
 	for h := range hosts {
 		result = append(result, h)
 	}
 	return result
+}
+
+// ClusterForHost returns the moref of the cluster the given host currently
+// belongs to, by scanning ClusterToHosts for membership (mirrors
+// DatastoresForHost). A host belongs to at most one cluster at steady state.
+func (c *StoragePolicyInfoCache) ClusterForHost(hostID string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for clusterID, hosts := range c.ClusterToHosts {
+		if _, ok := hosts[hostID]; ok {
+			return clusterID, true
+		}
+	}
+	return "", false
+}
+
+// SetClusterESAEnabled records whether the given cluster has vSAN-ESA enabled.
+func (c *StoragePolicyInfoCache) SetClusterESAEnabled(clusterID string, esa bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ClusterToESAEnabled[clusterID] = esa
+}
+
+// GetClusterESAEnabled returns the last-known vSAN-ESA state for a cluster and
+// whether it has been observed/computed yet.
+func (c *StoragePolicyInfoCache) GetClusterESAEnabled(clusterID string) (esa bool, found bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	esa, found = c.ClusterToESAEnabled[clusterID]
+	return esa, found
 }
 
 // hostSetsEqual returns true if both sets contain the same host morefs.

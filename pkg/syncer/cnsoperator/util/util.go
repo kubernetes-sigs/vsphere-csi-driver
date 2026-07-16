@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 var virtualNetworkGVR = schema.GroupVersionResource{
@@ -660,6 +661,15 @@ func GetPolicyCompatibleDatastoresPerZone(ctx context.Context, topologyMgr commo
 			}
 			zoneDS = append(zoneDS, clusterDS...)
 		}
+
+		// zoneDS holds every datastore in the zone, independent of policy compatibility;
+		// cache it so any policy's namespace-scoped capability checks can reuse it without
+		// a further vCenter call.
+		zoneDSIDs := make([]string, 0, len(zoneDS))
+		for _, ds := range zoneDS {
+			zoneDSIDs = append(zoneDSIDs, ds.Reference().Value)
+		}
+		vsphereinfra.GetCache().SetZoneDatastores(zone, zoneDSIDs)
 
 		// Filter to compatible datastores for this zone
 		var compatibleDatastores []*cnsvsphere.DatastoreInfo
