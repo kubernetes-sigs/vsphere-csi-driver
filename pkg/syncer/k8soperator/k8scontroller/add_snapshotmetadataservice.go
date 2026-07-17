@@ -17,10 +17,10 @@ limitations under the License.
 package k8scontroller
 
 import (
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8soperator/k8scontroller/certificate"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8soperator/k8scontroller/snapshotmetadataservice"
 )
 
 func init() {
 	// AddToManagerFuncs is a list of functions to create controllers and add them to a manager.
-	AddToManagerFuncs = append(AddToManagerFuncs, certificate.Add)
+	AddToManagerFuncs = append(AddToManagerFuncs, snapshotmetadataservice.Add)
 }
