@@ -21,6 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
+	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
 )
 
 // ownerReferenceKey returns an OwnerReference key concatenated from APIVersion, Kind and Name.
@@ -66,5 +69,21 @@ func generateOwnerReference(scheme *runtime.Scheme, owner client.Object) (metav1
 		UID:                owner.GetUID(),
 		Controller:         &controllerRef,
 		BlockOwnerDeletion: &block,
+	}, nil
+}
+
+// buildClusterSPIRef returns a StoragePolicyInfoSpec ClusterStoragePolicyInfoReference pointing at
+// the ClusterStoragePolicyInfo that shares the given storage policy name. StoragePolicyInfo,
+// InfraStoragePolicyInfo and ClusterStoragePolicyInfo all use the same K8sCompliantName as their
+// object name, so the reference can be built without fetching the ClusterStoragePolicyInfo object.
+func buildClusterSPIRef(scheme *runtime.Scheme, name string) (spiv1alpha1.ClusterStoragePolicyInfoReference, error) {
+	gvk, err := apiutil.GVKForObject(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}, scheme)
+	if err != nil {
+		return spiv1alpha1.ClusterStoragePolicyInfoReference{}, err
+	}
+	return spiv1alpha1.ClusterStoragePolicyInfoReference{
+		Name:     name,
+		Kind:     gvk.Kind,
+		APIGroup: gvk.GroupVersion().String(),
 	}, nil
 }

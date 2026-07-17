@@ -522,8 +522,12 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 		return nil, false, fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
 			infraSPI.Name, err)
 	}
+	clusterSPIRef, err := buildClusterSPIRef(r.scheme, name)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to build ClusterStoragePolicyInfoRef for %q: %w", name, err)
+	}
 
-	// Create the StoragePolicyInfo CR with the owner reference already set.
+	// Create the StoragePolicyInfo CR with the owner reference and spec ref already set.
 	instance = &spiv1alpha1.StoragePolicyInfo{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apis.SchemeGroupVersion.String(),
@@ -533,6 +537,9 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 			Name:            name,
 			Namespace:       namespace,
 			OwnerReferences: []metav1.OwnerReference{ownerRef},
+		},
+		Spec: spiv1alpha1.StoragePolicyInfoSpec{
+			ClusterStoragePolicyInfoRef: clusterSPIRef,
 		},
 	}
 	if err := r.client.Create(ctx, instance); err != nil {
@@ -554,8 +561,8 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 }
 
 // ensureInfraSPIOwnerReference sets an owner reference on the StoragePolicyInfo
-// pointing to the given InfraStoragePolicyInfo. This causes the SPI to be
-// garbage-collected when the InfraStoragePolicyInfo is deleted.
+// pointing to the given InfraStoragePolicyInfo, and backfills spec.clusterStoragePolicyInfoRef
+// if missing. This causes the SPI to be garbage-collected when the InfraStoragePolicyInfo is deleted.
 func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
@@ -566,20 +573,27 @@ func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Co
 		return fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
 			infraSPI.Name, err)
 	}
+	clusterSPIRef, err := buildClusterSPIRef(r.scheme, instance.Name)
+	if err != nil {
+		return fmt.Errorf("failed to build ClusterStoragePolicyInfoRef for %q: %w", instance.Name, err)
+	}
 
 	updatedRefs := mergeOwnerReference(instance.OwnerReferences, ownerRef)
-	if equality.Semantic.DeepEqual(instance.OwnerReferences, updatedRefs) {
+	ownerRefsChanged := !equality.Semantic.DeepEqual(instance.OwnerReferences, updatedRefs)
+	specRefChanged := instance.Spec.ClusterStoragePolicyInfoRef != clusterSPIRef
+	if !ownerRefsChanged && !specRefChanged {
 		return nil
 	}
 
 	base := instance.DeepCopy()
 	instance.OwnerReferences = updatedRefs
+	instance.Spec.ClusterStoragePolicyInfoRef = clusterSPIRef
 	if err := r.client.Patch(ctx, instance, client.MergeFrom(base)); err != nil {
-		log.Errorf("Failed to patch StoragePolicyInfo %s/%s owner references: %v",
+		log.Errorf("Failed to patch StoragePolicyInfo %s/%s owner references/spec: %v",
 			instance.Namespace, instance.Name, err)
 		return err
 	}
-	log.Infof("Set owner reference on StoragePolicyInfo %s/%s → InfraStoragePolicyInfo %q",
+	log.Infof("Set owner reference and spec ref on StoragePolicyInfo %s/%s → InfraStoragePolicyInfo %q",
 		instance.Namespace, instance.Name, infraSPI.Name)
 	return nil
 }

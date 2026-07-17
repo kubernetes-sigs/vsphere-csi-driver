@@ -2977,6 +2977,13 @@ func TestEnsureInfraSPIExists(t *testing.T) {
 						},
 					},
 				},
+				Spec: infraspiv1alpha1.InfraStoragePolicyInfoSpec{
+					ClusterStoragePolicyInfoRef: infraspiv1alpha1.ClusterStoragePolicyInfoReference{
+						Name:     "test-policy",
+						Kind:     "ClusterStoragePolicyInfo",
+						APIGroup: apis.SchemeGroupVersion.String(),
+					},
+				},
 			},
 			clusterSPI: &clusterspiv1alpha1.ClusterStoragePolicyInfo{
 				ObjectMeta: metav1.ObjectMeta{
@@ -3179,6 +3186,12 @@ func TestEnsureInfraSPIExists(t *testing.T) {
 				assert.Equal(t, tt.clusterSPI.UID, clusterSPIOwnerRef.UID)
 				assert.False(t, *clusterSPIOwnerRef.Controller)
 				assert.False(t, *clusterSPIOwnerRef.BlockOwnerDeletion)
+
+				assert.Equal(t, infraspiv1alpha1.ClusterStoragePolicyInfoReference{
+					Name:     tt.clusterSPI.Name,
+					Kind:     "ClusterStoragePolicyInfo",
+					APIGroup: apis.SchemeGroupVersion.String(),
+				}, result.Spec.ClusterStoragePolicyInfoRef)
 			}
 
 			// Verify create/patch operation expectations
@@ -3196,6 +3209,7 @@ func TestEnsureInfraSPIOwnerReference(t *testing.T) {
 	tests := []struct {
 		name                   string
 		initialOwnerRefs       []metav1.OwnerReference
+		initialSpec            infraspiv1alpha1.InfraStoragePolicyInfoSpec
 		clusterSPI             *clusterspiv1alpha1.ClusterStoragePolicyInfo
 		clientPatchError       error
 		expectedError          string
@@ -3233,6 +3247,13 @@ func TestEnsureInfraSPIOwnerReference(t *testing.T) {
 					UID:                "cluster-spi-uid-123",
 					Controller:         func() *bool { b := false; return &b }(),
 					BlockOwnerDeletion: func() *bool { b := false; return &b }(),
+				},
+			},
+			initialSpec: infraspiv1alpha1.InfraStoragePolicyInfoSpec{
+				ClusterStoragePolicyInfoRef: infraspiv1alpha1.ClusterStoragePolicyInfoReference{
+					Name:     "test-policy",
+					Kind:     "ClusterStoragePolicyInfo",
+					APIGroup: apis.SchemeGroupVersion.String(),
 				},
 			},
 			clusterSPI: &clusterspiv1alpha1.ClusterStoragePolicyInfo{
@@ -3386,6 +3407,7 @@ func TestEnsureInfraSPIOwnerReference(t *testing.T) {
 					Name:            "test-policy",
 					OwnerReferences: tt.initialOwnerRefs,
 				},
+				Spec: tt.initialSpec,
 			}
 
 			// Create a custom fake client that can simulate patch errors

@@ -325,6 +325,13 @@ func TestEnsureSPIExists_NotFound(t *testing.T) {
 	require.Len(t, got.OwnerReferences, 1)
 	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
 	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
+
+	// Verify the CR is persisted with spec.clusterStoragePolicyInfoRef already set.
+	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
+		Name:     "gold",
+		Kind:     "ClusterStoragePolicyInfo",
+		APIGroup: apis.SchemeGroupVersion.String(),
+	}, got.Spec.ClusterStoragePolicyInfoRef)
 }
 
 // TestEnsureInfraSPIOwnerReference_SetWhenAbsent verifies that the owner reference
@@ -347,6 +354,11 @@ func TestEnsureInfraSPIOwnerReference_SetWhenAbsent(t *testing.T) {
 	assert.Equal(t, "InfraStoragePolicyInfo", spi.OwnerReferences[0].Kind)
 	assert.Equal(t, "gold", spi.OwnerReferences[0].Name)
 	assert.Equal(t, types.UID("gold-uid"), spi.OwnerReferences[0].UID)
+	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
+		Name:     "gold",
+		Kind:     "ClusterStoragePolicyInfo",
+		APIGroup: apis.SchemeGroupVersion.String(),
+	}, spi.Spec.ClusterStoragePolicyInfoRef)
 }
 
 // TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet verifies that no patch is
@@ -372,6 +384,13 @@ func TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet(t *testing.T) {
 			Name: "gold", Namespace: "test-ns",
 			OwnerReferences: []metav1.OwnerReference{existingRef},
 		},
+		Spec: spiv1alpha1.StoragePolicyInfoSpec{
+			ClusterStoragePolicyInfoRef: spiv1alpha1.ClusterStoragePolicyInfoReference{
+				Name:     "gold",
+				Kind:     "ClusterStoragePolicyInfo",
+				APIGroup: apis.SchemeGroupVersion.String(),
+			},
+		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
@@ -379,6 +398,7 @@ func TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet(t *testing.T) {
 	err := r.ensureInfraSPIOwnerReference(ctx, spi, infraSPI)
 	require.NoError(t, err)
 	require.Len(t, spi.OwnerReferences, 1, "owner reference count must not change")
+	assert.Equal(t, "gold", spi.Spec.ClusterStoragePolicyInfoRef.Name, "spec ref must not change")
 }
 
 // TestSyncTopologyFromInfraSPI_CopiesTopology verifies that topology data is
@@ -536,6 +556,11 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	require.Len(t, got.OwnerReferences, 1)
 	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
 	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
+	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
+		Name:     "gold",
+		Kind:     "ClusterStoragePolicyInfo",
+		APIGroup: apis.SchemeGroupVersion.String(),
+	}, got.Spec.ClusterStoragePolicyInfoRef)
 }
 
 // TestReconcile_SkipsDeletion verifies that Reconcile exits immediately when

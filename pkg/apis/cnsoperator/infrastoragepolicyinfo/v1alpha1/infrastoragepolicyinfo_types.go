@@ -56,6 +56,27 @@ type Topology struct {
 	AccessibleZones []string `json:"accessibleZones"`
 }
 
+// ClusterStoragePolicyInfoReference identifies the cluster-scoped ClusterStoragePolicyInfo
+// that carries the non-topology attributes (encryption, performance, volume capabilities)
+// for the same storage policy.
+type ClusterStoragePolicyInfoReference struct {
+	// Name is the name of the referenced ClusterStoragePolicyInfo. It is always equal to
+	// this object's own name, since both share the same K8sCompliantName of the storage policy.
+	Name string `json:"name"`
+
+	// Kind is the kind of the referenced object, i.e. "ClusterStoragePolicyInfo".
+	Kind string `json:"kind"`
+
+	// APIGroup is the API group and version of the referenced object, i.e. "cns.vmware.com/v1alpha1".
+	APIGroup string `json:"apiGroup"`
+}
+
+// InfraStoragePolicyInfoSpec defines the desired state of InfraStoragePolicyInfo.
+type InfraStoragePolicyInfoSpec struct {
+	// ClusterStoragePolicyInfoRef points to the corresponding cluster-scoped ClusterStoragePolicyInfo.
+	ClusterStoragePolicyInfoRef ClusterStoragePolicyInfoReference `json:"clusterStoragePolicyInfoRef"`
+}
+
 // InfraStoragePolicyInfoStatus defines the observed state of InfraStoragePolicyInfo.
 // +k8s:openapi-gen=true
 type InfraStoragePolicyInfoStatus struct {
@@ -83,10 +104,10 @@ type InfraStoragePolicyInfoStatus struct {
 // InfraStoragePolicyInfo is the Schema for the infrastoragepolicyinfos API.
 // Name of this CR is same as the unique and immutable K8sCompliantName of the storage policy.
 type InfraStoragePolicyInfo struct {
+	Spec              InfraStoragePolicyInfoSpec `json:"spec,omitempty"`
 	metav1.TypeMeta   `json:",inline"`
+	Status            InfraStoragePolicyInfoStatus `json:"status,omitempty"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Status InfraStoragePolicyInfoStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

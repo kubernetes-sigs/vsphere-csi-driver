@@ -121,6 +121,21 @@ func generateOwnerReference(scheme *runtime.Scheme, owner client.Object) (metav1
 	}, nil
 }
 
+// buildClusterSPIRef returns an InfraStoragePolicyInfoSpec ClusterStoragePolicyInfoReference
+// pointing at the given ClusterStoragePolicyInfo.
+func buildClusterSPIRef(scheme *runtime.Scheme,
+	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo) (infraspiv1alpha1.ClusterStoragePolicyInfoReference, error) {
+	gvk, err := apiutil.GVKForObject(clusterSPI, scheme)
+	if err != nil {
+		return infraspiv1alpha1.ClusterStoragePolicyInfoReference{}, err
+	}
+	return infraspiv1alpha1.ClusterStoragePolicyInfoReference{
+		Name:     clusterSPI.Name,
+		Kind:     gvk.Kind,
+		APIGroup: gvk.GroupVersion().String(),
+	}, nil
+}
+
 // buildOwnerReferences builds owner references for StorageClass and VolumeAttributesClass if they exist.
 func buildOwnerReferences(ctx context.Context, scheme *runtime.Scheme, name string,
 	sc *storagev1.StorageClass, vac *storagev1.VolumeAttributesClass) []metav1.OwnerReference {

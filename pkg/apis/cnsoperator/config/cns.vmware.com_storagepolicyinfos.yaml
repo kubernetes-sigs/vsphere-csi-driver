@@ -42,6 +42,33 @@ spec:
             type: string
           metadata:
             type: object
+          spec:
+            description: StoragePolicyInfoSpec defines the desired state of StoragePolicyInfo.
+            properties:
+              clusterStoragePolicyInfoRef:
+                description: ClusterStoragePolicyInfoRef points to the corresponding
+                  cluster-scoped ClusterStoragePolicyInfo.
+                properties:
+                  apiGroup:
+                    description: APIGroup is the API group and version of the referenced
+                      object, i.e. "cns.vmware.com/v1alpha1".
+                    type: string
+                  kind:
+                    description: Kind is the kind of the referenced object, i.e. "ClusterStoragePolicyInfo".
+                    type: string
+                  name:
+                    description: |-
+                      Name is the name of the referenced ClusterStoragePolicyInfo. It is always equal to
+                      this object's own name, since both share the same K8sCompliantName of the storage policy.
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+            required:
+            - clusterStoragePolicyInfoRef
+            type: object
           status:
             description: StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
             properties:

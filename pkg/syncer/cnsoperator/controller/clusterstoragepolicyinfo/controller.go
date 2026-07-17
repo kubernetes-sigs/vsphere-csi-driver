@@ -603,10 +603,17 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIExists(ctx context.Con
 		return nil, err
 	}
 
-	// Create InfraSPI with ClusterSPI as owner reference
+	// Generate owner reference so InfraSPI is owned by ClusterSPI
 	ownerRef, err := generateOwnerReference(r.scheme, clusterSPI)
 	if err != nil {
 		log.Errorf("Failed to generate owner reference for ClusterSPI %q: %v", clusterSPI.Name, err)
+		return nil, err
+	}
+
+	// Build spec.clusterStoragePolicyInfoRef pointing at the ClusterSPI
+	clusterSPIRef, err := buildClusterSPIRef(r.scheme, clusterSPI)
+	if err != nil {
+		log.Errorf("Failed to build ClusterStoragePolicyInfoRef for ClusterSPI %q: %v", clusterSPI.Name, err)
 		return nil, err
 	}
 
@@ -618,6 +625,9 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIExists(ctx context.Con
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            clusterSPI.Name,
 			OwnerReferences: []metav1.OwnerReference{ownerRef},
+		},
+		Spec: infraspiv1alpha1.InfraStoragePolicyInfoSpec{
+			ClusterStoragePolicyInfoRef: clusterSPIRef,
 		},
 	}
 
@@ -640,7 +650,8 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIExists(ctx context.Con
 	return infraSPI, nil
 }
 
-// ensureInfraSPIOwnerReference ensures that the InfraSPI has the correct owner reference to the ClusterSPI.
+// ensureInfraSPIOwnerReference ensures that the InfraSPI has the correct owner reference and
+// spec.clusterStoragePolicyInfoRef pointing at the ClusterSPI.
 func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo) error {
 	log := logger.GetLogger(ctx)
@@ -651,20 +662,29 @@ func (r *ReconcileClusterStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx con
 		log.Errorf("Failed to generate owner reference for ClusterSPI %q: %v", clusterSPI.Name, err)
 		return err
 	}
+	expectedClusterSPIRef, err := buildClusterSPIRef(r.scheme, clusterSPI)
+	if err != nil {
+		log.Errorf("Failed to build ClusterStoragePolicyInfoRef for ClusterSPI %q: %v", clusterSPI.Name, err)
+		return err
+	}
 
 	// Check if owner reference needs to be added or updated
 	currentOwnerRefs := infraSPI.OwnerReferences
 	updatedOwnerRefs := mergeOwnerReference(currentOwnerRefs, expectedOwnerRef)
 
+	ownerRefsChanged := !equality.Semantic.DeepEqual(infraSPI.OwnerReferences, updatedOwnerRefs)
+	specRefChanged := infraSPI.Spec.ClusterStoragePolicyInfoRef != expectedClusterSPIRef
+
 	// Update if needed
-	if !equality.Semantic.DeepEqual(infraSPI.OwnerReferences, updatedOwnerRefs) {
+	if ownerRefsChanged || specRefChanged {
 		base := infraSPI.DeepCopy()
 		infraSPI.OwnerReferences = updatedOwnerRefs
+		infraSPI.Spec.ClusterStoragePolicyInfoRef = expectedClusterSPIRef
 		if err := r.client.Patch(ctx, infraSPI, client.MergeFrom(base)); err != nil {
-			log.Errorf("Failed to update InfraStoragePolicyInfo %q owner references: %v", infraSPI.Name, err)
+			log.Errorf("Failed to update InfraStoragePolicyInfo %q owner references/spec: %v", infraSPI.Name, err)
 			return err
 		}
-		log.Infof("Updated InfraStoragePolicyInfo %q owner references", infraSPI.Name)
+		log.Infof("Updated InfraStoragePolicyInfo %q owner references/spec", infraSPI.Name)
 	}
 
 	return nil
