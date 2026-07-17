@@ -636,15 +636,6 @@ const (
 	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
 	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_provider"
 
-	// SupervisorPVCWorkloadTypeAnnotation is the FSS that gates
-	// annotateSupervisorPVCsWithWorkloadType (see pkg/syncer/fullsync.go).
-	// When enabled, supervisor full-sync iterates every PVC in every
-	// namespace each cycle and reconciles the csi.vsphere.volume.type/*
-	// classification annotations onto them. The flag exists so the
-	// roll-out can be staged per cluster and so individual environments
-	// can disable the additional API traffic if needed.
-	SupervisorPVCWorkloadTypeAnnotation = "supervisor-pvc-workload-type-annotation"
-
 	// ImprovedVolumeVisibility is the FSS that gates improved volume
 	// visibility in guest cluster, when enabled it enables guest cluster
 	// related annotations and other visibility enhancements for better

@@ -133,7 +133,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		}
 	}
 
-	// On Supervisor cluster, if SupervisorPVCWorkloadTypeAnnotation FSS is enabled,
+	// On Supervisor cluster, if ImprovedVolumeVisibility FSS is enabled,
 	// classify every PVC according to the consumer workload-type signals
 	// (VKS Node VM ownerRef, VKS guest cluster TKGService label, or none)
 	// and reconcile the matching csi.vsphere.volume.type/* annotations. The
@@ -141,7 +141,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 	// tooling that needs to distinguish VKS-attributable PVCs from purely
 	// supervisor-side ones; they have no functional effect on CSI provisioning.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SupervisorPVCWorkloadTypeAnnotation) {
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
 			annotateSupervisorPVCsWithWorkloadType(ctx, metadataSyncer)
 		}
 	}
@@ -2345,7 +2345,7 @@ func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
 // flow. Errors are logged per-PVC but do NOT abort the loop: classification
 // is idempotent and the next full-sync cycle will reattempt.
 //
-// This helper is gated behind the SupervisorPVCWorkloadTypeAnnotation FSS
+// This helper is gated behind the ImprovedVolumeVisibility FSS
 // and only runs in CnsClusterFlavorWorkload (supervisor) deployments.
 func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 	metadataSyncer *metadataSyncInformer) {
