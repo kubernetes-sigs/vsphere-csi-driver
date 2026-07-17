@@ -465,9 +465,14 @@ func (vs *vSphere) waitForMetadataToBeDeleted(volumeID string, entityType string
 }
 
 // waitForCNSVolumeToBeDeleted executes QueryVolume API on vCenter and verifies
-// volume entries are deleted from vCenter Database
-func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string) error {
-	err := wait.PollUntilContextTimeout(context.Background(), poll, cnsVolumeDeleteTimeout, true,
+// volume entries are deleted from vCenter Database. An optional timeout can be
+// passed to override the default cnsVolumeDeleteTimeout.
+func (vs *vSphere) waitForCNSVolumeToBeDeleted(volumeID string, timeout ...time.Duration) error {
+	deleteTimeout := cnsVolumeDeleteTimeout
+	if len(timeout) > 0 {
+		deleteTimeout = timeout[0]
+	}
+	err := wait.PollUntilContextTimeout(context.Background(), poll, deleteTimeout, true,
 		func(ctx context.Context) (bool, error) {
 			queryResult, err := vs.queryCNSVolumeWithResult(volumeID)
 			if err != nil {

@@ -3963,6 +3963,12 @@ func waitForEvent(ctx context.Context, client clientset.Interface,
 			eventList, err := client.CoreV1().Events(namespace).List(ctx,
 				metav1.ListOptions{FieldSelector: "involvedObject.name=" + name})
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					// transient client-side throttling/rate-limiter timeout, retry within
+					// the overall poll timeout instead of failing the test immediately
+					framework.Logf("transient error listing events for %s, retrying: %v", name, err)
+					return false, nil
+				}
 				return false, err
 			}
 			for _, item := range eventList.Items {
