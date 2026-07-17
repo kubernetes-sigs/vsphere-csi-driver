@@ -344,6 +344,34 @@ func fvsAccessibleTopology(pvcNamespace, instanceNS string) ([]*csi.Topology, er
 	return topologyListFromZoneMap(shared), nil
 }
 
+// summarizeFileVolumeConditions renders the FileVolume's not-True status conditions as a compact
+// "Type=Reason: Message" list so the underlying backend failure (e.g. BackendReady=VdfsConnectionFailed)
+// surfaces in the CSI error and on the consuming PVC event, rather than only the generic "entered Error
+// phase". Returns "no conditions reported" when status.conditions is empty.
+func summarizeFileVolumeConditions(fv *fvv1alpha1.FileVolume) string {
+	if len(fv.Status.Conditions) == 0 {
+		return "no conditions reported"
+	}
+	var parts []string
+	for _, cond := range fv.Status.Conditions {
+		if cond.Status == metav1.ConditionTrue {
+			continue
+		}
+		part := cond.Type
+		if cond.Reason != "" {
+			part += "=" + cond.Reason
+		}
+		if cond.Message != "" {
+			part += ": " + cond.Message
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return "no failing conditions reported"
+	}
+	return strings.Join(parts, "; ")
+}
+
 // createFileVolumeViaFVS provisions a file volume by creating a FileVolume CR in the FVS instance namespace.
 func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.CreateVolumeRequest) (
 	*csi.CreateVolumeResponse, string, error) {
@@ -468,7 +496,8 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 			return false, nil
 		}
 		if strings.EqualFold(string(phase), string(fvv1alpha1.FileVolumePhaseError)) {
-			return false, fmt.Errorf("FileVolume %s/%s entered Error phase", instanceNS, fvName)
+			return false, fmt.Errorf("FileVolume %s/%s entered Error phase: %s",
+				instanceNS, fvName, summarizeFileVolumeConditions(fv))
 		}
 		if !strings.EqualFold(string(phase), string(fvv1alpha1.FileVolumePhaseReady)) {
 			return false, nil
@@ -670,7 +699,8 @@ func (c *controller) expandFileVolumeViaFVS(ctx context.Context, req *csi.Contro
 			return false, getErr
 		}
 		if strings.EqualFold(string(cur.Status.Phase), string(fvv1alpha1.FileVolumePhaseError)) {
-			return false, fmt.Errorf("FileVolume %s/%s entered Error phase during expansion", instanceNS, fvName)
+			return false, fmt.Errorf("FileVolume %s/%s entered Error phase during expansion: %s",
+				instanceNS, fvName, summarizeFileVolumeConditions(cur))
 		}
 		if cur.Status.LastAppliedSize.Cmp(*desired) >= 0 {
 			return true, nil
