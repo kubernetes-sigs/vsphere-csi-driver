@@ -61,7 +61,7 @@ const (
 
 	// vksRegisterVolumeFinalizer is added to every VKSRegisterVolume CR before any work begins.
 	// On deletion the controller only removes this finalizer; it never deletes the guest PV/PVC
-	// or the Supervisor CnsRegisterVolume (both owned by ss-metadata-manager).
+	// or the Supervisor CnsRegisterVolume (both owned by the caller that drives this CR).
 	vksRegisterVolumeFinalizer = "cns.vmware.com/vks-register-volume"
 
 	// TODO(T7): add labels stamped on the guest PV created by this controller
@@ -234,7 +234,8 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 	backOffDurationMapMutex.Unlock()
 
 	// Handle CR deletion — the controller only removes the finalizer; it never deletes
-	// the guest PV/PVC or the Supervisor CnsRegisterVolume (both owned by ss-metadata-manager).
+	// the guest PV/PVC or the Supervisor CnsRegisterVolume (both owned by the caller that
+	// drives this CR).
 	if instance.DeletionTimestamp != nil {
 		log.With("name", instance.Name).With("namespace", instance.Namespace).
 			Info("VKSRegisterVolume instance is marked for deletion")
@@ -338,8 +339,8 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 // reconcileDelete handles VKSRegisterVolume CR deletion.
 //
 // The controller removes only the vksRegisterVolumeFinalizer. It does NOT:
-//   - delete the guest PV or PVC (owned by the workload / ss-metadata-manager)
-//   - delete the Supervisor CnsRegisterVolume (owned by ss-metadata-manager)
+//   - delete the guest PV or PVC (owned by the workload / the caller that drives this CR)
+//   - delete the Supervisor CnsRegisterVolume (owned by the caller that drives this CR)
 //
 // This is safe: deleting the CnsRegisterVolume CR does not delete the Supervisor PVC/PV
 // it registered, so the guest PV's csi.volumeHandle keeps resolving after CR removal.

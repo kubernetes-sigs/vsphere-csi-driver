@@ -36,7 +36,7 @@ import (
 
 const (
 	// pvcMissingTimeout is the bounded window during which a missing guest PVC is treated as transient.
-	// ss-metadata-manager may create the PVC and the VKSRegisterVolume CR concurrently; after this
+	// The caller may create the PVC and the VKSRegisterVolume CR concurrently; after this
 	// window the PVC is assumed to be a permanently broken reference and the CR is Failed.
 	pvcMissingTimeout = 10 * time.Minute
 )
@@ -63,7 +63,7 @@ func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegist
 //
 // The PVC must satisfy all of the following:
 //   - exists in the same namespace as the CR
-//   - not yet Bound (Phase == Pending; ss-metadata-manager creates it in Pending)
+//   - not yet Bound (Phase == Pending; the PVC must already exist in Pending)
 //   - spec.volumeName is set (the pre-chosen guest PV name)
 //   - spec.accessModes is non-empty
 //   - spec.resources.requests[storage] > 0
@@ -71,7 +71,7 @@ func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegist
 //   - the StorageClass carries the svstorageclass (common.AttributeSupervisorStorageClass) parameter
 //
 // If the PVC is not found and the CR was created within pvcMissingTimeout, the error is transient
-// (ss-metadata-manager may not have created the PVC yet). After the timeout it becomes terminal.
+// (the PVC may not have been created yet). After the timeout it becomes terminal.
 func resolveGuestPVC(
 	ctx context.Context,
 	c client.Client,
@@ -98,11 +98,11 @@ func resolveGuestPVC(
 				instance.Namespace, instance.Spec.PVCName, age.Truncate(time.Second))
 		}
 		return nil, true, fmt.Errorf("guest PVC %s/%s not found after %v (exceeded %v timeout); "+
-			"ss-metadata-manager must create the PVC before creating the VKSRegisterVolume CR",
+			"the PVC must exist before the VKSRegisterVolume CR is created",
 			instance.Namespace, instance.Spec.PVCName, age.Truncate(time.Second), pvcMissingTimeout)
 	}
 
-	// PVC must not be Bound yet — ss-metadata-manager creates it in Pending.
+	// PVC must not be Bound yet — it must already exist in Pending.
 	// A Bound PVC means another PV already claimed it; fail terminally.
 	if pvc.Status.Phase == corev1.ClaimBound {
 		return nil, true, fmt.Errorf("guest PVC %s/%s is already Bound (to PV %q); "+
@@ -113,7 +113,7 @@ func resolveGuestPVC(
 	// spec.volumeName must be set — this is the pre-chosen guest PV name.
 	if pvc.Spec.VolumeName == "" {
 		return nil, true, fmt.Errorf("guest PVC %s/%s has empty spec.volumeName; "+
-			"ss-metadata-manager must set spec.volumeName to the future PV name",
+			"spec.volumeName must be set to the future PV name",
 			instance.Namespace, instance.Spec.PVCName)
 	}
 
