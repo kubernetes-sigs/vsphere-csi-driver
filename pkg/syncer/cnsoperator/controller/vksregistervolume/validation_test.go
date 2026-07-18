@@ -26,8 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vksregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/vksregistervolume/v1alpha1"
@@ -104,9 +104,8 @@ func instanceWithAge(namespace, name, pvcName string,
 			CreationTimestamp: ts,
 		},
 		Spec: vksregistervolumev1alpha1.VKSRegisterVolumeSpec{
-			PVCName:                    pvcName,
-			CnsRegisterVolumeNamespace: "sv-ns",
-			CnsRegisterVolumeName:      "abc-reg-deadbeef12345678",
+			PVCName:               pvcName,
+			CnsRegisterVolumeName: "abc-reg-deadbeef12345678",
 		},
 	}
 }
@@ -115,9 +114,8 @@ func instanceWithAge(namespace, name, pvcName string,
 
 func TestValidateSpec(t *testing.T) {
 	validSpec := vksregistervolumev1alpha1.VKSRegisterVolumeSpec{
-		PVCName:                    "db-data-pvc",
-		CnsRegisterVolumeNamespace: "sv-ns",
-		CnsRegisterVolumeName:      "abc-reg-deadbeef12345678",
+		PVCName:               "db-data-pvc",
+		CnsRegisterVolumeName: "abc-reg-deadbeef12345678",
 	}
 
 	cases := []struct {
@@ -133,27 +131,16 @@ func TestValidateSpec(t *testing.T) {
 		{
 			name: "pvcName empty — invalid",
 			spec: vksregistervolumev1alpha1.VKSRegisterVolumeSpec{
-				PVCName:                    "",
-				CnsRegisterVolumeNamespace: "sv-ns",
-				CnsRegisterVolumeName:      "abc-reg-deadbeef12345678",
+				PVCName:               "",
+				CnsRegisterVolumeName: "abc-reg-deadbeef12345678",
 			},
 			wantErr: true,
 		},
 		{
 			name: "cnsRegisterVolumeName empty — invalid",
 			spec: vksregistervolumev1alpha1.VKSRegisterVolumeSpec{
-				PVCName:                    "db-data-pvc",
-				CnsRegisterVolumeNamespace: "sv-ns",
-				CnsRegisterVolumeName:      "",
-			},
-			wantErr: true,
-		},
-		{
-			name: "cnsRegisterVolumeNamespace empty — invalid",
-			spec: vksregistervolumev1alpha1.VKSRegisterVolumeSpec{
-				PVCName:                    "db-data-pvc",
-				CnsRegisterVolumeNamespace: "",
-				CnsRegisterVolumeName:      "abc-reg-deadbeef12345678",
+				PVCName:               "db-data-pvc",
+				CnsRegisterVolumeName: "",
 			},
 			wantErr: true,
 		},
@@ -194,10 +181,10 @@ func TestResolveGuestPVC(t *testing.T) {
 		name         string
 		instance     *vksregistervolumev1alpha1.VKSRegisterVolume
 		pvcInStore   *corev1.PersistentVolumeClaim // nil → PVC not found
-		scInStore    *storagev1.StorageClass        // nil → StorageClass not found
-		wantPVC      bool  // expect non-nil PVC returned
-		wantTerminal bool  // expect terminal=true
-		wantErr      bool  // expect err != nil
+		scInStore    *storagev1.StorageClass       // nil → StorageClass not found
+		wantPVC      bool                          // expect non-nil PVC returned
+		wantTerminal bool                          // expect terminal=true
+		wantErr      bool                          // expect err != nil
 	}{
 		// ── PVC missing cases ─────────────────────────────────────────────────────────────────
 		{
@@ -221,7 +208,7 @@ func TestResolveGuestPVC(t *testing.T) {
 
 		// ── PVC state validation ──────────────────────────────────────────────────────────────
 		{
-			name: "PVC already Bound → terminal",
+			name:     "PVC already Bound → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -235,7 +222,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC spec.volumeName empty → terminal",
+			name:     "PVC spec.volumeName empty → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -248,7 +235,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC no accessModes → terminal",
+			name:     "PVC no accessModes → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -261,7 +248,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC no storage request → terminal",
+			name:     "PVC no storage request → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -274,7 +261,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC zero storage request → terminal",
+			name:     "PVC zero storage request → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -287,7 +274,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC nil storageClassName → terminal",
+			name:     "PVC nil storageClassName → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -300,7 +287,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "PVC empty storageClassName → terminal",
+			name:     "PVC empty storageClassName → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -345,7 +332,7 @@ func TestResolveGuestPVC(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name: "valid PVC with nil VolumeMode (Filesystem implied) → success",
+			name:     "valid PVC with nil VolumeMode (Filesystem implied) → success",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)

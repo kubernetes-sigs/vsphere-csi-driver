@@ -42,7 +42,7 @@ const (
 )
 
 // validateSpec validates the required spec fields of a VKSRegisterVolume.
-// All three reference fields must be non-empty; a missing field is always a terminal failure
+// Both reference fields must be non-empty; a missing field is always a terminal failure
 // (the CR was created with a bad spec and retrying will not fix it).
 func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegisterVolumeSpec) error {
 	if spec.PVCName == "" {
@@ -50,9 +50,6 @@ func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegist
 	}
 	if spec.CnsRegisterVolumeName == "" {
 		return fmt.Errorf("spec.cnsRegisterVolumeName must not be empty")
-	}
-	if spec.CnsRegisterVolumeNamespace == "" {
-		return fmt.Errorf("spec.cnsRegisterVolumeNamespace must not be empty")
 	}
 	return nil
 }

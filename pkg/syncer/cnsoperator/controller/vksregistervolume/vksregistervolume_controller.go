@@ -200,7 +200,7 @@ func newReconciler(
 //  3. Resolve guest PVC: GET + validate (Pending, volumeName set, accessModes, storage>0,
 //     storageClass w/ svstorageclass); transient requeue if PVC not yet created (bounded window),
 //     terminal Failed otherwise.
-//  3b. VolumeMode default — Filesystem if nil/empty.
+//     3b. VolumeMode default — Filesystem if nil/empty.
 //  4. [TODO T6] WaitingForSupervisorRegistration — GET Supervisor CnsRegisterVolume; wait Registered==true.
 //  5. [TODO T6] WaitingForSupervisorBinding — GET Supervisor PVC; wait Bound; read topology.
 //  6. [TODO T7] CreatingGuestPV — GET-before-CREATE guest PV with volumeHandle, claimRef, nodeAffinity.
@@ -299,7 +299,9 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 
 	// ── TODO(T6): WaitingForSupervisorRegistration ────────────────────────────────────────────
 	// GET Supervisor CnsRegisterVolume instance.Spec.CnsRegisterVolumeName in
-	// instance.Spec.CnsRegisterVolumeNamespace via r.supervisorCnsOperatorClient.
+	// r.supervisorNamespace (the VKS cluster's own Supervisor namespace; a VKS cluster
+	// can only ever access resources there, so it is not repeated on the spec) via
+	// r.supervisorCnsOperatorClient.
 	// If NotFound and CR has not yet reached Registered, treat as transient (bounded window).
 	// If already past WaitingForSupervisorRegistration (CR reached Registered before), skip.
 	// When CnsRegisterVolume.Status.Registered == true:
