@@ -46,6 +46,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
@@ -1012,6 +1013,120 @@ func TestUpdateStatus_PolicyDeleted(t *testing.T) {
 	// Verify the status was updated
 	assert.True(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be true")
 	assert.Empty(t, cspi.Status.Error, "expected no error message")
+}
+
+// statusUpdateInterceptor returns interceptor.Funcs that record every Status().Update() call
+// while still performing the update against the underlying fake client.
+func statusUpdateInterceptor(called *bool) interceptor.Funcs {
+	return interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, cli client.Client, subResourceName string,
+			obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			*called = true
+			return cli.SubResource(subResourceName).Update(ctx, obj, opts...)
+		},
+	}
+}
+
+// TestSetClusterSPISuccess_SkipsNoOpStatusUpdate verifies that setClusterSPISuccess does not
+// call Status().Update() when the recomputed status is identical to origStatus, but still
+// records the event.
+func TestSetClusterSPISuccess_SkipsNoOpStatusUpdate(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	origStatus := cspi.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cspi).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).
+		WithInterceptorFuncs(statusUpdateInterceptor(&statusUpdateCalled)).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	err := r.setClusterSPISuccess(ctx, cspi, origStatus, "all good")
+	require.NoError(t, err)
+	assert.False(t, statusUpdateCalled, "expected no Status().Update() call when status is unchanged")
+
+	select {
+	case <-recorder.Events:
+	default:
+		t.Error("expected a Normal ClusterStoragePolicyInfoSynced event even when the write was skipped")
+	}
+}
+
+// TestSetClusterSPIError_WritesWhenStatusChanged verifies that setClusterSPIError still calls
+// Status().Update() when the recomputed status differs from origStatus.
+func TestSetClusterSPIError_WritesWhenStatusChanged(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	origStatus := cspi.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cspi).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).
+		WithInterceptorFuncs(statusUpdateInterceptor(&statusUpdateCalled)).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	err := r.setClusterSPIError(ctx, cspi, origStatus, "something failed")
+	require.NoError(t, err)
+	assert.True(t, statusUpdateCalled, "expected a Status().Update() call when status changed")
+}
+
+// TestSetInfraSPISuccess_SkipsNoOpStatusUpdate verifies that setInfraSPISuccess does not call
+// Status().Update() when the recomputed status is identical to origStatus, but still records
+// the event.
+func TestSetInfraSPISuccess_SkipsNoOpStatusUpdate(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	origStatus := infraSPI.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(infraSPI).
+		WithStatusSubresource(&infraspiv1alpha1.InfraStoragePolicyInfo{}).
+		WithInterceptorFuncs(statusUpdateInterceptor(&statusUpdateCalled)).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	err := r.setInfraSPISuccess(ctx, infraSPI, origStatus, "all good")
+	require.NoError(t, err)
+	assert.False(t, statusUpdateCalled, "expected no Status().Update() call when status is unchanged")
+
+	select {
+	case <-recorder.Events:
+	default:
+		t.Error("expected a Normal InfraStoragePolicyInfoSynced event even when the write was skipped")
+	}
+}
+
+// TestSetInfraSPIError_WritesWhenStatusChanged verifies that setInfraSPIError still calls
+// Status().Update() when the recomputed status differs from origStatus.
+func TestSetInfraSPIError_WritesWhenStatusChanged(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+	}
+	origStatus := infraSPI.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(infraSPI).
+		WithStatusSubresource(&infraspiv1alpha1.InfraStoragePolicyInfo{}).
+		WithInterceptorFuncs(statusUpdateInterceptor(&statusUpdateCalled)).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	err := r.setInfraSPIError(ctx, infraSPI, origStatus, "something failed")
+	require.NoError(t, err)
+	assert.True(t, statusUpdateCalled, "expected a Status().Update() call when status changed")
 }
 
 func TestValidateStoragePolicyExistsOnVcenter_NilVCenter(t *testing.T) {

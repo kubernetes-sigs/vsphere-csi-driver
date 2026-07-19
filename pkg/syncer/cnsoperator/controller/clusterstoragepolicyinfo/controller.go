@@ -436,23 +436,29 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
 
+	// Snapshot the status so setters below can skip the write if unchanged.
+	origClusterStatus := instance.Status.DeepCopy()
+
 	// Ensure InfraStoragePolicyInfo CR exists with the same name
 	infraSPI, err := r.ensureInfraSPIExists(ctx, instance)
 	if err != nil {
 		log.Errorf("Failed to ensure InfraStoragePolicyInfo exists for %q: %v", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to ensure InfraStoragePolicyInfo exists: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
+
+	// Snapshot the status so setters below can skip the write if unchanged.
+	origInfraStatus := infraSPI.Status.DeepCopy()
 
 	// Connect to vCenter.
 	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
 	if err != nil {
 		log.Errorf("Failed to get vCenter instance for %q: %v", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to get vCenter instance: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
@@ -462,14 +468,15 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	profile, policyDeleted, err := findStoragePolicyProfile(ctx, instance, vc)
 	if err != nil {
 		errorMsg := fmt.Sprintf("Failed to lookup storage policy: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 	if policyDeleted {
 		// Policy was deleted - update status and return success
-		if statusErr := r.setClusterSPISuccess(ctx, instance, "Storage policy deleted from vCenter"); statusErr != nil {
+		if statusErr := r.setClusterSPISuccess(ctx, instance, origClusterStatus,
+			"Storage policy deleted from vCenter"); statusErr != nil {
 			log.Errorf("failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
 			return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
 		}
@@ -480,7 +487,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	if err != nil {
 		log.Errorf("Failed to retrieve policy content for profile %s: %v", profile.ID, err)
 		errorMsg := fmt.Sprintf("Failed to retrieve policy content: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
@@ -491,13 +498,13 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	if err != nil {
 		log.Errorf("Failed to sync storage policy attributes for %q: %v.", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to sync storage policy attributes: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, errorMsg); setErr != nil {
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	statusErr := r.setClusterSPISuccess(ctx, instance, "Successfully synced storage policy attributes")
+	statusErr := r.setClusterSPISuccess(ctx, instance, origClusterStatus, "Successfully synced storage policy attributes")
 	if statusErr != nil {
 		log.Errorf("failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
@@ -508,13 +515,13 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	if err != nil {
 		log.Errorf("Failed to sync InfraSPI attributes for %q: %v.", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to sync InfraSPI attributes: %v", err)
-		if setErr := r.setInfraSPIError(ctx, infraSPI, errorMsg); setErr != nil {
+		if setErr := r.setInfraSPIError(ctx, infraSPI, origInfraStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set infraSPI error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	infraSPIStatusErr := r.setInfraSPISuccess(ctx, infraSPI, "Successfully synced InfraSPI attributes")
+	infraSPIStatusErr := r.setInfraSPISuccess(ctx, infraSPI, origInfraStatus, "Successfully synced InfraSPI attributes")
 	if infraSPIStatusErr != nil {
 		log.Errorf("failed to update status for InfraStoragePolicyInfo %q: %v", request.Name, infraSPIStatusErr)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, infraSPIStatusErr)
@@ -958,12 +965,18 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 }
 
 // setClusterSPIError sets error and records an event on the ClusterStoragePolicyInfo instance.
+// origStatus is the pre-reconcile status snapshot; written only if it changed.
 func (r *ReconcileClusterStoragePolicyInfo) setClusterSPIError(ctx context.Context,
-	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, errMsg string) error {
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	origStatus *clusterspiv1alpha1.ClusterStoragePolicyInfoStatus, errMsg string) error {
 	instance.Status.Error = errMsg
-	err := k8s.UpdateStatus(ctx, r.client, instance)
-	if err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, instance.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("ClusterStoragePolicyInfo %q status unchanged, skipping status update",
+			instance.Name)
 	}
 
 	r.recordEvent(ctx, instance, v1.EventTypeWarning, errMsg)
@@ -971,14 +984,20 @@ func (r *ReconcileClusterStoragePolicyInfo) setClusterSPIError(ctx context.Conte
 }
 
 // setClusterSPISuccess sets instance to success and records an event on the
-// ClusterStoragePolicyInfo instance.
+// ClusterStoragePolicyInfo instance. origStatus is the pre-reconcile status snapshot;
+// written only if it changed.
 func (r *ReconcileClusterStoragePolicyInfo) setClusterSPISuccess(ctx context.Context,
-	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, msg string) error {
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	origStatus *clusterspiv1alpha1.ClusterStoragePolicyInfoStatus, msg string) error {
 	// Clear error but preserve other status fields that were set during sync
 	instance.Status.Error = ""
-	err := k8s.UpdateStatus(ctx, r.client, instance)
-	if err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, instance.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("ClusterStoragePolicyInfo %q status unchanged, skipping status update",
+			instance.Name)
 	}
 
 	r.recordEvent(ctx, instance, v1.EventTypeNormal, msg)
@@ -1011,12 +1030,18 @@ func (r *ReconcileClusterStoragePolicyInfo) recordEvent(ctx context.Context,
 }
 
 // setInfraSPIError sets error and records an event on the InfraStoragePolicyInfo instance.
+// origStatus is the pre-reconcile status snapshot; written only if it changed.
 func (r *ReconcileClusterStoragePolicyInfo) setInfraSPIError(ctx context.Context,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, errMsg string) error {
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	origStatus *infraspiv1alpha1.InfraStoragePolicyInfoStatus, errMsg string) error {
 	infraSPI.Status.Error = errMsg
-	err := k8s.UpdateStatus(ctx, r.client, infraSPI)
-	if err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, infraSPI.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, infraSPI); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("InfraStoragePolicyInfo %q status unchanged, skipping status update",
+			infraSPI.Name)
 	}
 
 	r.recordInfraSPIEvent(ctx, infraSPI, v1.EventTypeWarning, errMsg)
@@ -1024,14 +1049,20 @@ func (r *ReconcileClusterStoragePolicyInfo) setInfraSPIError(ctx context.Context
 }
 
 // setInfraSPISuccess sets instance to success and records an event on the
-// InfraStoragePolicyInfo instance.
+// InfraStoragePolicyInfo instance. origStatus is the pre-reconcile status snapshot;
+// written only if it changed.
 func (r *ReconcileClusterStoragePolicyInfo) setInfraSPISuccess(ctx context.Context,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, msg string) error {
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	origStatus *infraspiv1alpha1.InfraStoragePolicyInfoStatus, msg string) error {
 	// Clear error but preserve other status fields that were set during sync
 	infraSPI.Status.Error = ""
-	err := k8s.UpdateStatus(ctx, r.client, infraSPI)
-	if err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, infraSPI.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, infraSPI); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("InfraStoragePolicyInfo %q status unchanged, skipping status update",
+			infraSPI.Name)
 	}
 
 	r.recordInfraSPIEvent(ctx, infraSPI, v1.EventTypeNormal, msg)

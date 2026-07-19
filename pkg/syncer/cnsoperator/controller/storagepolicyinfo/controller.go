@@ -477,11 +477,14 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
+	// Snapshot the status so setters below can skip the write if unchanged.
+	origStatus := instance.Status.DeepCopy()
+
 	// Populate TopologyInfo from InfraStoragePolicyInfo.
 	if err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI); err != nil {
 		log.Errorf("Failed to sync topology for StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
-		if setErr := r.setSPIError(ctx, instance,
+		if setErr := r.setSPIError(ctx, instance, origStatus,
 			fmt.Sprintf("Failed to sync topology: %v", err)); setErr != nil {
 			log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
 				request.NamespacedName, setErr)
@@ -489,7 +492,7 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	if setErr := r.setSPISuccess(ctx, instance, "Successfully synced topology"); setErr != nil {
+	if setErr := r.setSPISuccess(ctx, instance, origStatus, "Successfully synced topology"); setErr != nil {
 		log.Errorf("Failed to update StoragePolicyInfo %q status: %v",
 			request.NamespacedName, setErr)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, setErr)
@@ -702,22 +705,32 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 }
 
 // setSPIError sets the error status and records a Warning event on the instance.
+// origStatus is the pre-reconcile status snapshot; written only if it changed.
 func (r *ReconcileStoragePolicyInfo) setSPIError(ctx context.Context,
-	instance *spiv1alpha1.StoragePolicyInfo, errMsg string) error {
+	instance *spiv1alpha1.StoragePolicyInfo, origStatus *spiv1alpha1.StoragePolicyInfoStatus, errMsg string) error {
 	instance.Status.Error = errMsg
-	if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, instance.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("StoragePolicyInfo %q status unchanged, skipping status update", instance.Name)
 	}
 	r.recorder.Event(instance, v1.EventTypeWarning, "StoragePolicyInfoFailed", errMsg)
 	return nil
 }
 
 // setSPISuccess clears the error status and records a Normal event on the instance.
+// origStatus is the pre-reconcile status snapshot; written only if it changed.
 func (r *ReconcileStoragePolicyInfo) setSPISuccess(ctx context.Context,
-	instance *spiv1alpha1.StoragePolicyInfo, msg string) error {
+	instance *spiv1alpha1.StoragePolicyInfo, origStatus *spiv1alpha1.StoragePolicyInfoStatus, msg string) error {
 	instance.Status.Error = ""
-	if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
-		return err
+	if !equality.Semantic.DeepEqual(*origStatus, instance.Status) {
+		if err := k8s.UpdateStatus(ctx, r.client, instance); err != nil {
+			return err
+		}
+	} else {
+		logger.GetLogger(ctx).Debugf("StoragePolicyInfo %q status unchanged, skipping status update", instance.Name)
 	}
 	r.recorder.Event(instance, v1.EventTypeNormal, "StoragePolicyInfoSynced", msg)
 	return nil
