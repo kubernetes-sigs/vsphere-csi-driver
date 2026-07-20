@@ -130,6 +130,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
 			scParameters[scParamStoragePolicyName] = storagePolicyNameForNonSharedDatastores
 		} else if supervisorCluster {
+			expectedErrorMsg = "failed to create volume"
 			ginkgo.By("CNS_TEST: Running for WCP setup")
 			profileID := e2eVSphere.GetSpbmPolicyID(storagePolicyNameForNonSharedDatastores)
 			scParameters[scParamStoragePolicyID] = profileID
