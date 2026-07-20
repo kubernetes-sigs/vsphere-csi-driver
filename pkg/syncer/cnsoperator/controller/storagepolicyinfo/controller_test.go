@@ -75,6 +75,18 @@ func (m *mockZonesProvider) GetZonesForNamespace(ns string) map[string]struct{} 
 
 var _ zonesProvider = &mockZonesProvider{}
 
+// testSPQ returns a minimal StoragePolicyQuota fixture for policyName assigned to
+// namespace, with a UID so it can serve as an owner reference target.
+func testSPQ(namespace, policyName string) *storagepolicyv1alpha2.StoragePolicyQuota {
+	return &storagepolicyv1alpha2.StoragePolicyQuota{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      policyName + storagePolicyQuotaSuffix,
+			Namespace: namespace,
+			UID:       types.UID(policyName + "-spq-uid"),
+		},
+	}
+}
+
 // TestMapSPQtoSPI_NilObject verifies that mapSPQtoSPI returns nil for a nil input.
 func TestMapSPQtoSPI_NilObject(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -288,13 +300,11 @@ func TestEnsureSPIExists_AlreadyExists(t *testing.T) {
 	existing := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "test-ns"},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
-	}
+	spq := testSPQ("test-ns", "gold")
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", infraSPI)
+	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", spq)
 	require.NoError(t, err)
 	assert.False(t, wasCreated)
 	require.NotNil(t, inst)
@@ -302,17 +312,15 @@ func TestEnsureSPIExists_AlreadyExists(t *testing.T) {
 }
 
 // TestEnsureSPIExists_NotFound verifies that ensureSPIExists creates and persists
-// a new StoragePolicyInfo with an owner reference to InfraStoragePolicyInfo.
+// a new StoragePolicyInfo with an owner reference to its StoragePolicyQuota.
 func TestEnsureSPIExists_NotFound(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
-	}
+	spq := testSPQ("test-ns", "gold")
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", infraSPI)
+	inst, wasCreated, err := r.ensureSPIExists(ctx, "test-ns", "gold", spq)
 	require.NoError(t, err)
 	assert.True(t, wasCreated)
 	require.NotNil(t, inst)
@@ -323,8 +331,8 @@ func TestEnsureSPIExists_NotFound(t *testing.T) {
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "test-ns", Name: "gold"}, got))
 	require.Len(t, got.OwnerReferences, 1)
-	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
-	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
+	assert.Equal(t, "StoragePolicyQuota", got.OwnerReferences[0].Kind)
+	assert.Equal(t, spq.UID, got.OwnerReferences[0].UID)
 
 	// Verify the CR is persisted with spec.clusterStoragePolicyInfoRef already set.
 	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
@@ -334,26 +342,24 @@ func TestEnsureSPIExists_NotFound(t *testing.T) {
 	}, got.Spec.ClusterStoragePolicyInfoRef)
 }
 
-// TestEnsureInfraSPIOwnerReference_SetWhenAbsent verifies that the owner reference
-// is created when the SPI has no owner references yet.
-func TestEnsureInfraSPIOwnerReference_SetWhenAbsent(t *testing.T) {
+// TestEnsureSPQOwnerReference_SetWhenAbsent verifies that the StoragePolicyQuota
+// owner reference is created when the SPI has no owner references yet.
+func TestEnsureSPQOwnerReference_SetWhenAbsent(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	spi := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "test-ns"},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
-	}
+	spq := testSPQ("test-ns", "gold")
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	err := r.ensureInfraSPIOwnerReference(ctx, spi, infraSPI)
+	err := r.ensureSPQOwnerReference(ctx, spi, spq)
 	require.NoError(t, err)
 	require.Len(t, spi.OwnerReferences, 1)
-	assert.Equal(t, "InfraStoragePolicyInfo", spi.OwnerReferences[0].Kind)
-	assert.Equal(t, "gold", spi.OwnerReferences[0].Name)
-	assert.Equal(t, types.UID("gold-uid"), spi.OwnerReferences[0].UID)
+	assert.Equal(t, "StoragePolicyQuota", spi.OwnerReferences[0].Kind)
+	assert.Equal(t, spq.Name, spi.OwnerReferences[0].Name)
+	assert.Equal(t, spq.UID, spi.OwnerReferences[0].UID)
 	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
 		Name:     "gold",
 		Kind:     "ClusterStoragePolicyInfo",
@@ -361,21 +367,19 @@ func TestEnsureInfraSPIOwnerReference_SetWhenAbsent(t *testing.T) {
 	}, spi.Spec.ClusterStoragePolicyInfoRef)
 }
 
-// TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet verifies that no patch is
-// issued when the owner reference already points to the same UID.
-func TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet(t *testing.T) {
+// TestEnsureSPQOwnerReference_NoOpWhenAlreadySet verifies that no patch is issued
+// when the owner reference already points to the same StoragePolicyQuota UID.
+func TestEnsureSPQOwnerReference_NoOpWhenAlreadySet(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	controllerFalse := false
 	blockFalse := false
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
-	}
+	spq := testSPQ("test-ns", "gold")
 	existingRef := metav1.OwnerReference{
-		APIVersion:         "cns.vmware.com/v1alpha1",
-		Kind:               "InfraStoragePolicyInfo",
-		Name:               "gold",
-		UID:                types.UID("gold-uid"),
+		APIVersion:         apis.SchemeGroupVersionV2.String(),
+		Kind:               "StoragePolicyQuota",
+		Name:               spq.Name,
+		UID:                spq.UID,
 		Controller:         &controllerFalse,
 		BlockOwnerDeletion: &blockFalse,
 	}
@@ -395,10 +399,50 @@ func TestEnsureInfraSPIOwnerReference_NoOpWhenAlreadySet(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
 
-	err := r.ensureInfraSPIOwnerReference(ctx, spi, infraSPI)
+	err := r.ensureSPQOwnerReference(ctx, spi, spq)
 	require.NoError(t, err)
 	require.Len(t, spi.OwnerReferences, 1, "owner reference count must not change")
+	assert.Equal(t, "StoragePolicyQuota", spi.OwnerReferences[0].Kind)
 	assert.Equal(t, "gold", spi.Spec.ClusterStoragePolicyInfoRef.Name, "spec ref must not change")
+}
+
+// TestEnsureSPQOwnerReference_MergesWithExistingOwner verifies the SPQ owner reference
+// is merged in alongside any existing owner references, not discarded.
+func TestEnsureSPQOwnerReference_MergesWithExistingOwner(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	controllerFalse := false
+	blockFalse := false
+	otherRef := metav1.OwnerReference{
+		APIVersion:         "example.com/v1",
+		Kind:               "SomeOtherOwner",
+		Name:               "gold",
+		UID:                types.UID("other-uid"),
+		Controller:         &controllerFalse,
+		BlockOwnerDeletion: &blockFalse,
+	}
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "gold", Namespace: "test-ns",
+			OwnerReferences: []metav1.OwnerReference{otherRef},
+		},
+	}
+	spq := testSPQ("test-ns", "gold")
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spi).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	err := r.ensureSPQOwnerReference(ctx, spi, spq)
+	require.NoError(t, err)
+	require.Len(t, spi.OwnerReferences, 2,
+		"the existing owner reference must be preserved, and the StoragePolicyQuota one added")
+	assert.Equal(t, "SomeOtherOwner", spi.OwnerReferences[0].Kind)
+	assert.Equal(t, "StoragePolicyQuota", spi.OwnerReferences[1].Kind)
+	assert.Equal(t, spq.UID, spi.OwnerReferences[1].UID)
+
+	// Confirm the change was persisted.
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "test-ns", Name: "gold"}, got))
+	require.Len(t, got.OwnerReferences, 2)
 }
 
 // TestSyncTopologyFromInfraSPI_CopiesTopology verifies that topology data is
@@ -519,9 +563,9 @@ func TestNamespaceFilteredZones(t *testing.T) {
 }
 
 // TestReconcile_CreatesWithOwnerRef verifies that when a StoragePolicyInfo does
-// not yet exist, Reconcile creates it with an owner reference to InfraStoragePolicyInfo
-// baked in at creation time so it is deleted automatically when InfraStoragePolicyInfo
-// is deleted.
+// not yet exist, Reconcile creates it with an owner reference to its StoragePolicyQuota
+// baked in at creation time so it is garbage-collected automatically when the quota is
+// deleted (policy unassigned from the namespace).
 func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
@@ -535,9 +579,10 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 			},
 		},
 	}
+	spq := testSPQ("ns1", "gold")
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(infraSPI).Build()
+		WithObjects(infraSPI, spq).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -554,8 +599,8 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
 	require.Len(t, got.OwnerReferences, 1)
-	assert.Equal(t, "InfraStoragePolicyInfo", got.OwnerReferences[0].Kind)
-	assert.Equal(t, types.UID("gold-uid"), got.OwnerReferences[0].UID)
+	assert.Equal(t, "StoragePolicyQuota", got.OwnerReferences[0].Kind)
+	assert.Equal(t, spq.UID, got.OwnerReferences[0].UID)
 	assert.Equal(t, spiv1alpha1.ClusterStoragePolicyInfoReference{
 		Name:     "gold",
 		Kind:     "ClusterStoragePolicyInfo",
@@ -581,7 +626,8 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi, infraSPI).Build()
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -594,6 +640,10 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, result)
+
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
+	assert.NotNil(t, got.DeletionTimestamp, "StoragePolicyInfo should still exist, pending its own deletion")
 }
 
 // TestReconcile_SyncsTopologyAndRecordsEvent verifies the full happy-path:
@@ -617,7 +667,7 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -651,7 +701,8 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).Build()
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -809,7 +860,7 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -852,7 +903,7 @@ func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -901,7 +952,7 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -929,6 +980,163 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 	default:
 		t.Error("expected a Normal StoragePolicyInfoSynced event after topology update")
 	}
+}
+
+// TestReconcile_SPQAbsent_IsNoOpAndLeavesSPIForGC verifies that when the SPQ is
+// absent, Reconcile is a no-op success — it doesn't touch or delete the SPI, leaving
+// that to GC (not simulated by the fake client, hence the SPI stays present here).
+func TestReconcile_SPQAbsent_IsNoOpAndLeavesSPIForGC(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", UID: types.UID("gold-uid")},
+	}
+	// No StoragePolicyQuota fixture: simulates the quota having just been deleted.
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:          cli,
+		scheme:          scheme,
+		recorder:        record.NewFakeRecorder(10),
+		zonesProvider:   &mockZonesProvider{},
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	// The controller does not delete the SPI itself; GC (not simulated here) would.
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got),
+		"Reconcile must not explicitly delete the SPI; deletion is left to garbage collection")
+}
+
+// TestReconcile_SPQAbsent_SPIAlreadyAbsent_NoOp verifies that Reconcile succeeds
+// without error when neither the StoragePolicyQuota nor the StoragePolicyInfo exist.
+func TestReconcile_SPQAbsent_SPIAlreadyAbsent_NoOp(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:          cli,
+		scheme:          scheme,
+		recorder:        record.NewFakeRecorder(10),
+		zonesProvider:   &mockZonesProvider{},
+		backOffDuration: make(map[types.NamespacedName]time.Duration)}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "gold"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+}
+
+// TestReconcile_MarkerPolicy_SPQPresent_SyncsTopology verifies a marker-policy SPI
+// reconciles normally with its SPQ present — same ownership/lifecycle path as any
+// other policy, no marker exemption.
+func TestReconcile_MarkerPolicy_SPQPresent_SyncsTopology(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	markerPolicy := common.StorageClassVsanFileServicePolicy
+	consumerNS := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:        "consumer-ns",
+		Annotations: map[string]string{cnsoperatorutil.AnnotationVPCNetworkConfig: "vpc-cfg-a"},
+	}}
+	fvsNS := fvsSPINamespace("fvs-ns-1", "vpc-cfg-a")
+	k8sClient := k8sfake.NewSimpleClientset(consumerNS, fvsNS)
+	dc := newFakeDynClientWithVPCCRs(vpcCRPair{"vpc-cfg-a", "/vpc/a"})
+	zp := &mockZonesProvider{
+		zonesForNamespace: map[string]map[string]struct{}{"fvs-ns-1": {"zone-x": {}}},
+	}
+
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, UID: types.UID("marker-uid")},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{TopologyType: "zonal"},
+		},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI, testSPQ("consumer-ns", markerPolicy)).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:                  cli,
+		scheme:                  scheme,
+		recorder:                record.NewFakeRecorder(10),
+		zonesProvider:           zp,
+		k8sClient:               k8sClient,
+		dynamicClient:           dc,
+		IsVsanFileVolumeService: true,
+		backOffDuration:         make(map[types.NamespacedName]time.Duration),
+	}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "consumer-ns", Name: markerPolicy},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "consumer-ns", Name: markerPolicy}, got))
+	require.NotNil(t, got.Status.TopologyInfo)
+	assert.Equal(t, []string{"zone-x"}, got.Status.TopologyInfo.AccessibleZones)
+
+	// The marker policy's owner reference is the StoragePolicyQuota, same as any
+	// other policy — no marker-specific exemption from the ownership logic.
+	require.Len(t, got.OwnerReferences, 1)
+	assert.Equal(t, "StoragePolicyQuota", got.OwnerReferences[0].Kind)
+	assert.Equal(t, markerPolicy+storagePolicyQuotaSuffix, got.OwnerReferences[0].Name)
+}
+
+// TestReconcile_MarkerPolicy_SPQAbsent_IsNoOp verifies a marker-policy SPI is a
+// no-op when its SPQ is absent, same as any other policy — no marker exemption.
+func TestReconcile_MarkerPolicy_SPQAbsent_IsNoOp(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	markerPolicy := common.StorageClassVsanFileServicePolicy
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, UID: types.UID("marker-uid")},
+	}
+	// No StoragePolicyQuota fixture: simulates the marker policy having been
+	// unassigned from the namespace.
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
+		WithObjects(spi, infraSPI).Build()
+	r := &ReconcileStoragePolicyInfo{
+		client:                  cli,
+		scheme:                  scheme,
+		recorder:                record.NewFakeRecorder(10),
+		zonesProvider:           &mockZonesProvider{},
+		IsVsanFileVolumeService: true,
+		backOffDuration:         make(map[types.NamespacedName]time.Duration),
+	}
+
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "consumer-ns", Name: markerPolicy},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+
+	// The controller does not delete the marker SPI itself; GC (not simulated here) would.
+	got := &spiv1alpha1.StoragePolicyInfo{}
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "consumer-ns", Name: markerPolicy}, got),
+		"Reconcile must not explicitly delete the marker SPI; deletion is left to garbage collection")
 }
 
 // vpcNetworkConfigGVR mirrors the GVR used in markerzones.go.
