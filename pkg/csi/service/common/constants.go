@@ -493,13 +493,30 @@ const (
 	// not to any particular Node VM.
 	AnnKeyVKSWorkload = AnnPrefixVKSWorkloadType + "vks-workload"
 
+	// AnnKeySupervisorPodVM is set to "true" on a supervisor PVC that matches
+	// neither AnnKeyVKSNode nor AnnKeyVKSWorkload, and whose PV is currently
+	// referenced by a VolumeAttachment object — i.e., the PVC is attached to
+	// a native Supervisor Pod (PodVM) via the standard Kubernetes attacher
+	// flow.
+	AnnKeySupervisorPodVM = AnnPrefixVKSWorkloadType + "supervisor-podvm"
+
+	// AnnKeySupervisorVMServiceVM is set to "true" on a supervisor PVC that
+	// matches neither AnnKeyVKSNode nor AnnKeyVKSWorkload, and carries a
+	// "cns.vmware.com/usedby-vm-<vm-instance-uuid>" annotation
+	// (cnsoperatortypes.UsedByVMAnnotationPrefix) — i.e., the PVC is attached
+	// as a data disk to a standalone VM Service VM via CnsNodeVMBatchAttachment
+	// rather than through the Kubernetes attacher flow.
+	AnnKeySupervisorVMServiceVM = AnnPrefixVKSWorkloadType + "supervisor-vmservice-vm"
+
 	// AnnKeySupervisorWorkload is set to "true" on a supervisor PVC that
-	// matches neither AnnKeyVKSNode nor AnnKeyVKSWorkload — i.e., the PVC
-	// was created directly on the supervisor cluster (by a Pod VM, by an
-	// admin, by a third-party operator, etc.) rather than by a VKS guest
-	// cluster. The annotation is set explicitly rather than implied by
-	// absence so that "annotation missing" reliably means "fullsync has not
-	// yet evaluated this PVC" rather than "this is a supervisor workload".
+	// matches none of AnnKeyVKSNode, AnnKeyVKSWorkload, AnnKeySupervisorPodVM,
+	// or AnnKeySupervisorVMServiceVM — i.e., the PVC was created directly on
+	// the supervisor cluster (by an admin, by a third-party operator, or is
+	// simply not yet attached to any consumer) rather than by a VKS guest
+	// cluster or a recognized Supervisor-side attach path. The annotation is
+	// set explicitly rather than implied by absence so that "annotation
+	// missing" reliably means "fullsync has not yet evaluated this PVC"
+	// rather than "this is a supervisor workload".
 	AnnKeySupervisorWorkload = AnnPrefixVKSWorkloadType + "supervisor-workload"
 
 	// AnnValueTrue is the canonical value used for the boolean
