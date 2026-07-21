@@ -211,22 +211,32 @@ func (vc *VirtualCenter) PbmCheckRequirementsForZoneTopology(ctx context.Context
 
 // PbmRetrieveContent fetches the policy content of all given policies from SPBM.
 func (vc *VirtualCenter) PbmRetrieveContent(ctx context.Context, policyIds []string) ([]SpbmPolicyContent, error) {
+	profiles, err := vc.PbmRetrieveContentRaw(ctx, policyIds)
+	return PbmSimplifyProfileContent(ctx, profiles), err
+}
 
+// PbmRetrieveContentRaw connects to PBM and fetches the raw SPBM profile content for the given
+// policy IDs, with no post-processing.
+func (vc *VirtualCenter) PbmRetrieveContentRaw(ctx context.Context,
+	policyIds []string) ([]pbmtypes.BasePbmProfile, error) {
 	log := logger.GetLogger(ctx)
-	err := vc.ConnectPbm(ctx)
-	if err != nil {
+	if err := vc.ConnectPbm(ctx); err != nil {
 		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
 		return nil, err
 	}
-	pbmPolicyIds := make([]pbmtypes.PbmProfileId, 0)
+	pbmPolicyIds := make([]pbmtypes.PbmProfileId, 0, len(policyIds))
 	for _, policyID := range policyIds {
 		pbmPolicyIds = append(pbmPolicyIds, pbmtypes.PbmProfileId{
 			UniqueId: policyID,
 		})
 	}
-	profiles, err := vc.PbmClient.RetrieveContent(ctx, pbmPolicyIds)
+	return vc.PbmClient.RetrieveContent(ctx, pbmPolicyIds)
+}
 
-	return simplifyProfileStructs(ctx, profiles), err
+// PbmSimplifyProfileContent converts raw PBM profiles (e.g. from PbmRetrieveContentRaw) into
+// SpbmPolicyContent.
+func PbmSimplifyProfileContent(ctx context.Context, profiles []pbmtypes.BasePbmProfile) []SpbmPolicyContent {
+	return simplifyProfileStructs(ctx, profiles)
 }
 
 const (
@@ -264,15 +274,23 @@ func (vc *VirtualCenter) IsHostLocalStoragePolicy(ctx context.Context, policyID 
 	if policyID == "" {
 		return false, nil
 	}
-	if err := vc.ConnectPbm(ctx); err != nil {
-		log.Errorf("Error occurred while connecting to PBM, err: %+v", err)
-		return false, err
-	}
-	profiles, err := vc.PbmClient.RetrieveContent(ctx, []pbmtypes.PbmProfileId{{UniqueId: policyID}})
+	profiles, err := vc.PbmRetrieveContentRaw(ctx, []string{policyID})
 	if err != nil {
 		log.Errorf("failed to retrieve SPBM profile for policy %q: %v", policyID, err)
 		return false, err
 	}
+	isHostLocal := ProfilesContainHostLocal(profiles)
+	if !isHostLocal {
+		log.Infof("storage policy %q does not carry the host-local storage capability", policyID)
+	}
+	return isHostLocal, nil
+}
+
+// ProfilesContainHostLocal reports whether any profile in a raw PbmRetrieveContentRaw result
+// carries the host-local storage capability. Callers that already hold raw profiles
+// can use this directly instead of issuing a second PBM RetrieveContent call
+// through IsHostLocalStoragePolicy.
+func ProfilesContainHostLocal(profiles []pbmtypes.BasePbmProfile) bool {
 	for _, baseProfile := range profiles {
 		profile, ok := baseProfile.(*pbmtypes.PbmCapabilityProfile)
 		if !ok {
@@ -283,11 +301,10 @@ func (vc *VirtualCenter) IsHostLocalStoragePolicy(ctx context.Context, policyID 
 			continue
 		}
 		if IsHostLocalStorageCapabilityPolicy(constraints) {
-			return true, nil
+			return true
 		}
 	}
-	log.Infof("storage policy %q does not carry the host-local storage capability", policyID)
-	return false, nil
+	return false
 }
 
 // QueryAllProfileDetails queries all profiles of a specific category from vCenter SPBM.

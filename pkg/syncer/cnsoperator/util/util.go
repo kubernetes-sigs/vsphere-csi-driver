@@ -27,6 +27,9 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/pbm"
+	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/property"
+	"github.com/vmware/govmomi/vim25/mo"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -648,5 +651,131 @@ func GetZoneCompatibleDatastoresForPolicy(ctx context.Context, topologyMgr commo
 		log.Infof("Storage policy %s is accessible from zones: %v", profileID, zones)
 	}
 
+	return zones, zoneCompatibleDS, dsIDs, nil
+}
+
+// PbmQueryMatchingHubFn is the implementation used by GetHostLocalAccessibleZones; tests may
+// replace it to inject a fake result without a real PBM connection.
+var PbmQueryMatchingHubFn = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	profileID string) ([]pbmtypes.PbmPlacementHub, error) {
+	return vc.PbmQueryMatchingHub(ctx, profileID)
+}
+
+// GetHostLocalAccessibleZones determines which zones have at least one host whose local
+// datastore is compatible with the given host-local storage policy, and which datastores are
+// compatible within each such zone.
+//
+// It walks every datastore PBM reports as compatible with the policy and, for each, resolves the
+// single host mounting it and that host's parent cluster, then maps the cluster to its zone(s) via
+// topologyMgr.GetAZClustersMap(). A host whose cluster isn't part of any zone is skipped.
+//
+// Unlike GetZoneCompatibleDatastoresForPolicy's zoneCompatibleDS — where each entry is a shared
+// datastore genuinely mounted across a zone's cluster — the entries returned here are
+// single-host-local datastores merely attributed to the zone their one mounting host happens to
+// belong to; they are not "zonal" in that sense. The map is still built and returned in this shape
+// solely so checkLinkedClone (called next, via populateVolumeCapabilities) can compute
+// SupportsLinkedClone/SupportsHighPerformanceLinkedClone for host-local policies through the same
+// code path used for regular policies, without having to special-case host-local there too.
+func GetHostLocalAccessibleZones(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
+	vc *cnsvsphere.VirtualCenter, profileID string) (
+	zones []string, zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo, dsIDs []string, err error) {
+	log := logger.GetLogger(ctx)
+
+	if topologyMgr == nil {
+		return nil, nil, nil, fmt.Errorf("topology manager is not available")
+	}
+	if vc == nil || vc.Client == nil {
+		return nil, nil, nil, fmt.Errorf("vCenter is not available")
+	}
+
+	azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+	clusterToZones := make(map[string][]string)
+	for zone, clusters := range azClustersMap {
+		for _, clusterMoref := range clusters {
+			clusterToZones[clusterMoref] = append(clusterToZones[clusterMoref], zone)
+		}
+	}
+
+	hubs, err := PbmQueryMatchingHubFn(ctx, vc, profileID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to query matching hubs for policy %s: %w", profileID, err)
+	}
+
+	// zones/zoneCompatibleDS must never be nil on a successful (err == nil) return: zones is
+	// assigned straight into InfraStoragePolicyInfo.Status.Topology.AccessibleZones, which the CRD
+	// schema requires to be present — a nil slice serializes to JSON null and the status update is
+	// rejected.
+	zones = make([]string, 0)
+	zoneCompatibleDS = make(map[string][]*cnsvsphere.DatastoreInfo)
+	dsIDs = make([]string, 0, len(hubs))
+	pc := property.DefaultCollector(vc.Client.Client)
+	// hostClusterCache maps host MoID -> parent cluster MoID ("" if the host has none), avoiding
+	// repeat vCenter calls for a host mounting multiple policy-compatible datastores.
+	hostClusterCache := make(map[string]string)
+
+	for _, hub := range hubs {
+		dsIDs = append(dsIDs, hub.HubId)
+
+		dsRef := vimtypes.ManagedObjectReference{Type: "Datastore", Value: hub.HubId}
+		var dsMo mo.Datastore
+		if err := pc.RetrieveOne(ctx, dsRef, []string{"host"}, &dsMo); err != nil {
+			// PbmQueryMatchingHub is unscoped by cluster/inventory ACLs, so it can legitimately
+			// return a datastore the vCenter service account can't read via the property
+			// collector (e.g. NoPermission on a datastore outside this Supervisor's permitted
+			// inventory subtree). Skip it rather than failing the whole policy's zone computation.
+			log.Warnf("Failed to retrieve host mounts for datastore %s (policy %s); skipping: %v",
+				hub.HubId, profileID, err)
+			continue
+		}
+		if len(dsMo.Host) == 0 {
+			log.Debugf("Datastore %s (policy %s) has no host mounts; skipping", hub.HubId, profileID)
+			continue
+		}
+		// A host-local datastore is mounted on exactly one host; take the first mount.
+		hostRef := dsMo.Host[0].Key
+
+		clusterValue, cached := hostClusterCache[hostRef.Value]
+		if !cached {
+			var hostMo mo.HostSystem
+			if err := pc.RetrieveOne(ctx, hostRef, []string{"parent"}, &hostMo); err != nil {
+				log.Warnf("Failed to retrieve parent cluster for host %s (datastore %s, policy %s); skipping: %v",
+					hostRef.Value, hub.HubId, profileID, err)
+				continue
+			}
+			if hostMo.Parent != nil {
+				clusterValue = hostMo.Parent.Value
+			}
+			hostClusterCache[hostRef.Value] = clusterValue
+		}
+		if clusterValue == "" {
+			log.Debugf("Host %s (datastore %s) has no parent cluster; skipping", hostRef.Value, hub.HubId)
+			continue
+		}
+
+		zonesForCluster, ok := clusterToZones[clusterValue]
+		if !ok {
+			log.Debugf("Cluster %s (host %s, datastore %s) is not part of any zone; skipping",
+				clusterValue, hostRef.Value, hub.HubId)
+			continue
+		}
+
+		dsInfo := &cnsvsphere.DatastoreInfo{
+			Datastore: &cnsvsphere.Datastore{
+				Datastore: object.NewDatastore(vc.Client.Client, dsRef),
+			},
+		}
+		for _, zone := range zonesForCluster {
+			if _, exists := zoneCompatibleDS[zone]; !exists {
+				zones = append(zones, zone)
+			}
+			zoneCompatibleDS[zone] = append(zoneCompatibleDS[zone], dsInfo)
+		}
+	}
+
+	if len(zones) == 0 {
+		log.Warnf("No accessible zones found for host-local storage policy %s", profileID)
+	} else {
+		log.Infof("Host-local storage policy %s is accessible from zones: %v", profileID, zones)
+	}
 	return zones, zoneCompatibleDS, dsIDs, nil
 }

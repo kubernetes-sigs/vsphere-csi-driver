@@ -35,7 +35,6 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -153,7 +152,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
+	recorder := eventBroadcaster.NewRecorder(mgr.GetScheme(), v1.EventSource{Component: apis.GroupName})
 
 	// Marker-policy topology support (the marker field index, the FVS-namespace
 	// watch, and the syncMarkerPolicyTopology branch) is a distinct feature gated
@@ -814,7 +813,8 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 // StoragePolicyInfo volume capabilities from the cluster-scoped
 // InfraStoragePolicyInfo, with no additional vCenter calls.
 // SupportsVolumeModeFilesystem is always true, independent of InfraSPI.
-// SupportsVolumeModeBlock is copied as-is from InfraSPI.
+// SupportsVolumeModeBlock and SupportsHostLocal are copied as-is from InfraSPI, since neither
+// varies by namespace.
 // SupportsLinkedClone and SupportsHighPerformanceLinkedClone are recomputed for just the zones accessible
 // to this namespace, except for the marker policy, which is file-only and forces
 // SupportsVolumeModeBlock, SupportsLinkedClone and SupportsHighPerformanceLinkedClone all false.
@@ -845,6 +845,7 @@ func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx cont
 		spiv1alpha1.SupportsVolumeModeBlock:            infraCaps[infraspiv1alpha1.SupportsVolumeModeBlock],
 		spiv1alpha1.SupportsLinkedClone:                lc,
 		spiv1alpha1.SupportsHighPerformanceLinkedClone: hplc,
+		spiv1alpha1.SupportsHostLocal:                  infraCaps[infraspiv1alpha1.SupportsHostLocal],
 	}
 	return nil
 }
