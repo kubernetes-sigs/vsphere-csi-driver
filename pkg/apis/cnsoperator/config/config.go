@@ -56,3 +56,8 @@ const EmbedInfraStoragePolicyInfoCRFileName = "cns.vmware.com_infrastoragepolicy
 var EmbedStoragePolicyInfoCRFile embed.FS
 
 const EmbedStoragePolicyInfoCRFileName = "cns.vmware.com_storagepolicyinfos.yaml"
+
+//go:embed cns.vmware.com_vksregistervolumes.yaml
+var EmbedVKSRegisterVolumeCRFile embed.FS
+
+const EmbedVKSRegisterVolumeCRFileName = "cns.vmware.com_vksregistervolumes.yaml"

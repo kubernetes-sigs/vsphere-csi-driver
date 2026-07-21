@@ -1,0 +1,113 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.19.0
+  name: vksregistervolumes.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: VKSRegisterVolume
+    listKind: VKSRegisterVolumeList
+    plural: vksregistervolumes
+    shortNames:
+    - vksregvol
+    singular: vksregistervolume
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.pvcName
+      name: PVCName
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.registered
+      name: Registered
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VKSRegisterVolume is the Schema for the vksregistervolumes API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              VKSRegisterVolumeSpec defines the desired state of VKSRegisterVolume.
+
+              VKSRegisterVolume is a guest (VKS) cluster CR that binds a pre-created guest
+              PersistentVolumeClaim to an already-registered Supervisor volume. It intentionally
+              does NOT expose any VC-relative disk identity (no VolumeID / DiskURLPath) in the
+              guest cluster: that identity lives only on the referenced Supervisor
+              CnsRegisterVolume. This CR only references the pre-created guest PVC and that
+              Supervisor CnsRegisterVolume; it does not itself create either.
+
+              The supported workflow is the data-protection restore path, which drives all
+              three objects (the guest PVC, the Supervisor CnsRegisterVolume, and this CR) in
+              the correct order. The controller has no way to check who created the referenced
+              objects, so a client with sufficient RBAC could in principle pre-create them by
+              hand and create this CR directly for static provisioning; this is not a
+              supported or documented usage and is not validated against — treat it as
+              unsupported, not as an alternate API contract.
+            properties:
+              cnsRegisterVolumeName:
+                description: |-
+                  CnsRegisterVolumeName is the name of the CnsRegisterVolume CR in the Supervisor
+                  cluster, in the Supervisor namespace this VKS cluster is deployed in (see
+                  config.GetSupervisorNamespace; a VKS cluster can only ever access resources in
+                  that namespace, so it is not repeated here). The controller watches this CR for
+                  registration/binding and uses its spec.pvcName (the Supervisor PVC name) to
+                  locate the Supervisor PVC/PV and obtain the CSI volumeHandle for the guest PV.
+                type: string
+              pvcName:
+                description: |-
+                  PVCName is the name of the pre-created guest PersistentVolumeClaim, in this
+                  CR's namespace, that must already exist in the Pending state with
+                  spec.volumeName set to the future guest PV name. The controller binds this
+                  PVC by creating the matching PV; it never creates or deletes the PVC.
+                type: string
+            required:
+            - cnsRegisterVolumeName
+            - pvcName
+            type: object
+          status:
+            description: VKSRegisterVolumeStatus defines the observed state of VKSRegisterVolume.
+            properties:
+              error:
+                description: Error is a human-readable message describing a terminal
+                  failure, if any.
+                type: string
+              phase:
+                description: Phase is the current lifecycle phase.
+                type: string
+              registered:
+                description: |-
+                  Registered is true once the guest PVC is Bound to the guest PV created by the
+                  controller. Callers can watch this field to detect completion.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
