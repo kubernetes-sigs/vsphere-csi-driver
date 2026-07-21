@@ -1636,8 +1636,8 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeySupervisorWorkload},
 		},
 		{
-			name:      "no signals -> supervisor-workload",
-			wantKeys:  []string{common.AnnKeySupervisorWorkload},
+			name:     "no signals -> supervisor-workload",
+			wantKeys: []string{common.AnnKeySupervisorWorkload},
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
 				common.AnnKeySupervisorVMServiceVM},
 		},
