@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sort"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
@@ -3937,6 +3939,64 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 			assert.Equal(t, tt.expectedSupportsHPLinkedClone, actualHPLC,
 				"SupportsHighPerformanceLinkedClone should be %v for k8sCompliantName %s",
 				tt.expectedSupportsHPLinkedClone, tt.k8sCompliantName)
+		})
+	}
+}
+
+// TestPopulateVolumeCapabilities_HostLocal verifies that SupportsHostLocal is populated
+// from VirtualCenter.IsHostLocalStoragePolicy for non-marker policies, and that a failure
+// from that call is surfaced as an error while still recording SupportsHostLocal=false.
+func TestPopulateVolumeCapabilities_HostLocal(t *testing.T) {
+	ctx := context.Background()
+	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
+
+	tests := []struct {
+		name             string
+		isHostLocal      bool
+		hostLocalErr     error
+		expectedErr      bool
+		expectedSupports bool
+	}{
+		{
+			name:             "policy carries host-local capability",
+			isHostLocal:      true,
+			expectedSupports: true,
+		},
+		{
+			name:             "policy does not carry host-local capability",
+			isHostLocal:      false,
+			expectedSupports: false,
+		},
+		{
+			name:             "error checking host-local capability is surfaced",
+			hostLocalErr:     fmt.Errorf("failed to retrieve SPBM profile"),
+			expectedErr:      true,
+			expectedSupports: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := gomonkey.NewPatches()
+			defer patches.Reset()
+			patches.ApplyMethod(reflect.TypeOf(stubVC), "IsHostLocalStoragePolicy",
+				func(_ *cnsvsphere.VirtualCenter, _ context.Context, _ string) (bool, error) {
+					return tt.isHostLocal, tt.hostLocalErr
+				})
+
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+			infraSPI.Name = "some-regular-policy"
+
+			err := populateVolumeCapabilities(ctx, infraSPI, stubVC, "test-policy", nil)
+			if tt.expectedErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHostLocal]
+			assert.True(t, exists, "SupportsHostLocal should be set")
+			assert.Equal(t, tt.expectedSupports, actual)
 		})
 	}
 }

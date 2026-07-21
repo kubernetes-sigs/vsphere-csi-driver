@@ -26,8 +26,9 @@ import (
 //   - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
 //   - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
 //   - SupportsLinkedClone: LinkedClone is supported.
+//   - SupportsHostLocal: the policy is a host-local storage policy.
 //
-// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone
+// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone;SupportsHostLocal
 type VolumeCapability string
 
 const (
@@ -40,6 +41,8 @@ const (
 	SupportsHighPerformanceLinkedClone VolumeCapability = "SupportsHighPerformanceLinkedClone"
 	// SupportsLinkedClone indicates that the policy supports linked clones with at least one ESXi 9.1+ host.
 	SupportsLinkedClone VolumeCapability = "SupportsLinkedClone"
+	// SupportsHostLocal indicates that the policy carries the host-local storage capability.
+	SupportsHostLocal VolumeCapability = "SupportsHostLocal"
 )
 
 // Topology describes topology accessibility for the storage policy within the cluster.
