@@ -1645,7 +1645,7 @@ func TestClassifySupervisorPVC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pvc := makePVCForClassification(tt.labels, tt.owners)
-			got := classifySupervisorPVC(pvc)
+			got := classifySupervisorPVC(pvc, nil)
 			for _, k := range tt.wantKeys {
 				v, ok := got[k]
 				assert.True(t, ok, "missing expected key %s in classification (got=%v)", k, got)

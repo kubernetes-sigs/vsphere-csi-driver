@@ -2243,7 +2243,19 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 //     the form "<gc-name>/TKGService" — the presence of that marker is
 //     authoritative even when the rest of the key has been redacted.
 //
-//   - AnnKeySupervisorWorkload is included only when neither of the above
+//   - AnnKeySupervisorPodVM is included if neither of the above applies and
+//     pvc.Spec.VolumeName is referenced by a VolumeAttachment object —
+//     i.e., the PVC is attached to a native Supervisor Pod (PodVM) through
+//     the standard Kubernetes attacher flow.
+//
+//   - AnnKeySupervisorVMServiceVM is included if neither of the first two
+//     applies and any PVC annotation key has prefix
+//     cnsoperatortypes.UsedByVMAnnotationPrefix — i.e., the PVC is attached
+//     as a data disk to a standalone VM Service VM via
+//     CnsNodeVMBatchAttachment rather than through the Kubernetes attacher
+//     flow.
+//
+//   - AnnKeySupervisorWorkload is included only when none of the above
 //     applies. The annotation is set explicitly rather than implied by
 //     absence so that "no csi.vsphere.volume.type/* annotation at all"
 //     reliably means "fullsync has not yet evaluated this PVC".
@@ -2251,8 +2263,10 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 // A PVC that satisfies both Node and Workload signals (rare but possible
 // if, for example, a guest-cluster Pod volume gains a VM owner reference
 // through an out-of-band edit) is double-tagged with vks-node AND
-// vks-workload but is NOT tagged supervisor-workload.
-func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim) map[string]string {
+// vks-workload but is NOT tagged supervisor-workload. The same holds for
+// any other combination of signals: all matching tags are set, and
+// supervisor-workload is set only when none match.
+func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string]struct{}) map[string]string {
 	desired := make(map[string]string, 2)
 
 	hasVKSNode := false
@@ -2272,13 +2286,38 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim) map[string]string {
 		}
 	}
 
+	// hasPodVMAttachment and hasVMServiceAttachment further classify PVCs
+	// that are neither a VKS node disk nor a VKS guest-cluster workload
+	// volume, using the same two signals pvcEligibleForCBTChange (cbtsync.go)
+	// already relies on to distinguish the two Supervisor-side attach paths.
+	hasPodVMAttachment := false
+	if pvc.Spec.VolumeName != "" {
+		if _, ok := attachedPVs[pvc.Spec.VolumeName]; ok {
+			hasPodVMAttachment = true
+		}
+	}
+
+	hasVMServiceAttachment := false
+	for key := range pvc.Annotations {
+		if strings.HasPrefix(key, cnsoperatortypes.UsedByVMAnnotationPrefix) {
+			hasVMServiceAttachment = true
+			break
+		}
+	}
+
 	if hasVKSNode {
 		desired[common.AnnKeyVKSNode] = common.AnnValueTrue
 	}
 	if hasVKSWorkload {
 		desired[common.AnnKeyVKSWorkload] = common.AnnValueTrue
 	}
-	if !hasVKSNode && !hasVKSWorkload {
+	if hasPodVMAttachment {
+		desired[common.AnnKeySupervisorPodVM] = common.AnnValueTrue
+	}
+	if hasVMServiceAttachment {
+		desired[common.AnnKeySupervisorVMServiceVM] = common.AnnValueTrue
+	}
+	if !hasVKSNode && !hasVKSWorkload && !hasPodVMAttachment && !hasVMServiceAttachment {
 		desired[common.AnnKeySupervisorWorkload] = common.AnnValueTrue
 	}
 	return desired
@@ -2337,8 +2376,8 @@ func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
 // annotateSupervisorPVCsWithWorkloadType iterates over every PVC in every
 // supervisor namespace and reconciles the csi.vsphere.volume.type/*
 // annotations that classify the PVC's consumer workload type (VKS Node VM,
-// VKS guest-cluster Pod, or supervisor-side workload). See classifySupervisorPVC
-// for the rule set.
+// VKS guest-cluster Pod, Supervisor PodVM, or Supervisor VM Service VM). See
+// classifySupervisorPVC for the rule set.
 //
 // PVCs being deleted (DeletionTimestamp set) are skipped — there is no
 // value in updating a tombstone and doing so can race with the deletion
@@ -2368,13 +2407,19 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 		return
 	}
 
+	attachedPVs, err := loadAttachedPVNames(metadataSyncer.vaLister)
+	if err != nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list VolumeAttachment objects. Err: %v", err)
+		return
+	}
+
 	var patched, skipped, failed int
 	for _, pvc := range pvcs {
 		if pvc.ObjectMeta.DeletionTimestamp != nil {
 			skipped++
 			continue
 		}
-		desired := classifySupervisorPVC(pvc)
+		desired := classifySupervisorPVC(pvc, attachedPVs)
 		patchBytes, needsPatch, err := reconcilePVCWorkloadTypeAnnotations(pvc, desired)
 		if err != nil {
 			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to build patch for PVC %s/%s. Err: %v",
