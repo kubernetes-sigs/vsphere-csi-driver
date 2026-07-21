@@ -1302,20 +1302,19 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
-		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, req.VolumeId, metav1.GetOptions{})
+		// Determine whether this is a file volume from the guest PVC's access modes,
+		// not the Supervisor PVC's. A statically provisioned guest PVC can carry RWX/ROX
+		// access modes while the underlying Supervisor PVC (and CNS volume) is RWO block -
+		// e.g. when a block FCD is mistakenly registered as a static RWX volume on the guest
+		// cluster. ControllerPublishVolume already keys off the guest-side capability
+		// (req.GetVolumeCapability()), so unpublish must be consistent with that decision or
+		// the CnsFileAccessConfig CR created on publish is never cleaned up.
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, req.VolumeId)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				req.VolumeId, c.supervisorNamespace, err)
+			msg := fmt.Sprintf("failed to determine volume type for volume %q from guest PVC. Error: %+v",
+				req.VolumeId, err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-		}
-		var isFileVolume bool
-		for _, accessMode := range svPVC.Spec.AccessModes {
-			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-				isFileVolume = true
-			}
 		}
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -2309,6 +2308,30 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 
 	log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
 	return &csi.ControllerModifyVolumeResponse{}, nil
+}
+
+// isFileVolumeFromGuestPVC determines whether volumeID is a file volume by inspecting the
+// guest PVC's access modes, mirroring how ControllerPublishVolume classifies the volume from
+// the CSI request's guest-side VolumeCapability. It uses the in-memory volumeID->PVC cache
+// (maintained by the PV informer) to resolve the guest PVC, matching getTargetVACForVolume.
+func (c *controller) isFileVolumeFromGuestPVC(ctx context.Context, volumeID string) (bool, error) {
+	pvcName, pvcNamespace, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
+	if !exists {
+		return false, fmt.Errorf("no guest PVC found for volume %q", volumeID)
+	}
+
+	pvc, err := c.guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(
+		ctx, pvcName, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get guest PVC %s/%s: %v", pvcNamespace, pvcName, err)
+	}
+
+	for _, accessMode := range pvc.Spec.AccessModes {
+		if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.

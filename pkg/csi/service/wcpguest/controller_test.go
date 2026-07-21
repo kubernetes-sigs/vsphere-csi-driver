@@ -1771,6 +1771,91 @@ func TestGetTargetVACForVolume(t *testing.T) {
 	})
 }
 
+// TestIsFileVolumeFromGuestPVC tests the isFileVolumeFromGuestPVC helper function.
+// The implementation uses commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID
+// (the in-memory PV informer cache) to resolve volumeID → guest PVC, then inspects the guest
+// PVC's access modes - this must be guest-side, since a statically provisioned guest PVC can
+// have RWX/ROX access modes while the underlying Supervisor PVC/CNS volume is RWO block.
+func TestIsFileVolumeFromGuestPVC(t *testing.T) {
+	ctx := context.Background()
+	// Ensure commonco.ContainerOrchestratorUtility is initialised with the fake orchestrator.
+	getControllerTest(t)
+
+	const mockPVC = "mock-pvc"
+	const mockNS = "mock-namespace"
+
+	makePVC := func(guestClient *testclient.Clientset, accessModes ...v1.PersistentVolumeAccessMode) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: mockPVC, Namespace: mockNS},
+			Spec:       v1.PersistentVolumeClaimSpec{AccessModes: accessModes},
+		}
+		_, err := guestClient.CoreV1().PersistentVolumeClaims(mockNS).Create(ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+
+	t.Run("guest PVC with ReadWriteMany is a file volume", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		makePVC(guestClient, v1.ReadWriteMany)
+
+		c := &controller{guestClient: guestClient}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "test-volume-123")
+		assert.NoError(t, err)
+		assert.True(t, isFileVolume)
+	})
+
+	t.Run("guest PVC with ReadOnlyMany is a file volume", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		makePVC(guestClient, v1.ReadOnlyMany)
+
+		c := &controller{guestClient: guestClient}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "test-volume-123")
+		assert.NoError(t, err)
+		assert.True(t, isFileVolume)
+	})
+
+	t.Run("guest PVC with ReadWriteOnce is a block volume", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		makePVC(guestClient, v1.ReadWriteOnce)
+
+		c := &controller{guestClient: guestClient}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "test-volume-123")
+		assert.NoError(t, err)
+		assert.False(t, isFileVolume)
+	})
+
+	t.Run("volume not in cache", func(t *testing.T) {
+		// volumeID containing "invalid" causes FakeK8SOrchestrator to return exists=false
+		c := &controller{guestClient: testclient.NewClientset()}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "invalid-volume")
+		assert.Error(t, err)
+		assert.False(t, isFileVolume)
+		assert.Contains(t, err.Error(), "no guest PVC found")
+	})
+
+	t.Run("guest PVC not found", func(t *testing.T) {
+		// Cache returns mock-pvc/mock-namespace but PVC does not exist in the API
+		c := &controller{guestClient: testclient.NewClientset()}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "test-volume-123")
+		assert.Error(t, err)
+		assert.False(t, isFileVolume)
+		assert.Contains(t, err.Error(), "failed to get guest PVC")
+	})
+
+	t.Run("guest client API failure on get", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		guestClient.PrependReactor("get", "persistentvolumeclaims",
+			func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, nil, errors.NewInternalError(assert.AnError)
+			})
+
+		c := &controller{guestClient: guestClient}
+		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, "test-volume-123")
+		assert.Error(t, err)
+		assert.False(t, isFileVolume)
+		assert.Contains(t, err.Error(), "failed to get guest PVC")
+	})
+}
+
 // TestWaitForSupervisorPVCModifyVolume tests the waitForSupervisorPVCModifyVolume helper function
 func TestWaitForSupervisorPVCModifyVolume(t *testing.T) {
 	ctx := context.Background()
