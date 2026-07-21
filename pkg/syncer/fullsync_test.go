@@ -54,6 +54,7 @@ import (
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	cnsvolumeoperationrequest "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
 
 const (
@@ -1565,8 +1566,8 @@ func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
 
 // makePVCForClassification is a small builder for the
 // TestClassifySupervisorPVC table tests.
-func makePVCForClassification(labels map[string]string,
-	ownerKinds []string) *v1.PersistentVolumeClaim {
+func makePVCForClassification(labels map[string]string, ownerKinds []string,
+	volumeName string, annotations map[string]string) *v1.PersistentVolumeClaim {
 	owners := make([]metav1.OwnerReference, 0, len(ownerKinds))
 	for _, k := range ownerKinds {
 		owners = append(owners, metav1.OwnerReference{Kind: k, Name: "owner-" + k})
@@ -1576,24 +1577,35 @@ func makePVCForClassification(labels map[string]string,
 			Name:            "test-pvc",
 			Namespace:       "test-ns",
 			Labels:          labels,
+			Annotations:     annotations,
 			OwnerReferences: owners,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: volumeName,
 		},
 	}
 }
 
 // TestClassifySupervisorPVC verifies the rule table for
 // classifySupervisorPVC: VirtualMachine / VSphereMachine ownerRefs imply
-// vks-node, a TKGService marker in any label key implies vks-workload,
-// and the absence of both implies supervisor-workload. The classification
-// is boolean-tag-based — vks-node and vks-workload can co-occur, but
-// supervisor-workload is mutually exclusive with both.
+// vks-node, a TKGService marker in any label key implies vks-workload, a
+// bound PV present in the attachedPVs set implies supervisor-podvm, a
+// "usedby-vm-" annotation prefix implies supervisor-vmservice-vm, and the
+// absence of all four implies supervisor-workload. The classification is
+// boolean-tag-based — any combination of signals can co-occur, but
+// supervisor-workload is mutually exclusive with all of them.
 func TestClassifySupervisorPVC(t *testing.T) {
+	usedByVMAnnotation := map[string]string{cnsoperatortypes.UsedByVMAnnotationPrefix + "vm-uuid-123": ""}
+
 	tests := []struct {
-		name      string
-		labels    map[string]string
-		owners    []string
-		wantKeys  []string
-		notWanted []string
+		name        string
+		labels      map[string]string
+		owners      []string
+		volumeName  string
+		annotations map[string]string
+		attachedPVs map[string]struct{}
+		wantKeys    []string
+		notWanted   []string
 	}{
 		{
 			name:      "vks node via VirtualMachine ownerRef",
@@ -1626,7 +1638,8 @@ func TestClassifySupervisorPVC(t *testing.T) {
 		{
 			name:      "no signals -> supervisor-workload",
 			wantKeys:  []string{common.AnnKeySupervisorWorkload},
-			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
+				common.AnnKeySupervisorVMServiceVM},
 		},
 		{
 			name:      "both signals -> double-tagged, supervisor-workload NOT set",
@@ -1641,11 +1654,55 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			wantKeys:  []string{common.AnnKeySupervisorWorkload},
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
 		},
+		{
+			name:        "podvm attachment via VolumeAttachment -> supervisor-podvm",
+			volumeName:  "pv-1",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeySupervisorPodVM},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorVMServiceVM,
+				common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:        "bound PV not in attachedPVs -> falls through to supervisor-workload",
+			volumeName:  "pv-2",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeySupervisorWorkload},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+		},
+		{
+			name:        "unbound PVC (no VolumeName) is never podvm-tagged",
+			attachedPVs: map[string]struct{}{"": {}},
+			wantKeys:    []string{common.AnnKeySupervisorWorkload},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+		},
+		{
+			name:        "usedby-vm annotation -> supervisor-vmservice-vm",
+			annotations: usedByVMAnnotation,
+			wantKeys:    []string{common.AnnKeySupervisorVMServiceVM},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
+				common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:        "podvm and vmservice-vm signals co-occur -> double-tagged, supervisor-workload NOT set",
+			volumeName:  "pv-1",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			annotations: usedByVMAnnotation,
+			wantKeys:    []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+			notWanted:   []string{common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:        "vks node and podvm signals co-occur -> double-tagged, supervisor-workload NOT set",
+			owners:      []string{"VirtualMachine"},
+			volumeName:  "pv-1",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeyVKSNode, common.AnnKeySupervisorPodVM},
+			notWanted:   []string{common.AnnKeySupervisorWorkload},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pvc := makePVCForClassification(tt.labels, tt.owners)
-			got := classifySupervisorPVC(pvc, nil)
+			pvc := makePVCForClassification(tt.labels, tt.owners, tt.volumeName, tt.annotations)
+			got := classifySupervisorPVC(pvc, tt.attachedPVs)
 			for _, k := range tt.wantKeys {
 				v, ok := got[k]
 				assert.True(t, ok, "missing expected key %s in classification (got=%v)", k, got)

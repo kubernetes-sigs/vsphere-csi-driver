@@ -2245,8 +2245,8 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 //
 //   - AnnKeySupervisorPodVM is included if neither of the above applies and
 //     pvc.Spec.VolumeName is referenced by a VolumeAttachment object —
-//     i.e., the PVC is attached to a native Supervisor Pod (PodVM) through
-//     the standard Kubernetes attacher flow.
+//     i.e., by exclusion, the PV must be attached to a podVM as it is
+//     attached AND it is not attached to a VKSNode.
 //
 //   - AnnKeySupervisorVMServiceVM is included if neither of the first two
 //     applies and any PVC annotation key has prefix
@@ -2286,10 +2286,6 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string
 		}
 	}
 
-	// hasPodVMAttachment and hasVMServiceAttachment further classify PVCs
-	// that are neither a VKS node disk nor a VKS guest-cluster workload
-	// volume, using the same two signals pvcEligibleForCBTChange (cbtsync.go)
-	// already relies on to distinguish the two Supervisor-side attach paths.
 	hasPodVMAttachment := false
 	if pvc.Spec.VolumeName != "" {
 		if _, ok := attachedPVs[pvc.Spec.VolumeName]; ok {
