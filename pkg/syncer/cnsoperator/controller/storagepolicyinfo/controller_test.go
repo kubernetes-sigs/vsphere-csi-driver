@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
@@ -676,12 +677,13 @@ func TestSetSPISuccess(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
 		Status:     spiv1alpha1.StoragePolicyInfoStatus{Error: "previous error"},
 	}
+	origStatus := spi.Status.DeepCopy()
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
 
-	err := r.setSPISuccess(ctx, spi, "all good")
+	err := r.setSPISuccess(ctx, spi, origStatus, "all good")
 	require.NoError(t, err)
 	assert.Empty(t, spi.Status.Error, "expected error field to be cleared")
 
@@ -702,12 +704,13 @@ func TestSetSPIError(t *testing.T) {
 	spi := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
 	}
+	origStatus := spi.Status.DeepCopy()
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).Build()
 	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
 
-	err := r.setSPIError(ctx, spi, "something failed")
+	err := r.setSPIError(ctx, spi, origStatus, "something failed")
 	require.NoError(t, err)
 	assert.Equal(t, "something failed", spi.Status.Error)
 
@@ -718,6 +721,67 @@ func TestSetSPIError(t *testing.T) {
 	default:
 		t.Error("expected a Warning StoragePolicyInfoFailed event")
 	}
+}
+
+// TestSetSPISuccess_SkipsNoOpStatusUpdate verifies that setSPISuccess does not call
+// Status().Update() when the recomputed status is identical to origStatus, but still
+// records the event.
+func TestSetSPISuccess_SkipsNoOpStatusUpdate(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	origStatus := spi.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, cli client.Client, subResourceName string,
+				obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				statusUpdateCalled = true
+				return cli.SubResource(subResourceName).Update(ctx, obj, opts...)
+			},
+		}).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+
+	err := r.setSPISuccess(ctx, spi, origStatus, "all good")
+	require.NoError(t, err)
+	assert.False(t, statusUpdateCalled, "expected no Status().Update() call when status is unchanged")
+
+	select {
+	case <-recorder.Events:
+	default:
+		t.Error("expected a Normal StoragePolicyInfoSynced event even when the write was skipped")
+	}
+}
+
+// TestSetSPIError_WritesWhenStatusChanged verifies that setSPIError still calls
+// Status().Update() when the recomputed status differs from origStatus.
+func TestSetSPIError_WritesWhenStatusChanged(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	origStatus := spi.Status.DeepCopy()
+	recorder := record.NewFakeRecorder(10)
+	statusUpdateCalled := false
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).WithObjects(spi).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, cli client.Client, subResourceName string,
+				obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				statusUpdateCalled = true
+				return cli.SubResource(subResourceName).Update(ctx, obj, opts...)
+			},
+		}).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme, recorder: recorder}
+
+	err := r.setSPIError(ctx, spi, origStatus, "something failed")
+	require.NoError(t, err)
+	assert.True(t, statusUpdateCalled, "expected a Status().Update() call when status changed")
 }
 
 // TestUpdateStatus_StatusFieldPersisted verifies that k8s.UpdateStatus correctly
