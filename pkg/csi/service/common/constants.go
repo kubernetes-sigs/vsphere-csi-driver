@@ -695,7 +695,7 @@ const (
 	// TKG >= 3.8.0, and the dp-operator snapservice has been registered and activated.
 	// The capability string matches the entry in supervisor-capabilities.yaml owned by
 	// the snapservice team.
-	DataProtectionSnapshotService = "supports_data_protection_snaphot_service"
+	DataProtectionSnapshotService = "supports_data_protection_snapshot_service"
 
 	// VKSRegisterVolume is the guest-cluster FSS that gates the VKSRegisterVolume
 	// operator. Requires both this flag in the guest PVCSI ConfigMap and the
