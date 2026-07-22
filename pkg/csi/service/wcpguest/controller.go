@@ -1302,19 +1302,10 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
-		// Determine whether this is a file volume from the guest PVC's access modes,
-		// not the Supervisor PVC's. A statically provisioned guest PVC can carry RWX/ROX
-		// access modes while the underlying Supervisor PVC (and CNS volume) is RWO block -
-		// e.g. when a block FCD is mistakenly registered as a static RWX volume on the guest
-		// cluster. ControllerPublishVolume already keys off the guest-side capability
-		// (req.GetVolumeCapability()), so unpublish must be consistent with that decision or
-		// the CnsFileAccessConfig CR created on publish is never cleaned up.
-		isFileVolume, err := c.isFileVolumeFromGuestPVC(ctx, req.VolumeId)
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("failed to determine volume type for volume %q from guest PVC. Error: %+v",
-				req.VolumeId, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			log.Error(err.Error())
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
 		}
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -2310,28 +2301,48 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	return &csi.ControllerModifyVolumeResponse{}, nil
 }
 
-// isFileVolumeFromGuestPVC determines whether volumeID is a file volume by inspecting the
-// guest PVC's access modes, mirroring how ControllerPublishVolume classifies the volume from
-// the CSI request's guest-side VolumeCapability. It uses the in-memory volumeID->PVC cache
-// (maintained by the PV informer) to resolve the guest PVC, matching getTargetVACForVolume.
-func (c *controller) isFileVolumeFromGuestPVC(ctx context.Context, volumeID string) (bool, error) {
-	pvcName, pvcNamespace, exists := commonco.ContainerOrchestratorUtility.GetPVCNameFromCSIVolumeID(volumeID)
-	if !exists {
-		return false, fmt.Errorf("no guest PVC found for volume %q", volumeID)
-	}
-
-	pvc, err := c.guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(
-		ctx, pvcName, metav1.GetOptions{})
+// isFileVolumeAttachment determines whether the (req.NodeId, req.VolumeId) attachment that
+// ControllerUnpublishVolume is being asked to tear down was published as a file volume. It
+// checks two independent, unambiguous signals instead of inferring file-vs-block from any
+// PVC's overall access mode:
+//  1. Whether the Supervisor PVC is FVS-backed (a Supervisor-volume-level property; FVS
+//     volumes never get a CnsFileAccessConfig CR, so they must be special-cased here).
+//  2. Whether the CnsFileAccessConfig CR that ControllerPublishVolume would have created for
+//     this exact (node, volume) pair exists.
+//
+// A PVC's access mode is not a reliable signal here: a block FCD mistakenly registered as a
+// second, static RWX PV/PVC on the guest cluster shares its volumeHandle with the real,
+// dynamically-provisioned RWO PV, so any volumeID-keyed lookup (guest or Supervisor) can
+// resolve to either PVC. The CnsFileAccessConfig CR's existence has no such ambiguity: it is
+// the exact artifact Publish created (or didn't) for this specific req.NodeId/req.VolumeId
+// pair.
+func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
+	bool, error) {
+	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+		ctx, req.VolumeId, metav1.GetOptions{})
 	if err != nil {
-		return false, fmt.Errorf("failed to get guest PVC %s/%s: %v", pvcNamespace, pvcName, err)
+		return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
+			req.VolumeId, c.supervisorNamespace, err)
+	}
+	if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
+		return true, nil
 	}
 
-	for _, accessMode := range pvc.Spec.AccessModes {
-		if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-			return true, nil
-		}
+	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
+	existingInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	err = c.cnsOperatorClient.Get(ctx, types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      cnsFileAccessConfigInstanceName,
+	}, existingInstance)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.IsNotFound(err):
+		return false, nil
+	default:
+		return false, fmt.Errorf("failed to get CnsFileAccessConfig instance %q/%q: %v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 	}
-	return false, nil
 }
 
 // getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.
