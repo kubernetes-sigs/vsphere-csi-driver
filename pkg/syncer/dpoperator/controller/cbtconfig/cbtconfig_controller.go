@@ -18,8 +18,10 @@ package cbtconfig
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
@@ -36,7 +38,10 @@ import (
 
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
 
@@ -59,14 +64,46 @@ func cbtStatusState(st *cbtconfigv1alpha1.CBTConfigStatus) (active, configured b
 	return *st.State == cbtconfigv1alpha1.CBTStateActive, true
 }
 
-// Add creates a new CBTConfig controller and adds it to the Manager.
-// pvLister, pvcLister and vaLister come from the singleton InformerManager shared with the
-// metadata syncer and k8sorchestrator, so no second copy of those informers is started here.
-// kubeClient is the shared clientset used by the CBT label-sync phase.
-func Add(mgr manager.Manager, kubeClient clientset.Interface, volumeManager volume.Manager,
-	pvLister corelisters.PersistentVolumeLister,
-	pvcLister corelisters.PersistentVolumeClaimLister,
-	vaLister storagelistersv1.VolumeAttachmentLister) error {
+// Add creates a new CBTConfig controller and adds it to the Manager. CBTConfig only exists on
+// the Supervisor (Workload) cluster; Add is a no-op for every other cluster flavor.
+func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
+	configInfo *cnsconfig.ConfigurationInfo) error {
+	ctx, log := logger.GetNewContextWithLogger()
+
+	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
+		log.Debug("Not initializing the CBTConfig Controller as its a non-WCP CSI deployment")
+		return nil
+	}
+
+	vcClient, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	if err != nil {
+		return err
+	}
+
+	volumeManager, err := volume.GetManager(ctx, vcClient, nil, false, false, false,
+		cnstypes.CnsClusterFlavorWorkload, configInfo.Cfg.Global.SupervisorID,
+		configInfo.Cfg.Global.ClusterDistribution)
+	if err != nil {
+		return fmt.Errorf("failed to create an instance of volume manager: %w", err)
+	}
+
+	// Reuse the singleton InformerManager so the CBTConfig controller's PV/PVC/VA reads share
+	// the same cluster-wide informer caches that the metadata syncer (and other syncer
+	// controllers) already run in this process. Listen() starts the factory and waits for the
+	// registered informers' caches to sync (idempotent across callers - the metadata syncer
+	// also calls Listen on the same singleton).
+	kubeClient, err := k8s.NewClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client for cbtconfig controller: %w", err)
+	}
+	informerManager := k8s.NewInformer(ctx, kubeClient)
+	informerManager.InitVolumeAttachmentInformer()
+	informerManager.Listen()
+
+	pvLister := informerManager.GetPVLister()
+	pvcLister := informerManager.GetPVCLister()
+	vaLister := informerManager.GetVolumeAttachmentLister()
+
 	rec := newReconciler(mgr, kubeClient, volumeManager, pvLister, pvcLister, vaLister)
 	return add(mgr, rec)
 }

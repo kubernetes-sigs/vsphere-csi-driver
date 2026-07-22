@@ -47,9 +47,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -87,40 +86,21 @@ const (
 var (
 	backOffDuration         map[string]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
-
-	// getContainerOrchestratorInterface is a package-level indirection over
-	// commonco.GetContainerOrchestratorInterface so unit tests can inject a
-	// fake CO interface without requiring a real Kubernetes client.
-	getContainerOrchestratorInterface = commonco.GetContainerOrchestratorInterface
 )
 
 // Add creates a new SnapshotMetadataService Controller and adds it to the
 // Manager. The Manager will set fields on the Controller and Start it when the
 // Manager is Started.
-func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor) error {
+func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
+	_ *cnsconfig.ConfigurationInfo) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
-	// TODO: remove this check once we add changes for Guest cluster
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the SnapshotMetadataService Controller as its a non-WCP CSI deployment")
 		return nil
 	}
 
-	// Check if CSI_Backup_API FSS is enabled
-	coCommonInterface, err := getContainerOrchestratorInterface(ctx,
-		common.Kubernetes, clusterFlavor, nil)
-	if err != nil {
-		log.Errorf("Failed to get CO common interface. Err: %v", err)
-		return err
-	}
-
-	isCSIBackupAPIEnabled := coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API)
-	if !isCSIBackupAPIEnabled {
-		log.Infof("CSI_Backup_API FSS is not enabled. Skipping SnapshotMetadataService Controller initialization")
-		return nil
-	}
-
-	log.Infof("CSI_Backup_API FSS is enabled. Initializing SnapshotMetadataService Controller")
+	log.Infof("Initializing SnapshotMetadataService Controller")
 
 	// Initializes kubernetes client.
 	k8sclient, err := k8s.NewClient(ctx)
@@ -317,13 +297,6 @@ func (r *ReconcileSnapshotMetadataService) Reconcile(ctx context.Context,
 	ctx = logger.NewContextWithLogger(ctx)
 	reconcileLog := logger.GetLogger(ctx)
 	reconcileLog.Infof("Received Reconcile for request: %q", request.NamespacedName)
-
-	go func() {
-		<-ctx.Done()
-		reconcileLog.Infof("context canceled for reconcile for SnapshotMetadataService request: %q, error: %v",
-			request.NamespacedName, ctx.Err())
-	}()
-
 	reconcileLog.Infof("Started Reconcile for SnapshotMetadataService request: %q", request.NamespacedName)
 
 	// Fetch the owned SnapshotMetadataService CR (the primary object).
