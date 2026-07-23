@@ -39,9 +39,8 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 // ownerReferenceKey returns OwnerReference key which is concatenated from the APIVersion, Kind and Name.
@@ -522,8 +521,7 @@ func findStoragePolicyProfile(ctx context.Context,
 func populateVolumeCapabilities(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	vc *cnsvsphere.VirtualCenter, profileID string,
-	topologyMgr commoncotypes.ControllerTopologyService,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) error {
+	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo) error {
 	log := logger.GetLogger(ctx)
 
 	caps := map[infraspiv1alpha1.VolumeCapability]bool{
@@ -551,11 +549,7 @@ func populateVolumeCapabilities(ctx context.Context,
 		return nil
 	}
 
-	if clusterDatastoreCache == nil {
-		clusterDatastoreCache = make(map[string][]*cnsvsphere.DatastoreInfo)
-	}
-
-	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, topologyMgr, clusterDatastoreCache)
+	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS)
 	if err != nil {
 		log.Errorf("Failed to check SupportsLinkedClone for policy %s: %v", profileID, err)
 		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
@@ -596,24 +590,12 @@ func populateVolumeCapabilities(ctx context.Context,
 // least one ESXi 9.1+ host mounting those datastores.
 func checkLinkedClone(ctx context.Context,
 	vc *cnsvsphere.VirtualCenter, profileID string,
-	topologyMgr commoncotypes.ControllerTopologyService,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo,
+	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo,
 ) (bool, map[string]map[string]vimtypes.ManagedObjectReference, error) {
 	log := logger.GetLogger(ctx)
 
-	if topologyMgr == nil {
-		log.Warnf("Topology manager unavailable; cannot determine SupportsLinkedClone")
-		return false, nil, fmt.Errorf("topology manager is not available")
-	}
-
 	if vc == nil || vc.Client == nil {
 		return false, nil, fmt.Errorf("virtual center client is not available")
-	}
-
-	zoneCompatibleDS, err := cnsoperatorutil.GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID,
-		clusterDatastoreCache)
-	if err != nil {
-		return false, nil, err
 	}
 
 	if len(zoneCompatibleDS) == 0 {
@@ -850,5 +832,6 @@ func isClusterESAEnabled(ctx context.Context, pc *property.Collector,
 	esa := ok && cfgEx.VsanConfigInfo != nil &&
 		cfgEx.VsanConfigInfo.VsanEsaEnabled != nil && *cfgEx.VsanConfigInfo.VsanEsaEnabled
 	checkedClusters[clusterValue] = esa
+	vsphereinfra.GetCache().SetClusterESAEnabled(clusterValue, esa)
 	return esa, nil
 }

@@ -859,19 +859,15 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 
 	var overallErr error
 
-	// Create a cache for datastore information to be shared across capability calculations
-	// This avoids redundant vCenter calls when populating both topology and volume capabilities
-	clusterDatastoreCache := make(map[string][]*cnsvsphere.DatastoreInfo)
-
 	// Populate topology capabilities for InfraSPI.
-	if err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc,
-		clusterDatastoreCache, policyContent); err != nil {
+	zoneCompatibleDS, err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc, policyContent)
+	if err != nil {
 		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
 	}
 
 	// Populate volume capabilities.
-	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, r.topologyMgr, clusterDatastoreCache); err != nil {
+	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, zoneCompatibleDS); err != nil {
 		log.Errorf("Failed to populate volume capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
 	}
@@ -879,13 +875,14 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	return overallErr
 }
 
-// populateTopologyCapabilities populates topology information for the storage policy in InfraSPI.
+// populateTopologyCapabilities populates topology information for the storage policy in InfraSPI,
+// and returns the zone->compatible-datastore map computed along the way (nil for marker
+// policies).
 func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx context.Context,
 	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
 	vc *cnsvsphere.VirtualCenter,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo,
-	clusterSPIPolicyContent []cnsvsphere.SpbmPolicyContent) error {
+	clusterSPIPolicyContent []cnsvsphere.SpbmPolicyContent) (map[string][]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 
 	// Marker policies (e.g. vSAN File Service) derive their cluster-wide accessible zones from
@@ -898,14 +895,15 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 		}
 		zones, err := cnsoperatorutil.GetZonesForvSANFileServiceMarkerPolicy(ctx, r.k8sClient, zonesFn)
 		if err != nil {
-			return fmt.Errorf("failed to compute cluster zones for vSAN File Service marker policy %q: %w", clusterSPI.Name, err)
+			return nil, fmt.Errorf("failed to compute cluster zones for vSAN File Service marker policy %q: %w",
+				clusterSPI.Name, err)
 		}
 		infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
 			TopologyType:    "zonal",
 			AccessibleZones: zones,
 		}
 		log.Infof("vSAN File Service marker policy %q accessible zones: %v", clusterSPI.Name, zones)
-		return nil
+		return nil, nil
 	}
 
 	// Determine the topology type for this policy. Prefer the StorageClass's StorageTopologyType
@@ -914,7 +912,7 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	// were created ahead of any StorageClass (see full sync).
 	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
 	if err != nil {
-		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
+		return nil, fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
 
 	var topologyType string
@@ -924,7 +922,7 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 		if err != nil {
 			log.Errorf("Storage policy %s does not have a valid StorageTopologyType parameter: %v",
 				profileID, err)
-			return err
+			return nil, err
 		}
 		log.Infof("Storage policy %s has topology type %q from StorageClass %q", profileID, topologyType,
 			storageClass.Name)
@@ -943,13 +941,13 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 
 	log.Infof("Storage policy %s: populating accessible zones", profileID)
 
-	// GetAccessibleZonesAndDatastoresForPolicy returns the flat set of
-	// compatible datastore morefs needed for the DsToPolicy cache update
-	// below alongside the accessible zones, from the same PBM query.
-	accessibleZones, dsIDs, err := cnsoperatorutil.GetAccessibleZonesAndDatastoresForPolicy(ctx, r.topologyMgr, vc,
-		profileID, clusterDatastoreCache)
+	// GetZoneCompatibleDatastoresForPolicy makes SPBM CheckRequirements call, scoped to
+	// every cluster registered to a vSphere AvailabilityZone, to determine both the accessible
+	// zones and the compatible datastores within each zone.
+	accessibleZones, zoneCompatibleDS, dsIDs, err := cnsoperatorutil.GetZoneCompatibleDatastoresForPolicy(ctx,
+		r.topologyMgr, vc, profileID)
 	if err != nil {
-		return fmt.Errorf("failed to get accessible zones: %w", err)
+		return nil, fmt.Errorf("failed to get accessible zones: %w", err)
 	}
 
 	// Record which datastores this policy is compatible with, so the shared
@@ -958,10 +956,24 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	// without a separate vCenter round trip.
 	vsphereinfra.GetCache().SetDatastoresForPolicy(clusterSPI.Name, dsIDs)
 
+	// Record, per zone, which datastores are compatible with this policy, so the
+	// namespace-scoped storagepolicyinfo controller can determine SupportsLinkedClone/
+	// SupportsHighPerformanceLinkedClone for a given zone without any additional vCenter or
+	// PBM call.
+	zoneDsIDs := make(map[string][]string, len(zoneCompatibleDS))
+	for zone, datastores := range zoneCompatibleDS {
+		ids := make([]string, 0, len(datastores))
+		for _, ds := range datastores {
+			ids = append(ids, ds.Reference().Value)
+		}
+		zoneDsIDs[zone] = ids
+	}
+	vsphereinfra.GetCache().SetDatastoresForPolicyZones(clusterSPI.Name, zoneDsIDs)
+
 	// Update InfraSPI with topology information including accessible zones
 	infraSPI.Status.Topology.AccessibleZones = accessibleZones
 
-	return nil
+	return zoneCompatibleDS, nil
 }
 
 // setClusterSPIError sets error and records an event on the ClusterStoragePolicyInfo instance.
@@ -1004,28 +1016,16 @@ func (r *ReconcileClusterStoragePolicyInfo) setClusterSPISuccess(ctx context.Con
 	return nil
 }
 
-// recordEvent records events and handles backoff duration management
+// recordEvent records events for clusterSPI instance.
 func (r *ReconcileClusterStoragePolicyInfo) recordEvent(ctx context.Context,
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Event type is %s", eventtype)
-	namespacedName := apitypes.NamespacedName{
-		Name: instance.Name,
-	}
 	switch eventtype {
 	case v1.EventTypeWarning:
-		// Double backOff duration.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
-			types.MaxBackOffDurationForReconciler)
 		r.recorder.Event(instance, v1.EventTypeWarning, "ClusterStoragePolicyInfoFailed", msg)
-		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
-		// Reset backOff duration to 1 second on success.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(instance, v1.EventTypeNormal, "ClusterStoragePolicyInfoSynced", msg)
-		backOffDurationMapMutex.Unlock()
 	}
 }
 
@@ -1069,27 +1069,15 @@ func (r *ReconcileClusterStoragePolicyInfo) setInfraSPISuccess(ctx context.Conte
 	return nil
 }
 
-// recordInfraSPIEvent records events for InfraStoragePolicyInfo instances and handles backoff duration management
+// recordInfraSPIEvent records events for InfraStoragePolicyInfo instances.
 func (r *ReconcileClusterStoragePolicyInfo) recordInfraSPIEvent(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, eventtype string, msg string) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("InfraSPI Event type is %s", eventtype)
-	namespacedName := apitypes.NamespacedName{
-		Name: infraSPI.Name,
-	}
 	switch eventtype {
 	case v1.EventTypeWarning:
-		// Double backOff duration.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
-			types.MaxBackOffDurationForReconciler)
 		r.recorder.Event(infraSPI, v1.EventTypeWarning, "InfraStoragePolicyInfoFailed", msg)
-		backOffDurationMapMutex.Unlock()
 	case v1.EventTypeNormal:
-		// Reset backOff duration to 1 second on success.
-		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = time.Second
 		r.recorder.Event(infraSPI, v1.EventTypeNormal, "InfraStoragePolicyInfoSynced", msg)
-		backOffDurationMapMutex.Unlock()
 	}
 }

@@ -26,6 +26,7 @@ import (
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -542,59 +543,102 @@ func GetMaxWorkerThreads(ctx context.Context, key string, defaultVal int) int {
 	return workerThreads
 }
 
-// GetPolicyCompatibleDatastoresFn is the implementation used by GetPolicyCompatibleDatastoresPerZone;
-// tests may replace it to inject fake compatible datastore IDs without a real PBM connection.
-var GetPolicyCompatibleDatastoresFn = GetPolicyCompatibleDatastores
-
-// GetPolicyCompatibleDatastores gets all datastores compatible with a storage policy using PBM
-func GetPolicyCompatibleDatastores(ctx context.Context, vc *cnsvsphere.VirtualCenter,
-	profileID string) (map[string]struct{}, error) {
-	if vc == nil || vc.Client == nil {
-		return nil, fmt.Errorf("virtual center client is not available")
-	}
-	compatibleHubs, err := vc.PbmQueryMatchingHub(ctx, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query compatible datastores for policy %s: %w", profileID, err)
-	}
-
-	compatibleDSIDs := make(map[string]struct{})
-	for _, hub := range compatibleHubs {
-		compatibleDSIDs[hub.HubId] = struct{}{}
-	}
-
-	return compatibleDSIDs, nil
+// PbmCheckRequirementsForZoneTopologyFn is the implementation used by
+// GetZoneCompatibleDatastoresForPolicy; tests may replace it to inject a fake placement
+// compatibility result without a real PBM connection.
+var PbmCheckRequirementsForZoneTopologyFn = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	profileID string, clusterMoIDs []string) (pbm.PlacementCompatibilityResult, error) {
+	return vc.PbmCheckRequirementsForZoneTopology(ctx, profileID, clusterMoIDs)
 }
 
-// GetAccessibleZonesAndDatastoresForPolicy determines which zones are
-// accessible to the datastores compatible with the given storage policy, and
-// returns the flat set of compatible datastore morefs behind those zones
-// (deduped across zones that share a datastore).
-func GetAccessibleZonesAndDatastoresForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, profileID string,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) (zones []string, dsIDs []string, err error) {
+// GetZoneCompatibleDatastoresForPolicy determines, via a single SPBM CheckRequirements call
+// scoped to every cluster registered to a vSphere AvailabilityZone, which zones are accessible
+// for the given storage policy and which datastores are compatible within each zone. It also
+// returns the flat, deduped set of compatible datastore morefs across all zones.
+func GetZoneCompatibleDatastoresForPolicy(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
+	vc *cnsvsphere.VirtualCenter, profileID string) (
+	zones []string, zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo, dsIDs []string, err error) {
 	log := logger.GetLogger(ctx)
 
-	zoneCompatibleDS, err := GetPolicyCompatibleDatastoresPerZone(ctx, topologyMgr, vc, profileID, clusterDatastoreCache)
-	if err != nil {
-		return nil, nil, err
+	if topologyMgr == nil {
+		return nil, nil, nil, fmt.Errorf("topology manager is not available")
 	}
 
-	// A zone is accessible if it has at least one compatible datastore.
-	zones = make([]string, 0, len(zoneCompatibleDS))
+	azClustersMap := topologyMgr.GetAZClustersMap(ctx)
+	if len(azClustersMap) == 0 {
+		log.Warnf("No zones found in topology service")
+		return make([]string, 0), make(map[string][]*cnsvsphere.DatastoreInfo), nil, nil
+	}
+
+	// Flatten every cluster across all zones into a single candidate list, and build the
+	// reverse cluster->zones lookup used to attribute each compatible datastore (returned per
+	// cluster by CheckRequirements via HubInfo.ZoneClusters) back to its zone(s).
+	clusterToZones := make(map[string][]string)
+	var allClusters []string
+	for zone, clusters := range azClustersMap {
+		for _, clusterMoref := range clusters {
+			clusterToZones[clusterMoref] = append(clusterToZones[clusterMoref], zone)
+			allClusters = append(allClusters, clusterMoref)
+		}
+	}
+	if len(allClusters) == 0 {
+		log.Warnf("No clusters found across any zone in topology service")
+		return make([]string, 0), make(map[string][]*cnsvsphere.DatastoreInfo), nil, nil
+	}
+
+	if vc == nil || vc.Client == nil {
+		return nil, nil, nil, fmt.Errorf("vCenter is not available")
+	}
+
+	result, err := PbmCheckRequirementsForZoneTopologyFn(ctx, vc, profileID, allClusters)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to check placement requirements for policy %s: %w", profileID, err)
+	}
+
+	// zones must never be nil on a successful (err == nil) return: it's assigned straight into
+	// InfraStoragePolicyInfo.Status.Topology.AccessibleZones, which the CRD schema requires to
+	// be present — a nil slice serializes to JSON null and the status update is rejected.
+	zones = make([]string, 0)
+	zoneCompatibleDS = make(map[string][]*cnsvsphere.DatastoreInfo)
 	seenDsIDs := make(map[string]struct{})
-	for zone, compatibleDS := range zoneCompatibleDS {
-		if len(compatibleDS) == 0 {
+
+	for _, res := range result {
+		if len(res.Error) > 0 {
+			// Incompatible with the policy, or not mounted on any of allClusters.
 			continue
 		}
-		zones = append(zones, zone)
-		for _, ds := range compatibleDS {
-			dsID := ds.Reference().Value
+		if res.HubInfo == nil || len(res.HubInfo.ZoneClusters) == 0 {
+			log.Debugf("Datastore %s is compatible with policy %s but is not attributable to any "+
+				"requested cluster; skipping", res.Hub.HubId, profileID)
+			continue
+		}
 
-			if _, ok := seenDsIDs[dsID]; ok {
-				continue
+		if _, seen := seenDsIDs[res.Hub.HubId]; !seen {
+			seenDsIDs[res.Hub.HubId] = struct{}{}
+			dsIDs = append(dsIDs, res.Hub.HubId)
+		}
+
+		dsInfo := &cnsvsphere.DatastoreInfo{
+			Datastore: &cnsvsphere.Datastore{
+				Datastore: object.NewDatastore(vc.Client.Client, vimtypes.ManagedObjectReference{
+					Type:  "Datastore",
+					Value: res.Hub.HubId,
+				}),
+			},
+		}
+
+		seenZones := make(map[string]struct{})
+		for _, clusterRef := range res.HubInfo.ZoneClusters {
+			for _, zone := range clusterToZones[clusterRef.Key] {
+				if _, done := seenZones[zone]; done {
+					continue
+				}
+				seenZones[zone] = struct{}{}
+				if _, exists := zoneCompatibleDS[zone]; !exists {
+					zones = append(zones, zone)
+				}
+				zoneCompatibleDS[zone] = append(zoneCompatibleDS[zone], dsInfo)
 			}
-			seenDsIDs[dsID] = struct{}{}
-			dsIDs = append(dsIDs, dsID)
 		}
 	}
 
@@ -604,76 +648,5 @@ func GetAccessibleZonesAndDatastoresForPolicy(ctx context.Context, topologyMgr c
 		log.Infof("Storage policy %s is accessible from zones: %v", profileID, zones)
 	}
 
-	return zones, dsIDs, nil
-}
-
-// GetPolicyCompatibleDatastoresPerZone returns compatible datastores grouped by zone.
-func GetPolicyCompatibleDatastoresPerZone(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
-	vc *cnsvsphere.VirtualCenter, profileID string,
-	clusterDatastoreCache map[string][]*cnsvsphere.DatastoreInfo) (map[string][]*cnsvsphere.DatastoreInfo, error) {
-	log := logger.GetLogger(ctx)
-
-	if topologyMgr == nil {
-		log.Warnf("Topology manager not available")
-		return nil, fmt.Errorf("topology manager is not available")
-	}
-
-	if clusterDatastoreCache == nil {
-		clusterDatastoreCache = make(map[string][]*cnsvsphere.DatastoreInfo)
-	}
-
-	azClustersMap := topologyMgr.GetAZClustersMap(ctx)
-	if len(azClustersMap) == 0 {
-		log.Warnf("No zones found in topology service")
-		return make(map[string][]*cnsvsphere.DatastoreInfo), nil
-	}
-
-	compatibleDSIDs, err := GetPolicyCompatibleDatastoresFn(ctx, vc, profileID)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Infof("Found %d compatible datastores for policy %s", len(compatibleDSIDs), profileID)
-
-	result := make(map[string][]*cnsvsphere.DatastoreInfo)
-
-	// For each zone, collect compatible datastores
-	for zone, clusters := range azClustersMap {
-		log.Debugf("Checking zone %s with clusters %v", zone, clusters)
-
-		// Collect all datastores for this zone
-		var zoneDS []*cnsvsphere.DatastoreInfo
-		for _, clusterMoref := range clusters {
-			// Check datastore cache first
-			var clusterDS []*cnsvsphere.DatastoreInfo
-			if cached, exists := clusterDatastoreCache[clusterMoref]; exists {
-				clusterDS = cached
-			} else {
-				// Cache miss - fetch from vCenter and cache the result
-				datastores, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoref, false)
-				if err != nil {
-					log.Warnf("Zone %s: failed to get datastores for cluster %s: %v", zone, clusterMoref, err)
-					continue
-				}
-				clusterDatastoreCache[clusterMoref] = datastores
-				clusterDS = datastores
-			}
-			zoneDS = append(zoneDS, clusterDS...)
-		}
-
-		// Filter to compatible datastores for this zone
-		var compatibleDatastores []*cnsvsphere.DatastoreInfo
-		for _, ds := range zoneDS {
-			if _, isCompatible := compatibleDSIDs[ds.Reference().Value]; isCompatible {
-				compatibleDatastores = append(compatibleDatastores, ds)
-			}
-		}
-
-		result[zone] = compatibleDatastores
-		if len(compatibleDatastores) > 0 {
-			log.Debugf("Zone %s has %d compatible datastores for policy %s", zone, len(compatibleDatastores), profileID)
-		}
-	}
-
-	return result, nil
+	return zones, zoneCompatibleDS, dsIDs, nil
 }

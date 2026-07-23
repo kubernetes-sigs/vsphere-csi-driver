@@ -17,9 +17,11 @@ limitations under the License.
 package vsphereinfra
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestCache returns a fresh, independent StoragePolicyInfoCache instead of
@@ -28,9 +30,12 @@ import (
 func newTestCache() *StoragePolicyInfoCache {
 	return &StoragePolicyInfoCache{
 		DsToHosts:      make(map[string]map[string]struct{}),
-		DsToPolicy:     make(map[string][]string),
 		HostToVersion:  make(map[string]string),
 		ClusterToHosts: make(map[string]map[string]struct{}),
+
+		DsToPolicy:           make(map[string][]string),
+		PolicyZoneDatastores: make(map[string]map[string]map[string]struct{}),
+		ClusterToESAEnabled:  make(map[string]bool),
 	}
 }
 
@@ -202,6 +207,18 @@ func TestSetDatastoresForPolicy(t *testing.T) {
 	})
 }
 
+func TestGetHostVersion(t *testing.T) {
+	c := newTestCache()
+
+	_, found := c.GetHostVersion("host-1")
+	assert.False(t, found, "unpopulated host should not be found")
+
+	c.UpdateHostVersion("host-1", "9.2.0")
+	version, found := c.GetHostVersion("host-1")
+	assert.True(t, found)
+	assert.Equal(t, "9.2.0", version)
+}
+
 func TestUpdateHostVersion(t *testing.T) {
 	t.Run("first sighting is baseline, not a change", func(t *testing.T) {
 		c := newTestCache()
@@ -312,6 +329,126 @@ func TestInvalidateCluster_UnknownCluster(t *testing.T) {
 	c := newTestCache()
 	lastHosts := c.InvalidateCluster("cluster-never-seen")
 	assert.Empty(t, lastHosts)
+}
+
+func TestInvalidateCluster_ClearsESAState(t *testing.T) {
+	c := newTestCache()
+	c.UpdateClusterHosts("cluster-1", hostSet("host-1"))
+	c.SetClusterESAEnabled("cluster-1", true)
+
+	c.InvalidateCluster("cluster-1")
+
+	_, found := c.GetClusterESAEnabled("cluster-1")
+	assert.False(t, found, "ESA state must be cleared when its cluster is invalidated")
+}
+
+func TestClusterForHost(t *testing.T) {
+	c := newTestCache()
+
+	_, ok := c.ClusterForHost("host-1")
+	assert.False(t, ok, "unpopulated host should not resolve to a cluster")
+
+	c.UpdateClusterHosts("cluster-1", hostSet("host-1", "host-2"))
+	clusterID, ok := c.ClusterForHost("host-1")
+	assert.True(t, ok)
+	assert.Equal(t, "cluster-1", clusterID)
+
+	_, ok = c.ClusterForHost("host-never-seen")
+	assert.False(t, ok)
+}
+
+func TestClusterESAEnabled(t *testing.T) {
+	c := newTestCache()
+
+	_, found := c.GetClusterESAEnabled("cluster-1")
+	assert.False(t, found, "unpopulated cluster should not be found")
+
+	c.SetClusterESAEnabled("cluster-1", true)
+	esa, found := c.GetClusterESAEnabled("cluster-1")
+	assert.True(t, found)
+	assert.True(t, esa)
+
+	c.SetClusterESAEnabled("cluster-1", false)
+	esa, found = c.GetClusterESAEnabled("cluster-1")
+	assert.True(t, found)
+	assert.False(t, esa)
+}
+
+func TestSetDatastoresForPolicyZones(t *testing.T) {
+	t.Run("populates a fresh policy", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{
+			"zone-a": {"ds-1", "ds-2"},
+			"zone-b": {"ds-3"},
+		})
+
+		ds, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
+		require.True(t, ok)
+		assert.Equal(t, map[string]struct{}{"ds-1": {}, "ds-2": {}}, ds)
+
+		ds, ok = c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-b")
+		require.True(t, ok)
+		assert.Equal(t, map[string]struct{}{"ds-3": {}}, ds)
+	})
+
+	t.Run("unpopulated policy or zone is not found", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+		_, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-never-seen", "zone-a")
+		assert.False(t, ok)
+
+		_, ok = c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-never-seen")
+		assert.False(t, ok)
+	})
+
+	t.Run("re-setting replaces the entire per-zone map, dropping stale zones", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{
+			"zone-a": {"ds-1"},
+			"zone-b": {"ds-2"},
+		})
+
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+		_, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-b")
+		assert.False(t, ok, "zone-b is no longer compatible, its entry must be removed")
+	})
+
+	t.Run("nil zone map clears the policy's entry entirely", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+		c.SetDatastoresForPolicyZones("policy-1", nil)
+
+		_, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
+		assert.False(t, ok)
+	})
+
+	t.Run("does not disturb other policies", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+		c.SetDatastoresForPolicyZones("policy-2", map[string][]string{"zone-a": {"ds-2"}})
+
+		c.SetDatastoresForPolicyZones("policy-1", nil)
+
+		ds, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-2", "zone-a")
+		require.True(t, ok)
+		assert.Equal(t, map[string]struct{}{"ds-2": {}}, ds)
+	})
+
+	t.Run("returned map is a copy", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+		ds, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
+		require.True(t, ok)
+		ds["ds-injected"] = struct{}{}
+
+		internal, _ := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
+		assert.Equal(t, map[string]struct{}{"ds-1": {}}, internal,
+			"mutating the returned map must not leak into the cache")
+	})
 }
 
 func TestHostSetsEqual(t *testing.T) {
