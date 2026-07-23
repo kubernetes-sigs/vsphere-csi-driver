@@ -230,6 +230,82 @@ func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
 	assert.Empty(t, reqs)
 }
 
+// newZone builds an unstructured Zone CR in the given namespace, matching the
+// object the Zone watch delivers to mapZoneToSPIs.
+func newZone(namespace, name string) *unstructured.Unstructured {
+	z := &unstructured.Unstructured{}
+	z.SetGroupVersionKind(zoneGVK)
+	z.SetNamespace(namespace)
+	z.SetName(name)
+	return z
+}
+
+// TestMapZoneToSPIs_NilObject verifies that mapZoneToSPIs returns nil for nil input.
+func TestMapZoneToSPIs_NilObject(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	r := &ReconcileStoragePolicyInfo{
+		client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme: scheme,
+	}
+	assert.Nil(t, r.mapZoneToSPIs(ctx, nil))
+}
+
+// TestMapZoneToSPIs_EmptyNamespace verifies that a Zone with no namespace is skipped.
+func TestMapZoneToSPIs_EmptyNamespace(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	r := &ReconcileStoragePolicyInfo{
+		client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme: scheme,
+	}
+	assert.Nil(t, r.mapZoneToSPIs(ctx, newZone("", "az1")))
+}
+
+// TestMapZoneToSPIs_EnqueuesNamespaceSPIs verifies that a Zone event enqueues every
+// StoragePolicyInfo in the Zone's namespace and none from other namespaces.
+func TestMapZoneToSPIs_EnqueuesNamespaceSPIs(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	gold := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	silver := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
+	}
+	// A StoragePolicyInfo in a different namespace must not be enqueued.
+	other := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns2"},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gold, silver, other).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	reqs := r.mapZoneToSPIs(ctx, newZone("ns1", "az1"))
+	require.Len(t, reqs, 2)
+	names := []string{
+		reqs[0].Namespace + "/" + reqs[0].Name,
+		reqs[1].Namespace + "/" + reqs[1].Name,
+	}
+	assert.ElementsMatch(t, []string{"ns1/gold", "ns1/silver"}, names)
+}
+
+// TestMapZoneToSPIs_NoSPIsInNamespace verifies an empty result when the Zone's
+// namespace has no StoragePolicyInfo CRs.
+func TestMapZoneToSPIs_NoSPIsInNamespace(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+
+	other := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns2"},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(other).Build()
+	r := &ReconcileStoragePolicyInfo{client: cli, scheme: scheme}
+
+	assert.Empty(t, r.mapZoneToSPIs(ctx, newZone("ns1", "az1")))
+}
+
 // TestMergeOwnerReference exercises the four cases of the mergeOwnerReference helper.
 func TestMergeOwnerReference(t *testing.T) {
 	controllerFalse := false
@@ -434,9 +510,13 @@ func TestSyncTopologyFromInfraSPI_CopiesTopology(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 	r := &ReconcileStoragePolicyInfo{
-		client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
-		scheme:        scheme,
-		zonesProvider: &mockZonesProvider{},
+		client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme: scheme,
+		// ns1 is assigned to both zones so the copy path is exercised rather than
+		// the unassigned-namespace clear path.
+		zonesProvider: &mockZonesProvider{zonesForNamespace: map[string]map[string]struct{}{
+			"ns1": {"az1": {}, "az2": {}},
+		}},
 	}
 
 	inst := &spiv1alpha1.StoragePolicyInfo{
@@ -485,6 +565,41 @@ func TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology(t *testing.T) {
 	assert.Nil(t, inst.Status.TopologyInfo)
 }
 
+// TestSyncTopologyFromInfraSPI_NoAccessibleZonesKeepsTopologyType verifies that when the
+// namespace has no Zone CRs assigned, TopologyInfo is still populated with the InfraSPI's
+// TopologyType and an empty (non-nil) AccessibleZones slice, rather than being cleared
+// entirely — distinguishing "zonal policy, no zones currently accessible" from "no topology
+// at all".
+func TestSyncTopologyFromInfraSPI_NoAccessibleZonesKeepsTopologyType(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	r := &ReconcileStoragePolicyInfo{
+		client:        fake.NewClientBuilder().WithScheme(scheme).Build(),
+		scheme:        scheme,
+		zonesProvider: &mockZonesProvider{},
+	}
+
+	inst := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			Topology: &infraspiv1alpha1.Topology{
+				TopologyType:    "zonal",
+				AccessibleZones: []string{"az1", "az2"},
+			},
+		},
+	}
+
+	err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
+	require.NoError(t, err)
+	require.NotNil(t, inst.Status.TopologyInfo)
+	assert.Equal(t, "zonal", inst.Status.TopologyInfo.TopologyType)
+	assert.NotNil(t, inst.Status.TopologyInfo.AccessibleZones)
+	assert.Empty(t, inst.Status.TopologyInfo.AccessibleZones)
+}
+
 // TestNamespaceFilteredZones exercises the zone-intersection logic used by
 // namespaceFilteredZones with a table of representative inputs.
 func TestNamespaceFilteredZones(t *testing.T) {
@@ -499,10 +614,10 @@ func TestNamespaceFilteredZones(t *testing.T) {
 		expectedZones []string
 	}{
 		{
-			name:          "no namespace zone constraints returns all cluster zones",
+			name:          "no namespace zone assignments returns empty",
 			nsZones:       nil,
 			clusterZones:  []string{"az1", "az2", "az3"},
-			expectedZones: []string{"az1", "az2", "az3"},
+			expectedZones: nil,
 		},
 		{
 			name:          "namespace zones intersect cluster zones",
@@ -942,10 +1057,10 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 		"az2 should be filtered out because ns1 is not assigned to it")
 }
 
-// TestReconcile_NoNamespaceZonesReturnsAll verifies that when a namespace has
-// no zone assignments (non-zonal or unconstrained namespace), all
-// cluster-accessible zones are exposed.
-func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
+// TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones verifies that when a namespace has
+// no Zone CRs assigned, TopologyInfo keeps the InfraSPI's TopologyType but yields an empty
+// AccessibleZones slice (rather than falling back to all cluster-accessible zones).
+func TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := testScheme(t)
 
@@ -979,9 +1094,11 @@ func TestReconcile_NoNamespaceZonesReturnsAll(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
-	require.NotNil(t, got.Status.TopologyInfo)
-	assert.ElementsMatch(t, []string{"az1", "az2"}, got.Status.TopologyInfo.AccessibleZones,
-		"all cluster zones should be exposed when namespace has no zone constraints")
+	require.NotNil(t, got.Status.TopologyInfo,
+		"TopologyInfo should still be populated (with TopologyType) when namespace has no Zone CRs assigned")
+	assert.Equal(t, "zonal", got.Status.TopologyInfo.TopologyType)
+	assert.Empty(t, got.Status.TopologyInfo.AccessibleZones,
+		"AccessibleZones should be an empty slice, not omitted, when no zones are accessible")
 }
 
 // TestReconcile_InfraSPITopologyUpdated verifies the scenario where an InfraStoragePolicyInfo
@@ -1014,10 +1131,14 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
 		WithObjects(spi, infraSPI).Build()
 	r := &ReconcileStoragePolicyInfo{
-		client:          cli,
-		scheme:          scheme,
-		recorder:        recorder,
-		zonesProvider:   &mockZonesProvider{},
+		client:   cli,
+		scheme:   scheme,
+		recorder: recorder,
+		// ns1 is assigned to both zones so the InfraSPI update flows through the
+		// namespace filter rather than being cleared as an unassigned namespace.
+		zonesProvider: &mockZonesProvider{zonesForNamespace: map[string]map[string]struct{}{
+			"ns1": {"az1": {}, "az2": {}},
+		}},
 		backOffDuration: make(map[types.NamespacedName]time.Duration)}
 
 	result, err := r.Reconcile(ctx, reconcile.Request{

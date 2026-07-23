@@ -29,7 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -93,6 +95,17 @@ const (
 	// StoragePolicyInfo objects in mapFVSNamespaceToMarkerSPIs.
 	spiMarkerIndexField = "isMarkerPolicy"
 )
+
+// zoneGVK identifies the namespace-scoped Zone custom resource
+// (topology.tanzu.vmware.com/v1alpha1) that the controller watches so a
+// namespace's StoragePolicyInfo topology recomputes when its zone assignments
+// change. It is watched as an unstructured object because no typed Go client is
+// registered for this CRD.
+var zoneGVK = schema.GroupVersionKind{
+	Group:   "topology.tanzu.vmware.com",
+	Version: "v1alpha1",
+	Kind:    "Zone",
+}
 
 // Add registers the StoragePolicyInfo controller with the Manager (WCP / Workload only).
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
@@ -267,6 +280,28 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		},
 	}
 
+	// zonePredicate admits only Zone events that can change a namespace's accessible
+	// zone set: create, or a deletionTimestamp-set update. Delete is disabled — Zone
+	// deletion is finalizer-gated, so the deletionTimestamp update already triggers
+	// the re-reconcile; the later terminal Delete would just repeat it.
+	zonePredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return e.Object != nil
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			return (e.ObjectOld.GetDeletionTimestamp() == nil) != (e.ObjectNew.GetDeletionTimestamp() == nil)
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+	}
+
+	zoneObj := &unstructured.Unstructured{}
+	zoneObj.SetGroupVersionKind(zoneGVK)
+
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).Named("storagepolicyinfo-controller").
 		For(&spiv1alpha1.StoragePolicyInfo{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -279,6 +314,11 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 			&infraspiv1alpha1.InfraStoragePolicyInfo{},
 			handler.EnqueueRequestsFromMapFunc(r.mapInfraSPItoSPI),
 			builder.WithPredicates(infraSPIPredicates),
+		).
+		Watches(
+			zoneObj,
+			handler.EnqueueRequestsFromMapFunc(r.mapZoneToSPIs),
+			builder.WithPredicates(zonePredicate),
 		).
 		WatchesRawSource(source.Channel(resyncCh, &handler.EnqueueRequestForObject{}))
 
@@ -397,6 +437,41 @@ func (r *ReconcileStoragePolicyInfo) mapFVSNamespaceToMarkerSPIs(ctx context.Con
 			},
 		}
 	}
+	return reqs
+}
+
+// mapZoneToSPIs maps a Zone CR event to reconcile requests for every
+// StoragePolicyInfo in the Zone's namespace, so their namespace-filtered
+// accessible zones are recomputed when the namespace's zone assignments change.
+// The Zone is namespace-scoped, so a plain InNamespace list suffices and no
+// field index is required. If the list fails the event is dropped, but the
+// periodic slow-sync reconcile independently re-syncs topology.
+func (r *ReconcileStoragePolicyInfo) mapZoneToSPIs(ctx context.Context,
+	obj client.Object) []reconcile.Request {
+	if obj == nil || obj.GetNamespace() == "" {
+		return nil
+	}
+	log := logger.GetLogger(ctx)
+	namespace := obj.GetNamespace()
+
+	spiList := &spiv1alpha1.StoragePolicyInfoList{}
+	if err := r.client.List(ctx, spiList, client.InNamespace(namespace)); err != nil {
+		log.Errorf("mapZoneToSPIs: failed to list StoragePolicyInfo in namespace %q: %v",
+			namespace, err)
+		return nil
+	}
+
+	reqs := make([]reconcile.Request, 0, len(spiList.Items))
+	for i := range spiList.Items {
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: apitypes.NamespacedName{
+				Namespace: spiList.Items[i].Namespace,
+				Name:      spiList.Items[i].Name,
+			},
+		})
+	}
+	log.Infof("Zone change in namespace %q enqueued %d StoragePolicyInfo reconcile request(s)",
+		namespace, len(reqs))
 	return reqs
 }
 
@@ -892,11 +967,13 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 
 	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
 	if len(nsZones) == 0 {
-		// Non-zonal deployment or namespace has no zone constraints; expose all
-		// cluster-accessible zones.
-		log.Debugf("Namespace %q has no zone assignments; using all %d cluster-accessible zones",
-			namespace, len(clusterZones))
-		return clusterZones
+		// No Zone CRs assigned to this namespace means no zone has been assigned to
+		// it yet. Return empty rather than falling back to all cluster zones —
+		// exposing all zones for an unassigned namespace is incorrect in a
+		// WDI/zonal deployment.
+		log.Debugf("Namespace %q has no zone assignments; accessibleZones will be empty",
+			namespace)
+		return []string{}
 	}
 
 	// Intersect cluster-accessible zones with namespace-assigned zones.
