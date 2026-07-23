@@ -323,6 +323,3 @@ func TestParseVolumeAccessibleTopologyAnnotation(t *testing.T) {
 		})
 	}
 }
-
-// toCSITopology itself is tested in pvspec_test.go (TestToCSITopology) — it's defined in pvspec.go,
-// shared by both the T6 (supervisor watch) and T7 (guest PV builder) call sites.

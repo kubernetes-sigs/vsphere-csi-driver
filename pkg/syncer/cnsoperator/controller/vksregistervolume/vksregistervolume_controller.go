@@ -70,7 +70,30 @@ var (
 	// Initialized to 1s on first reconcile; doubled on each failure up to MaxBackOffDurationForReconciler.
 	backOffDuration         map[apitypes.NamespacedName]time.Duration
 	backOffDurationMapMutex = sync.Mutex{}
+
+	// phaseOrder gives each non-terminal phase its position in the linear state machine, so
+	// Reconcile can tell whether the CR has already passed a given step and skip re-running it.
+	// Terminal phases (Registered, Failed) are intentionally absent: Reconcile already returns
+	// early for Registered, and Failed CRs are not requeued.
+	phaseOrder = map[vksregistervolumev1alpha1.VKSRegisterVolumePhase]int{
+		vksregistervolumev1alpha1.VKSRegisterVolumePhasePending:                          0,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForSupervisorRegistration: 1,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForSupervisorBinding:      2,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseCreatingGuestPV:                  3,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForGuestPVCBound:          4,
+	}
 )
+
+// hasPassedPhase reports whether the CR's current phase is strictly beyond target in the linear
+// state machine (phaseOrder). An empty/unset current phase is treated as Pending (position 0), so
+// a CR that has never been reconciled before is never considered to have passed anything.
+func hasPassedPhase(current, target vksregistervolumev1alpha1.VKSRegisterVolumePhase) bool {
+	currentPos, ok := phaseOrder[current]
+	if !ok {
+		currentPos = phaseOrder[vksregistervolumev1alpha1.VKSRegisterVolumePhasePending]
+	}
+	return currentPos > phaseOrder[target]
+}
 
 // ReconcileVKSRegisterVolume reconciles VKSRegisterVolume objects in the guest cluster.
 type ReconcileVKSRegisterVolume struct {
@@ -492,11 +515,16 @@ func (r *ReconcileVKSRegisterVolume) setStatusError(ctx context.Context,
 }
 
 // setStatusPhase advances Phase, clears Error, and patches status.
+// setStatusPhase is a no-op both when the CR is already at phase (idempotent) and when it has
+// already progressed beyond phase (e.g. a later reconcile of a CR already in CreatingGuestPV
+// re-running an earlier step's phase-advance) — Reconcile always walks steps 1-N in order on
+// every invocation, so without this guard a CR's phase would regress on each reconcile after
+// its first successful pass. See phaseOrder/hasPassedPhase.
 func (r *ReconcileVKSRegisterVolume) setStatusPhase(ctx context.Context,
 	instance *vksregistervolumev1alpha1.VKSRegisterVolume,
 	phase vksregistervolumev1alpha1.VKSRegisterVolumePhase) error {
-	if instance.Status.Phase == phase {
-		return nil // already at this phase — idempotent
+	if instance.Status.Phase == phase || hasPassedPhase(instance.Status.Phase, phase) {
+		return nil
 	}
 	orig := instance.DeepCopy()
 	instance.Status.Phase = phase

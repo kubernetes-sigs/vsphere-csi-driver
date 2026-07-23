@@ -19,6 +19,7 @@ package vksregistervolume
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -63,12 +64,14 @@ func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegist
 //
 // The PVC must satisfy all of the following:
 //   - exists in the same namespace as the CR
-//   - not yet Bound (Phase == Pending; the PVC must already exist in Pending)
-//   - spec.volumeName is set (the pre-chosen guest PV name)
+//   - spec.volumeName is set (the pre-chosen guest PV name); Phase may be Pending or already
+//     Bound (to spec.volumeName, per Kubernetes' own binding contract) — both are valid, since
+//     Bound covers a re-reconcile of an already-completed or partially-completed prior pass
 //   - spec.accessModes is non-empty
 //   - spec.resources.requests[storage] > 0
 //   - spec.storageClassName is set and that StorageClass exists
-//   - the StorageClass carries the svstorageclass (common.AttributeSupervisorStorageClass) parameter
+//   - the StorageClass carries the svstorageclass (common.AttributeSupervisorStorageClass)
+//     parameter (case-insensitive)
 //
 // If the PVC is not found and the CR was created within pvcMissingTimeout, the error is transient
 // (the PVC may not have been created yet). After the timeout it becomes terminal.
@@ -102,15 +105,15 @@ func resolveGuestPVC(
 			instance.Namespace, instance.Spec.PVCName, age.Truncate(time.Second), pvcMissingTimeout)
 	}
 
-	// PVC must not be Bound yet — it must already exist in Pending.
-	// A Bound PVC means another PV already claimed it; fail terminally.
-	if pvc.Status.Phase == corev1.ClaimBound {
-		return nil, true, fmt.Errorf("guest PVC %s/%s is already Bound (to PV %q); "+
-			"cannot import volume into an already-bound PVC",
-			instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName)
-	}
-
-	// spec.volumeName must be set — this is the pre-chosen guest PV name.
+	// spec.volumeName must be set — this is the pre-chosen guest PV name. A PVC's spec.volumeName
+	// is always exactly the PV it is or will be bound to (Kubernetes' own binding contract), so
+	// this is also the only "expected PV" this controller needs: whether the PVC is currently
+	// Pending or already Bound, spec.volumeName tells us which PV it is/will be bound to, and
+	// Steps 6-8 create/validate/wait-for exactly that PV idempotently. There is deliberately no
+	// separate "reject if already Bound" check here — a Bound PVC whose spec.volumeName matches
+	// is success (e.g. a re-reconcile of an already-completed or partially-completed prior pass,
+	// such as one interrupted between Step 7 succeeding and the Registered status patch landing),
+	// not a conflict.
 	if pvc.Spec.VolumeName == "" {
 		return nil, true, fmt.Errorf("guest PVC %s/%s has empty spec.volumeName; "+
 			"spec.volumeName must be set to the future PV name",
@@ -148,7 +151,17 @@ func resolveGuestPVC(
 		// API error: treat as transient.
 		return nil, false, fmt.Errorf("failed to GET StorageClass %q: %w", scName, err)
 	}
-	if _, hasSVSC := sc.Parameters[common.AttributeSupervisorStorageClass]; !hasSVSC {
+	// Case-insensitive lookup, matching the convention used elsewhere in this codebase
+	// (e.g. admissionhandler/validatepvc.go, wcpguest/controller.go) — StorageClass authors
+	// are not guaranteed to use the exact lowercase casing of the parameter key.
+	hasSVSC := false
+	for param := range sc.Parameters {
+		if strings.ToLower(param) == common.AttributeSupervisorStorageClass {
+			hasSVSC = true
+			break
+		}
+	}
+	if !hasSVSC {
 		return nil, true, fmt.Errorf("StorageClass %q referenced by PVC %s/%s does not have %q parameter; "+
 			"only guest StorageClasses backed by a Supervisor StorageClass are supported",
 			scName, instance.Namespace, instance.Spec.PVCName, common.AttributeSupervisorStorageClass)

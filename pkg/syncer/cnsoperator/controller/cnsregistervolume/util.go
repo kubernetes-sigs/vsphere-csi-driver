@@ -365,8 +365,8 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 		},
 	}
 	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" &&
-		isDataProtectionSnapshotServiceEnabled {
-		// Both fields supplied and DataProtectionSnapshotService WCP capability is active:
+		isVSphereDPLPModernAppEnabled {
+		// Both fields supplied and VSphereDPLPModernApp WCP capability is active:
 		// CNS locates the VMDK by URL and stamps the provided FCD UUID onto it
 		// (VKSRegisterVolume restore path — ss-metadata-manager supplies both fields).
 		// Guard is required: older vCenters do not support both fields and would return an error.

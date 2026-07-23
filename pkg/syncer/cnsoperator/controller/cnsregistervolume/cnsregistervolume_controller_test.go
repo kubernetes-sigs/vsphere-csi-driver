@@ -1818,7 +1818,7 @@ func TestValidateCnsRegisterVolumeSpecWithVolumeIdAndAccessMode(t *testing.T) {
 }
 
 // TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
-// both VolumeID and DiskURLPath are accepted when the DataProtectionSnapshotService WCP capability
+// both VolumeID and DiskURLPath are accepted when the VSphereDPLPModernApp WCP capability
 // is active (VKSRegisterVolume restore path via ss-metadata-manager).
 func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEnabled(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
@@ -1835,13 +1835,13 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEn
 	}
 
 	isSharedDiskEnabled = false
-	isDataProtectionSnapshotServiceEnabled = true
+	isVSphereDPLPModernAppEnabled = true
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
 	assert.NoError(t, err)
 }
 
 // TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDisabled verifies that
-// both VolumeID and DiskURLPath are rejected when the DataProtectionSnapshotService WCP capability
+// both VolumeID and DiskURLPath are rejected when the VSphereDPLPModernApp WCP capability
 // is absent, preserving the original behaviour on older Supervisors.
 func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDisabled(t *testing.T) {
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
@@ -1858,13 +1858,13 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDi
 	}
 
 	isSharedDiskEnabled = false
-	isDataProtectionSnapshotServiceEnabled = false
+	isVSphereDPLPModernAppEnabled = false
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
 	assert.EqualError(t, err, "VolumeID and DiskURLPath cannot be specified together")
 }
 
 // TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
-// when both VolumeID and DiskURLPath are set and the DataProtectionSnapshotService WCP capability
+// when both VolumeID and DiskURLPath are set and the VSphereDPLPModernApp WCP capability
 // is active, BackingObjectDetails carries both fields.
 func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled(t *testing.T) {
 	volumeID := "fcd-uuid-123456"
@@ -1892,7 +1892,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	isDataProtectionSnapshotServiceEnabled = true
+	isVSphereDPLPModernAppEnabled = true
 	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
@@ -1901,7 +1901,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 }
 
 // TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityDisabled verifies that
-// when both VolumeID and DiskURLPath are set but the DataProtectionSnapshotService WCP capability
+// when both VolumeID and DiskURLPath are set but the VSphereDPLPModernApp WCP capability
 // is absent (older vCenter), the spec falls back to VolumeID-only to avoid sending an unsupported
 // API call to the vCenter.
 func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityDisabled(t *testing.T) {
@@ -1930,7 +1930,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	isDataProtectionSnapshotServiceEnabled = false
+	isVSphereDPLPModernAppEnabled = false
 	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")

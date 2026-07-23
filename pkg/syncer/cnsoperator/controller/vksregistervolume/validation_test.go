@@ -66,6 +66,19 @@ func storageClassWithoutSVSC(name string) *storagev1.StorageClass {
 	}
 }
 
+// storageClassWithMixedCaseSVSC builds a StorageClass whose svstorageclass parameter key uses
+// the mixed casing ("SVStorageClass") this repo's own e2e test suite uses in practice — the
+// lookup must be case-insensitive to accept it.
+func storageClassWithMixedCaseSVSC(name string) *storagev1.StorageClass {
+	return &storagev1.StorageClass{
+		ObjectMeta:  metav1.ObjectMeta{Name: name},
+		Provisioner: "csi.vsphere.vmware.com",
+		Parameters: map[string]string{
+			"SVStorageClass": "silver",
+		},
+	}
+}
+
 // pendingPVC returns a well-formed Pending PVC accepted by resolveGuestPVC.
 func pendingPVC(namespace, name, scName string) *corev1.PersistentVolumeClaim {
 	sc := scName
@@ -208,18 +221,22 @@ func TestResolveGuestPVC(t *testing.T) {
 
 		// ── PVC state validation ──────────────────────────────────────────────────────────────
 		{
-			name:     "PVC already Bound → terminal",
+			// A PVC's spec.volumeName is always the PV it is/will be bound to (Kubernetes'
+			// own binding contract), so a Bound PVC with spec.volumeName set is success, not a
+			// conflict — e.g. a re-reconcile of an already-completed (or interrupted between
+			// Step 7 succeeding and the Registered status patch landing) prior pass. Regression
+			// test for the bug where this was previously rejected unconditionally.
+			name:     "PVC already Bound to its own spec.volumeName → success, not terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
 				pvc.Status.Phase = corev1.ClaimBound
-				pvc.Spec.VolumeName = "existing-pv"
 				return pvc
 			}(),
 			scInStore:    storageClassWithSVSC(scName),
-			wantPVC:      false,
-			wantTerminal: true,
-			wantErr:      true,
+			wantPVC:      true,
+			wantTerminal: false,
+			wantErr:      false,
 		},
 		{
 			name:     "PVC spec.volumeName empty → terminal",
@@ -327,6 +344,17 @@ func TestResolveGuestPVC(t *testing.T) {
 			instance:     freshInstance,
 			pvcInStore:   pendingPVC(ns, pvcName, scName),
 			scInStore:    storageClassWithSVSC(scName),
+			wantPVC:      true,
+			wantTerminal: false,
+			wantErr:      false,
+		},
+		{
+			// Regression test: the svstorageclass parameter lookup must be case-insensitive,
+			// matching the convention used elsewhere in this codebase (e.g. validatepvc.go).
+			name:         "valid PVC with mixed-case SVStorageClass parameter → success",
+			instance:     freshInstance,
+			pvcInStore:   pendingPVC(ns, pvcName, scName),
+			scInStore:    storageClassWithMixedCaseSVSC(scName),
 			wantPVC:      true,
 			wantTerminal: false,
 			wantErr:      false,
