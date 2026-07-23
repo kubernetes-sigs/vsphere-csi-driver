@@ -2403,10 +2403,18 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 		return
 	}
 
-	attachedPVs, err := loadAttachedPVNames(metadataSyncer.vaLister)
-	if err != nil {
-		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list VolumeAttachment objects. Err: %v", err)
-		return
+	// vaLister is only populated if CSI_Backup_API or ImprovedVolumeVisibility was enabled at
+	// syncer startup; a runtime FSS toggle without a restart can leave it nil.
+	attachedPVs := map[string]struct{}{}
+	if metadataSyncer.vaLister == nil {
+		log.Warnf("annotateSupervisorPVCsWithWorkloadType: VolumeAttachment lister not initialized; " +
+			"skipping PodVM attachment classification for this cycle")
+	} else {
+		attachedPVs, err = loadAttachedPVNames(metadataSyncer.vaLister)
+		if err != nil {
+			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list VolumeAttachment objects. Err: %v", err)
+			return
+		}
 	}
 
 	var patched, skipped, failed int

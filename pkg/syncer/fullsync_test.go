@@ -41,6 +41,7 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
@@ -1562,6 +1563,30 @@ func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
 	// Call should handle error gracefully
 	setChangeIDAnnotationOnSupervisorSnapshots(ctx, mockMetadataSyncer, "test-vc")
 	// If we get here without panicking, test passes
+}
+
+// TestAnnotateSupervisorPVCsWithWorkloadType_NilVaLister is a regression test for a panic
+// where annotateSupervisorPVCsWithWorkloadType called loadAttachedPVNames with a nil
+// vaLister — reachable whenever ImprovedVolumeVisibility is enabled without CSI_Backup_API
+// also being enabled at syncer startup (the two FSS gates that populate vaLister).
+func TestAnnotateSupervisorPVCsWithWorkloadType_NilVaLister(t *testing.T) {
+	ctx := context.Background()
+	pvc := makePVCForClassification(nil, nil, "", nil)
+	_, pvcLister, _ := newTestListers(t, pvc)
+
+	patchNewClient := gomonkey.ApplyFunc(k8s.NewClient, func(_ context.Context) (clientset.Interface, error) {
+		return k8sfake.NewClientset(pvc), nil
+	})
+	defer patchNewClient.Reset()
+
+	mockMetadataSyncer := &metadataSyncInformer{
+		pvcLister: pvcLister,
+		vaLister:  nil,
+	}
+
+	assert.NotPanics(t, func() {
+		annotateSupervisorPVCsWithWorkloadType(ctx, mockMetadataSyncer)
+	})
 }
 
 // makePVCForClassification is a small builder for the
