@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/container-storage-interface/spec/lib/go/csi"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -322,27 +321,5 @@ func TestParseVolumeAccessibleTopologyAnnotation(t *testing.T) {
 				t.Errorf("segments length: got %d, want %d", len(segments), tc.wantLen)
 			}
 		})
-	}
-}
-
-// ── TestToCSITopology ─────────────────────────────────────────────────────────────────────────────
-
-func TestToCSITopology(t *testing.T) {
-	segments := []map[string]string{
-		{"topology.kubernetes.io/zone": "zone-a"},
-		{"topology.kubernetes.io/zone": "zone-b"},
-	}
-	got := toCSITopology(segments)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 topology entries, got %d", len(got))
-	}
-	want := []*csi.Topology{
-		{Segments: map[string]string{"topology.kubernetes.io/zone": "zone-a"}},
-		{Segments: map[string]string{"topology.kubernetes.io/zone": "zone-b"}},
-	}
-	for i := range want {
-		if got[i].Segments["topology.kubernetes.io/zone"] != want[i].Segments["topology.kubernetes.io/zone"] {
-			t.Errorf("entry %d: got %v, want %v", i, got[i], want[i])
-		}
 	}
 }

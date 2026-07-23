@@ -215,13 +215,3 @@ func parseVolumeAccessibleTopologyAnnotation(annotation string) ([]map[string]st
 	}
 	return segments, nil
 }
-
-// toCSITopology converts parsed annotation segments into the []*csi.Topology shape expected by
-// GenerateVolumeNodeAffinity.
-func toCSITopology(segments []map[string]string) []*csi.Topology {
-	var topology []*csi.Topology
-	for _, s := range segments {
-		topology = append(topology, &csi.Topology{Segments: s})
-	}
-	return topology
-}
