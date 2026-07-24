@@ -476,9 +476,8 @@ func getNodeTopologyInfoForGuest(ctx context.Context, instance *csinodetopologyv
 		hostname, err = getHostnameFromNonRemovableVolume(ctx, supervisorClientset, virtualMachine,
 			supervisorNamespace)
 		if err != nil {
-			log.Warnf("failed to resolve ESXi hostname for node %q. Skipping host topology label. Error: %+v",
-				instance.Name, err)
-			hostname = ""
+			return nil, logger.LogNewErrorf(log,
+				"failed to resolve ESXi hostname for node %q. Error: %+v", instance.Name, err)
 		}
 	} else {
 		log.Info("fetching virtual machines with all versions")
@@ -536,6 +535,16 @@ func getHostnameFromNonRemovableVolume(ctx context.Context, supervisorClientset 
 		ctx, pvcName, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get PVC %q: %w", pvcName, err)
+	}
+
+	// Get() succeeds and returns the PVC object as soon as it is created,
+	// regardless of binding state. The volume-accessible-topology annotation
+	// is only stamped once the underlying volume is provisioned and bound,
+	// so a still-Pending PVC must be treated as a hard error (and retried),
+	// not silently skipped.
+	if pvc.Status.Phase == corev1.ClaimPending {
+		return "", fmt.Errorf("boot disk PVC %q is still in %q phase; cannot resolve ESXi hostname yet",
+			pvcName, corev1.ClaimPending)
 	}
 
 	rawTopology, ok := pvc.Annotations[common.AnnVolumeAccessibleTopology]
