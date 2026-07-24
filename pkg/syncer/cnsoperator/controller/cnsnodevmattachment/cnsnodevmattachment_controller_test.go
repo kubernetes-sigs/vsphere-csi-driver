@@ -956,11 +956,92 @@ func TestRemoveFinalizerFromPVCWithUsedByAnnotations(t *testing.T) {
 				assert.Contains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer,
 					"Expected finalizer to be preserved when used-by annotations are present")
 			} else {
-				// For cases where finalizer should be removed, log the attempt
-				t.Logf("Finalizer removal attempted for PVC without used-by annotations")
+				// The finalizer must actually be persisted as removed on the object
+				// fetched fresh from the API server, not just on the in-memory pvc
+				// pointer passed into removeFinalizerFromPVC.
+				assert.NotContains(t, updatedPVC.Finalizers, cnsoptypes.CNSPvcFinalizer,
+					"Expected finalizer to be removed from the persisted PVC")
 			}
 		})
 	}
+}
+
+// TestRemoveFinalizerFromPVCPersistsToAPIServer is a regression test for a bug
+// where updateSVPVC took its DeepCopy of the "original" object after the
+// caller had already mutated pvc.Finalizers in place. Since both the
+// "original" and "modified" objects were then identical, CreateMergePatch
+// produced an empty ({}) patch, which the fake (and real) API server applies
+// as a silent no-op: err is nil, but the finalizer is never actually removed
+// from the stored object. This test fetches a fresh copy of the PVC from the
+// client after the call to catch exactly that failure mode.
+func TestRemoveFinalizerFromPVCPersistsToAPIServer(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pvc-remove-persist",
+			Namespace: "test-ns",
+			Finalizers: []string{
+				cnsoptypes.CNSPvcFinalizer,
+				"other-finalizer",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pvc).
+		Build()
+
+	faultType, err := removeFinalizerFromPVC(ctx, fakeClient, pvc)
+	require.NoError(t, err)
+	assert.Empty(t, faultType)
+
+	// Fetch a fresh object from the API server; do not rely on the mutated
+	// in-memory pvc pointer, which would mask a no-op patch.
+	persisted := &v1.PersistentVolumeClaim{}
+	err = fakeClient.Get(ctx, client.ObjectKey{Name: pvc.Name, Namespace: pvc.Namespace}, persisted)
+	require.NoError(t, err)
+	assert.NotContains(t, persisted.Finalizers, cnsoptypes.CNSPvcFinalizer,
+		"finalizer must be removed on the API server, not just on the in-memory object")
+	assert.Contains(t, persisted.Finalizers, "other-finalizer")
+}
+
+// TestAddFinalizerToPVCPersistsToAPIServer is the add-path counterpart of
+// TestRemoveFinalizerFromPVCPersistsToAPIServer: it guards against the same
+// no-op merge patch bug when addFinalizerToPVC adds the CNS finalizer.
+func TestAddFinalizerToPVCPersistsToAPIServer(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	err := v1.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-pvc-add-persist",
+			Namespace:  "test-ns",
+			Finalizers: []string{"other-finalizer"},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pvc).
+		Build()
+
+	faultType, err := addFinalizerToPVC(ctx, fakeClient, pvc)
+	require.NoError(t, err)
+	assert.Empty(t, faultType)
+
+	persisted := &v1.PersistentVolumeClaim{}
+	err = fakeClient.Get(ctx, client.ObjectKey{Name: pvc.Name, Namespace: pvc.Namespace}, persisted)
+	require.NoError(t, err)
+	assert.Contains(t, persisted.Finalizers, cnsoptypes.CNSPvcFinalizer,
+		"finalizer must be added on the API server, not just on the in-memory object")
+	assert.Contains(t, persisted.Finalizers, "other-finalizer")
 }
 
 // TestPvcHasUsedByAnnotaion tests the helper function that checks for used-by annotations.

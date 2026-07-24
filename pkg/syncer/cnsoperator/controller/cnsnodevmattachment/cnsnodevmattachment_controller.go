@@ -817,10 +817,14 @@ func removeFinalizerFromCRDInstance(ctx context.Context,
 func addFinalizerToPVC(ctx context.Context, client client.Client,
 	pvc *v1.PersistentVolumeClaim) (string, error) {
 	log := logger.GetLogger(ctx)
+	// original must be captured before mutating pvc.Finalizers below, otherwise
+	// the merge patch computed in updateSVPVC would diff two identical objects
+	// and produce a no-op patch, silently failing to persist the finalizer.
+	original := pvc.DeepCopy()
 	pvc.Finalizers = append(pvc.Finalizers, cnsoptypes.CNSPvcFinalizer)
 	log.Infof("Adding %q finalizer on PersistentVolumeClaim: %q on namespace: %q",
 		cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
-	faulttype, err := updateSVPVC(ctx, client, pvc, false)
+	faulttype, err := updateSVPVC(ctx, client, original, pvc, false)
 	if err != nil {
 		log.Errorf("failed to update PersistentVolumeClaim: %q on namespace: %q. Error: %+v",
 			pvc.Name, pvc.Namespace, err)
@@ -861,6 +865,10 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 	}
 
 	finalizerFound := false
+	// original must be captured before mutating pvc.Finalizers below, otherwise
+	// the merge patch computed in updateSVPVC would diff two identical objects
+	// and produce a no-op patch, silently failing to remove the finalizer.
+	original := pvc.DeepCopy()
 	for i, finalizer := range pvc.Finalizers {
 		if finalizer == cnsoptypes.CNSPvcFinalizer {
 			log.Infof("Removing %q finalizer from PersistentVolumeClaim: %q on namespace: %q",
@@ -875,7 +883,7 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 			cnsoptypes.CNSPvcFinalizer, pvc.Name, pvc.Namespace)
 		return "", nil
 	}
-	faulttype, err := updateSVPVC(ctx, client, pvc, true)
+	faulttype, err := updateSVPVC(ctx, client, original, pvc, true)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Infof("PersistentVolumeClaim: %q on namespace: %q not found. Returning nil", pvc.Name, pvc.Namespace)
@@ -888,10 +896,13 @@ func removeFinalizerFromPVC(ctx context.Context, client client.Client,
 
 }
 
+// updateSVPVC patches the finalizer change made to pvc onto the API server.
+// original must be a copy of pvc taken before the caller mutated its
+// Finalizers, so that the merge patch computed against pvc actually reflects
+// the finalizer add/remove.
 func updateSVPVC(ctx context.Context, client client.Client,
-	pvc *v1.PersistentVolumeClaim, removeCnsPvcFinalizer bool) (string, error) {
+	original, pvc *v1.PersistentVolumeClaim, removeCnsPvcFinalizer bool) (string, error) {
 	log := logger.GetLogger(ctx)
-	original := pvc.DeepCopy()
 	err := k8s.PatchObject(ctx, client, original, pvc)
 	if err != nil {
 		if apierrors.IsConflict(err) {
@@ -909,6 +920,10 @@ func updateSVPVC(ctx context.Context, client client.Client,
 
 			// The callers of updateSVPVC are only updating the instance finalizers
 			// Hence we add/remove the finalizers on the latest PVC object from API server.
+			// originalLatest is captured before mutating latestPVCObject.Finalizers
+			// below, otherwise the merge patch would diff two identical objects and
+			// produce a no-op patch, silently failing to persist the finalizer change.
+			originalLatest := latestPVCObject.DeepCopy()
 			if removeCnsPvcFinalizer {
 				for i, finalizer := range latestPVCObject.Finalizers {
 					if finalizer == cnsoptypes.CNSPvcFinalizer {
@@ -921,7 +936,6 @@ func updateSVPVC(ctx context.Context, client client.Client,
 			} else {
 				latestPVCObject.Finalizers = append(latestPVCObject.Finalizers, cnsoptypes.CNSPvcFinalizer)
 			}
-			originalLatest := latestPVCObject.DeepCopy()
 			err := k8s.PatchObject(ctx, client, originalLatest, latestPVCObject)
 			if err != nil {
 				if apierrors.IsConflict(err) {
