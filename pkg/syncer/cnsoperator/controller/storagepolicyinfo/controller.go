@@ -215,8 +215,9 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 		}
 	}
 
-	// Only reconcile on StoragePolicyQuota CREATE events. Updates to the quota
-	// spec/status do not affect the StoragePolicyInfo topology data.
+	// Reconcile only on SPQ CREATE (policy assigned -> create the SPI). DELETE is
+	// ignored: the SPI's owner reference to the SPQ makes GC delete it when the quota
+	// is deleted. Quota spec/status updates don't affect SPI topology.
 	spqPredicates := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return e.Object != nil
@@ -519,8 +520,22 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	timeout = r.backOffDuration[request.NamespacedName]
 	r.backOffDurationMapMutex.Unlock()
 
-	// Fetch the cluster-scoped InfraStoragePolicyInfo first so we can set the
-	// owner reference at SPI creation time.
+	// The SPQ's presence signals the policy is still assigned; it's also the SPI's
+	// owner. If it's gone, the policy was unassigned — don't create the SPI, and let
+	// GC delete any existing one via the owner reference.
+	spq, spqExists, err := r.getSPQForSPI(ctx, request.Namespace, request.Name)
+	if err != nil {
+		log.Errorf("Failed to get StoragePolicyQuota for %q: %v", request.NamespacedName, err)
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if !spqExists {
+		log.Infof("StoragePolicyQuota for %q no longer exists; policy unassigned from namespace, "+
+			"leaving any existing StoragePolicyInfo to garbage collection", request.NamespacedName)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
+	// Fetch the cluster-scoped InfraStoragePolicyInfo; it is the source of topology
+	// data synced into the namespace-scoped StoragePolicyInfo status.
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
 	if err := r.client.Get(ctx,
 		apitypes.NamespacedName{Name: request.Name}, infraSPI); err != nil {
@@ -533,10 +548,10 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	// Fetch or create the StoragePolicyInfo instance, stamping the InfraSPI owner
-	// reference at creation time so the SPI is deleted automatically when the
-	// InfraStoragePolicyInfo is deleted.
-	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name, infraSPI)
+	// Fetch or create the StoragePolicyInfo instance, stamping the StoragePolicyQuota
+	// owner reference at creation time so the SPI is garbage-collected automatically
+	// when the quota is deleted (policy unassigned from the namespace).
+	instance, wasCreated, err := r.ensureSPIExists(ctx, request.Namespace, request.Name, spq)
 	if err != nil {
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
@@ -552,10 +567,10 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 
-	// Ensure SPI holds an owner reference to InfraStoragePolicyInfo. This is a
+	// Ensure SPI holds an owner reference to its StoragePolicyQuota. This is a
 	// no-op for newly created SPIs (owner ref set at creation) but handles SPIs
-	// that pre-date this logic or had the ref removed.
-	if err := r.ensureInfraSPIOwnerReference(ctx, instance, infraSPI); err != nil {
+	// that had the ref removed.
+	if err := r.ensureSPQOwnerReference(ctx, instance, spq); err != nil {
 		log.Errorf("Failed to set owner reference on StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
@@ -599,11 +614,11 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 }
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given
-// namespace/name. If absent, it creates the CR with an owner reference to
-// infraSPI and returns wasCreated=true.
+// namespace/name. If absent, it creates the CR with an owner reference to the
+// StoragePolicyQuota spq and returns wasCreated=true.
 func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 	namespace, name string,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
+	spq *storagepolicyv1alpha2.StoragePolicyQuota) (*spiv1alpha1.StoragePolicyInfo, bool, error) {
 	log := logger.GetLogger(ctx)
 
 	instance := &spiv1alpha1.StoragePolicyInfo{}
@@ -616,10 +631,10 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 		return nil, false, err
 	}
 
-	ownerRef, err := generateOwnerReference(r.scheme, infraSPI)
+	ownerRef, err := generateOwnerReference(r.scheme, spq)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
-			infraSPI.Name, err)
+		return nil, false, fmt.Errorf("failed to generate owner reference for StoragePolicyQuota %q: %w",
+			spq.Name, err)
 	}
 	clusterSPIRef, err := buildClusterSPIRef(r.scheme, name)
 	if err != nil {
@@ -654,23 +669,40 @@ func (r *ReconcileStoragePolicyInfo) ensureSPIExists(ctx context.Context,
 		// The object already existed, so treat it as not newly created.
 		return instance, false, nil
 	}
-	log.Infof("Created StoragePolicyInfo %s/%s with owner reference to InfraStoragePolicyInfo %q",
-		namespace, name, infraSPI.Name)
+	log.Infof("Created StoragePolicyInfo %s/%s with owner reference to StoragePolicyQuota %q",
+		namespace, name, spq.Name)
 	return instance, true, nil
 }
 
-// ensureInfraSPIOwnerReference sets an owner reference on the StoragePolicyInfo
-// pointing to the given InfraStoragePolicyInfo, and backfills spec.clusterStoragePolicyInfoRef
-// if missing. This causes the SPI to be garbage-collected when the InfraStoragePolicyInfo is deleted.
-func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Context,
+// getSPQForSPI fetches the StoragePolicyQuota for the given StoragePolicyInfo
+// namespace/name ("<name>-storagepolicyquota" in the same namespace). Returns
+// (spq, true, nil) if present, (nil, false, nil) if absent, (nil, false, err) otherwise.
+func (r *ReconcileStoragePolicyInfo) getSPQForSPI(ctx context.Context,
+	namespace, name string) (*storagepolicyv1alpha2.StoragePolicyQuota, bool, error) {
+	spq := &storagepolicyv1alpha2.StoragePolicyQuota{}
+	err := r.client.Get(ctx,
+		apitypes.NamespacedName{Namespace: namespace, Name: name + storagePolicyQuotaSuffix}, spq)
+	if err == nil {
+		return spq, true, nil
+	}
+	if apierrors.IsNotFound(err) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
+
+// ensureSPQOwnerReference sets an owner reference to the StoragePolicyQuota and
+// backfills spec.clusterStoragePolicyInfoRef if missing, so GC deletes the SPI when
+// the quota is deleted.
+func (r *ReconcileStoragePolicyInfo) ensureSPQOwnerReference(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+	spq *storagepolicyv1alpha2.StoragePolicyQuota) error {
 	log := logger.GetLogger(ctx)
 
-	ownerRef, err := generateOwnerReference(r.scheme, infraSPI)
+	ownerRef, err := generateOwnerReference(r.scheme, spq)
 	if err != nil {
-		return fmt.Errorf("failed to generate owner reference for InfraStoragePolicyInfo %q: %w",
-			infraSPI.Name, err)
+		return fmt.Errorf("failed to generate owner reference for StoragePolicyQuota %q: %w",
+			spq.Name, err)
 	}
 	clusterSPIRef, err := buildClusterSPIRef(r.scheme, instance.Name)
 	if err != nil {
@@ -692,8 +724,8 @@ func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Co
 			instance.Namespace, instance.Name, err)
 		return err
 	}
-	log.Infof("Set owner reference and spec ref on StoragePolicyInfo %s/%s → InfraStoragePolicyInfo %q",
-		instance.Namespace, instance.Name, infraSPI.Name)
+	log.Infof("Set owner reference and spec ref on StoragePolicyInfo %s/%s → StoragePolicyQuota %q",
+		instance.Namespace, instance.Name, spq.Name)
 	return nil
 }
 
