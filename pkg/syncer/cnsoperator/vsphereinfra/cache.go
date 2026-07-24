@@ -69,7 +69,10 @@ type StoragePolicyInfoCache struct {
 
 	// PolicyZoneDatastores tracks, per storage policy, the datastores compatible with that
 	// policy within each zone. key: policy K8s-compliant name; inner key: zone name;
-	// innermost key: datastore moref.
+	// innermost key: datastore moref. Also read in the reverse direction by PoliciesForZone
+	// (zone -> compatible policies), for the clusterstoragepolicyinfo controller's
+	// AvailabilityZone watch to resolve a zone change to the policies that could lose
+	// accessibility there, without a separate maintained index that could drift out of sync.
 	PolicyZoneDatastores map[string]map[string]map[string]struct{}
 
 	// ClusterToESAEnabled records whether a cluster has vSAN-ESA enabled, keyed by cluster
@@ -243,6 +246,22 @@ func (c *StoragePolicyInfoCache) SetDatastoresForPolicyZones(policyName string, 
 		zones[zone] = set
 	}
 	c.PolicyZoneDatastores[policyName] = zones
+}
+
+// PoliciesForZone returns policy names compatible with at least one datastore
+// in the given zone, as of each policy's last reconcile. Derived by scanning
+// PolicyZoneDatastores rather than maintaining a separate index, since the
+// scan is cheap on a rare AvailabilityZone event and can't drift out of sync.
+func (c *StoragePolicyInfoCache) PoliciesForZone(zone string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var policies []string
+	for policyName, zones := range c.PolicyZoneDatastores {
+		if len(zones[zone]) > 0 {
+			policies = append(policies, policyName)
+		}
+	}
+	return policies
 }
 
 // GetDatastoresForPolicyZone returns a copy of the cached datastore set compatible with

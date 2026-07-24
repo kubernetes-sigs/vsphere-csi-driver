@@ -389,6 +389,10 @@ func TestSetDatastoresForPolicyZones(t *testing.T) {
 		ds, ok = c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-b")
 		require.True(t, ok)
 		assert.Equal(t, map[string]struct{}{"ds-3": {}}, ds)
+
+		// ZoneToPolicy reverse index must be populated alongside PolicyZoneDatastores.
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForZone("zone-a"))
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForZone("zone-b"))
 	})
 
 	t.Run("unpopulated policy or zone is not found", func(t *testing.T) {
@@ -413,6 +417,8 @@ func TestSetDatastoresForPolicyZones(t *testing.T) {
 
 		_, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-b")
 		assert.False(t, ok, "zone-b is no longer compatible, its entry must be removed")
+		assert.Empty(t, c.PoliciesForZone("zone-b"), "ZoneToPolicy must drop the stale zone-b entry too")
+		assert.ElementsMatch(t, []string{"policy-1"}, c.PoliciesForZone("zone-a"))
 	})
 
 	t.Run("nil zone map clears the policy's entry entirely", func(t *testing.T) {
@@ -423,6 +429,7 @@ func TestSetDatastoresForPolicyZones(t *testing.T) {
 
 		_, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
 		assert.False(t, ok)
+		assert.Empty(t, c.PoliciesForZone("zone-a"), "ZoneToPolicy must drop the policy from every prior zone")
 	})
 
 	t.Run("does not disturb other policies", func(t *testing.T) {
@@ -435,6 +442,8 @@ func TestSetDatastoresForPolicyZones(t *testing.T) {
 		ds, ok := c.GetDatastoresForPolicyZone(context.Background(), "policy-2", "zone-a")
 		require.True(t, ok)
 		assert.Equal(t, map[string]struct{}{"ds-2": {}}, ds)
+		assert.ElementsMatch(t, []string{"policy-2"}, c.PoliciesForZone("zone-a"),
+			"policy-1 must be removed from zone-a's reverse index without disturbing policy-2")
 	})
 
 	t.Run("returned map is a copy", func(t *testing.T) {
@@ -448,6 +457,36 @@ func TestSetDatastoresForPolicyZones(t *testing.T) {
 		internal, _ := c.GetDatastoresForPolicyZone(context.Background(), "policy-1", "zone-a")
 		assert.Equal(t, map[string]struct{}{"ds-1": {}}, internal,
 			"mutating the returned map must not leak into the cache")
+	})
+}
+
+func TestPoliciesForZone(t *testing.T) {
+	t.Run("multiple policies compatible with the same zone are all returned", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+		c.SetDatastoresForPolicyZones("policy-2", map[string][]string{"zone-a": {"ds-2"}})
+
+		assert.ElementsMatch(t, []string{"policy-1", "policy-2"}, c.PoliciesForZone("zone-a"))
+	})
+
+	t.Run("a policy compatible with a different zone is excluded", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+		c.SetDatastoresForPolicyZones("policy-2", map[string][]string{"zone-b": {"ds-2"}})
+
+		assert.Equal(t, []string{"policy-1"}, c.PoliciesForZone("zone-a"))
+	})
+
+	t.Run("unknown zone returns empty", func(t *testing.T) {
+		c := newTestCache()
+		c.SetDatastoresForPolicyZones("policy-1", map[string][]string{"zone-a": {"ds-1"}})
+
+		assert.Empty(t, c.PoliciesForZone("zone-never-seen"))
+	})
+
+	t.Run("empty cache returns empty", func(t *testing.T) {
+		c := newTestCache()
+		assert.Empty(t, c.PoliciesForZone("zone-a"))
 	})
 }
 
