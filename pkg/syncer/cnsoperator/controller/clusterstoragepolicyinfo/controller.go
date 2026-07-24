@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -29,7 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -87,6 +90,49 @@ const (
 	dataserviceNs           = "com.vmware.storageprofile.dataservice"
 )
 
+// availabilityZoneGVK identifies the cluster-scoped AvailabilityZone CR
+// (topology.tanzu.vmware.com/v1alpha1). Watched as unstructured since no
+// typed client is registered for this CRD.
+var availabilityZoneGVK = schema.GroupVersionKind{
+	Group:   "topology.tanzu.vmware.com",
+	Version: "v1alpha1",
+	Kind:    "AvailabilityZone",
+}
+
+// newAZPredicate admits delete, or an update to spec.clusterComputeResourceMoIDs; other churn,
+// including create, is ignored. Create is skipped since a just-created AZ can't yet have any
+// policies mapped to it in mapAZToClusterSPIs.
+func newAZPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return false
+			}
+			oldObj, oldOK := e.ObjectOld.(*unstructured.Unstructured)
+			newObj, newOK := e.ObjectNew.(*unstructured.Unstructured)
+			if !oldOK || !newOK {
+				return false
+			}
+			oldClusters, _, oldErr := unstructured.NestedStringSlice(oldObj.Object,
+				"spec", "clusterComputeResourceMoIDs")
+			newClusters, _, newErr := unstructured.NestedStringSlice(newObj.Object,
+				"spec", "clusterComputeResourceMoIDs")
+			if oldErr != nil || newErr != nil {
+				logger.GetLoggerWithNoContext().Warnf(
+					"newAZPredicate: failed to read spec.clusterComputeResourceMoIDs on AvailabilityZone %q "+
+						"update, oldErr: %v, newErr: %v", e.ObjectNew.GetName(), oldErr, newErr)
+			}
+			return !slices.Equal(oldClusters, newClusters)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return e.Object != nil
+		},
+	}
+}
+
 // Add registers the ClusterStoragePolicyInfo controller with the Manager (WCP / Workload only).
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *config.ConfigurationInfo, _ volumes.Manager) error {
@@ -118,11 +164,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
-	// Initialize topology service.
+	// Initialize topology service. A nil error with a nil topologyMgr means the AvailabilityZone
+	// CRD isn't registered, so the watch below is skipped; any actual error is returned so Add()
+	// gets retried.
 	topologyMgr, err := commonco.ContainerOrchestratorUtility.InitTopologyServiceInController(ctx)
 	if err != nil {
-		log := logger.GetLogger(ctx)
-		log.Warnf("Failed to initialize topology service in ClusterStoragePolicyInfo controller: %v", err)
+		log.Errorf("Failed to initialize topology service in ClusterStoragePolicyInfo controller: %v", err)
+		return err
 	}
 
 	eventBroadcaster := record.NewBroadcaster()
@@ -214,6 +262,23 @@ func add(mgr manager.Manager, r *ReconcileClusterStoragePolicyInfo) error {
 			handler.EnqueueRequestsFromMapFunc(r.mapFVSNamespaceToClusterMarkerSPI),
 			builder.WithPredicates(nsFVSPredicate),
 		)
+
+	// Watch AvailabilityZone CRs so an AZ->cluster change reactively recomputes
+	// topology + LinkedClone/HPLC, instead of waiting for slow-sync. Gated on
+	// r.topologyMgr being non-nil, which happens only when the AZ CRD is
+	// registered, to avoid the manager cache failing to list/watch a missing CRD.
+	if r.topologyMgr != nil {
+		azObj := &unstructured.Unstructured{}
+		azObj.SetGroupVersionKind(availabilityZoneGVK)
+		blder = blder.Watches(
+			azObj,
+			handler.EnqueueRequestsFromMapFunc(r.mapAZToClusterSPIs),
+			builder.WithPredicates(newAZPredicate()),
+		)
+	} else {
+		log.Infof("AvailabilityZone CR not registered; skipping AvailabilityZone watch " +
+			"for ClusterStoragePolicyInfo controller")
+	}
 
 	// VolumeAttributesClass API is supported from K8s version 1.34 onwards.
 	// Add watch for VolumeAttributesClass only if API is available.
@@ -369,6 +434,29 @@ func (r *ReconcileClusterStoragePolicyInfo) mapFVSNamespaceToClusterMarkerSPI(ct
 	return []reconcile.Request{{
 		NamespacedName: apitypes.NamespacedName{Name: common.StorageClassVsanFileServicePolicy},
 	}}
+}
+
+// mapAZToClusterSPIs maps an AvailabilityZone event to reconcile requests for
+// policies compatible with that zone, via vsphereinfra.PoliciesForZone. This
+// catches a cluster removed from the zone or the zone deleted, since
+// PoliciesForZone reflects each policy's last-reconciled zone compatibility,
+// independent of the event object's contents.
+func (r *ReconcileClusterStoragePolicyInfo) mapAZToClusterSPIs(ctx context.Context,
+	obj client.Object) []reconcile.Request {
+	log := logger.GetLogger(ctx)
+	if obj == nil {
+		return nil
+	}
+	azName := obj.GetName()
+
+	policies := vsphereinfra.GetCache().PoliciesForZone(azName)
+	reqs := make([]reconcile.Request, 0, len(policies))
+	for _, name := range policies {
+		reqs = append(reqs, reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: name}})
+	}
+	log.Infof("AvailabilityZone %q change enqueued %d ClusterStoragePolicyInfo reconcile request(s)",
+		azName, len(reqs))
+	return reqs
 }
 
 var _ reconcile.Reconciler = &ReconcileClusterStoragePolicyInfo{}
