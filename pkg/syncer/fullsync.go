@@ -2297,6 +2297,19 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string
 		}
 	}
 
+	matched := 0
+	for _, signal := range []bool{hasVKSNode, hasVKSWorkload, hasPodVMAttachment, hasVMServiceAttachment} {
+		if signal {
+			matched++
+		}
+	}
+	if matched > 1 {
+		logger.GetLoggerWithNoContext().Errorf(
+			"classifySupervisorPVC: PVC %s/%s matched multiple workload-type signals: "+
+				"vks-node=%t vks-workload=%t supervisor-podvm=%t supervisor-vmservice-vm=%t",
+			pvc.Namespace, pvc.Name, hasVKSNode, hasVKSWorkload, hasPodVMAttachment, hasVMServiceAttachment)
+	}
+
 	if hasVKSNode {
 		desired[common.AnnKeyVKSNode] = common.AnnValueTrue
 	}
