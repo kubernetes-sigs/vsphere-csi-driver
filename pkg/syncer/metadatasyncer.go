@@ -763,9 +763,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.podLister = metadataSyncer.k8sInformerManager.GetPodLister()
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		(metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.CSI_Backup_API) ||
+			metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility)) {
 		// Initialize the VolumeAttachment informer and get the lister. This is needed
-		// for the cbtsync to watch on VolumeAttachment resources.
+		// for cbtsync (CSI_Backup_API) and for annotateSupervisorPVCsWithWorkloadType
+		// (ImprovedVolumeVisibility) to watch on VolumeAttachment resources.
 		metadataSyncer.k8sInformerManager.InitVolumeAttachmentInformer()
 		metadataSyncer.vaLister = metadataSyncer.k8sInformerManager.GetVolumeAttachmentLister()
 	}
