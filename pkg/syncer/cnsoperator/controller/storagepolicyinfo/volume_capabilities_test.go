@@ -39,9 +39,37 @@ func clearPolicyZoneCache(t *testing.T, policyName string) {
 	t.Cleanup(func() { vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, nil) })
 }
 
+// zoneAActiveClusters returns an activeClustersByZone map where zone-a's active cluster is
+// "cluster-for-zone-a" (mirroring mockZonesProvider's naming convention).
+func zoneAActiveClusters() map[string]map[string]bool {
+	return map[string]map[string]bool{"zone-a": {"cluster-for-zone-a": true}}
+}
+
+// zoneAZonesProvider is a mockZonesProvider where the given namespace is assigned and active
+// on zone-a, with active cluster moref "cluster-for-zone-a" (mockZonesProvider's convention).
+func zoneAZonesProvider(namespace string) *mockZonesProvider {
+	return &mockZonesProvider{zonesForNamespace: map[string]map[string]struct{}{
+		namespace: {"zone-a": {}},
+	}}
+}
+
 func TestAnyQualifyingHostForNamespace_NoZones(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", "policy-1", nil,
+	ok, err := anyQualifyingHostForNamespace(ctx, nil, "test-op", "policy-1", nil,
+		func(context.Context, string) (bool, error) { return true, nil })
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func TestAnyQualifyingHostForNamespace_NoActiveClusterInZone(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	const policyName = "policy-anqhfn-noactivecluster"
+	clearPolicyZoneCache(t, policyName)
+
+	// No entry for zone-a in activeClustersByZone means the namespace has no active cluster
+	// there, so the zone is skipped before datastores are even consulted.
+	ok, err := anyQualifyingHostForNamespace(ctx, map[string]map[string]bool{}, "test-op",
+		policyName, []string{"zone-a"},
 		func(context.Context, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	assert.False(t, ok)
@@ -49,7 +77,8 @@ func TestAnyQualifyingHostForNamespace_NoZones(t *testing.T) {
 
 func TestAnyQualifyingHostForNamespace_ZoneNotCached(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", "policy-never-cached", []string{"zone-a"},
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		"policy-never-cached", []string{"zone-a"},
 		func(context.Context, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	assert.False(t, ok)
@@ -63,7 +92,8 @@ func TestAnyQualifyingHostForNamespace_DatastoreNotInDsToHosts(t *testing.T) {
 	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {"ds-1"}})
 	// Deliberately not populating DsToHosts for ds-1.
 
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", policyName, []string{"zone-a"},
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		policyName, []string{"zone-a"},
 		func(context.Context, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	assert.False(t, ok)
@@ -72,28 +102,59 @@ func TestAnyQualifyingHostForNamespace_DatastoreNotInDsToHosts(t *testing.T) {
 func TestAnyQualifyingHostForNamespace_QualifyingHostFound(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	const policyName = "policy-anqhfn-2"
+	const clusterID = "cluster-for-zone-a"
 	clearPolicyZoneCache(t, policyName)
 	t.Cleanup(func() { vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-2", map[string]struct{}{}) })
+	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateCluster(clusterID) })
 
 	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {"ds-anqhfn-2"}})
 	vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-2", map[string]struct{}{"host-1": {}, "host-2": {}})
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{"host-1": {}, "host-2": {}})
 
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", policyName, []string{"zone-a"},
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		policyName, []string{"zone-a"},
 		func(_ context.Context, hostID string) (bool, error) { return hostID == "host-2", nil })
 	require.NoError(t, err)
 	assert.True(t, ok)
 }
 
+func TestAnyQualifyingHostForNamespace_HostClusterNotActiveForNamespace(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	const policyName = "policy-anqhfn-inactivecluster"
+	const clusterID = "cluster-not-active"
+	clearPolicyZoneCache(t, policyName)
+	t.Cleanup(func() { vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-inactivecluster", map[string]struct{}{}) })
+	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateCluster(clusterID) })
+
+	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName,
+		map[string][]string{"zone-a": {"ds-anqhfn-inactivecluster"}})
+	vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-inactivecluster", map[string]struct{}{"host-1": {}})
+	// host-1 belongs to a cluster that is not the namespace's active cluster for zone-a
+	// ("cluster-for-zone-a"), so it must be skipped even though qualifies would otherwise
+	// return true.
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{"host-1": {}})
+
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		policyName, []string{"zone-a"},
+		func(context.Context, string) (bool, error) { return true, nil })
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 func TestAnyQualifyingHostForNamespace_NoQualifyingHost(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	const policyName = "policy-anqhfn-3"
+	const clusterID = "cluster-for-zone-a"
 	clearPolicyZoneCache(t, policyName)
 	t.Cleanup(func() { vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-3", map[string]struct{}{}) })
+	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateCluster(clusterID) })
 
 	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {"ds-anqhfn-3"}})
 	vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-3", map[string]struct{}{"host-1": {}})
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{"host-1": {}})
 
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", policyName, []string{"zone-a"},
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		policyName, []string{"zone-a"},
 		func(context.Context, string) (bool, error) { return false, nil })
 	require.NoError(t, err)
 	assert.False(t, ok)
@@ -102,14 +163,18 @@ func TestAnyQualifyingHostForNamespace_NoQualifyingHost(t *testing.T) {
 func TestAnyQualifyingHostForNamespace_QualifiesErrorPropagates(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	const policyName = "policy-anqhfn-4"
+	const clusterID = "cluster-for-zone-a"
 	clearPolicyZoneCache(t, policyName)
 	t.Cleanup(func() { vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-4", map[string]struct{}{}) })
+	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateCluster(clusterID) })
 
 	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {"ds-anqhfn-4"}})
 	vsphereinfra.GetCache().UpdateDsHosts("ds-anqhfn-4", map[string]struct{}{"host-1": {}})
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{"host-1": {}})
 
 	wantErr := errors.New("boom")
-	ok, err := anyQualifyingHostForNamespace(ctx, "test-op", policyName, []string{"zone-a"},
+	ok, err := anyQualifyingHostForNamespace(ctx, zoneAActiveClusters(), "test-op",
+		policyName, []string{"zone-a"},
 		func(context.Context, string) (bool, error) { return false, wantErr })
 	assert.ErrorIs(t, err, wantErr)
 	assert.False(t, ok)
@@ -209,7 +274,7 @@ func TestLinkedCloneCapabilitiesForNamespace_NilTopologyInfoReturnsError(t *test
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "policy-lccfn-notopology"}}
 
-	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, instance, infraSPI)
+	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, &mockZonesProvider{}, nil, instance, infraSPI)
 	assert.Error(t, err)
 	assert.False(t, lc)
 	assert.False(t, hplc)
@@ -218,25 +283,31 @@ func TestLinkedCloneCapabilitiesForNamespace_NilTopologyInfoReturnsError(t *test
 func TestLinkedCloneCapabilitiesForNamespace_ZonalRecomputesFromCache(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	const policyName = "policy-lccfn-zonal"
+	const namespace = "ns-lccfn-zonal"
+	const clusterID = "cluster-for-zone-a"
 	clearPolicyZoneCache(t, policyName)
 	t.Cleanup(func() { vsphereinfra.GetCache().UpdateDsHosts("ds-lccfn-zonal", map[string]struct{}{}) })
 	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateHostVersion("host-lccfn-zonal") })
+	t.Cleanup(func() { vsphereinfra.GetCache().InvalidateCluster(clusterID) })
 
 	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {"ds-lccfn-zonal"}})
 	vsphereinfra.GetCache().UpdateDsHosts("ds-lccfn-zonal", map[string]struct{}{"host-lccfn-zonal": {}})
 	vsphereinfra.GetCache().UpdateHostVersion("host-lccfn-zonal", "9.1.0")
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{"host-lccfn-zonal": {}})
 
 	instance := &spiv1alpha1.StoragePolicyInfo{
-		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: namespace},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
 			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
 
-	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, instance, infraSPI)
+	// activeClustersByZone is nil here to exercise the fresh-lookup fallback path (as marker
+	// policies use), rather than a precomputed map from namespaceFilteredZones.
+	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, zoneAZonesProvider(namespace), nil, instance, infraSPI)
 	require.NoError(t, err)
-	assert.True(t, lc, "zone-a has a compatible datastore mounted by an ESXi 9.1+ host")
+	assert.True(t, lc, "zone-a has a compatible datastore mounted by an ESXi 9.1+ host in the namespace's active cluster")
 	assert.False(t, hplc, "no vSAN-ESA cluster was configured for this host")
 }
 
@@ -259,7 +330,8 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesBlockAndFilesystemCapabilities
 		},
 	}
 
-	err := syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI)
+	r := &ReconcileStoragePolicyInfo{zonesProvider: &mockZonesProvider{}}
+	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
 	require.NoError(t, err)
 	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeFilesystem],
 		"SupportsVolumeModeFilesystem is always true, independent of InfraSPI")
