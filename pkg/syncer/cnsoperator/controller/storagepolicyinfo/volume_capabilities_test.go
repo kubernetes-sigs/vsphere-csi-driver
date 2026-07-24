@@ -266,4 +266,30 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesBlockAndFilesystemCapabilities
 	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeBlock])
 	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsLinkedClone])
 	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHighPerformanceLinkedClone])
+	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHostLocal],
+		"SupportsHostLocal is copied as-is from InfraSPI, which did not set it here")
+}
+
+// TestSyncVolumeCapabilitiesFromInfraSPI_CopiesHostLocalCapability verifies that
+// SupportsHostLocal is copied directly from InfraSPI, with no per-namespace recomputation.
+func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesHostLocalCapability(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-hostlocal"},
+		Status: spiv1alpha1.StoragePolicyInfoStatus{
+			TopologyInfo: &spiv1alpha1.Topology{},
+		},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-hostlocal"},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: map[infraspiv1alpha1.VolumeCapability]bool{
+				infraspiv1alpha1.SupportsHostLocal: true,
+			},
+		},
+	}
+
+	err := syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI)
+	require.NoError(t, err)
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHostLocal])
 }
