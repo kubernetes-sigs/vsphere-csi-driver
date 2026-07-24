@@ -565,7 +565,10 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	origStatus := instance.Status.DeepCopy()
 
 	// Populate TopologyInfo from InfraStoragePolicyInfo.
-	if err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI); err != nil {
+	// activeClustersByZone contains the active-cluster set namespaceFilteredZones already
+	// resolved per zone.
+	activeClustersByZone, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	if err != nil {
 		log.Errorf("Failed to sync topology for StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
 		if setErr := r.setSPIError(ctx, instance, origStatus,
@@ -577,7 +580,7 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	}
 
 	// Populate VolumeCapabilities from InfraStoragePolicyInfo.
-	if err := syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI); err != nil {
+	if err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone); err != nil {
 		log.Errorf("Failed to sync volume capabilities for StoragePolicyInfo %q: %v",
 			request.NamespacedName, err)
 		if setErr := r.setSPIError(ctx, instance, origStatus,
@@ -699,12 +702,15 @@ func (r *ReconcileStoragePolicyInfo) ensureInfraSPIOwnerReference(ctx context.Co
 
 // syncTopologyFromInfraSPI copies topology information from the cluster-scoped
 // InfraStoragePolicyInfo into the namespace-scoped StoragePolicyInfo status,
-// filtering accessible zones down to only those assigned to the namespace.
-// For marker policies the zone set is derived from FVS instance namespaces that
-// share the consumer namespace's VPC path, bypassing the standard namespace filter.
+// filtering accessible zones down to only those assigned to the namespace. It returns the
+// active-cluster set namespaceFilteredZones resolved per zone along the way, so
+// syncVolumeCapabilitiesFromInfraSPI can reuse it instead of re-resolving it; this is nil for
+// marker policies (whose zone set is derived from FVS instance namespaces that share the
+// consumer namespace's VPC path, bypassing the standard namespace filter) and for policies
+// with no topology.
 func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (map[string]map[string]bool, error) {
 	log := logger.GetLogger(ctx)
 
 	// Marker policies derive namespace-level zones from VPC/FVS instance namespace
@@ -712,17 +718,17 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 	// path is only taken when marker-policy support is enabled; otherwise a marker
 	// policy falls through to the regular namespace-filtered topology path.
 	if r.IsVsanFileVolumeService && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
-		return r.syncMarkerPolicyTopology(ctx, instance, infraSPI)
+		return nil, r.syncMarkerPolicyTopology(ctx, instance, infraSPI)
 	}
 
 	if infraSPI.Status.Topology == nil {
 		log.Debugf("InfraStoragePolicyInfo %q has no topology; clearing StoragePolicyInfo topology",
 			infraSPI.Name)
 		instance.Status.TopologyInfo = nil
-		return nil
+		return nil, nil
 	}
 
-	accessibleZones := r.namespaceFilteredZones(ctx, instance.Namespace,
+	accessibleZones, activeClustersByZone := r.namespaceFilteredZones(ctx, instance.Namespace,
 		infraSPI.Status.Topology.AccessibleZones)
 
 	instance.Status.TopologyInfo = &spiv1alpha1.Topology{
@@ -733,7 +739,7 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 		instance.Namespace, instance.Name,
 		instance.Status.TopologyInfo.TopologyType,
 		instance.Status.TopologyInfo.AccessibleZones)
-	return nil
+	return activeClustersByZone, nil
 }
 
 // syncVolumeCapabilitiesFromInfraSPI populates the namespace-scoped
@@ -743,11 +749,12 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 // SupportsVolumeModeBlock is copied as-is from InfraSPI.
 // SupportsLinkedClone and SupportsHighPerformanceLinkedClone are recomputed for just the zones accessible
 // to this namespace.
-func syncVolumeCapabilitiesFromInfraSPI(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
-	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) error {
+func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx context.Context,
+	instance *spiv1alpha1.StoragePolicyInfo, infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
+	activeClustersByZone map[string]map[string]bool) error {
 	infraCaps := infraSPI.Status.VolumeCapabilities
 
-	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, instance, infraSPI)
+	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, r.zonesProvider, activeClustersByZone, instance, infraSPI)
 	if err != nil {
 		return err
 	}
@@ -773,7 +780,8 @@ func syncVolumeCapabilitiesFromInfraSPI(ctx context.Context, instance *spiv1alph
 // Topology with an empty TopologyType. That's an upstream failure, not an absence of
 // applicable zones, so it's surfaced as an error here rather than silently falling back to
 // infraCaps (which was computed from that same failed reconcile and can't be trusted either).
-func linkedCloneCapabilitiesForNamespace(ctx context.Context, instance *spiv1alpha1.StoragePolicyInfo,
+func linkedCloneCapabilitiesForNamespace(ctx context.Context, zp zonesProvider,
+	activeClustersByZone map[string]map[string]bool, instance *spiv1alpha1.StoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (lc bool, hplc bool, err error) {
 	if instance.Status.TopologyInfo == nil {
 		return false, false, fmt.Errorf(
@@ -782,25 +790,55 @@ func linkedCloneCapabilitiesForNamespace(ctx context.Context, instance *spiv1alp
 	}
 
 	nsZones := instance.Status.TopologyInfo.AccessibleZones
-	lc, err = computeLinkedCloneForNamespace(ctx, infraSPI.Name, nsZones)
+
+	if activeClustersByZone == nil {
+		activeClustersByZone = activeClusterSetsForZones(ctx, zp, instance.Namespace, nsZones)
+	}
+
+	lc, err = computeLinkedCloneForNamespace(ctx, activeClustersByZone, infraSPI.Name, nsZones)
 	if err != nil {
 		return false, false, err
 	}
-	hplc, err = computeHPLCForNamespace(ctx, infraSPI.Name, nsZones, lc)
+	hplc, err = computeHPLCForNamespace(ctx, activeClustersByZone, infraSPI.Name, nsZones, lc)
 	if err != nil {
 		return false, false, err
 	}
 	return lc, hplc, nil
 }
 
+// activeClusterSetsForZones resolves, once per zone, the set of cluster morefs the namespace is
+// actively on within that zone. A zone with no active cluster for the namespace (error, or
+// an empty result) is omitted from the returned map.
+func activeClusterSetsForZones(ctx context.Context, zp zonesProvider, namespace string,
+	zones []string) map[string]map[string]bool {
+	log := logger.GetLogger(ctx)
+	activeClustersByZone := make(map[string]map[string]bool, len(zones))
+	for _, zone := range zones {
+		activeClusters, err := zp.GetActiveClustersForNamespaceInRequestedZones(ctx, namespace, []string{zone})
+		if err != nil || len(activeClusters) == 0 {
+			log.Debugf("activeClusterSetsForZones: namespace %q has no active cluster in zone %q; skipping: %v",
+				namespace, zone, err)
+			continue
+		}
+		activeClusterSet := make(map[string]bool, len(activeClusters))
+		for _, cluster := range activeClusters {
+			activeClusterSet[cluster] = true
+		}
+		activeClustersByZone[zone] = activeClusterSet
+	}
+	return activeClustersByZone
+}
+
 // computeLinkedCloneForNamespace determines whether the storage policy identified by
 // policyName (its K8s-compliant name) supports LinkedClone within nsZones, using
 // data already cached by vsphereinfra.StoragePolicyInfoCache.
 // LinkedClone is supported for the namespace if any host mounting a
-// datastore compatible with policyName within one of nsZones is running ESXi 9.1 or
-// above.
-func computeLinkedCloneForNamespace(ctx context.Context, policyName string, nsZones []string) (bool, error) {
-	return anyQualifyingHostForNamespace(ctx, "LinkedClone", policyName, nsZones, hostSupportsLinkedClone)
+// datastore compatible with policyName within one of nsZones, and belonging to a cluster
+// the namespace is actually active on within that zone, is running ESXi 9.1 or above.
+func computeLinkedCloneForNamespace(ctx context.Context, activeClustersByZone map[string]map[string]bool,
+	policyName string, nsZones []string) (bool, error) {
+	return anyQualifyingHostForNamespace(ctx, activeClustersByZone, "LinkedClone", policyName, nsZones,
+		hostSupportsLinkedClone)
 }
 
 // computeHPLCForNamespace determines whether SupportsHighPerformanceLinkedClone is true
@@ -808,23 +846,34 @@ func computeLinkedCloneForNamespace(ctx context.Context, policyName string, nsZo
 // false without evaluating the vSAN-ESA condition. Otherwise it looks for a qualifying
 // host (ESXi 9.1+) whose cluster has vSAN-ESA enabled
 // (hostSupportsHighPerformanceLinkedClone).
-func computeHPLCForNamespace(ctx context.Context, policyName string, nsZones []string,
-	lcSupported bool) (bool, error) {
+func computeHPLCForNamespace(ctx context.Context, activeClustersByZone map[string]map[string]bool, policyName string,
+	nsZones []string, lcSupported bool) (bool, error) {
 	if !lcSupported {
 		return false, nil
 	}
-	return anyQualifyingHostForNamespace(ctx, "HighPerformanceLinkedClone", policyName, nsZones,
+	return anyQualifyingHostForNamespace(ctx, activeClustersByZone, "HighPerformanceLinkedClone", policyName, nsZones,
 		hostSupportsHighPerformanceLinkedClone)
 }
 
 // anyQualifyingHostForNamespace walks every host mounting a datastore compatible with
-// policyName within one of nsZones to find out if LC or HPLC are supported or not.
+// policyName within one of nsZones to find out if LC or HPLC are supported or not. A host is
+// only considered if its parent cluster is in that zone's precomputed active-cluster set
+// (activeClusterSetsForZones) — a zone can span multiple clusters, and the namespace may only
+// be active on a subset of them.
 // checkName ("LinkedClone" or "HPLC") identifies which check is running in the logs, since
 // both checks walk the same hosts/datastores/zones and would otherwise be indistinguishable.
-func anyQualifyingHostForNamespace(ctx context.Context, operation string, policyName string, nsZones []string,
+func anyQualifyingHostForNamespace(ctx context.Context, activeClustersByZone map[string]map[string]bool,
+	operation string, policyName string, nsZones []string,
 	qualifies func(ctx context.Context, hostID string) (bool, error)) (bool, error) {
 	log := logger.GetLogger(ctx)
 	for _, zone := range nsZones {
+		activeClusterSet, ok := activeClustersByZone[zone]
+		if !ok {
+			log.Debugf("anyQualifyingHostForNamespace[%s]: no active cluster for zone %q; skipping",
+				operation, zone)
+			continue
+		}
+
 		zoneDS, ok := vsphereinfra.GetCache().GetDatastoresForPolicyZone(ctx, policyName, zone)
 		if !ok {
 			continue
@@ -841,6 +890,12 @@ func anyQualifyingHostForNamespace(ctx context.Context, operation string, policy
 			}
 			log.Infof("anyQualifyingHostForNamespace[%s]: found hosts %+v for datastore %s", operation, hosts, dsID)
 			for hostID := range hosts {
+				clusterID, ok := vsphereinfra.GetCache().ClusterForHost(hostID)
+				if !ok || !activeClusterSet[clusterID] {
+					log.Debugf("anyQualifyingHostForNamespace[%s]: host %s cluster %q is not active in "+
+						"zone %q; skipping", operation, hostID, clusterID, zone)
+					continue
+				}
 				qualified, err := qualifies(ctx, hostID)
 				if err != nil {
 					return false, fmt.Errorf("failed to check host %s (datastore %s, zone %q): %w",
@@ -959,10 +1014,14 @@ func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Contex
 	return nil
 }
 
-// namespaceFilteredZones returns the subset of clusterZones that are also
-// assigned to the given namespace, by consulting the namespace-scoped Zone CRs.
+// namespaceFilteredZones returns the subset of clusterZones that are also assigned to the given
+// namespace, by consulting the namespace-scoped Zone CRs, along with the active-cluster set it
+// resolved per filtered zone (activeClusterSetsForZones) — returned so callers (see
+// syncTopologyFromInfraSPI) can pass it on to the LinkedClone/HPLC computation instead of
+// re-resolving the same per-zone data via another GetActiveClustersForNamespaceInRequestedZones
+// scan.
 func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
-	namespace string, clusterZones []string) []string {
+	namespace string, clusterZones []string) ([]string, map[string]map[string]bool) {
 	log := logger.GetLogger(ctx)
 
 	nsZones := r.zonesProvider.GetZonesForNamespace(namespace)
@@ -973,7 +1032,7 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 		// WDI/zonal deployment.
 		log.Debugf("Namespace %q has no zone assignments; accessibleZones will be empty",
 			namespace)
-		return []string{}
+		return []string{}, map[string]map[string]bool{}
 	}
 
 	// Intersect cluster-accessible zones with namespace-assigned zones.
@@ -990,21 +1049,19 @@ func (r *ReconcileStoragePolicyInfo) namespaceFilteredZones(ctx context.Context,
 	// attributed to that zone (via PolicyZoneDatastores, computed over every cluster in the
 	// zone) could be reported as accessible even though this namespace's volumes could never
 	// actually land there.
-	// GetActiveClustersForNamespaceInRequestedZones does a full informer-store scan internally,
-	// calling it once per zone is fine for typical zone counts.
+	activeClustersByZone := activeClusterSetsForZones(ctx, r.zonesProvider, namespace, assignedZones)
 	filtered := make([]string, 0, len(assignedZones))
 	for _, zone := range assignedZones {
-		activeClusters, err := r.zonesProvider.GetActiveClustersForNamespaceInRequestedZones(ctx, namespace, []string{zone})
-		if err != nil || len(activeClusters) == 0 {
-			log.Debugf("Namespace %q is assigned zone %q but has no active cluster within it; excluding: %v",
-				namespace, zone, err)
-			continue
+		if _, active := activeClustersByZone[zone]; active {
+			filtered = append(filtered, zone)
+		} else {
+			log.Debugf("Namespace %q is assigned zone %q but has no active cluster within it; excluding",
+				namespace, zone)
 		}
-		filtered = append(filtered, zone)
 	}
 	log.Infof("Namespace %q has zone assignments %v; filtered %d cluster zones → %d namespace-accessible zones",
 		namespace, nsZones, len(clusterZones), len(filtered))
-	return filtered
+	return filtered, activeClustersByZone
 }
 
 // setSPIError sets the error status and records a Warning event on the instance.

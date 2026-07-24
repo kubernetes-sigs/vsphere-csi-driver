@@ -866,8 +866,13 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 		overallErr = errors.Join(overallErr, err)
 	}
 
+	if r.topologyMgr == nil {
+		return fmt.Errorf("topology manager is not available")
+	}
+	zoneClusters := r.topologyMgr.GetAZClustersMap(ctx)
+
 	// Populate volume capabilities.
-	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, zoneCompatibleDS); err != nil {
+	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, zoneCompatibleDS, zoneClusters); err != nil {
 		log.Errorf("Failed to populate volume capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
 	}
