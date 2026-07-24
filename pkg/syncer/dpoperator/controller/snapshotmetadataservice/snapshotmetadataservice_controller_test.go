@@ -27,7 +27,6 @@ import (
 	"errors"
 	"math/big"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
@@ -45,12 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 )
 
 // ---------------------------------------------------------------------------
@@ -178,41 +172,6 @@ func generateSelfSignedCertPEM(t *testing.T, ips ...net.IP) []byte {
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
-
-// withInjectedCO swaps the package-level getContainerOrchestratorInterface
-// indirection with one that returns the supplied CO and error, and returns a
-// cleanup function to restore the original implementation.
-func withInjectedCO(co commonco.COCommonInterface, err error) func() {
-	original := getContainerOrchestratorInterface
-	getContainerOrchestratorInterface = func(ctx context.Context, _ int,
-		_ cnstypes.CnsClusterFlavor, _ interface{}) (commonco.COCommonInterface, error) {
-		return co, err
-	}
-	return func() {
-		getContainerOrchestratorInterface = original
-	}
-}
-
-// fssCallTracker wraps a COCommonInterface to record which feature names had
-// their state queried. It lets us assert that Add only consults the
-// CSI_Backup_API gate before bailing out.
-type fssCallTracker struct {
-	commonco.COCommonInterface
-	mu         sync.Mutex
-	fssQueries []string
-}
-
-func (f *fssCallTracker) IsFSSEnabled(ctx context.Context, featureName string) bool {
-	f.mu.Lock()
-	f.fssQueries = append(f.fssQueries, featureName)
-	f.mu.Unlock()
-	return f.COCommonInterface.IsFSSEnabled(ctx, featureName)
-}
-
-// Reference manager.Manager so the import is recognised as used. Add expects
-// a manager.Manager argument; the FSS-disabled tests pass nil because Add
-// short-circuits before touching it.
-var _ manager.Manager = (manager.Manager)(nil)
 
 // smsReconcileRequest is the reconcile.Request every watch in this package
 // maps onto: the single, cluster-scoped SnapshotMetadataService CR.
@@ -1248,16 +1207,14 @@ func TestReconcileBackoffInitialization(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Add() / FSS gating tests
+// Add() flavor gating tests
 // ---------------------------------------------------------------------------
 
 // TestAddSkipsInitForNonWorkloadFlavor verifies that Add returns immediately
-// without consulting the CO interface or initializing any resources when the
-// cluster flavor is not Workload (WCP).
+// without initializing any resources when the cluster flavor is not Workload
+// (WCP). The CSI_Backup_API gate that used to live inside Add is now enforced
+// once, by the caller, before Add is ever invoked.
 func TestAddSkipsInitForNonWorkloadFlavor(t *testing.T) {
-	restore := withInjectedCO(nil, errors.New("CO factory must not be called for non-WCP flavor"))
-	defer restore()
-
 	flavors := []cnstypes.CnsClusterFlavor{
 		cnstypes.CnsClusterFlavorVanilla,
 		cnstypes.CnsClusterFlavorGuest,
@@ -1265,45 +1222,8 @@ func TestAddSkipsInitForNonWorkloadFlavor(t *testing.T) {
 	for _, flavor := range flavors {
 		flavor := flavor
 		t.Run(string(flavor), func(t *testing.T) {
-			err := Add(nil, flavor)
+			err := Add(nil, flavor, nil)
 			assert.NoError(t, err, "Add should be a no-op for non-WCP flavors")
 		})
 	}
-}
-
-// TestAddSkipsInitWhenCSIBackupAPIFSSDisabled verifies the controller is not
-// initialized (i.e., Add returns nil and never reaches manager-related setup)
-// when the CSI_Backup_API capability/FSS is disabled on the WCP cluster.
-func TestAddSkipsInitWhenCSIBackupAPIFSSDisabled(t *testing.T) {
-	fakeCO, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
-	require.NoError(t, err)
-
-	require.NoError(t, fakeCO.DisableFSS(context.Background(), common.CSI_Backup_API))
-	require.False(t, fakeCO.IsFSSEnabled(context.Background(), common.CSI_Backup_API),
-		"precondition: CSI_Backup_API FSS must be disabled in the fake CO")
-
-	tracker := &fssCallTracker{COCommonInterface: fakeCO}
-	restore := withInjectedCO(tracker, nil)
-	defer restore()
-
-	// A nil manager is intentional: Add should bail out before any manager
-	// method is invoked. A panic here would be a strong regression signal.
-	err = Add(nil, cnstypes.CnsClusterFlavorWorkload)
-	assert.NoError(t, err, "Add should return nil when CSI_Backup_API FSS is disabled")
-
-	assert.Equal(t, []string{common.CSI_Backup_API}, tracker.fssQueries,
-		"Add should query IsFSSEnabled exactly once for CSI_Backup_API")
-}
-
-// TestAddPropagatesCOInterfaceError verifies that Add returns the error from
-// the CO interface factory (and does not initialize the controller) when CO
-// initialization fails on the WCP cluster.
-func TestAddPropagatesCOInterfaceError(t *testing.T) {
-	expectedErr := errors.New("co init failure")
-	restore := withInjectedCO(nil, expectedErr)
-	defer restore()
-
-	err := Add(nil, cnstypes.CnsClusterFlavorWorkload)
-	assert.ErrorIs(t, err, expectedErr,
-		"Add should propagate the CO factory error and not initialize the controller")
 }

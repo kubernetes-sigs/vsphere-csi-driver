@@ -421,8 +421,11 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 
-		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API) {
+		csiBackupAPIEnabled := (clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
+			commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API)) ||
+			(clusterFlavor == cnstypes.CnsClusterFlavorGuest &&
+				commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.CSI_Backup_API_FSS))
+		if csiBackupAPIEnabled {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
@@ -430,18 +433,20 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 						cleanupSessions(ctx, r)
 					}
 				}()
-				// The CSI_Backup_API feature relies on the Data Protection Operator service for CbtConfig CRD definition.
-				installed, err := commonco.ContainerOrchestratorUtility.IsDPOServiceInstalled(ctx)
-				if err != nil {
-					log.Errorf("Error checking Data Protection Operator service installation. Error: %+v", err)
-					utils.LogoutAllvCenterSessions(ctx)
-					os.Exit(1)
+				if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+					// The CSI_Backup_API feature relies on the Data Protection Operator service for CbtConfig CRD definition.
+					installed, err := commonco.ContainerOrchestratorUtility.IsDPOServiceInstalled(ctx)
+					if err != nil {
+						log.Errorf("Error checking Data Protection Operator service installation. Error: %+v", err)
+						utils.LogoutAllvCenterSessions(ctx)
+						os.Exit(1)
+					}
+					if !installed {
+						commonco.ContainerOrchestratorUtility.HandleLateInstallationOfDPOService(ctx)
+						return
+					}
 				}
-				if !installed {
-					commonco.ContainerOrchestratorUtility.HandleLateInstallationOfDPOService(ctx)
-					return
-				}
-				if err := startDpOperator(ctx, configInfo); err != nil {
+				if err := startDpOperator(ctx, configInfo, clusterFlavor); err != nil {
 					log.Errorf("Error initializing Data Protection(DP) operator. Error: %+v", err)
 					utils.LogoutAllvCenterSessions(ctx)
 					os.Exit(1)
@@ -481,8 +486,9 @@ func startK8sOperator(ctx context.Context,
 	return mgr.Start(ctx)
 }
 
-func startDpOperator(ctx context.Context, configInfo *config.ConfigurationInfo) error {
-	mgr, err := dpoperator.NewManager(ctx, configInfo)
+func startDpOperator(ctx context.Context, configInfo *config.ConfigurationInfo,
+	clusterFlavor cnstypes.CnsClusterFlavor) error {
+	mgr, err := dpoperator.NewManager(ctx, configInfo, clusterFlavor)
 	if err != nil {
 		return err
 	}
