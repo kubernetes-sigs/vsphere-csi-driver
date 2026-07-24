@@ -1596,6 +1596,39 @@ func TestAnnotateSupervisorPVCsWithWorkloadType_NilVaLister(t *testing.T) {
 	})
 }
 
+// TestAnnotateSupervisorPVCsWithWorkloadType_NilCnsOperatorClient verifies that a nil
+// cnsOperatorClient (which would otherwise panic inside loadBatchAttachedPVCClaimNames)
+// is caught by an explicit guard instead, and the cycle returns cleanly without patching
+// any PVC.
+func TestAnnotateSupervisorPVCsWithWorkloadType_NilCnsOperatorClient(t *testing.T) {
+	ctx := context.Background()
+	pvc := makePVCForClassification(nil, nil, "", nil)
+	_, pvcLister, vaLister := newTestListers(t, pvc)
+
+	var patched bool
+	patchNewClient := gomonkey.ApplyFunc(k8s.NewClient, func(_ context.Context) (clientset.Interface, error) {
+		fakeClient := k8sfake.NewClientset(pvc)
+		fakeClient.PrependReactor("patch", "persistentvolumeclaims",
+			func(k8stesting.Action) (bool, k8sruntime.Object, error) {
+				patched = true
+				return false, nil, nil
+			})
+		return fakeClient, nil
+	})
+	defer patchNewClient.Reset()
+
+	mockMetadataSyncer := &metadataSyncInformer{
+		pvcLister:         pvcLister,
+		vaLister:          vaLister,
+		cnsOperatorClient: nil,
+	}
+
+	assert.NotPanics(t, func() {
+		annotateSupervisorPVCsWithWorkloadType(ctx, mockMetadataSyncer)
+	})
+	assert.False(t, patched, "no PVC should be patched when cnsOperatorClient is nil")
+}
+
 // makePVCForClassification is a small builder for the
 // TestClassifySupervisorPVC table tests.
 func makePVCForClassification(labels map[string]string, ownerKinds []string,

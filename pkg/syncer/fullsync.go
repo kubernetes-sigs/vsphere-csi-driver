@@ -2466,6 +2466,10 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 		}
 	}
 
+	if metadataSyncer.cnsOperatorClient == nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: cnsOperatorClient is not initialized")
+		return
+	}
 	batchAttachedPVCs, err := loadBatchAttachedPVCClaimNames(ctx, metadataSyncer.cnsOperatorClient)
 	if err != nil {
 		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list CnsNodeVMBatchAttachment objects. Err: %v",
