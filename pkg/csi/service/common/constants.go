@@ -493,19 +493,13 @@ const (
 	// not to any particular Node VM.
 	AnnKeyVKSWorkload = AnnPrefixVKSWorkloadType + "vks-workload"
 
-	// AnnKeySupervisorPodVM is set to "true" on a supervisor PVC that matches
-	// neither AnnKeyVKSNode nor AnnKeyVKSWorkload, and whose PV is currently
-	// referenced by a VolumeAttachment object — i.e., the PVC is attached to
-	// a native Supervisor Pod (PodVM) via the standard Kubernetes attacher
-	// flow.
+	// AnnKeySupervisorPodVM marks a PVC attached to a native Supervisor Pod (PodVM),
+	// detected via a VolumeAttachment reference (see classifySupervisorPVC).
 	AnnKeySupervisorPodVM = AnnPrefixVKSWorkloadType + "supervisor-podvm"
 
-	// AnnKeySupervisorVMServiceVM is set to "true" on a supervisor PVC that
-	// matches neither AnnKeyVKSNode nor AnnKeyVKSWorkload, and carries a
-	// "cns.vmware.com/usedby-vm-<vm-instance-uuid>" annotation
-	// (cnsoperatortypes.UsedByVMAnnotationPrefix) — i.e., the PVC is attached
-	// as a data disk to a standalone VM Service VM via CnsNodeVMBatchAttachment
-	// rather than through the Kubernetes attacher flow.
+	// AnnKeySupervisorVMServiceVM marks a PVC attached as a data disk to a standalone
+	// VM Service VM, detected via a referencing CnsNodeVMBatchAttachment CR (see
+	// classifySupervisorPVC).
 	AnnKeySupervisorVMServiceVM = AnnPrefixVKSWorkloadType + "supervisor-vmservice-vm"
 
 	// AnnKeySupervisorWorkload is set to "true" on a supervisor PVC that
