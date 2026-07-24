@@ -1772,7 +1772,8 @@ func TestClassifySupervisorPVC(t *testing.T) {
 // CR's Spec.Volumes, across multiple CRs and multiple volumes per CR, and returns an
 // empty (not nil) set when there are no CRs.
 func TestLoadBatchAttachedPVCClaimNames(t *testing.T) {
-	newBatchAttachment := func(name, namespace string, claimNames ...string) *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment {
+	newBatchAttachment := func(name, namespace string,
+		claimNames ...string) *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment {
 		volumes := make([]cnsnodevmbatchattachmentv1alpha1.VolumeSpec, 0, len(claimNames))
 		for _, cn := range claimNames {
 			volumes = append(volumes, cnsnodevmbatchattachmentv1alpha1.VolumeSpec{

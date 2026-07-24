@@ -2245,16 +2245,11 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 //     authoritative even when the rest of the key has been redacted.
 //
 //   - AnnKeySupervisorPodVM is included if neither of the above applies and
-//     pvc.Spec.VolumeName is referenced by a VolumeAttachment object —
-//     i.e., by exclusion, the PV must be attached to a podVM as it is
-//     attached AND it is not attached to a VKSNode.
+//     pvc.Spec.VolumeName is referenced by a VolumeAttachment object.
 //
 //   - AnnKeySupervisorVMServiceVM is included if neither of the first two
-//     applies, pvc.OwnerReferences is empty (rules out VKS node disks, which
-//     always carry a VM/VSphereMachine ownerRef), and some CnsNodeVMBatchAttachment
-//     CR references this PVC by name — i.e., the PVC is attached as a data disk
-//     to a standalone VM Service VM rather than through the Kubernetes attacher
-//     flow.
+//     applies, pvc.OwnerReferences is empty, and some CnsNodeVMBatchAttachment
+//     CR references this PVC by name.
 //
 //   - AnnKeySupervisorWorkload is included only when none of the above
 //     applies. The annotation is set explicitly rather than implied by
