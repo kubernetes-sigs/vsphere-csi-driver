@@ -532,7 +532,7 @@ func TestSyncTopologyFromInfraSPI_CopiesTopology(t *testing.T) {
 		},
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
 	require.NotNil(t, inst.Status.TopologyInfo)
 	assert.Equal(t, "zonal", inst.Status.TopologyInfo.TopologyType)
@@ -560,7 +560,7 @@ func TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
 	assert.Nil(t, inst.Status.TopologyInfo)
 }
@@ -592,7 +592,7 @@ func TestSyncTopologyFromInfraSPI_NoAccessibleZonesKeepsTopologyType(t *testing.
 		},
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
 	require.NotNil(t, inst.Status.TopologyInfo)
 	assert.Equal(t, "zonal", inst.Status.TopologyInfo.TopologyType)
@@ -671,7 +671,7 @@ func TestNamespaceFilteredZones(t *testing.T) {
 				},
 			}
 
-			got := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
+			got, _ := r.namespaceFilteredZones(ctx, "ns1", tt.clusterZones)
 			if len(tt.expectedZones) == 0 {
 				assert.Empty(t, got)
 			} else {
@@ -1333,7 +1333,7 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy(t *testing.T) {
 		IsVsanFileVolumeService: true,
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
 	require.NotNil(t, instance.Status.TopologyInfo)
 	assert.Equal(t, "zonal", instance.Status.TopologyInfo.TopologyType)
@@ -1379,7 +1379,7 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NoFVSNamespaces(t *testing.T) {
 		IsVsanFileVolumeService: true,
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
 	assert.Nil(t, instance.Status.TopologyInfo,
 		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology type")
@@ -1408,7 +1408,7 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology(t *testing.T) {
 		IsVsanFileVolumeService: true,
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
 	assert.Nil(t, instance.Status.TopologyInfo,
 		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology")
@@ -1454,7 +1454,7 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_FSSDisabled(t *testing.T) {
 		IsVsanFileVolumeService: false,
 	}
 
-	err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
+	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
 	require.NotNil(t, instance.Status.TopologyInfo)
 	assert.Equal(t, "zonal", instance.Status.TopologyInfo.TopologyType)
