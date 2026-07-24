@@ -40,6 +40,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -48,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
@@ -60,6 +62,7 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -4428,4 +4431,97 @@ func TestMapFVSNamespaceToClusterMarkerSPI_NilObject(t *testing.T) {
 	reqs := r.mapFVSNamespaceToClusterMarkerSPI(ctx, nil)
 	require.Len(t, reqs, 1)
 	assert.Equal(t, common.StorageClassVsanFileServicePolicy, reqs[0].Name)
+}
+
+// newAZ builds an unstructured AvailabilityZone CR with the given cluster
+// morefs, matching the object the AvailabilityZone watch delivers to
+// mapAZToClusterSPIs / newAZPredicate.
+func newAZ(name string, clusters []string) *unstructured.Unstructured {
+	az := &unstructured.Unstructured{}
+	az.SetGroupVersionKind(availabilityZoneGVK)
+	az.SetName(name)
+	if clusters != nil {
+		// unstructured stores slices as []interface{}.
+		asAny := make([]interface{}, len(clusters))
+		for i, c := range clusters {
+			asAny[i] = c
+		}
+		_ = unstructured.SetNestedSlice(az.Object, asAny, "spec", "clusterComputeResourceMoIDs")
+	}
+	return az
+}
+
+// TestMapAZToClusterSPIs verifies that an AvailabilityZone change resolves to the policies
+// vsphereinfra.PoliciesForZone reports as compatible with that zone, not a fan-out to every
+// ClusterStoragePolicyInfo.
+func TestMapAZToClusterSPIs(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+
+	t.Run("nil object returns nil", func(t *testing.T) {
+		r := &ReconcileClusterStoragePolicyInfo{}
+		assert.Nil(t, r.mapAZToClusterSPIs(ctx, nil))
+	})
+
+	t.Run("enqueues policies PoliciesForZone reports for this zone", func(t *testing.T) {
+		cache := vsphereinfra.GetCache()
+		cache.SetDatastoresForPolicyZones("gold", map[string][]string{"az-map": {"ds-1"}})
+		cache.SetDatastoresForPolicyZones("silver", map[string][]string{"az-map": {"ds-2"}})
+		cache.SetDatastoresForPolicyZones("bronze", map[string][]string{"az-other": {"ds-3"}})
+		t.Cleanup(func() {
+			cache.SetDatastoresForPolicyZones("gold", nil)
+			cache.SetDatastoresForPolicyZones("silver", nil)
+			cache.SetDatastoresForPolicyZones("bronze", nil)
+		})
+		r := &ReconcileClusterStoragePolicyInfo{}
+
+		reqs := r.mapAZToClusterSPIs(ctx, newAZ("az-map", []string{"domain-c-map"}))
+		got := make([]string, len(reqs))
+		for i, req := range reqs {
+			got[i] = req.Name
+			assert.Empty(t, req.Namespace, "cluster-scoped: requests carry no namespace")
+		}
+		sort.Strings(got)
+		assert.Equal(t, []string{"gold", "silver"}, got)
+	})
+
+	t.Run("no policies compatible with the zone returns empty", func(t *testing.T) {
+		r := &ReconcileClusterStoragePolicyInfo{}
+		reqs := r.mapAZToClusterSPIs(ctx, newAZ("az-none", []string{"domain-c-none"}))
+		assert.Empty(t, reqs)
+	})
+}
+
+// TestNewAZPredicate verifies the AvailabilityZone watch predicate ignores create (a no-op for
+// mapAZToClusterSPIs), admits delete unconditionally, and admits updates only when the cluster
+// membership (spec.clusterComputeResourceMoIDs) changed.
+func TestNewAZPredicate(t *testing.T) {
+	p := newAZPredicate()
+
+	t.Run("create ignored", func(t *testing.T) {
+		assert.False(t, p.Create(event.CreateEvent{Object: newAZ("az1", []string{"domain-c1"})}))
+	})
+
+	t.Run("delete fires", func(t *testing.T) {
+		assert.True(t, p.Delete(event.DeleteEvent{Object: newAZ("az1", []string{"domain-c1"})}))
+	})
+
+	t.Run("update fires when clusters change", func(t *testing.T) {
+		old := newAZ("az1", []string{"domain-c1"})
+		updated := newAZ("az1", []string{"domain-c1", "domain-c2"})
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}))
+	})
+
+	t.Run("update ignored when clusters unchanged", func(t *testing.T) {
+		old := newAZ("az1", []string{"domain-c1", "domain-c2"})
+		updated := newAZ("az1", []string{"domain-c1", "domain-c2"})
+		// Simulate unrelated churn (e.g. an annotation) that leaves clusters intact.
+		updated.SetAnnotations(map[string]string{"unrelated": "change"})
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}))
+	})
+
+	t.Run("update fires when a cluster is removed", func(t *testing.T) {
+		old := newAZ("az1", []string{"domain-c1", "domain-c2"})
+		updated := newAZ("az1", []string{"domain-c1"})
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}))
+	})
 }
