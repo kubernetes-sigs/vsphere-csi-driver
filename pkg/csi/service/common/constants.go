@@ -421,6 +421,11 @@ const (
 	// mutable_parameters take precedence over parameters.
 	AttributeSupervisorVolumeAttributesClass = "svvolumeattributesclass"
 
+	// VolumeAttributesClassResourceName is the plural resource name of the VolumeAttributesClass
+	// API (storage.k8s.io), as reported by discovery in APIResource.Name. Used to check whether
+	// the API is served by a given cluster.
+	VolumeAttributesClassResourceName = "volumeattributesclasses"
+
 	// VolumeSnapshotApiGroup represents the VolumeSnapshot API Group name
 	VolumeSnapshotApiGroup = "snapshot.storage.k8s.io"
 

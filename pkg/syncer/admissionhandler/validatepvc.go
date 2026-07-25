@@ -16,6 +16,7 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 
@@ -36,13 +37,60 @@ const (
 	ExpandLinkedCloneVolumeErrorMessage    = "Expanding linked clone volume is not allowed"
 	UpdateLinkedCloneVolumeAnnErrorMessage = "Cannot update linked clone volume annotations after creation"
 	DeleteVolumeWithSnapshotErrorMessage   = "Deleting volume with snapshots is not allowed"
+	VACChangeFeatureDisabledErrorMessage   = "VolumeAttributesClass modification is not allowed: " +
+		"VM_PVC_STORAGE_POLICY_MUTABILITY feature is disabled"
+	VACChangeAPINotServedErrorMessage = "VolumeAttributesClass modification is not allowed: " +
+		"the VolumeAttributesClass API is not served by this cluster"
 )
+
+// vacAPIGroupVersion is the GA VolumeAttributesClass API version required for VAC-based
+// modification to be supported. VAC-based modification is only supported on Kubernetes 1.34+
+// guest clusters serving the GA API; pre-1.34 guests serving only the beta storage.k8s.io/v1beta1
+// API are not supported.
+const vacAPIGroupVersion = "storage.k8s.io/v1"
+
+// isVolumeAttributesClassServed reports whether the guest cluster serves the GA
+// VolumeAttributesClass API (vacAPIGroupVersion). It is a package variable so tests can
+// substitute a fake.
+var isVolumeAttributesClassServed = func(ctx context.Context) (bool, error) {
+	kubeClient, err := newK8sClient(ctx)
+	if err != nil {
+		return false, err
+	}
+	resourceList, err := kubeClient.Discovery().ServerResourcesForGroupVersion(vacAPIGroupVersion)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, resource := range resourceList.APIResources {
+		if resource.Name == common.VolumeAttributesClassResourceName {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// detectVACChange compares VolumeAttributesClassName between old and new PVC and returns whether
+// a change was detected, along with the old and new VAC names.
+func detectVACChange(oldPVC, newPVC corev1.PersistentVolumeClaim) (bool, string, string) {
+	oldVAC := ""
+	if oldPVC.Spec.VolumeAttributesClassName != nil {
+		oldVAC = *oldPVC.Spec.VolumeAttributesClassName
+	}
+	newVAC := ""
+	if newPVC.Spec.VolumeAttributesClassName != nil {
+		newVAC = *newPVC.Spec.VolumeAttributesClassName
+	}
+	return oldVAC != newVAC, oldVAC, newVAC
+}
 
 // validatePVC helps validate AdmissionReview requests for PersistentVolumeClaim.
 func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
-	if !featureGateBlockVolumeSnapshotEnabled {
-		// If CSI block volume snapshot is disabled and webhook is running,
-		// skip validation for PersistentVolumeClaim.
+	if !featureGateBlockVolumeSnapshotEnabled && !featureIsVACPolicyMutabilityEnabled {
+		// If none of the features backed by this function are enabled, skip
+		// validation for PersistentVolumeClaim.
 		return &admissionv1.AdmissionResponse{
 			Allowed: true,
 		}
@@ -198,6 +246,34 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 							Reason: ExpandLinkedCloneVolumeErrorMessage,
 						}
 					}
+				}
+			}
+		}
+		// VolumeAttributesClass change gate: a VAC change on the guest PVC is proxied to the
+		// supervisor PVC (see pvCSI ControllerModifyVolume), where it is only honored if the
+		// cluster serves the VolumeAttributesClass API. Deny it here so the failure surfaces
+		// immediately instead of later, asynchronously, on the supervisor side.
+		if req.Operation == admissionv1.Update && allowed {
+			if vacChanged, oldVAC, newVAC := detectVACChange(oldPVC, newPVC); vacChanged {
+				if !featureIsVACPolicyMutabilityEnabled {
+					allowed = false
+					result = &metav1.Status{
+						Reason: VACChangeFeatureDisabledErrorMessage,
+					}
+				} else if served, err := isVolumeAttributesClassServed(ctx); err != nil {
+					allowed = false
+					result = &metav1.Status{
+						Reason: metav1.StatusReason(fmt.Sprintf(
+							"failed to determine whether the VolumeAttributesClass API is served: %v", err)),
+					}
+				} else if !served {
+					allowed = false
+					result = &metav1.Status{
+						Reason: VACChangeAPINotServedErrorMessage,
+					}
+				} else {
+					log.Infof("VAC change detected for PVC %s/%s: %q -> %q",
+						oldPVC.Namespace, oldPVC.Name, oldVAC, newVAC)
 				}
 			}
 		}
