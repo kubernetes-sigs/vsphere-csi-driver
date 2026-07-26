@@ -125,12 +125,9 @@ func toCSITopology(accessibleTopology []map[string]string) []*csi.Topology {
 
 // guestPVMatchesExpected reports whether an already-existing guest PV (found on the
 // GET-before-CREATE check in the CreatingGuestPV phase) still correctly points at supervisorPVCName
-// and is claimed by the CR's referenced PVC. Used by Reconcile (T7 wiring, TODO below) to decide
+// and is claimed by the CR's referenced PVC. Called from Reconcile's CreatingGuestPV step to decide
 // between "idempotent no-op" and terminal Failed when a guest PV with the expected name already
 // exists but disagrees with the current CR/Supervisor state.
-//
-// TODO(T7 wiring / T6 dependency): call this from the CreatingGuestPV phase once
-// Reconcile() has a real supervisorPVCName from T6. Today nothing calls this helper outside tests.
 func guestPVMatchesExpected(pv *v1.PersistentVolume, supervisorPVCName string,
 	instance *vksregistervolumev1alpha1.VKSRegisterVolume) bool {
 	if pv == nil || pv.Spec.CSI == nil {

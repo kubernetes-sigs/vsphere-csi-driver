@@ -63,7 +63,10 @@ func validateSpec(ctx context.Context, spec *vksregistervolumev1alpha1.VKSRegist
 //
 // The PVC must satisfy all of the following:
 //   - exists in the same namespace as the CR
-//   - not yet Bound (Phase == Pending; the PVC must already exist in Pending)
+//   - not yet Bound to a foreign PV (Phase == Pending), OR already Bound to the PV this same CR
+//     created (identified by the labels buildGuestPV stamps on it) — the latter is the idempotent
+//     success case where a prior reconcile completed the direct bind but failed to persist
+//     Status.Registered (e.g. a status-patch conflict), so Reconcile is retrying from scratch
 //   - spec.volumeName is set (the pre-chosen guest PV name)
 //   - spec.accessModes is non-empty
 //   - spec.resources.requests[storage] > 0
@@ -102,12 +105,29 @@ func resolveGuestPVC(
 			instance.Namespace, instance.Spec.PVCName, age.Truncate(time.Second), pvcMissingTimeout)
 	}
 
-	// PVC must not be Bound yet — it must already exist in Pending.
-	// A Bound PVC means another PV already claimed it; fail terminally.
+	// PVC must not be Bound to a foreign PV. If it's already Bound to the PV this controller
+	// creates (identified by the labels buildGuestPV stamps on it), that's an idempotent replay,
+	// not an error — proceed and let the rest of the reconcile flow re-verify and reach Registered.
 	if pvc.Status.Phase == corev1.ClaimBound {
-		return nil, true, fmt.Errorf("guest PVC %s/%s is already Bound (to PV %q); "+
-			"cannot import volume into an already-bound PVC",
-			instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName)
+		boundPV := &corev1.PersistentVolume{}
+		getErr := c.Get(ctx, types.NamespacedName{Name: pvc.Spec.VolumeName}, boundPV)
+		switch {
+		case apierrors.IsNotFound(getErr):
+			return nil, true, fmt.Errorf("guest PVC %s/%s is Bound to PV %q, which no longer exists",
+				instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName)
+		case getErr != nil:
+			return nil, false, fmt.Errorf("guest PVC %s/%s is Bound to PV %q, but failed to GET it: %w",
+				instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName, getErr)
+		case boundPV.Labels[labelVKSRegVolCreatedBy] != labelVKSRegVolCreatedByValue ||
+			boundPV.Labels[labelVKSRegVolCRNamespace] != instance.Namespace ||
+			boundPV.Labels[labelVKSRegVolCRName] != instance.Name:
+			return nil, true, fmt.Errorf("guest PVC %s/%s is already Bound (to PV %q) by someone other "+
+				"than this VKSRegisterVolume CR; cannot import volume into an already-bound PVC",
+				instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName)
+		default:
+			log.Infof("Guest PVC %s/%s already Bound to PV %q created by this CR; proceeding idempotently",
+				instance.Namespace, instance.Spec.PVCName, pvc.Spec.VolumeName)
+		}
 	}
 
 	// spec.volumeName must be set — this is the pre-chosen guest PV name.

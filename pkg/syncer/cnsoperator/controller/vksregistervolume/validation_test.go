@@ -181,6 +181,7 @@ func TestResolveGuestPVC(t *testing.T) {
 		name         string
 		instance     *vksregistervolumev1alpha1.VKSRegisterVolume
 		pvcInStore   *corev1.PersistentVolumeClaim // nil → PVC not found
+		pvInStore    *corev1.PersistentVolume      // nil → the PVC's bound PV (if any) not found
 		scInStore    *storagev1.StorageClass       // nil → StorageClass not found
 		wantPVC      bool                          // expect non-nil PVC returned
 		wantTerminal bool                          // expect terminal=true
@@ -208,7 +209,7 @@ func TestResolveGuestPVC(t *testing.T) {
 
 		// ── PVC state validation ──────────────────────────────────────────────────────────────
 		{
-			name:     "PVC already Bound → terminal",
+			name:     "PVC already Bound, bound PV missing → terminal",
 			instance: freshInstance,
 			pvcInStore: func() *corev1.PersistentVolumeClaim {
 				pvc := pendingPVC(ns, pvcName, scName)
@@ -216,10 +217,52 @@ func TestResolveGuestPVC(t *testing.T) {
 				pvc.Spec.VolumeName = "existing-pv"
 				return pvc
 			}(),
+			pvInStore:    nil,
 			scInStore:    storageClassWithSVSC(scName),
 			wantPVC:      false,
 			wantTerminal: true,
 			wantErr:      true,
+		},
+		{
+			name:     "PVC already Bound to a foreign PV (no matching labels) → terminal",
+			instance: freshInstance,
+			pvcInStore: func() *corev1.PersistentVolumeClaim {
+				pvc := pendingPVC(ns, pvcName, scName)
+				pvc.Status.Phase = corev1.ClaimBound
+				pvc.Spec.VolumeName = "existing-pv"
+				return pvc
+			}(),
+			pvInStore: &corev1.PersistentVolume{
+				ObjectMeta: metav1.ObjectMeta{Name: "existing-pv"},
+			},
+			scInStore:    storageClassWithSVSC(scName),
+			wantPVC:      false,
+			wantTerminal: true,
+			wantErr:      true,
+		},
+		{
+			name:     "PVC already Bound to this CR's own PV → idempotent success",
+			instance: freshInstance,
+			pvcInStore: func() *corev1.PersistentVolumeClaim {
+				pvc := pendingPVC(ns, pvcName, scName)
+				pvc.Status.Phase = corev1.ClaimBound
+				pvc.Spec.VolumeName = "pv-restore-db-vol"
+				return pvc
+			}(),
+			pvInStore: &corev1.PersistentVolume{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pv-restore-db-vol",
+					Labels: map[string]string{
+						labelVKSRegVolCreatedBy:   labelVKSRegVolCreatedByValue,
+						labelVKSRegVolCRNamespace: ns,
+						labelVKSRegVolCRName:      "restore-db-vol",
+					},
+				},
+			},
+			scInStore:    storageClassWithSVSC(scName),
+			wantPVC:      true,
+			wantTerminal: false,
+			wantErr:      false,
 		},
 		{
 			name:     "PVC spec.volumeName empty → terminal",
@@ -353,6 +396,9 @@ func TestResolveGuestPVC(t *testing.T) {
 			var clientObjs []runtime.Object
 			if tc.pvcInStore != nil {
 				clientObjs = append(clientObjs, tc.pvcInStore)
+			}
+			if tc.pvInStore != nil {
+				clientObjs = append(clientObjs, tc.pvInStore)
 			}
 			fakeClient := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(clientObjs...).Build()
 

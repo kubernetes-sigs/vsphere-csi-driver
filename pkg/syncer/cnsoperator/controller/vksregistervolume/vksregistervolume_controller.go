@@ -198,25 +198,19 @@ func newReconciler(
 
 // Reconcile implements the reconcile.Reconciler interface.
 //
-// Phase state machine (T5 wires steps 1–3; T6 wires steps 4–5; T7 wires steps 6–8):
+// Phase state machine:
 //  1. Finalizer — add vksRegisterVolumeFinalizer; requeue if absent.
 //  2. Validate spec fields (terminal Failed on any missing field).
 //  3. Resolve guest PVC: GET + validate (Pending, volumeName set, accessModes, storage>0,
 //     storageClass w/ svstorageclass); transient requeue if PVC not yet created (bounded window),
 //     terminal Failed otherwise.
 //     3b. VolumeMode default — Filesystem if nil/empty.
-//  4. [TODO T6] WaitingForSupervisorRegistration — GET Supervisor CnsRegisterVolume; wait Registered==true.
-//  5. [TODO T6] WaitingForSupervisorBinding — GET Supervisor PVC; wait Bound; read topology.
-//  6. [TODO T6 wiring; leaf logic done] CreatingGuestPV — GET-before-CREATE guest PV via
-//     buildGuestPV/guestPVMatchesExpected (pvspec.go); needs supervisorPVCName/accessibleTopology from step 5.
-//  7. [TODO T6 wiring] WaitingForGuestPVCBound — poll until guest PVC↔PV are Bound.
-//  8. [TODO T6 wiring] Registered — call setStatusRegistered (already implemented above).
-//
-// T7's own leaf logic (the guest PV spec builder and its idempotency check) is fully implemented
-// and unit-tested in pvspec.go independently of T6, per the task breakdown's "T7 can be
-// implemented without T6" note — buildGuestPV takes supervisorPVCName/accessibleTopology as plain
-// arguments rather than fetching them itself. Only the calls into the Reconcile switch below (steps
-// 6–8) are still TODO, because they need real values for those two arguments, which T6 produces.
+//  4. WaitingForSupervisorRegistration — GET Supervisor CnsRegisterVolume; wait Registered==true.
+//  5. WaitingForSupervisorBinding — GET Supervisor PVC; wait Bound; read topology.
+//  6. CreatingGuestPV — GET-before-CREATE guest PV via buildGuestPV/guestPVMatchesExpected
+//     (pvspec.go), using supervisorPVCName/accessibleTopology from step 5.
+//  7. WaitingForGuestPVCBound — poll until guest PVC↔PV are Bound.
+//  8. Registered — call setStatusRegistered.
 func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	ctx = logger.NewContextWithLogger(ctx)
@@ -295,8 +289,6 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 
 	// ── Step 3b: Default VolumeMode to Filesystem if unset ────────────────────────────────────
 	volumeMode := defaultVolumeMode(pvc.Spec.VolumeMode)
-	// volumeMode is forwarded to buildGuestPV in T7.  Suppress unused-var until then.
-	_ = volumeMode
 
 	// ── Advance phase to WaitingForSupervisorRegistration ────────────────────────────────────
 	if err := r.setStatusPhase(ctx, instance,
@@ -342,53 +334,93 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// supervisorPVCName, accessibleTopology, pvc, and volumeMode are consumed by T7
-	// (CreatingGuestPV: buildGuestPV + create). Suppress unused-var until then.
-	_ = supervisorPVCName
-	_ = accessibleTopology
-	_ = pvc
+	// ── Advance phase to CreatingGuestPV ───────────────────────────────────────────────────────
+	if err := r.setStatusPhase(ctx, instance,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseCreatingGuestPV); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to advance phase: %v",
+			instance.Namespace, instance.Name, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T6+T7 wiring): CreatingGuestPV ───────────────────────────────────────────────────
-	// The leaf logic for this phase is already implemented and unit-tested in pvspec.go
-	// (buildGuestPV, guestPVMatchesExpected, toCSITopology) — only the wiring below (which needs
-	// the real supervisorPVCName/accessibleTopology from T6) is missing:
-	//
-	//   guestPVName := pvc.Spec.VolumeName
-	//   existingPV := &corev1.PersistentVolume{}
-	//   err := r.client.Get(ctx, apitypes.NamespacedName{Name: guestPVName}, existingPV)
-	//   switch {
-	//   case apierrors.IsNotFound(err):
-	//       pv := buildGuestPV(pvc, guestPVName, supervisorPVCName, volumeMode, accessibleTopology, instance)
-	//       if err := r.client.Create(ctx, pv); err != nil { ... requeue ... }
-	//   case err == nil:
-	//       if !guestPVMatchesExpected(existingPV, supervisorPVCName, instance) {
-	//           // existing PV disagrees with our CR/Supervisor state (e.g. claimed by a different PVC)
-	//           r.setStatusFailed(ctx, instance, "existing guest PV does not match expected volumeHandle/claimRef")
-	//           return reconcile.Result{}, nil
-	//       }
-	//       // idempotent no-op — PV already correct.
-	//   default:
-	//       // Get failed for a reason other than NotFound (e.g. apiserver timeout/5xx) — this says
-	//       // nothing about whether the PV exists, so don't create or Fail. Requeue with backoff
-	//       // and retry the Get on the next reconcile: r.setStatusError(ctx, instance, err.Error());
-	//       // return reconcile.Result{RequeueAfter: timeout}, nil
-	//   }
-	//   advance phase to CreatingGuestPV / WaitingForGuestPVCBound.
+	// waitForSupervisorBinding returns the CSI-shaped []*csi.Topology, but buildGuestPV takes the
+	// raw []map[string]string segment form (it does its own toCSITopology conversion) so that it
+	// stays independently unit-testable against plain literals. Convert back at this seam.
+	var accessibleTopologySegments []map[string]string
+	for _, t := range accessibleTopology {
+		if t != nil {
+			accessibleTopologySegments = append(accessibleTopologySegments, t.Segments)
+		}
+	}
 
-	// ── TODO(T6+T7 wiring): WaitingForGuestPVCBound ───────────────────────────────────────────
-	// GET guest PVC (r.client.Get(ctx, types.NamespacedName{Namespace: instance.Namespace,
-	//   Name: instance.Spec.PVCName}, &corev1.PersistentVolumeClaim{})).
-	// - Phase == Bound && VolumeName == guestPVName → advance to Registered.
-	// - Phase == Bound && VolumeName != guestPVName → terminal Failed (bound to a different PV).
-	// - Phase == Pending → requeue with backoff (Kubernetes' binder still converging).
+	// ── Step 6: CreatingGuestPV — GET-before-CREATE the guest PV ──────────────────────────────
+	guestPVName := pvc.Spec.VolumeName
+	existingPV := &corev1.PersistentVolume{}
+	err = r.client.Get(ctx, apitypes.NamespacedName{Name: guestPVName}, existingPV)
+	switch {
+	case apierrors.IsNotFound(err):
+		pv := buildGuestPV(pvc, guestPVName, supervisorPVCName, volumeMode, accessibleTopologySegments, instance)
+		if err := r.client.Create(ctx, pv); err != nil {
+			log.Errorf("VKSRegisterVolume %s/%s: failed to create guest PV %q: %v",
+				instance.Namespace, instance.Name, guestPVName, err)
+			r.setStatusError(ctx, instance, fmt.Sprintf("failed to create guest PV %q: %v", guestPVName, err))
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	case err == nil:
+		if !guestPVMatchesExpected(existingPV, supervisorPVCName, instance) {
+			msg := fmt.Sprintf("existing guest PV %q does not match expected volumeHandle/claimRef",
+				guestPVName)
+			log.Errorf("VKSRegisterVolume %s/%s: %s", instance.Namespace, instance.Name, msg)
+			r.setStatusFailed(ctx, instance, msg)
+			return reconcile.Result{}, nil // no requeue — terminal
+		}
+		// idempotent no-op — PV already correct.
+	default:
+		log.Errorf("VKSRegisterVolume %s/%s: failed to GET guest PV %q: %v",
+			instance.Namespace, instance.Name, guestPVName, err)
+		r.setStatusError(ctx, instance, fmt.Sprintf("failed to GET guest PV %q: %v", guestPVName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T6+T7 wiring): Registered ────────────────────────────────────────────────────────
-	// if err := r.setStatusRegistered(ctx, instance); err != nil {
-	//     return reconcile.Result{RequeueAfter: timeout}, nil
-	// }
-	// return reconcile.Result{}, nil
+	// ── Advance phase to WaitingForGuestPVCBound ──────────────────────────────────────────────
+	if err := r.setStatusPhase(ctx, instance,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForGuestPVCBound); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to advance phase: %v",
+			instance.Namespace, instance.Name, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	return reconcile.Result{RequeueAfter: timeout}, nil
+	// ── Step 7: WaitingForGuestPVCBound ────────────────────────────────────────────────────────
+	guestPVC := &corev1.PersistentVolumeClaim{}
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Namespace: instance.Namespace,
+		Name: instance.Spec.PVCName}, guestPVC); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to GET guest PVC %s/%s: %v",
+			instance.Namespace, instance.Name, instance.Namespace, instance.Spec.PVCName, err)
+		r.setStatusError(ctx, instance, fmt.Sprintf("failed to GET guest PVC %s/%s: %v",
+			instance.Namespace, instance.Spec.PVCName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if guestPVC.Status.Phase != corev1.ClaimBound {
+		msg := fmt.Sprintf("guest PVC %s/%s not yet Bound (phase=%q)",
+			instance.Namespace, instance.Spec.PVCName, guestPVC.Status.Phase)
+		log.Infof("VKSRegisterVolume %s/%s: %s; will retry", instance.Namespace, instance.Name, msg)
+		r.setStatusError(ctx, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if guestPVC.Spec.VolumeName != guestPVName {
+		msg := fmt.Sprintf("guest PVC %s/%s is Bound to PV %q, not the expected %q",
+			instance.Namespace, instance.Spec.PVCName, guestPVC.Spec.VolumeName, guestPVName)
+		log.Errorf("VKSRegisterVolume %s/%s: %s", instance.Namespace, instance.Name, msg)
+		r.setStatusFailed(ctx, instance, msg)
+		return reconcile.Result{}, nil // no requeue — terminal
+	}
+
+	// ── Step 8: Registered ─────────────────────────────────────────────────────────────────────
+	if err := r.setStatusRegistered(ctx, instance); err != nil {
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	return reconcile.Result{}, nil
 }
 
 // reconcileDelete handles VKSRegisterVolume CR deletion.
@@ -464,10 +496,7 @@ func (r *ReconcileVKSRegisterVolume) setStatusPhase(ctx context.Context,
 }
 
 // setStatusRegistered sets Phase=Registered, Registered=true, clears Error.
-// Called by T7 when the guest PVC↔PV direct bind completes.
-// TODO(T7 wiring): call this from the Registered step of the Reconcile loop (see the
-// pseudo-code in Reconcile's doc comment) — it depends on T6 supplying the real
-// supervisorPVCName/accessibleTopology; this function itself has no such dependency.
+// Called from Reconcile's Registered step (step 8) once the guest PVC↔PV direct bind completes.
 func (r *ReconcileVKSRegisterVolume) setStatusRegistered(ctx context.Context,
 	instance *vksregistervolumev1alpha1.VKSRegisterVolume) error {
 	log := logger.GetLogger(ctx)
