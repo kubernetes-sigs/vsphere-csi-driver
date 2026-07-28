@@ -18,19 +18,34 @@ package wcpguest
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	snapshotclientset "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 // TestTimeoutErrorCodes verifies that timeout operations return the correct gRPC error code
@@ -926,4 +941,486 @@ func TestSnapshotTimeoutScenario(t *testing.T) {
 // Helper function
 func stringPtr(s string) *string {
 	return &s
+}
+
+// TestVolumeAttachmentName verifies that the VolumeAttachment name derived here
+// matches the name the Kubernetes attach/detach controller actually assigns. The
+// expected values below are real VolumeAttachment names captured from a live
+// cluster, alongside the volume handle and node they were created for. If
+// getAttachmentName() in k8s.io/kubernetes/pkg/volume/csi ever changes its
+// hashing scheme, this test fails and isAttachStillRequested must be revisited -
+// it would otherwise silently start reporting every attach as "no longer
+// requested".
+func TestVolumeAttachmentName(t *testing.T) {
+	const node = "lin-vks5-small-0-node-pool-1-m6gq2-qv98v-cvfxv"
+	tests := []struct {
+		name         string
+		volumeHandle string
+		expected     string
+	}{
+		{
+			name:         "volume 0",
+			volumeHandle: "c48f1df3-76e3-4495-b111-b87715287128-0dd0bfc4-9996-4070-9716-ddb3d11738ad",
+			expected:     "csi-524e5016960dd561947c30fbf6bfa195d83a52044d88a0efa2c1cfc9ca6dddf2",
+		},
+		{
+			name:         "volume 1",
+			volumeHandle: "c48f1df3-76e3-4495-b111-b87715287128-d81c9aca-1e05-438b-8e03-5e234501a6da",
+			expected:     "csi-68eee207f9c4e23024f703ba0268513789cfb8af82a6ed7639a7624ec1e27627",
+		},
+		{
+			name:         "volume 2",
+			volumeHandle: "c48f1df3-76e3-4495-b111-b87715287128-b1831b35-7e03-40b2-8213-ec6cfeb8e339",
+			expected:     "csi-5a514b08aa0b5ea23feda388299cbe6ffa819e9abd86fcfa2eb4daeba77270ab",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := volumeAttachmentName(tt.volumeHandle, csitypes.Name, node)
+			if got != tt.expected {
+				t.Errorf("volumeAttachmentName() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestIsAttachStillRequested verifies the staleness guard consulted before the
+// attach is written into VirtualMachine.Spec.Volumes.
+func TestIsAttachStillRequested(t *testing.T) {
+	ctx := context.Background()
+	const (
+		volumeHandle = "c48f1df3-76e3-4495-b111-b87715287128-0dd0bfc4-9996-4070-9716-ddb3d11738ad"
+		nodeName     = "lin-vks5-small-0-node-pool-1-m6gq2-qv98v-cvfxv"
+	)
+
+	t.Run("VolumeAttachment present means attach is still requested", func(t *testing.T) {
+		pvName := "pvc-0dd0bfc4-9996-4070-9716-ddb3d11738ad"
+		va := &storagev1.VolumeAttachment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+			},
+			Spec: storagev1.VolumeAttachmentSpec{
+				Attacher: csitypes.Name,
+				NodeName: nodeName,
+				Source: storagev1.VolumeAttachmentSource{
+					PersistentVolumeName: &pvName,
+				},
+			},
+		}
+		c := &controller{guestClient: testclient.NewClientset(va)}
+		if !c.isAttachStillRequested(ctx, volumeHandle, nodeName) {
+			t.Error("expected attach to be reported as still requested when the VolumeAttachment exists")
+		}
+	})
+
+	t.Run("VolumeAttachment absent means attach is no longer requested", func(t *testing.T) {
+		c := &controller{guestClient: testclient.NewClientset()}
+		if c.isAttachStillRequested(ctx, volumeHandle, nodeName) {
+			t.Error("expected attach to be reported as no longer requested when the VolumeAttachment is gone")
+		}
+	})
+
+	t.Run("VolumeAttachment for a different node does not satisfy the guard", func(t *testing.T) {
+		otherNode := "lin-vks5-small-0-node-pool-1-m6gq2-qv98v-other"
+		va := &storagev1.VolumeAttachment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: volumeAttachmentName(volumeHandle, csitypes.Name, otherNode),
+			},
+		}
+		c := &controller{guestClient: testclient.NewClientset(va)}
+		if c.isAttachStillRequested(ctx, volumeHandle, nodeName) {
+			t.Error("expected the guard to ignore a VolumeAttachment belonging to another node")
+		}
+	})
+
+	// The guard must fail open. Blocking attaches because the API server is
+	// briefly unreachable - or because the driver's RBAC lacks access to
+	// volumeattachments - would be far worse than the orphaned attachment it is
+	// trying to prevent.
+	t.Run("transient API error fails open", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		guestClient.PrependReactor("get", "volumeattachments",
+			func(action ktesting.Action) (bool, runtime.Object, error) {
+				return true, nil, apierrors.NewServiceUnavailable("apiserver is unavailable")
+			})
+		c := &controller{guestClient: guestClient}
+		if !c.isAttachStillRequested(ctx, volumeHandle, nodeName) {
+			t.Error("expected the guard to fail open and allow the attach when the lookup errors")
+		}
+	})
+
+	t.Run("forbidden error fails open", func(t *testing.T) {
+		guestClient := testclient.NewClientset()
+		guestClient.PrependReactor("get", "volumeattachments",
+			func(action ktesting.Action) (bool, runtime.Object, error) {
+				return true, nil, apierrors.NewForbidden(
+					storagev1.Resource("volumeattachments"), "", nil)
+			})
+		c := &controller{guestClient: guestClient}
+		if !c.isAttachStillRequested(ctx, volumeHandle, nodeName) {
+			t.Error("expected the guard to fail open when RBAC denies the lookup")
+		}
+	})
+}
+
+// TestVMWatchClosedError verifies that a VirtualMachine watch closing without the
+// expected state is never reported as codes.Internal. CSI sidecars treat Internal
+// as a final error meaning "the operation is for sure not in progress", which is
+// untrue here: the volume remains in VirtualMachine.Spec.Volumes and vm-operator
+// keeps reconciling it, so the attach or detach may still complete.
+func TestVMWatchClosedError(t *testing.T) {
+	const vmName = "lin-vks1-medium-0-node-pool-1-g4xm6-zkp89-dgdql"
+
+	t.Run("watch timeout reports DeadlineExceeded", func(t *testing.T) {
+		_, err := vmWatchClosedError(context.Background(), "attach", vmName)
+		assertGRPCCode(t, err, codes.DeadlineExceeded)
+	})
+
+	t.Run("cancelled context reports Canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := vmWatchClosedError(ctx, "attach", vmName)
+		assertGRPCCode(t, err, codes.Canceled)
+	})
+
+	t.Run("expired context deadline reports DeadlineExceeded", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer cancel()
+		<-ctx.Done()
+		_, err := vmWatchClosedError(ctx, "detach", vmName)
+		assertGRPCCode(t, err, codes.DeadlineExceeded)
+	})
+
+	// Both codes must be non-final so that the CSI sidecars keep the
+	// VolumeAttachment around and retry, rather than concluding the operation
+	// definitively failed.
+	t.Run("reported codes are never Internal", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		for _, c := range []context.Context{context.Background(), ctx} {
+			_, err := vmWatchClosedError(c, "attach", vmName)
+			if st, ok := status.FromError(err); ok && st.Code() == codes.Internal {
+				t.Errorf("watch closure reported codes.Internal, which sidecars treat as a final error")
+			}
+		}
+	})
+}
+
+// TestVMWatchErrorEventError verifies that a watch.Error event - which carries a
+// *metav1.Status describing why the watch itself failed, e.g. an expired
+// resourceVersion - is reported with that detail rather than being collapsed
+// into the generic "watch closed" timeout/cancel message. The two cases are
+// distinguishable at the call site by event.Type, and must be handled by
+// different helpers: conflating them would silently discard the actual
+// apiserver-reported reason for the watch failing.
+func TestVMWatchErrorEventError(t *testing.T) {
+	const vmName = "lin-vks1-medium-0-node-pool-1-g4xm6-zkp89-dgdql"
+
+	t.Run("status message from the watch.Error event is included", func(t *testing.T) {
+		watchStatus := &metav1.Status{
+			Message: "too old resource version: 12345 (67890)",
+		}
+		_, err := vmWatchErrorEventError(context.Background(), "attach", vmName, watchStatus)
+		assertGRPCCode(t, err, codes.Unavailable)
+		if st, _ := status.FromError(err); !strings.Contains(st.Message(), watchStatus.Message) {
+			t.Errorf("expected error message to include the watch status message %q, got %q",
+				watchStatus.Message, st.Message())
+		}
+	})
+
+	t.Run("reports Unavailable even without a status payload", func(t *testing.T) {
+		_, err := vmWatchErrorEventError(context.Background(), "detach", vmName, nil)
+		assertGRPCCode(t, err, codes.Unavailable)
+	})
+
+	// codes.Unavailable must be non-final for the same reason as
+	// vmWatchClosedError's codes: a failed watch says nothing about whether the
+	// underlying attach/detach itself completed.
+	t.Run("reported code is never Internal", func(t *testing.T) {
+		_, err := vmWatchErrorEventError(context.Background(), "attach", vmName, nil)
+		if st, ok := status.FromError(err); ok && st.Code() == codes.Internal {
+			t.Errorf("watch error event reported codes.Internal, which sidecars treat as a final error")
+		}
+	})
+}
+
+// TestControllerPublishForBlockVolumeStaleAttach drives controllerPublishForBlockVolume
+// itself, to verify the guard actually prevents the write to
+// VirtualMachine.Spec.Volumes. This is the regression that matters: it is the
+// persisted spec entry, not the returned error, that strands a volume attached to
+// a node with no VolumeAttachment left to detach it.
+func TestControllerPublishForBlockVolumeStaleAttach(t *testing.T) {
+	ctx := context.Background()
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-0dd0bfc4-9996-4070-9716-ddb3d11738ad"
+	)
+
+	newVM := func() *vmoperatortypes.VirtualMachine {
+		return &vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+		}
+	}
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	t.Run("stale attach is rejected without modifying the VM spec", func(t *testing.T) {
+		vmClient := ctrlclientfake.NewClientBuilder().
+			WithScheme(scheme).WithObjects(newVM()).Build()
+		c := &controller{
+			vmOperatorClient:    vmClient,
+			guestClient:         testclient.NewClientset(), // no VolumeAttachment: attach is stale
+			supervisorNamespace: namespace,
+		}
+
+		_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+			VolumeId: volumeHandle,
+			NodeId:   nodeName,
+		}, c)
+
+		assertGRPCCode(t, err, codes.FailedPrecondition)
+
+		// The critical assertion: nothing was persisted into the VM spec.
+		vm := &vmoperatortypes.VirtualMachine{}
+		if getErr := vmClient.Get(ctx,
+			types.NamespacedName{Namespace: namespace, Name: nodeName}, vm); getErr != nil {
+			t.Fatalf("failed to read back VirtualMachine: %v", getErr)
+		}
+		if len(vm.Spec.Volumes) != 0 {
+			t.Errorf("expected VirtualMachine.Spec.Volumes to be left untouched, got %+v", vm.Spec.Volumes)
+		}
+	})
+
+	t.Run("live attach is written into the VM spec", func(t *testing.T) {
+		// status.Volumes reports the disk as already attached so that the call
+		// returns without needing the VirtualMachine watch.
+		vm := newVM()
+		vm.Status.Volumes = []vmoperatortypes.VirtualMachineVolumeStatus{
+			{Name: volumeHandle, Attached: true, DiskUUID: "6000c29-fake-disk-uuid"},
+		}
+		va := &storagev1.VolumeAttachment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+			},
+		}
+		vmClient := ctrlclientfake.NewClientBuilder().
+			WithScheme(scheme).WithObjects(vm).Build()
+		c := &controller{
+			vmOperatorClient:    vmClient,
+			guestClient:         testclient.NewClientset(va),
+			supervisorNamespace: namespace,
+		}
+
+		resp, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+			VolumeId: volumeHandle,
+			NodeId:   nodeName,
+		}, c)
+		if err != nil {
+			t.Fatalf("expected the attach to succeed, got %v", err)
+		}
+		if resp == nil {
+			t.Fatal("expected a ControllerPublishVolumeResponse")
+		}
+
+		updated := &vmoperatortypes.VirtualMachine{}
+		if getErr := vmClient.Get(ctx,
+			types.NamespacedName{Namespace: namespace, Name: nodeName}, updated); getErr != nil {
+			t.Fatalf("failed to read back VirtualMachine: %v", getErr)
+		}
+		if len(updated.Spec.Volumes) != 1 || updated.Spec.Volumes[0].Name != volumeHandle {
+			t.Errorf("expected volume %q to be added to the VM spec, got %+v", volumeHandle, updated.Spec.Volumes)
+		}
+	})
+}
+
+// TestControllerPublishForBlockVolumeStaleAttachOnRetry verifies that
+// isAttachStillRequested is re-evaluated on every iteration of the attach
+// retry loop, not just once when the RPC starts. It simulates a VolumeAttachment
+// disappearing between a failed patch attempt and the next retry: the first
+// patch attempt is forced to fail with a conflict, and while handling that
+// failure, the VolumeAttachment is deleted out from under the request. If the
+// guard only ran once at the top of the function, the second iteration would
+// go on to patch VirtualMachine.Spec.Volumes despite nothing left in Kubernetes
+// to ever detach it.
+func TestControllerPublishForBlockVolumeStaleAttachOnRetry(t *testing.T) {
+	ctx := context.Background()
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-0dd0bfc4-9996-4070-9716-ddb3d11738ad"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	va := &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+		},
+	}
+	guestClient := testclient.NewClientset(va)
+
+	patchAttempts := 0
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+		}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				patchAttempts++
+				if patchAttempts == 1 {
+					if err := guestClient.StorageV1().VolumeAttachments().Delete(
+						ctx, va.Name, metav1.DeleteOptions{}); err != nil {
+						t.Fatalf("failed to delete VolumeAttachment: %v", err)
+					}
+					return apierrors.NewConflict(storagev1.Resource("virtualmachines"), obj.GetName(), errors.New("conflict"))
+				}
+				return cli.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	c := &controller{
+		vmOperatorClient:    vmClient,
+		guestClient:         guestClient,
+		supervisorNamespace: namespace,
+	}
+
+	_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+		VolumeId: volumeHandle,
+		NodeId:   nodeName,
+	}, c)
+
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+	if patchAttempts != 1 {
+		t.Errorf("expected the guard to reject the second iteration before it could retry the patch, "+
+			"but the patch was attempted %d time(s)", patchAttempts)
+	}
+
+	vm := &vmoperatortypes.VirtualMachine{}
+	if getErr := vmClient.Get(ctx,
+		types.NamespacedName{Namespace: namespace, Name: nodeName}, vm); getErr != nil {
+		t.Fatalf("failed to read back VirtualMachine: %v", getErr)
+	}
+	if len(vm.Spec.Volumes) != 0 {
+		t.Errorf("expected VirtualMachine.Spec.Volumes to be left untouched, got %+v", vm.Spec.Volumes)
+	}
+}
+
+// TestControllerUnpublishForBlockVolumeWatchTermination drives
+// controllerUnpublishForBlockVolume through its VirtualMachine watch loop to
+// verify the two ways that watch can end without observing the volume detached
+// are reported with the expected non-final codes: a watch.Error event maps to
+// vmWatchErrorEventError (codes.Unavailable, with the underlying status
+// message), and a closed result channel maps to vmWatchClosedError
+// (codes.DeadlineExceeded). Both must never be codes.Internal, or CSI sidecars
+// will treat the detach as finished when VirtualMachine.Spec.Volumes may still
+// be mid-reconcile.
+func TestControllerUnpublishForBlockVolumeWatchTermination(t *testing.T) {
+	ctx := context.Background()
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-0dd0bfc4-9996-4070-9716-ddb3d11738ad"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	// The volume is already absent from Spec.Volumes, so the removal loop exits
+	// immediately, but still reported as attached in Status.Volumes, so the
+	// function proceeds to the watch loop under test.
+	newAttachedVM := func() *vmoperatortypes.VirtualMachine {
+		return &vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+			Status: vmoperatortypes.VirtualMachineStatus{
+				Volumes: []vmoperatortypes.VirtualMachineVolumeStatus{
+					{Name: volumeHandle, Attached: true},
+				},
+			},
+		}
+	}
+
+	// runUnpublish starts controllerUnpublishForBlockVolume in the background,
+	// since it blocks reading watchVirtualMachine.ResultChan(), then calls
+	// injectEvent to deliver (or close) the watch and waits for the RPC to
+	// return.
+	runUnpublish := func(t *testing.T, fakeWatch *watch.FakeWatcher, injectEvent func()) error {
+		t.Helper()
+		vmClient := ctrlclientfake.NewClientBuilder().
+			WithScheme(scheme).WithObjects(newAttachedVM()).Build()
+		c := &controller{
+			vmOperatorClient:    vmClient,
+			guestClient:         testclient.NewClientset(),
+			supervisorNamespace: namespace,
+			vmWatcher: &cache.ListWatch{
+				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+					return fakeWatch, nil
+				},
+			},
+		}
+
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := controllerUnpublishForBlockVolume(ctx, &csi.ControllerUnpublishVolumeRequest{
+				VolumeId: volumeHandle,
+				NodeId:   nodeName,
+			}, c)
+			done <- err
+		}()
+
+		injectEvent()
+
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(5 * time.Second):
+			t.Fatal("controllerUnpublishForBlockVolume did not return after the watch terminated")
+			return nil
+		}
+	}
+
+	t.Run("watch.Error event reports Unavailable with the status message", func(t *testing.T) {
+		fakeWatch := watch.NewFake()
+		const wantMessage = "too old resource version: 12345 (67890)"
+		err := runUnpublish(t, fakeWatch, func() {
+			fakeWatch.Error(&metav1.Status{Message: wantMessage})
+		})
+		assertGRPCCode(t, err, codes.Unavailable)
+		if st, _ := status.FromError(err); !strings.Contains(st.Message(), wantMessage) {
+			t.Errorf("expected error to include the watch status message %q, got %q", wantMessage, st.Message())
+		}
+	})
+
+	t.Run("closed watch reports DeadlineExceeded", func(t *testing.T) {
+		fakeWatch := watch.NewFake()
+		err := runUnpublish(t, fakeWatch, func() {
+			fakeWatch.Stop()
+		})
+		assertGRPCCode(t, err, codes.DeadlineExceeded)
+	})
+}
+
+func assertGRPCCode(t *testing.T, err error, want codes.Code) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected an error with code %v, got nil", want)
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected a gRPC status error, got %v", err)
+	}
+	if st.Code() != want {
+		t.Errorf("expected code %v, got %v (message: %q)", want, st.Code(), st.Message())
+	}
 }
