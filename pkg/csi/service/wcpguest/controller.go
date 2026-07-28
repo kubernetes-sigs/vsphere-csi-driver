@@ -1421,15 +1421,22 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			log.Error(err.Error())
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
 		}
+		log.Infof("DEBUG ControllerUnpublishVolume: dispatch decision for volumeId=%q nodeId=%q: isFileVolume=%v",
+			req.VolumeId, req.NodeId, isFileVolume)
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+				log.Infof("DEBUG ControllerUnpublishVolume: routing volumeId=%q to controllerUnpublishForFileVolume",
+					req.VolumeId)
 				return controllerUnpublishForFileVolume(ctx, req, c)
 			}
 			// Feature is disabled on the cluster
+			log.Infof("DEBUG ControllerUnpublishVolume: FileVolume FSS disabled, failing volumeId=%q", req.VolumeId)
 			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "File volume not supported.")
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
+		log.Infof("DEBUG ControllerUnpublishVolume: routing volumeId=%q to controllerUnpublishForBlockVolume",
+			req.VolumeId)
 		return controllerUnpublishForBlockVolume(ctx, req, c)
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
@@ -1588,6 +1595,7 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest, c *controller) (
 	*csi.ControllerUnpublishVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+	log.Infof("DEBUG controllerUnpublishForFileVolume: entered for volumeId=%q nodeId=%q", req.VolumeId, req.NodeId)
 
 	if IsVsanFileVolumeServiceEnabled {
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
@@ -1646,6 +1654,8 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		log.Error(msg)
 		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 	}
+	log.Infof("DEBUG controllerUnpublishForFileVolume: issuing Delete on CnsFileAccessConfig %q/%q",
+		c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 	if err := c.cnsOperatorClient.Delete(ctx, &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cnsFileAccessConfigInstanceName,
@@ -1662,6 +1672,8 @@ func controllerUnpublishForFileVolume(ctx context.Context, req *csi.ControllerUn
 		log.Error(msg)
 		return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 	}
+	log.Infof("DEBUG controllerUnpublishForFileVolume: Delete call for CnsFileAccessConfig %q/%q accepted, "+
+		"now waiting for the DELETED watch event", c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 	defer watchCnsFileAccessConfig.Stop()
 	var cnsFileAccessConfigInstanceErr string
 	isCnsFileAccessConfigInstanceDeleted := false
@@ -2436,17 +2448,28 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 // pair.
 func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
 	bool, error) {
+	log := logger.GetLogger(ctx)
+	log.Infof("DEBUG isFileVolumeAttachment: checking volumeId=%q nodeId=%q in supervisorNamespace=%q",
+		req.VolumeId, req.NodeId, c.supervisorNamespace)
+
 	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 		ctx, req.VolumeId, metav1.GetOptions{})
 	if err != nil {
+		log.Errorf("DEBUG isFileVolumeAttachment: failed to get supervisor PVC %q: %v", req.VolumeId, err)
 		return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
 			req.VolumeId, c.supervisorNamespace, err)
 	}
+	log.Infof("DEBUG isFileVolumeAttachment: supervisor PVC %q accessModes=%v storageClass=%v "+
+		"IsVsanFileVolumeServiceEnabled=%v",
+		req.VolumeId, svPVC.Spec.AccessModes, svPVC.Spec.StorageClassName, IsVsanFileVolumeServiceEnabled)
 	if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
+		log.Infof("DEBUG isFileVolumeAttachment: volumeId=%q is FVS-backed, treating as file volume", req.VolumeId)
 		return true, nil
 	}
 
 	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
+	log.Infof("DEBUG isFileVolumeAttachment: looking up CnsFileAccessConfig %q/%q",
+		c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 	existingInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
 	err = c.cnsOperatorClient.Get(ctx, types.NamespacedName{
 		Namespace: c.supervisorNamespace,
@@ -2454,10 +2477,19 @@ func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.Contro
 	}, existingInstance)
 	switch {
 	case err == nil:
+		log.Infof("DEBUG isFileVolumeAttachment: found CnsFileAccessConfig %q/%q (status.done=%v status.error=%q); "+
+			"treating volumeId=%q as file volume",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, existingInstance.Status.Done,
+			existingInstance.Status.Error, req.VolumeId)
 		return true, nil
 	case errors.IsNotFound(err):
+		log.Infof("DEBUG isFileVolumeAttachment: CnsFileAccessConfig %q/%q not found; "+
+			"treating volumeId=%q as block volume",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, req.VolumeId)
 		return false, nil
 	default:
+		log.Errorf("DEBUG isFileVolumeAttachment: failed to get CnsFileAccessConfig %q/%q: %v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 		return false, fmt.Errorf("failed to get CnsFileAccessConfig instance %q/%q: %v",
 			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
 	}
