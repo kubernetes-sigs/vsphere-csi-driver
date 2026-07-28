@@ -27,6 +27,7 @@ import (
 
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/vsphereinfra"
 )
@@ -338,4 +339,105 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesBlockAndFilesystemCapabilities
 	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeBlock])
 	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsLinkedClone])
 	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHighPerformanceLinkedClone])
+}
+
+// setupPolicyZoneWithHPLCHost primes the cache so LC/HPLC over zone-a would compute true.
+func setupPolicyZoneWithHPLCHost(t *testing.T, policyName, dsID, hostID, clusterID string) {
+	t.Helper()
+	clearPolicyZoneCache(t, policyName)
+	t.Cleanup(func() {
+		vsphereinfra.GetCache().UpdateDsHosts(dsID, map[string]struct{}{})
+		vsphereinfra.GetCache().InvalidateHostVersion(hostID)
+		vsphereinfra.GetCache().InvalidateCluster(clusterID)
+	})
+	vsphereinfra.GetCache().SetDatastoresForPolicyZones(policyName, map[string][]string{"zone-a": {dsID}})
+	vsphereinfra.GetCache().UpdateDsHosts(dsID, map[string]struct{}{hostID: {}})
+	vsphereinfra.GetCache().UpdateHostVersion(hostID, "9.1.0")
+	vsphereinfra.GetCache().UpdateClusterHosts(clusterID, map[string]struct{}{hostID: {}})
+	vsphereinfra.GetCache().SetClusterESAEnabled(clusterID, true)
+}
+
+// TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyForcesLCHPLCFalse verifies Block mode,
+// LC and HPLC are all forced false for the marker policy, even when InfraSPI reports Block
+// mode support and the cache would otherwise compute LC/HPLC true.
+func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyForcesLCHPLCFalse(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	markerPolicy := common.StorageClassVsanFileServicePolicy
+	setupPolicyZoneWithHPLCHost(t, markerPolicy, "ds-marker-force", "host-marker-force", "cluster-marker-force")
+
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
+		Status: spiv1alpha1.StoragePolicyInfoStatus{
+			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+		},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: map[infraspiv1alpha1.VolumeCapability]bool{
+				infraspiv1alpha1.SupportsVolumeModeBlock: true,
+			},
+		},
+	}
+
+	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: true}
+	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
+	require.NoError(t, err)
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeFilesystem])
+	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeBlock],
+		"marker policy must have Block mode forced false even when InfraSPI reports it true")
+	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsLinkedClone],
+		"marker policy must have LinkedClone forced false even when the cache would compute true")
+	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHighPerformanceLinkedClone],
+		"marker policy must have HighPerformanceLinkedClone forced false even when the cache would compute true")
+}
+
+// TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyFSSDisabledComputes verifies LC/HPLC are
+// computed normally for the marker policy when the marker FSS is disabled.
+func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyFSSDisabledComputes(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	markerPolicy := common.StorageClassVsanFileServicePolicy
+	setupPolicyZoneWithHPLCHost(t, markerPolicy, "ds-marker-fssoff", "host-marker-fssoff", "cluster-marker-fssoff")
+
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
+		Status: spiv1alpha1.StoragePolicyInfoStatus{
+			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+		},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: markerPolicy}}
+
+	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: false}
+	activeClustersByZone := map[string]map[string]bool{"zone-a": {"cluster-marker-fssoff": true}}
+	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
+	require.NoError(t, err)
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsLinkedClone],
+		"with the marker FSS off, LinkedClone is computed normally (true here)")
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHighPerformanceLinkedClone],
+		"with the marker FSS off, HighPerformanceLinkedClone is computed normally (true here)")
+}
+
+// TestSyncVolumeCapabilitiesFromInfraSPI_NonMarkerPolicyComputes verifies the marker
+// short-circuit doesn't affect ordinary policies.
+func TestSyncVolumeCapabilitiesFromInfraSPI_NonMarkerPolicyComputes(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	const policyName = "policy-svcfi-nonmarker"
+	setupPolicyZoneWithHPLCHost(t, policyName, "ds-nonmarker", "host-nonmarker", "cluster-nonmarker")
+
+	instance := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "consumer-ns"},
+		Status: spiv1alpha1.StoragePolicyInfoStatus{
+			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+		},
+	}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
+
+	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: true}
+	activeClustersByZone := map[string]map[string]bool{"zone-a": {"cluster-nonmarker": true}}
+	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
+	require.NoError(t, err)
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsLinkedClone],
+		"non-marker policy is unaffected by the marker short-circuit")
+	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHighPerformanceLinkedClone],
+		"non-marker policy is unaffected by the marker short-circuit")
 }

@@ -780,11 +780,24 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 // SupportsVolumeModeFilesystem is always true, independent of InfraSPI.
 // SupportsVolumeModeBlock is copied as-is from InfraSPI.
 // SupportsLinkedClone and SupportsHighPerformanceLinkedClone are recomputed for just the zones accessible
-// to this namespace.
+// to this namespace, except for the marker policy, which is file-only and forces
+// SupportsVolumeModeBlock, SupportsLinkedClone and SupportsHighPerformanceLinkedClone all false.
 func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo, infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	activeClustersByZone map[string]map[string]bool) error {
 	infraCaps := infraSPI.Status.VolumeCapabilities
+
+	// The marker policy is file-only: Block volume mode, LinkedClone and
+	// HighPerformanceLinkedClone never apply to it, regardless of what InfraSPI reports.
+	if r.IsVsanFileVolumeService && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
+		instance.Status.VolumeCapabilities = map[spiv1alpha1.VolumeCapability]bool{
+			spiv1alpha1.SupportsVolumeModeFilesystem:       true,
+			spiv1alpha1.SupportsVolumeModeBlock:            false,
+			spiv1alpha1.SupportsLinkedClone:                false,
+			spiv1alpha1.SupportsHighPerformanceLinkedClone: false,
+		}
+		return nil
+	}
 
 	lc, hplc, err := linkedCloneCapabilitiesForNamespace(ctx, r.zonesProvider, activeClustersByZone, instance, infraSPI)
 	if err != nil {
