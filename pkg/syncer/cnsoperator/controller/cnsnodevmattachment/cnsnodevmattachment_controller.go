@@ -290,9 +290,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			// CNS PVC protection finalizer exist. If the finalizer does not exist, it incurs that
 			// the attachment object was created with an older CSI. Hence we add the
 			// CNS PVC protection finalizer on the SV PVC in the current reconciliation loop.
-			pvc := &v1.PersistentVolumeClaim{}
-			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
-				Namespace: instance.Namespace}, pvc)
+			// Read from the shared informer cache instead of the API server; DeepCopy before
+			// any mutation below since the cache returns a pointer into its own store, not a
+			// copy (unlike controller-runtime's cached client).
+			pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(internalCtx,
+				instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 					instance.Spec.VolumeName, instance.Namespace, err)
@@ -310,7 +312,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				faulttype, err := addFinalizerToPVC(internalCtx, r.client, pvc)
+				faulttype, err := addFinalizerToPVC(internalCtx, r.client, pvc.DeepCopy())
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
@@ -409,7 +411,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 			}
-			volumeID, faulttype, err := getVolumeID(internalCtx, r.client, instance.Spec.VolumeName, instance.Namespace)
+			volumeID, faulttype, err := getVolumeID(internalCtx, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to get volumeID. Error: %s", err)
 				instance.Status.Error = err.Error()
@@ -451,9 +453,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				return reconcile.Result{RequeueAfter: timeout}, faulttype, nil
 			}
 
-			pvc := &v1.PersistentVolumeClaim{}
-			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
-				Namespace: instance.Namespace}, pvc)
+			// Read from the shared informer cache instead of the API server; DeepCopy
+			// before any mutation below since the cache returns a pointer into its own
+			// store, not a copy (unlike controller-runtime's cached client).
+			pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(internalCtx,
+				instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 					instance.Spec.VolumeName, instance.Namespace, err)
@@ -469,7 +473,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				}
 			}
 			if !cnsPvcFinalizerExists {
-				_, err = addFinalizerToPVC(internalCtx, r.client, pvc)
+				_, err = addFinalizerToPVC(internalCtx, r.client, pvc.DeepCopy())
 				if err != nil {
 					msg := fmt.Sprintf("failed to add %q finalizer on the PVC with volumename: %q on namespace: %q. Err: %+v",
 						cnsoptypes.CNSPvcFinalizer, instance.Spec.VolumeName, instance.Namespace, err)
@@ -524,10 +528,14 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 
 		if instance.DeletionTimestamp != nil {
+			// Read from the shared informer cache instead of the API server. On a
+			// successful fetch, DeepCopy immediately: pvc is mutated by
+			// removeFinalizerFromPVC further below (in one of three gated branches),
+			// and the cache returns a pointer into its own store, not a copy.
 			pvc := &v1.PersistentVolumeClaim{}
 			var pvcDeleted bool
-			err = r.client.Get(internalCtx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
-				Namespace: instance.Namespace}, pvc)
+			fetchedPVC, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(internalCtx,
+				instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					pvcDeleted = true
@@ -537,6 +545,8 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 					return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
 				}
+			} else {
+				pvc = fetchedPVC.DeepCopy()
 			}
 			volumeOpType = prometheus.PrometheusDetachVolumeOpType
 			nodeVM, err := getVMByUUIDFromVCenter(internalCtx, dc, nodeUUID)
@@ -616,7 +626,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 					instance.Status.AttachmentMetadata)
 				// Try to get volumeID using getVolumeID function
 				var err error
-				cnsVolumeID, faulttype, err = getVolumeID(internalCtx, r.client,
+				cnsVolumeID, faulttype, err = getVolumeID(internalCtx,
 					instance.Spec.VolumeName, instance.Namespace)
 				if err != nil {
 					msg := fmt.Sprintf("Failed to get CNS volume ID for PVC: %q in "+
@@ -751,9 +761,11 @@ func (r *ReconcileCnsNodeVMAttachment) applyAttachedPvcLabelToInstance(ctx conte
 		}
 	}
 
-	pvc := &v1.PersistentVolumeClaim{}
-	err := r.client.Get(ctx, k8stypes.NamespacedName{Name: instance.Spec.VolumeName,
-		Namespace: instance.Namespace}, pvc)
+	// Pure read to extract the PVC's UID — safe to serve from the shared informer cache
+	// (commonco.ContainerOrchestratorUtility) instead of the manager's own client; the
+	// returned object is never mutated here.
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, instance.Spec.VolumeName,
+		instance.Namespace)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Infof("PVC %s is already deleted. Skip adding label to instance %s", instance.Spec.VolumeName,
@@ -1021,13 +1033,16 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 	return vcdcMap, err
 }
 
-// getVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
-func getVolumeID(ctx context.Context, client client.Client, pvcName string,
+// getVolumeID gets the volume ID from the PV that is bound to PVC by pvcName. PVC/PV are
+// read from the shared informer cache (commonco.ContainerOrchestratorUtility) rather than
+// the manager's own client — this is a pure read with no subsequent mutation of the
+// returned objects, so it's safe to serve from the cache. Callers must not mutate the
+// returned objects.
+func getVolumeID(ctx context.Context, pvcName string,
 	namespace string) (string, string, error) {
 	log := logger.GetLogger(ctx)
 	// Get PVC by pvcName from namespace.
-	pvc := &v1.PersistentVolumeClaim{}
-	err := client.Get(ctx, k8stypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
 	if err != nil {
 		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %s",
 			pvcName, namespace, err)
@@ -1043,8 +1058,7 @@ func getVolumeID(ctx context.Context, client client.Client, pvcName string,
 	}
 
 	// Get PV by name.
-	pv := &v1.PersistentVolume{}
-	err = client.Get(ctx, k8stypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
+	pv, err := commonco.ContainerOrchestratorUtility.GetPvObjectByName(ctx, pvc.Spec.VolumeName)
 	if err != nil {
 		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %s",
 			pvc.Spec.VolumeName, pvcName, err)

@@ -263,6 +263,15 @@ func (m *MockCOCommonInterface) GetPvcObjectByName(ctx context.Context,
 	return args.Get(0).(*corev1.PersistentVolumeClaim), args.Error(1)
 }
 
+func (m *MockCOCommonInterface) GetPvObjectByName(ctx context.Context,
+	pvName string) (*corev1.PersistentVolume, error) {
+	args := m.Called(ctx, pvName)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*corev1.PersistentVolume), args.Error(1)
+}
+
 func (m *MockCOCommonInterface) HandleLateEnablementOfCapability(ctx context.Context,
 	clusterFlavor cnstypes.CnsClusterFlavor, capability, gcPort, gcEndpoint string) {
 	m.Called(ctx, clusterFlavor, capability, gcPort, gcEndpoint)

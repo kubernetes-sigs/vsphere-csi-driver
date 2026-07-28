@@ -27,11 +27,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -422,6 +425,25 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+		},
+		// Disabling the cache here for PVC and PVs, if not done the  client would hold all PVCs/PVs in memory.
+		// That would cause 1GB+ memeory while operating it at scale of 120K+ PVC. Since none of controller is
+		// watching in the cnsoperator in on PV and PVC it looks better to disable it. While we would hit server
+		// every time adding few ms of latency but that is okay whie we are saving almost 30% total memory in
+		// large scale environment.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.PersistentVolumeClaim{},
+					&corev1.PersistentVolume{},
+					// If needed we can do it for more CRDs
+				},
+			},
+		},
+		// Strip managedFields from every object this manager does cache (the CNS
+		// operator CRDs); it is never read and needlessly inflates the cache.
+		Cache: ctrlcache.Options{
+			DefaultTransform: k8s.TransformStripManagedFields,
 		},
 	})
 	if err != nil {

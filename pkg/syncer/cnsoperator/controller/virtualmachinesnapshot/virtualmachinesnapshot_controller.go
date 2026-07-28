@@ -396,23 +396,18 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 		if vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim == nil {
 			continue
 		}
-		pvcKey := apitypes.NamespacedName{
-			Namespace: vm.Namespace,
-			Name:      vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim.ClaimName,
-		}
-		pvc := &corev1.PersistentVolumeClaim{}
-		err = r.client.Get(ctx, pvcKey, pvc, &client.GetOptions{})
+		// Pure reads to extract the volume handle — safe to serve from the shared
+		// informer cache (commonco.ContainerOrchestratorUtility) instead of the
+		// manager's own client; the returned objects are never mutated here.
+		pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx,
+			vmVolume.VirtualMachineVolumeSource.PersistentVolumeClaim.ClaimName, vm.Namespace)
 		if err != nil {
 			log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed get pvc %s/%s. error: %v",
 				vm.Namespace, vmVolume.Name, err)
 			return err
 		}
 		if pvc.Spec.VolumeName != "" {
-			pvKey := apitypes.NamespacedName{
-				Name: pvc.Spec.VolumeName,
-			}
-			pv := &corev1.PersistentVolume{}
-			err = r.client.Get(ctx, pvKey, pv, &client.GetOptions{})
+			pv, err := commonco.ContainerOrchestratorUtility.GetPvObjectByName(ctx, pvc.Spec.VolumeName)
 			if err != nil {
 				log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: could not get the volume "+
 					"for pvc %s/%s error: %v", pvc.Namespace, vm.Name, err)
