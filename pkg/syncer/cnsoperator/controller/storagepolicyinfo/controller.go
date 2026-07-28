@@ -94,6 +94,10 @@ const (
 	// spiMarkerIndexField is the field index key used to list only marker-policy
 	// StoragePolicyInfo objects in mapFVSNamespaceToMarkerSPIs.
 	spiMarkerIndexField = "isMarkerPolicy"
+	// cacheWarmupDelay is how long the controller waits after starting before it
+	// begins reconciling. This gives enough time for the cache to get populated,
+	// which the SPI controller depends on.
+	cacheWarmupDelay = 5 * time.Minute
 )
 
 // zoneGVK identifies the namespace-scoped Zone custom resource
@@ -184,9 +188,13 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	}
 }
 
+// add registers field indexes immediately (required before the manager's
+// Kubernetes-object cache starts) and defers actually building/registering the
+// storagepolicyinfo controller — predicates, watches, and the periodic resync
+// runnable — until cacheWarmupDelay has elapsed. That delay gives
+// enough time for the shared cache to get populated.
 func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 	ctx, log := logger.GetNewContextWithLogger()
-	maxWorkerThreads := util.GetMaxWorkerThreads(ctx, workerThreadsEnvVar, defaultMaxWorkerThreads)
 
 	// Index StoragePolicyInfo by name so mapInfraSPItoSPI can list only matching
 	// objects rather than doing a full cross-namespace list.
@@ -214,6 +222,34 @@ func add(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
 			return err
 		}
 	}
+
+	// manager.Add can be called after the manager has already started, in which
+	// case the Runnable is started immediately instead of waiting for Start(); this
+	// lets us run the delay as a one-time runnable rather than blocking add() itself.
+	if err := mgr.Add(manager.RunnableFunc(func(runnableCtx context.Context) error {
+		timer := time.NewTimer(cacheWarmupDelay)
+		defer timer.Stop()
+		select {
+		case <-runnableCtx.Done():
+			return nil
+		case <-timer.C:
+		}
+		log.Infof("StoragePolicyInfo controller: cache warmup delay of %s elapsed; "+
+			"registering controller", cacheWarmupDelay)
+		return registerController(mgr, r)
+	})); err != nil {
+		log.Errorf("failed to add delayed storagepolicyinfo controller registration runnable. Err: %v", err)
+		return err
+	}
+	return nil
+}
+
+// registerController builds and registers the storagepolicyinfo controller
+// (predicates, watches, and the periodic resync runnable) with mgr. Split out
+// from add so it can be run immediately or deferred behind cacheWarmupDelay.
+func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) error {
+	ctx, log := logger.GetNewContextWithLogger()
+	maxWorkerThreads := util.GetMaxWorkerThreads(ctx, workerThreadsEnvVar, defaultMaxWorkerThreads)
 
 	// Reconcile only on SPQ CREATE (policy assigned -> create the SPI). DELETE is
 	// ignored: the SPI's owner reference to the SPQ makes GC delete it when the quota
