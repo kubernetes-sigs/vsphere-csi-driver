@@ -160,6 +160,15 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 				Namespace: testSupervisorNamespace,
 			},
 		}
+		testPVCPending = &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      testPVCName,
+				Namespace: testSupervisorNamespace,
+			},
+			Status: corev1.PersistentVolumeClaimStatus{
+				Phase: corev1.ClaimPending,
+			},
+		}
 		testBufferSize = 1024
 	)
 
@@ -215,30 +224,31 @@ func TestCSINodeTopologyControllerForTKGSHA(t *testing.T) {
 			vm:                            testVMwithNonRemovableVolume.DeepCopy(),
 			enableHostLocalSupportInGuest: true,
 			existingPVC:                   testPVCWithoutTopologyAnnotation.DeepCopy(),
-			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
-				{
-					Key:   expectedZoneKey,
-					Value: expectedZoneValue,
-				},
-			},
-			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
-			expectedReconcileResult: reconcile.Result{},
-			expectedReconcileError:  nil,
+			expectedTopologyLabels:        nil,
+			expectedCRDStatus:             csinodetopologyv1alpha1.CSINodeTopologyError,
+			expectedReconcileResult:       reconcile.Result{RequeueAfter: time.Second},
+			expectedReconcileError:        nil,
+		},
+		{
+			name:                          "TestWithHostLocalSupportEnabled_PVCPending",
+			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
+			vm:                            testVMwithNonRemovableVolume.DeepCopy(),
+			enableHostLocalSupportInGuest: true,
+			existingPVC:                   testPVCPending.DeepCopy(),
+			expectedTopologyLabels:        nil,
+			expectedCRDStatus:             csinodetopologyv1alpha1.CSINodeTopologyError,
+			expectedReconcileResult:       reconcile.Result{RequeueAfter: time.Second},
+			expectedReconcileError:        nil,
 		},
 		{
 			name:                          "TestWithHostLocalSupportEnabled_NoNonRemovableVolume",
 			csiNodeTopology:               testCSINodeTopology.DeepCopy(),
 			vm:                            testVMwithRemovableVolumeOnly.DeepCopy(),
 			enableHostLocalSupportInGuest: true,
-			expectedTopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
-				{
-					Key:   expectedZoneKey,
-					Value: expectedZoneValue,
-				},
-			},
-			expectedCRDStatus:       csinodetopologyv1alpha1.CSINodeTopologySuccess,
-			expectedReconcileResult: reconcile.Result{},
-			expectedReconcileError:  nil,
+			expectedTopologyLabels:        nil,
+			expectedCRDStatus:             csinodetopologyv1alpha1.CSINodeTopologyError,
+			expectedReconcileResult:       reconcile.Result{RequeueAfter: time.Second},
+			expectedReconcileError:        nil,
 		},
 		{
 			name:                          "TestWithHostLocalSupportDisabled",
