@@ -49,10 +49,7 @@ func vksRegisterVolumeTestScheme(t *testing.T) *runtime.Scheme {
 //
 // setStatusRegistered implements the plan's Registered terminal phase (Part 4d step 8): once the
 // guest PVC↔PV direct bind completes, it sets Phase=Registered, Registered=true, clears any prior
-// Error, and records a Normal event. Wiring the call into Reconcile()'s WaitingForGuestPVCBound step
-// is TODO(T7 wiring) (see the pseudo-code in Reconcile's doc comment) because it depends on T6
-// supplying the real supervisorPVCName/accessibleTopology; the status-setting logic itself has no
-// such dependency and is exercised directly here.
+// Error, and records a Normal event. This test exercises the status-setting logic directly.
 func TestSetStatusRegistered(t *testing.T) {
 	instance := &vksregistervolumev1alpha1.VKSRegisterVolume{
 		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testCRName},

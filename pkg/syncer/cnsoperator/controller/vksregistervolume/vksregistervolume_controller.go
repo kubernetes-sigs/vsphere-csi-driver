@@ -129,8 +129,17 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return err
 	}
 
+	if configInfo == nil {
+		log.Errorf("configInfo is nil")
+		return fmt.Errorf("configInfo is nil")
+	}
+
 	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
 		configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
+	if restClientConfig == nil {
+		log.Errorf("Failed to build rest client config for supervisor")
+		return fmt.Errorf("failed to build rest client config for supervisor")
+	}
 
 	supervisorClient, err := k8s.NewSupervisorClient(ctx, restClientConfig)
 	if err != nil {
