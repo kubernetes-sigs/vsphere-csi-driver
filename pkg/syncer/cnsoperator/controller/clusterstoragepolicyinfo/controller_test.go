@@ -3902,8 +3902,8 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 			infraSPI.Name = tt.k8sCompliantName
 
 			// Call populateVolumeCapabilities with minimal required parameters
-			// We pass nil for vc and zoneCompatibleDS since we only want to test the logic
-			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil)
+			// We pass nil for vc, zoneCompatibleDS and zoneClusters since we only want to test the logic
+			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil)
 
 			// For marker policies, there should be no error since we skip the HPLC check
 			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
@@ -3968,7 +3968,7 @@ func TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts(t *testing.T) {
 func TestCheckLinkedClone_NoZones(t *testing.T) {
 	ctx := context.Background()
 	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
-	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", map[string][]*cnsvsphere.DatastoreInfo{})
+	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", map[string][]*cnsvsphere.DatastoreInfo{}, nil)
 	assert.NoError(t, err)
 	assert.False(t, lc, "LC must be false when there are no zones")
 	assert.Empty(t, perZone)
@@ -3978,7 +3978,7 @@ func TestCheckLinkedClone_NoZones(t *testing.T) {
 // without a vCenter client.
 func TestCheckLinkedClone_NilVC(t *testing.T) {
 	ctx := context.Background()
-	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil)
+	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil, nil)
 	assert.Error(t, err)
 	assert.False(t, lc)
 	assert.Nil(t, perZone)
@@ -4193,7 +4193,7 @@ func TestFetchESXi91HostsForDatastore_AllOldHosts(t *testing.T) {
 	ds := dsInfoFromSim(vc.Client, dsRef)
 	pc := property.DefaultCollector(vc.Client.Client)
 
-	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]*hostClusterRef))
 	require.NoError(t, err)
 	assert.Empty(t, hosts, "no ESXi 9.1+ hosts should be returned when all hosts run 7.0")
 }
@@ -4217,10 +4217,10 @@ func TestFetchESXi91HostsForDatastore_MixedVersions(t *testing.T) {
 	ds := dsInfoFromSim(vc.Client, dsRef)
 	pc := property.DefaultCollector(vc.Client.Client)
 
-	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]*hostClusterRef))
 	require.NoError(t, err)
 	require.Len(t, hosts, 1, "only the 9.1+ host should be returned")
-	assert.Equal(t, hostRefs[0].Value, hosts[0].Value)
+	assert.Equal(t, hostRefs[0].Value, hosts[0].Host.Value)
 }
 
 // TestFetchESXi91HostsForDatastore_AllESXi91 verifies that all mounting hosts are
@@ -4242,7 +4242,7 @@ func TestFetchESXi91HostsForDatastore_AllESXi91(t *testing.T) {
 	ds := dsInfoFromSim(vc.Client, dsRef)
 	pc := property.DefaultCollector(vc.Client.Client)
 
-	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]bool))
+	hosts, err := fetchESXi91HostsForDatastore(ctx, pc, ds, make(map[string]*hostClusterRef))
 	require.NoError(t, err)
 	assert.Len(t, hosts, len(hostRefs), "all ESXi 9.1+ hosts should be returned")
 }
@@ -4264,8 +4264,9 @@ func TestCheckLinkedClone_SingleZoneAllHostsESXi91(t *testing.T) {
 	require.NotEmpty(t, clusterDS)
 
 	zoneCompatibleDS := map[string][]*cnsvsphere.DatastoreInfo{"zone-a": clusterDS}
+	zoneClusters := map[string][]string{"zone-a": {clusterRef.Value}}
 
-	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS)
+	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
 	require.NoError(t, err)
 	assert.True(t, lc, "LC should be true when the zone's datastore is mounted only by ESXi 9.1+ hosts")
 	assert.NotEmpty(t, perZone["zone-a"])
@@ -4289,10 +4290,50 @@ func TestCheckLinkedClone_OneZoneMissingESXi91Host(t *testing.T) {
 		"zone-a": {datastores[0]},
 		"zone-b": {datastores[1]},
 	}
+	zoneClusters := map[string][]string{
+		"zone-a": {clusters[0].Value},
+		"zone-b": {clusters[1].Value},
+	}
 
-	lc, _, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS)
+	lc, _, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
 	require.NoError(t, err)
 	assert.False(t, lc, "LC must be false when not every zone has a qualifying ESXi 9.1+ host")
+}
+
+// TestCheckLinkedClone_HostFromInactiveClusterExcluded verifies that a host is only
+// attributed to a zone if its parent cluster is one of that zone's active clusters, even
+// when the host is ESXi 9.1+ and mounts a datastore attributed to the zone. setupLCSim's
+// single datastore is shared by every host in the datacenter (across both clusters), so
+// without the active-cluster filter clusterB's host would incorrectly count toward zone-a.
+func TestCheckLinkedClone_HostFromInactiveClusterExcluded(t *testing.T) {
+	ctx, vc, model, stop := setupLCSim(t, 2, 1)
+	defer stop()
+
+	clusters := model.Map().All("ClusterComputeResource")
+	require.Len(t, clusters, 2)
+	clusterARef := clusters[0].Reference()
+	clusterBRef := clusters[1].Reference()
+
+	hostsA := hostRefsInCluster(model, clusterARef)
+	hostsB := hostRefsInCluster(model, clusterBRef)
+	require.Len(t, hostsA, 1)
+	require.Len(t, hostsB, 1)
+	setHostESXiVersion(model, hostsA[0], "9.1.0")
+	setHostESXiVersion(model, hostsB[0], "9.1.0")
+
+	dsRef := model.Map().All("Datastore")[0].Reference()
+	ds := dsInfoFromSim(vc.Client, dsRef)
+	zoneCompatibleDS := map[string][]*cnsvsphere.DatastoreInfo{"zone-a": {ds}}
+	// Only clusterA is an active member of zone-a; clusterB shares the datastore but is not
+	// part of the zone (e.g. it belongs to a different zone, or was recently removed from it).
+	zoneClusters := map[string][]string{"zone-a": {clusterARef.Value}}
+
+	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
+	require.NoError(t, err)
+	assert.True(t, lc, "LC should be true: zone-a has an ESXi 9.1+ host in its active cluster")
+	assert.Contains(t, perZone["zone-a"], hostsA[0].Value, "clusterA's host is an active member of zone-a")
+	assert.NotContains(t, perZone["zone-a"], hostsB[0].Value,
+		"clusterB's host must be excluded: clusterB is not an active member of zone-a")
 }
 
 // --- checkHighPerformanceLinkedClone simulator tests ----------------------------------

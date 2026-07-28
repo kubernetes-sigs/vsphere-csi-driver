@@ -521,7 +521,8 @@ func findStoragePolicyProfile(ctx context.Context,
 func populateVolumeCapabilities(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	vc *cnsvsphere.VirtualCenter, profileID string,
-	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo) error {
+	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo,
+	zoneClusters map[string][]string) error {
 	log := logger.GetLogger(ctx)
 
 	caps := map[infraspiv1alpha1.VolumeCapability]bool{
@@ -549,7 +550,7 @@ func populateVolumeCapabilities(ctx context.Context,
 		return nil
 	}
 
-	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS)
+	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS, zoneClusters)
 	if err != nil {
 		log.Errorf("Failed to check SupportsLinkedClone for policy %s: %v", profileID, err)
 		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
@@ -587,10 +588,12 @@ func populateVolumeCapabilities(ctx context.Context,
 
 // checkLinkedClone returns whether LinkedClone is supported across ALL zones and the per-zone
 // ESXi 9.1+ hosts. LC is true only when every zone that has compatible datastores also has at
-// least one ESXi 9.1+ host mounting those datastores.
+// least one ESXi 9.1+ host, belonging to a cluster that is currently an active member of that
+// zone, mounting those datastores.
 func checkLinkedClone(ctx context.Context,
 	vc *cnsvsphere.VirtualCenter, profileID string,
 	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo,
+	zoneClusters map[string][]string,
 ) (bool, map[string]map[string]vimtypes.ManagedObjectReference, error) {
 	log := logger.GetLogger(ctx)
 
@@ -605,13 +608,22 @@ func checkLinkedClone(ctx context.Context,
 	pc := property.DefaultCollector(vc.Client.Client)
 	// esxi91HostsPerZone holds, per zone, the ESXi 9.1+ host refs found via that zone's datastores.
 	esxi91HostsPerZone := make(map[string]map[string]vimtypes.ManagedObjectReference)
-	// checkedHosts records whether each evaluated host is ESXi 9.1+ (true) or not (false).
+	// checkedHosts caches each evaluated host's ESXi 9.1+ eligibility and parent cluster; a nil
+	// entry means the host was checked and found ineligible (not ESXi 9.1+, or no cluster parent with a
+	// zone associated to it).
 	// All evaluated hosts are stored so that a host mounting multiple datastores is only
 	// queried from vCenter once.
-	checkedHosts := make(map[string]bool)
+	checkedHosts := make(map[string]*hostClusterRef)
 	// datastoreESXi91HostsCache caches the ESXi 9.1+ hosts for a given datastore so that when
 	// the same datastore appears in multiple zones we reuse the result.
-	datastoreESXi91HostsCache := make(map[string][]vimtypes.ManagedObjectReference)
+	datastoreESXi91HostsCache := make(map[string][]hostClusterRef)
+
+	// zoneClusterSets is zoneClusters converted to per-zone sets, built once upfront for O(1)
+	// membership checks against each host's parent cluster.
+	zoneClusterSets := make(map[string]map[string]bool, len(zoneClusters))
+	for zone, clusters := range zoneClusters {
+		zoneClusterSets[zone] = toClusterSet(clusters)
+	}
 
 	// relevantZones counts zones that have at least one compatible datastore for the policy.
 	// Zones with no compatible datastores are excluded: the policy cannot be provisioned there,
@@ -626,16 +638,22 @@ func checkLinkedClone(ctx context.Context,
 		relevantZones++
 
 		esxi91HostsPerZone[zone] = make(map[string]vimtypes.ManagedObjectReference)
+		activeClusters := zoneClusterSets[zone]
 
 		for _, ds := range compatibleDatastores {
 			dsHosts, err := getOrFetchESXi91HostsForDS(ctx, pc, ds, checkedHosts, datastoreESXi91HostsCache)
 			if err != nil {
 				return false, nil, err
 			}
-			for _, hostRef := range dsHosts {
-				esxi91HostsPerZone[zone][hostRef.Value] = hostRef
+			for _, hc := range dsHosts {
+				if !activeClusters[hc.Cluster] {
+					log.Infof("Skipping host %s for zone %s: parent cluster %s is not an active member of the zone",
+						hc.Host.Value, zone, hc.Cluster)
+					continue
+				}
+				esxi91HostsPerZone[zone][hc.Host.Value] = hc.Host
 				log.Debugf("Attributed ESXi 9.1+ host %s to zone %s via datastore %s",
-					hostRef.Value, zone, ds.Reference().Value)
+					hc.Host.Value, zone, ds.Reference().Value)
 			}
 		}
 	}
@@ -663,13 +681,28 @@ func checkLinkedClone(ctx context.Context,
 	return linkedCloneSupported, esxi91HostsPerZone, nil
 }
 
-// getOrFetchESXi91HostsForDS returns the ESXi 9.1+ hosts for a datastore, using cache when
-// available. On a cache miss the hosts are fetched and stored. On error the result is not cached
-// so the next zone can retry.
+// hostClusterRef pairs an ESXi 9.1+ host with the moref of its parent ClusterComputeResource.
+type hostClusterRef struct {
+	Host    vimtypes.ManagedObjectReference
+	Cluster string
+}
+
+// toClusterSet converts a slice of cluster morefs into a set for O(1) membership checks.
+func toClusterSet(clusters []string) map[string]bool {
+	set := make(map[string]bool, len(clusters))
+	for _, c := range clusters {
+		set[c] = true
+	}
+	return set
+}
+
+// getOrFetchESXi91HostsForDS returns the ESXi 9.1+ hosts (with their parent cluster) for a
+// datastore, using cache when available. On a cache miss the hosts are fetched and stored. On
+// error the result is not cached so the next zone can retry.
 func getOrFetchESXi91HostsForDS(ctx context.Context, pc *property.Collector,
-	ds *cnsvsphere.DatastoreInfo, checkedHosts map[string]bool,
-	dsHostsCache map[string][]vimtypes.ManagedObjectReference,
-) ([]vimtypes.ManagedObjectReference, error) {
+	ds *cnsvsphere.DatastoreInfo, checkedHosts map[string]*hostClusterRef,
+	dsHostsCache map[string][]hostClusterRef,
+) ([]hostClusterRef, error) {
 	datastoreValue := ds.Reference().Value
 	if _, fetched := dsHostsCache[datastoreValue]; fetched {
 		return dsHostsCache[datastoreValue], nil
@@ -683,12 +716,12 @@ func getOrFetchESXi91HostsForDS(ctx context.Context, pc *property.Collector,
 }
 
 // fetchESXi91HostsForDatastore returns all ESXi 9.1+ hosts that mount the given datastore and
-// belong to a ClusterComputeResource. checkedHosts is a shared cache (hostValue → bool) storing
-// all evaluated hosts — true if ESXi 9.1+, false otherwise — to avoid redundant vCenter calls
-// for hosts shared across datastores.
+// belong to a ClusterComputeResource, along with each host's parent cluster moref. checkedHosts
+// is a shared cache (hostValue → *hostClusterRef, nil if ineligible) storing all evaluated hosts
+// to avoid redundant vCenter calls for hosts shared across datastores.
 func fetchESXi91HostsForDatastore(ctx context.Context, pc *property.Collector,
-	ds *cnsvsphere.DatastoreInfo, checkedHosts map[string]bool,
-) ([]vimtypes.ManagedObjectReference, error) {
+	ds *cnsvsphere.DatastoreInfo, checkedHosts map[string]*hostClusterRef,
+) ([]hostClusterRef, error) {
 	datastoreValue := ds.Reference().Value
 
 	var dsMO mo.Datastore
@@ -704,11 +737,11 @@ func fetchESXi91HostsForDatastore(ctx context.Context, pc *property.Collector,
 		return nil, nil
 	}
 
-	var esxi91Hosts []vimtypes.ManagedObjectReference
+	var esxi91Hosts []hostClusterRef
 	for _, ref := range hostRefs {
-		if isESXi91, checked := checkedHosts[ref.Value]; checked {
-			if isESXi91 {
-				esxi91Hosts = append(esxi91Hosts, ref)
+		if hc, checked := checkedHosts[ref.Value]; checked {
+			if hc != nil {
+				esxi91Hosts = append(esxi91Hosts, *hc)
 			}
 			continue
 		}
@@ -717,17 +750,20 @@ func fetchESXi91HostsForDatastore(ctx context.Context, pc *property.Collector,
 			return nil, fmt.Errorf("retrieve properties for host %s: %w", ref.Value, err)
 		}
 		if hostMO.Parent == nil || hostMO.Parent.Type != "ClusterComputeResource" || hostMO.Config == nil {
-			checkedHosts[ref.Value] = false
+			checkedHosts[ref.Value] = nil
 			continue
 		}
 		is91, err := cnsvsphere.IsvSphereVersion91orAbove(ctx, hostMO.Config.Product)
 		if err != nil {
 			return nil, fmt.Errorf("parse ESXi version for host %s: %w", ref.Value, err)
 		}
-		checkedHosts[ref.Value] = is91
-		if is91 {
-			esxi91Hosts = append(esxi91Hosts, ref)
+		if !is91 {
+			checkedHosts[ref.Value] = nil
+			continue
 		}
+		hc := &hostClusterRef{Host: ref, Cluster: hostMO.Parent.Value}
+		checkedHosts[ref.Value] = hc
+		esxi91Hosts = append(esxi91Hosts, *hc)
 	}
 	return esxi91Hosts, nil
 }
