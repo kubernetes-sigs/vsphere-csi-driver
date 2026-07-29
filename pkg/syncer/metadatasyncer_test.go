@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/assert"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,6 +39,7 @@ import (
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -2404,5 +2407,89 @@ func TestSnapshotDeleted(t *testing.T) {
 		fssEnabledSyncer := &metadataSyncInformer{coCommonInterface: co}
 
 		assert.NotPanics(tt, func() { snapshotDeleted(snap, fssEnabledSyncer) })
+	})
+}
+
+// recordingVolumeManager wraps volume.MockManager and records whether
+// DeleteVolume was invoked, since MockManager.DeleteVolume itself panics
+// ("implement me").
+type recordingVolumeManager struct {
+	volume.MockManager
+	deleteVolumeCalled bool
+}
+
+func (m *recordingVolumeManager) DeleteVolume(ctx context.Context, volumeID string,
+	deleteDisk bool) (string, error) {
+	m.deleteVolumeCalled = true
+	return "", nil
+}
+
+func TestCsiPVDeleted_BlockVolume_ImprovedVolumeVisibility(t *testing.T) {
+	newBlockPV := func(volumeHandle string) *v1.PersistentVolume {
+		return &v1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: "pv-" + volumeHandle},
+			Spec: v1.PersistentVolumeSpec{
+				AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce},
+				PersistentVolumeSource: v1.PersistentVolumeSource{
+					CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: volumeHandle},
+				},
+				PersistentVolumeReclaimPolicy: v1.PersistentVolumeReclaimRetain,
+			},
+			Status: v1.PersistentVolumeStatus{Phase: v1.VolumeBound},
+		}
+	}
+
+	// Save/restore package-level state mutated by csiPVDeleted so this test
+	// does not leak into other tests in the package.
+	origVolumeOperationsLock := volumeOperationsLock
+	origVolumeInfoService := volumeInfoService
+	origIsPodVMOnStretchSupervisorFSSEnabled := IsPodVMOnStretchSupervisorFSSEnabled
+	defer func() {
+		volumeOperationsLock = origVolumeOperationsLock
+		volumeInfoService = origVolumeInfoService
+		IsPodVMOnStretchSupervisorFSSEnabled = origIsPodVMOnStretchSupervisorFSSEnabled
+	}()
+	volumeInfoService = nil
+	IsPodVMOnStretchSupervisorFSSEnabled = false
+
+	const vcHost = "test-vc-host"
+
+	setup := func(t *testing.T, fssEnabled bool) (*metadataSyncInformer, *recordingVolumeManager) {
+		volumeOperationsLock = map[string]*sync.Mutex{vcHost: {}}
+
+		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(t, err)
+		if fssEnabled {
+			assert.NoError(t, co.(interface {
+				EnableFSS(context.Context, string) error
+			}).EnableFSS(context.Background(), common.ImprovedVolumeVisibility))
+		}
+
+		mgr := &recordingVolumeManager{}
+		syncer := &metadataSyncInformer{
+			clusterFlavor:     cnstypes.CnsClusterFlavorWorkload,
+			host:              vcHost,
+			volumeManager:     mgr,
+			coCommonInterface: co,
+		}
+		return syncer, mgr
+	}
+
+	t.Run("FSSEnabled_SkipsDeleteVolume", func(tt *testing.T) {
+		syncer, mgr := setup(tt, true)
+		pv := newBlockPV("volume-fss-enabled")
+
+		assert.NotPanics(tt, func() { csiPVDeleted(context.Background(), pv, syncer) })
+		assert.False(tt, mgr.deleteVolumeCalled,
+			"DeleteVolume must not be called for block volumes when ImprovedVolumeVisibility is enabled")
+	})
+
+	t.Run("FSSDisabled_CallsDeleteVolume", func(tt *testing.T) {
+		syncer, mgr := setup(tt, false)
+		pv := newBlockPV("volume-fss-disabled")
+
+		assert.NotPanics(tt, func() { csiPVDeleted(context.Background(), pv, syncer) })
+		assert.True(tt, mgr.deleteVolumeCalled,
+			"DeleteVolume must still be called for block volumes when ImprovedVolumeVisibility is disabled")
 	})
 }

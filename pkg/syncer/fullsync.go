@@ -510,8 +510,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		volumesWithMetadata = append(volumesWithMetadata, qr.Volumes...)
 	}
 
-	// Per the cns-health-initiative design (docs/mermaid/cns-health-initiative/
-	// 03-syncer-no-unregister.mmd), CNS volumes whose matching K8s PV cannot
+	// CNS volumes whose matching K8s PV cannot
 	// be found are no longer unregistered (the legacy fullSyncDeleteVolumes
 	// flow that issued DeleteVolume(deleteDisk=false) has been removed).
 	// Instead we label them with `pv_missing=true` on their existing PV-type

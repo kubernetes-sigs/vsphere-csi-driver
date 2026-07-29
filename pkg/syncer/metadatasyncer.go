@@ -3988,10 +3988,20 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		volumeOperationsLock[vcHost].Lock()
 		defer volumeOperationsLock[vcHost].Unlock()
 
-		log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
+		if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+			// Retain the CNS registration and the backing disk on the storage
+			// backend so the volume stays visible on CNS after the PV is
+			// deleted. Full-sync's pv_missing labeling (see
+			// getMissingPVVolumeUpdateSpecs in fullsync.go) picks up the
+			// resulting PV-less CNS volume on its next cycle.
+			log.Infof("PVDeleted: %s is enabled, skipping DeleteVolume for volume %q to retain it on CNS",
+				common.ImprovedVolumeVisibility, volumeHandle)
+		} else {
+			log.Debugf("PVDeleted: vSphere CSI Driver is deleting volume %v", pv)
 
-		if _, err := cnsVolumeMgr.DeleteVolume(ctx, volumeHandle, false); err != nil {
-			log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
+			if _, err := cnsVolumeMgr.DeleteVolume(ctx, volumeHandle, false); err != nil {
+				log.Errorf("PVDeleted: Failed to delete disk %s with error %+v", volumeHandle, err)
+			}
 		}
 		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && pv.Spec.VsphereVolume != nil {
 			// Delete the cnsvspherevolumemigration crd instance when PV is deleted.
