@@ -2365,40 +2365,6 @@ func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
 	return body, true, nil
 }
 
-// clearWorkloadTypeAnnotations returns a Strategic-Merge-Patch that removes AnnKeyVKSNode,
-// AnnKeyVKSWorkload, AnnKeySupervisorPodVM, and AnnKeySupervisorVMServiceVM from pvc, if set.
-// Returns (nil, false, nil) if none are present.
-func clearWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim) ([]byte, bool, error) {
-	keysToClear := []string{
-		common.AnnKeyVKSNode,
-		common.AnnKeyVKSWorkload,
-		common.AnnKeySupervisorPodVM,
-		common.AnnKeySupervisorVMServiceVM,
-	}
-
-	annotationsPatch := map[string]interface{}{}
-	for _, key := range keysToClear {
-		if _, ok := pvc.Annotations[key]; ok {
-			annotationsPatch[key] = nil
-		}
-	}
-
-	if len(annotationsPatch) == 0 {
-		return nil, false, nil
-	}
-
-	patch := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"annotations": annotationsPatch,
-		},
-	}
-	body, err := json.Marshal(patch)
-	if err != nil {
-		return nil, false, err
-	}
-	return body, true, nil
-}
-
 // loadBatchAttachedPVCClaimNames lists every CnsNodeVMBatchAttachment CR across all
 // namespaces and returns the set of PVCs (as "namespace/claimName") referenced by any
 // of their Spec.Volumes entries — i.e., PVCs currently attached as a data disk to a
@@ -2482,29 +2448,6 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 		if pvc.ObjectMeta.DeletionTimestamp != nil {
 			skipped++
 			continue
-		}
-
-		// Clear stale classification annotations before recomputing.
-		clearPatch, needsClear, err := clearWorkloadTypeAnnotations(pvc)
-		if err != nil {
-			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to build clear-patch for PVC %s/%s. Err: %v",
-				pvc.Namespace, pvc.Name, err)
-			failed++
-			continue
-		}
-		if needsClear {
-			_, err = k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(ctx,
-				pvc.Name, types.StrategicMergePatchType, clearPatch, metav1.PatchOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					skipped++
-					continue
-				}
-				log.Warnf("annotateSupervisorPVCsWithWorkloadType: failed to clear stale annotations on PVC %s/%s. Err: %v",
-					pvc.Namespace, pvc.Name, err)
-				failed++
-				continue
-			}
 		}
 
 		desired := classifySupervisorPVC(pvc, attachedPVs, batchAttachedPVCs)
