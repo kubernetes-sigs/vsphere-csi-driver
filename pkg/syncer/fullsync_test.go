@@ -1661,10 +1661,10 @@ func makePVCForClassification(labels map[string]string, ownerKinds []string,
 // combination of signals can co-occur, but supervisor-workload is mutually
 // exclusive with all of them.
 func TestClassifySupervisorPVC(t *testing.T) {
-	// makePVCForClassification always names the PVC "test-pvc" in namespace
-	// "test-ns", so this is the batchAttachedPVCs key for "this PVC is
-	// referenced by a CnsNodeVMBatchAttachment CR".
-	batchAttached := map[string]struct{}{"test-ns/test-pvc": {}}
+	// batchAttachedPVCs is namespace-scoped by the caller (see loadBatchAttachedPVCClaimNames),
+	// so its keys are bare PVC names — "test-pvc" here, matching what
+	// makePVCForClassification always names the PVC.
+	batchAttached := map[string]struct{}{"test-pvc": {}}
 
 	tests := []struct {
 		name              string
@@ -1800,10 +1800,10 @@ func TestClassifySupervisorPVC(t *testing.T) {
 	}
 }
 
-// TestLoadBatchAttachedPVCClaimNames verifies that loadBatchAttachedPVCClaimNames
-// collects "namespace/claimName" for every PVC referenced by any CnsNodeVMBatchAttachment
-// CR's Spec.Volumes, across multiple CRs and multiple volumes per CR, and returns an
-// empty (not nil) set when there are no CRs.
+// TestLoadBatchAttachedPVCClaimNames verifies that loadBatchAttachedPVCClaimNames collects
+// the claimName for every PVC referenced by any CnsNodeVMBatchAttachment CR's Spec.Volumes
+// within the given namespace, across multiple CRs and multiple volumes per CR, excludes CRs
+// in other namespaces, and returns an empty (not nil) set when there are no CRs.
 func TestLoadBatchAttachedPVCClaimNames(t *testing.T) {
 	newBatchAttachment := func(name, namespace string,
 		claimNames ...string) *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment {
@@ -1826,25 +1826,35 @@ func TestLoadBatchAttachedPVCClaimNames(t *testing.T) {
 	scheme := k8sruntime.NewScheme()
 	assert.NoError(t, cnsopapis.AddToScheme(scheme))
 
-	t.Run("no CRs -> empty set", func(t *testing.T) {
+	t.Run("no CRs in namespace -> empty set", func(t *testing.T) {
 		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).Build()
-		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient)
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 	})
 
-	t.Run("multiple CRs and multiple volumes per CR", func(t *testing.T) {
+	t.Run("multiple CRs and multiple volumes within the namespace", func(t *testing.T) {
 		ba1 := newBatchAttachment("vm1", "ns1", "pvc-a", "pvc-b")
-		ba2 := newBatchAttachment("vm2", "ns2", "pvc-c")
+		ba2 := newBatchAttachment("vm2", "ns1", "pvc-c")
 		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(ba1, ba2).Build()
 
-		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient)
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]struct{}{
-			"ns1/pvc-a": {},
-			"ns1/pvc-b": {},
-			"ns2/pvc-c": {},
+			"pvc-a": {},
+			"pvc-b": {},
+			"pvc-c": {},
 		}, got)
+	})
+
+	t.Run("CRs in other namespaces are excluded", func(t *testing.T) {
+		ba1 := newBatchAttachment("vm1", "ns1", "pvc-a")
+		ba2 := newBatchAttachment("vm2", "ns2", "pvc-b")
+		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(ba1, ba2).Build()
+
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]struct{}{"pvc-a": {}}, got)
 	})
 }
 
