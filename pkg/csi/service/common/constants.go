@@ -493,13 +493,24 @@ const (
 	// not to any particular Node VM.
 	AnnKeyVKSWorkload = AnnPrefixVKSWorkloadType + "vks-workload"
 
+	// AnnKeySupervisorPodVM marks a PVC attached to a native Supervisor Pod (PodVM),
+	// detected via a VolumeAttachment reference (see classifySupervisorPVC).
+	AnnKeySupervisorPodVM = AnnPrefixVKSWorkloadType + "supervisor-podvm"
+
+	// AnnKeySupervisorVMServiceVM marks a PVC attached as a data disk to a standalone
+	// VM Service VM, detected via a referencing CnsNodeVMBatchAttachment CR (see
+	// classifySupervisorPVC).
+	AnnKeySupervisorVMServiceVM = AnnPrefixVKSWorkloadType + "supervisor-vmservice-vm"
+
 	// AnnKeySupervisorWorkload is set to "true" on a supervisor PVC that
-	// matches neither AnnKeyVKSNode nor AnnKeyVKSWorkload — i.e., the PVC
-	// was created directly on the supervisor cluster (by a Pod VM, by an
-	// admin, by a third-party operator, etc.) rather than by a VKS guest
-	// cluster. The annotation is set explicitly rather than implied by
-	// absence so that "annotation missing" reliably means "fullsync has not
-	// yet evaluated this PVC" rather than "this is a supervisor workload".
+	// matches none of AnnKeyVKSNode, AnnKeyVKSWorkload, AnnKeySupervisorPodVM,
+	// or AnnKeySupervisorVMServiceVM — i.e., the PVC was created directly on
+	// the supervisor cluster (by an admin, by a third-party operator, or is
+	// simply not yet attached to any consumer) rather than by a VKS guest
+	// cluster or a recognized Supervisor-side attach path. The annotation is
+	// set explicitly rather than implied by absence so that "annotation
+	// missing" reliably means "fullsync has not yet evaluated this PVC"
+	// rather than "this is a supervisor workload".
 	AnnKeySupervisorWorkload = AnnPrefixVKSWorkloadType + "supervisor-workload"
 
 	// AnnValueTrue is the canonical value used for the boolean

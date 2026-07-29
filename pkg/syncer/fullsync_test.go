@@ -41,9 +41,13 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
+	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -1563,10 +1567,72 @@ func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
 	// If we get here without panicking, test passes
 }
 
+// TestAnnotateSupervisorPVCsWithWorkloadType_NilVaLister is a regression test for a panic
+// where annotateSupervisorPVCsWithWorkloadType called loadAttachedPVNames with a nil
+// vaLister — reachable whenever ImprovedVolumeVisibility is enabled without CSI_Backup_API
+// also being enabled at syncer startup (the two FSS gates that populate vaLister).
+func TestAnnotateSupervisorPVCsWithWorkloadType_NilVaLister(t *testing.T) {
+	ctx := context.Background()
+	pvc := makePVCForClassification(nil, nil, "", nil)
+	_, pvcLister, _ := newTestListers(t, pvc)
+
+	patchNewClient := gomonkey.ApplyFunc(k8s.NewClient, func(_ context.Context) (clientset.Interface, error) {
+		return k8sfake.NewClientset(pvc), nil
+	})
+	defer patchNewClient.Reset()
+
+	scheme := k8sruntime.NewScheme()
+	assert.NoError(t, cnsopapis.AddToScheme(scheme))
+	fakeCnsOperatorClient := crfake.NewClientBuilder().WithScheme(scheme).Build()
+
+	mockMetadataSyncer := &metadataSyncInformer{
+		pvcLister:         pvcLister,
+		vaLister:          nil,
+		cnsOperatorClient: fakeCnsOperatorClient,
+	}
+
+	assert.NotPanics(t, func() {
+		annotateSupervisorPVCsWithWorkloadType(ctx, mockMetadataSyncer)
+	})
+}
+
+// TestAnnotateSupervisorPVCsWithWorkloadType_NilCnsOperatorClient verifies that a nil
+// cnsOperatorClient (which would otherwise panic inside loadBatchAttachedPVCClaimNames)
+// is caught by an explicit guard instead, and the cycle returns cleanly without patching
+// any PVC.
+func TestAnnotateSupervisorPVCsWithWorkloadType_NilCnsOperatorClient(t *testing.T) {
+	ctx := context.Background()
+	pvc := makePVCForClassification(nil, nil, "", nil)
+	_, pvcLister, vaLister := newTestListers(t, pvc)
+
+	var patched bool
+	patchNewClient := gomonkey.ApplyFunc(k8s.NewClient, func(_ context.Context) (clientset.Interface, error) {
+		fakeClient := k8sfake.NewClientset(pvc)
+		fakeClient.PrependReactor("patch", "persistentvolumeclaims",
+			func(k8stesting.Action) (bool, k8sruntime.Object, error) {
+				patched = true
+				return false, nil, nil
+			})
+		return fakeClient, nil
+	})
+	defer patchNewClient.Reset()
+
+	mockMetadataSyncer := &metadataSyncInformer{
+		pvcLister:         pvcLister,
+		vaLister:          vaLister,
+		cnsOperatorClient: nil,
+	}
+
+	assert.NotPanics(t, func() {
+		annotateSupervisorPVCsWithWorkloadType(ctx, mockMetadataSyncer)
+	})
+	assert.False(t, patched, "no PVC should be patched when cnsOperatorClient is nil")
+}
+
 // makePVCForClassification is a small builder for the
 // TestClassifySupervisorPVC table tests.
-func makePVCForClassification(labels map[string]string,
-	ownerKinds []string) *v1.PersistentVolumeClaim {
+func makePVCForClassification(labels map[string]string, ownerKinds []string,
+	volumeName string, annotations map[string]string) *v1.PersistentVolumeClaim {
 	owners := make([]metav1.OwnerReference, 0, len(ownerKinds))
 	for _, k := range ownerKinds {
 		owners = append(owners, metav1.OwnerReference{Kind: k, Name: "owner-" + k})
@@ -1576,24 +1642,40 @@ func makePVCForClassification(labels map[string]string,
 			Name:            "test-pvc",
 			Namespace:       "test-ns",
 			Labels:          labels,
+			Annotations:     annotations,
 			OwnerReferences: owners,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			VolumeName: volumeName,
 		},
 	}
 }
 
 // TestClassifySupervisorPVC verifies the rule table for
 // classifySupervisorPVC: VirtualMachine / VSphereMachine ownerRefs imply
-// vks-node, a TKGService marker in any label key implies vks-workload,
-// and the absence of both implies supervisor-workload. The classification
-// is boolean-tag-based — vks-node and vks-workload can co-occur, but
-// supervisor-workload is mutually exclusive with both.
+// vks-node, a TKGService marker in any label key implies vks-workload, a
+// bound PV present in the attachedPVs set implies supervisor-podvm, an
+// ownerRef-less PVC referenced by a CnsNodeVMBatchAttachment CR implies
+// supervisor-vmservice-vm, and the absence of all four implies
+// supervisor-workload. The classification is boolean-tag-based — any
+// combination of signals can co-occur, but supervisor-workload is mutually
+// exclusive with all of them.
 func TestClassifySupervisorPVC(t *testing.T) {
+	// batchAttachedPVCs is namespace-scoped by the caller (see loadBatchAttachedPVCClaimNames),
+	// so its keys are bare PVC names — "test-pvc" here, matching what
+	// makePVCForClassification always names the PVC.
+	batchAttached := map[string]struct{}{"test-pvc": {}}
+
 	tests := []struct {
-		name      string
-		labels    map[string]string
-		owners    []string
-		wantKeys  []string
-		notWanted []string
+		name              string
+		labels            map[string]string
+		owners            []string
+		volumeName        string
+		annotations       map[string]string
+		attachedPVs       map[string]struct{}
+		batchAttachedPVCs map[string]struct{}
+		wantKeys          []string
+		notWanted         []string
 	}{
 		{
 			name:      "vks node via VirtualMachine ownerRef",
@@ -1624,9 +1706,10 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeySupervisorWorkload},
 		},
 		{
-			name:      "no signals -> supervisor-workload",
-			wantKeys:  []string{common.AnnKeySupervisorWorkload},
-			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+			name:     "no signals -> supervisor-workload",
+			wantKeys: []string{common.AnnKeySupervisorWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
+				common.AnnKeySupervisorVMServiceVM},
 		},
 		{
 			name:      "both signals -> double-tagged, supervisor-workload NOT set",
@@ -1641,11 +1724,69 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			wantKeys:  []string{common.AnnKeySupervisorWorkload},
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
 		},
+		{
+			name:        "podvm attachment via VolumeAttachment -> supervisor-podvm",
+			volumeName:  "pv-1",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeySupervisorPodVM},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorVMServiceVM,
+				common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:        "bound PV not in attachedPVs -> falls through to supervisor-workload",
+			volumeName:  "pv-2",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeySupervisorWorkload},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+		},
+		{
+			name:        "unbound PVC (no VolumeName) is never podvm-tagged",
+			attachedPVs: map[string]struct{}{"": {}},
+			wantKeys:    []string{common.AnnKeySupervisorWorkload},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+		},
+		{
+			name:              "referenced by CnsNodeVMBatchAttachment CR -> supervisor-vmservice-vm",
+			batchAttachedPVCs: batchAttached,
+			wantKeys:          []string{common.AnnKeySupervisorVMServiceVM},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
+				common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:              "batch-attached but PVC has an ownerRef -> not tagged vmservice-vm",
+			owners:            []string{"StatefulSet"},
+			batchAttachedPVCs: batchAttached,
+			wantKeys:          []string{common.AnnKeySupervisorWorkload},
+			notWanted:         []string{common.AnnKeySupervisorVMServiceVM},
+		},
+		{
+			name:              "podvm and vmservice-vm signals co-occur -> double-tagged, supervisor-workload NOT set",
+			volumeName:        "pv-1",
+			attachedPVs:       map[string]struct{}{"pv-1": {}},
+			batchAttachedPVCs: batchAttached,
+			wantKeys:          []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+			notWanted:         []string{common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:        "vks node and podvm signals co-occur -> double-tagged, supervisor-workload NOT set",
+			owners:      []string{"VirtualMachine"},
+			volumeName:  "pv-1",
+			attachedPVs: map[string]struct{}{"pv-1": {}},
+			wantKeys:    []string{common.AnnKeyVKSNode, common.AnnKeySupervisorPodVM},
+			notWanted:   []string{common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:              "vks node disk also referenced by a CnsNodeVMBatchAttachment CR -> vmservice-vm NOT set",
+			owners:            []string{"VirtualMachine"},
+			batchAttachedPVCs: batchAttached,
+			wantKeys:          []string{common.AnnKeyVKSNode},
+			notWanted:         []string{common.AnnKeySupervisorVMServiceVM, common.AnnKeySupervisorWorkload},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pvc := makePVCForClassification(tt.labels, tt.owners)
-			got := classifySupervisorPVC(pvc)
+			pvc := makePVCForClassification(tt.labels, tt.owners, tt.volumeName, tt.annotations)
+			got := classifySupervisorPVC(pvc, tt.attachedPVs, tt.batchAttachedPVCs)
 			for _, k := range tt.wantKeys {
 				v, ok := got[k]
 				assert.True(t, ok, "missing expected key %s in classification (got=%v)", k, got)
@@ -1657,6 +1798,64 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLoadBatchAttachedPVCClaimNames verifies that loadBatchAttachedPVCClaimNames collects
+// the claimName for every PVC referenced by any CnsNodeVMBatchAttachment CR's Spec.Volumes
+// within the given namespace, across multiple CRs and multiple volumes per CR, excludes CRs
+// in other namespaces, and returns an empty (not nil) set when there are no CRs.
+func TestLoadBatchAttachedPVCClaimNames(t *testing.T) {
+	newBatchAttachment := func(name, namespace string,
+		claimNames ...string) *cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment {
+		volumes := make([]cnsnodevmbatchattachmentv1alpha1.VolumeSpec, 0, len(claimNames))
+		for _, cn := range claimNames {
+			volumes = append(volumes, cnsnodevmbatchattachmentv1alpha1.VolumeSpec{
+				Name: cn,
+				PersistentVolumeClaim: cnsnodevmbatchattachmentv1alpha1.PersistentVolumeClaimSpec{
+					ClaimName: cn,
+				},
+			})
+		}
+		return &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec:       cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachmentSpec{Volumes: volumes},
+		}
+	}
+
+	ctx := context.Background()
+	scheme := k8sruntime.NewScheme()
+	assert.NoError(t, cnsopapis.AddToScheme(scheme))
+
+	t.Run("no CRs in namespace -> empty set", func(t *testing.T) {
+		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).Build()
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("multiple CRs and multiple volumes within the namespace", func(t *testing.T) {
+		ba1 := newBatchAttachment("vm1", "ns1", "pvc-a", "pvc-b")
+		ba2 := newBatchAttachment("vm2", "ns1", "pvc-c")
+		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(ba1, ba2).Build()
+
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]struct{}{
+			"pvc-a": {},
+			"pvc-b": {},
+			"pvc-c": {},
+		}, got)
+	})
+
+	t.Run("CRs in other namespaces are excluded", func(t *testing.T) {
+		ba1 := newBatchAttachment("vm1", "ns1", "pvc-a")
+		ba2 := newBatchAttachment("vm2", "ns2", "pvc-b")
+		fakeClient := crfake.NewClientBuilder().WithScheme(scheme).WithObjects(ba1, ba2).Build()
+
+		got, err := loadBatchAttachedPVCClaimNames(ctx, fakeClient, "ns1")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]struct{}{"pvc-a": {}}, got)
+	})
 }
 
 // TestReconcilePVCWorkloadTypeAnnotations exercises the diff-and-patch

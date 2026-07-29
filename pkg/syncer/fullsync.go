@@ -46,6 +46,7 @@ import (
 	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -2243,7 +2244,14 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 //     the form "<gc-name>/TKGService" — the presence of that marker is
 //     authoritative even when the rest of the key has been redacted.
 //
-//   - AnnKeySupervisorWorkload is included only when neither of the above
+//   - AnnKeySupervisorPodVM is included if neither of the above applies and
+//     pvc.Spec.VolumeName is referenced by a VolumeAttachment object.
+//
+//   - AnnKeySupervisorVMServiceVM is included if neither of the first two
+//     applies, pvc.OwnerReferences is empty, and some CnsNodeVMBatchAttachment
+//     CR references this PVC by name.
+//
+//   - AnnKeySupervisorWorkload is included only when none of the above
 //     applies. The annotation is set explicitly rather than implied by
 //     absence so that "no csi.vsphere.volume.type/* annotation at all"
 //     reliably means "fullsync has not yet evaluated this PVC".
@@ -2251,8 +2259,13 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 // A PVC that satisfies both Node and Workload signals (rare but possible
 // if, for example, a guest-cluster Pod volume gains a VM owner reference
 // through an out-of-band edit) is double-tagged with vks-node AND
-// vks-workload but is NOT tagged supervisor-workload.
-func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim) map[string]string {
+// vks-workload but is NOT tagged supervisor-workload. The same holds for
+// any other combination of signals: all matching tags are set, and
+// supervisor-workload is set only when none match.
+// batchAttachedPVCs must already be scoped to pvc's own namespace (see
+// loadBatchAttachedPVCClaimNames) — its keys are bare PVC names, not "namespace/name".
+func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string]struct{},
+	batchAttachedPVCs map[string]struct{}) map[string]string {
 	desired := make(map[string]string, 2)
 
 	hasVKSNode := false
@@ -2272,13 +2285,33 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim) map[string]string {
 		}
 	}
 
+	hasPodVMAttachment := false
+	if pvc.Spec.VolumeName != "" {
+		if _, ok := attachedPVs[pvc.Spec.VolumeName]; ok {
+			hasPodVMAttachment = true
+		}
+	}
+
+	hasVMServiceAttachment := false
+	if len(pvc.OwnerReferences) == 0 {
+		if _, ok := batchAttachedPVCs[pvc.Name]; ok {
+			hasVMServiceAttachment = true
+		}
+	}
+
 	if hasVKSNode {
 		desired[common.AnnKeyVKSNode] = common.AnnValueTrue
 	}
 	if hasVKSWorkload {
 		desired[common.AnnKeyVKSWorkload] = common.AnnValueTrue
 	}
-	if !hasVKSNode && !hasVKSWorkload {
+	if hasPodVMAttachment {
+		desired[common.AnnKeySupervisorPodVM] = common.AnnValueTrue
+	}
+	if hasVMServiceAttachment {
+		desired[common.AnnKeySupervisorVMServiceVM] = common.AnnValueTrue
+	}
+	if !hasVKSNode && !hasVKSWorkload && !hasPodVMAttachment && !hasVMServiceAttachment {
 		desired[common.AnnKeySupervisorWorkload] = common.AnnValueTrue
 	}
 	return desired
@@ -2334,11 +2367,30 @@ func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
 	return body, true, nil
 }
 
+// loadBatchAttachedPVCClaimNames lists every CnsNodeVMBatchAttachment CR in namespace and
+// returns the set of PVC names (ClaimName) referenced by any of their Spec.Volumes entries
+// — i.e., PVCs in that namespace currently attached as a data disk to a VM Service VM. A
+// CnsNodeVMBatchAttachment CR always lives in the same namespace as the PVCs it references.
+func loadBatchAttachedPVCClaimNames(ctx context.Context,
+	cnsOperatorClient client.Client, namespace string) (map[string]struct{}, error) {
+	batchAttachments := &cnsnodevmbatchattachmentv1alpha1.CnsNodeVMBatchAttachmentList{}
+	if err := cnsOperatorClient.List(ctx, batchAttachments, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	claimNames := make(map[string]struct{})
+	for _, ba := range batchAttachments.Items {
+		for _, vol := range ba.Spec.Volumes {
+			claimNames[vol.PersistentVolumeClaim.ClaimName] = struct{}{}
+		}
+	}
+	return claimNames, nil
+}
+
 // annotateSupervisorPVCsWithWorkloadType iterates over every PVC in every
 // supervisor namespace and reconciles the csi.vsphere.volume.type/*
 // annotations that classify the PVC's consumer workload type (VKS Node VM,
-// VKS guest-cluster Pod, or supervisor-side workload). See classifySupervisorPVC
-// for the rule set.
+// VKS guest-cluster Pod, Supervisor PodVM, or Supervisor VM Service VM). See
+// classifySupervisorPVC for the rule set.
 //
 // PVCs being deleted (DeletionTimestamp set) are skipped — there is no
 // value in updating a tombstone and doing so can race with the deletion
@@ -2368,13 +2420,48 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 		return
 	}
 
+	// vaLister is only populated if CSI_Backup_API or ImprovedVolumeVisibility was enabled at
+	// syncer startup; a runtime FSS toggle without a restart can leave it nil.
+	attachedPVs := map[string]struct{}{}
+	if metadataSyncer.vaLister == nil {
+		log.Warnf("annotateSupervisorPVCsWithWorkloadType: VolumeAttachment lister not initialized; " +
+			"skipping PodVM attachment classification for this cycle")
+	} else {
+		attachedPVs, err = loadAttachedPVNames(metadataSyncer.vaLister)
+		if err != nil {
+			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list VolumeAttachment objects. Err: %v", err)
+			return
+		}
+	}
+
+	if metadataSyncer.cnsOperatorClient == nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: cnsOperatorClient is not initialized")
+		return
+	}
+	// Populated lazily, one CnsNodeVMBatchAttachment List call per distinct namespace
+	// encountered below, rather than a single cluster-wide list.
+	batchAttachedPVCsByNamespace := map[string]map[string]struct{}{}
+
 	var patched, skipped, failed int
 	for _, pvc := range pvcs {
 		if pvc.ObjectMeta.DeletionTimestamp != nil {
 			skipped++
 			continue
 		}
-		desired := classifySupervisorPVC(pvc)
+
+		batchAttachedPVCs, ok := batchAttachedPVCsByNamespace[pvc.Namespace]
+		if !ok {
+			batchAttachedPVCs, err = loadBatchAttachedPVCClaimNames(ctx, metadataSyncer.cnsOperatorClient, pvc.Namespace)
+			if err != nil {
+				log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to list CnsNodeVMBatchAttachment "+
+					"objects in namespace %s. Err: %v", pvc.Namespace, err)
+				failed++
+				continue
+			}
+			batchAttachedPVCsByNamespace[pvc.Namespace] = batchAttachedPVCs
+		}
+
+		desired := classifySupervisorPVC(pvc, attachedPVs, batchAttachedPVCs)
 		patchBytes, needsPatch, err := reconcilePVCWorkloadTypeAnnotations(pvc, desired)
 		if err != nil {
 			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to build patch for PVC %s/%s. Err: %v",
