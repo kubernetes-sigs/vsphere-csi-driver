@@ -290,7 +290,8 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(
 				pv.Spec.ClaimRef.Name)
 			if err != nil {
-				log.Errorf("FullSync: Failed to get PVC %q from guest cluster. Err: %v", pvc.Name, err)
+				log.Errorf("FullSync: Failed to get PVC %q from guest cluster. Err: %v",
+					pv.Spec.ClaimRef.Name, err)
 				return err
 			}
 			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
