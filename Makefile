@@ -404,6 +404,18 @@ vet:
 images: | $(DOCKER_SOCK)
 	hack/release.sh
 
+.PHONY: driver-image
+driver-image: | $(DOCKER_SOCK)
+	hack/release.sh -t driver-linux
+
+.PHONY: driver-windows-image
+driver-windows-image: | $(DOCKER_SOCK)
+	hack/release.sh -t driver-windows
+
+.PHONY: syncer-image
+syncer-image: | $(DOCKER_SOCK)
+	hack/release.sh -t syncer
+
 ################################################################################
 ##                                  PUSH IMAGES                               ##
 ################################################################################

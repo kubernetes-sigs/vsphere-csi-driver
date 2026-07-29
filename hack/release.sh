@@ -36,6 +36,7 @@ PUSH=
 LATEST=
 CSI_IMAGE_NAME=
 SYNCER_IMAGE_NAME=
+TARGET_COMPONENT=
 if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
   VERSION="$(git log -1 --format=%h)"
 else
@@ -84,6 +85,8 @@ FLAGS
         when used with -p, both tags will be pushed
   -p    push the images to the public container registry
   -r    push the image to custom registry, specify the registry to be used
+  -t    build only one component's image: driver-linux, driver-windows, or syncer
+        (defaults to building driver-linux, syncer, and, unless disabled, driver-windows)
 "
 
 
@@ -168,14 +171,30 @@ function build_images() {
   SYNCER_IMAGE_NAME=${SYNCER_IMAGE_CI}
   LATEST="latest"
 
-  # build images for linux platform
-  build_driver_images_linux
-  build_syncer_image_linux
+  case "${TARGET_COMPONENT}" in
+    driver-linux)
+      build_driver_images_linux
+      ;;
+    driver-windows)
+      build_driver_images_windows
+      ;;
+    syncer)
+      build_syncer_image_linux
+      ;;
+    "")
+      # build images for linux platform
+      build_driver_images_linux
+      build_syncer_image_linux
 
-  if [ "$DO_WINDOWS_BUILD" = true ]; then
-    # build images for windows platform
-    build_driver_images_windows
-  fi
+      if [ "$DO_WINDOWS_BUILD" = true ]; then
+        # build images for windows platform
+        build_driver_images_windows
+      fi
+      ;;
+    *)
+      fatal "invalid target component: ${TARGET_COMPONENT}"
+      ;;
+  esac
 }
 
 function push_manifest_driver() {
@@ -258,7 +277,7 @@ function push_syncer_images() {
 }
 
 # Start of main script
-while getopts ":hk:lpr:" opt; do
+while getopts ":hk:lpr:t:" opt; do
   case ${opt} in
     h)
       error "${USAGE}" && exit 1
@@ -274,6 +293,9 @@ while getopts ":hk:lpr:" opt; do
       ;;
     r)
       REGISTRY="${OPTARG}"
+      ;;
+    t)
+      TARGET_COMPONENT="${OPTARG}"
       ;;
     \?)
       error "invalid option: -${OPTARG} ${USAGE}" && exit 1
