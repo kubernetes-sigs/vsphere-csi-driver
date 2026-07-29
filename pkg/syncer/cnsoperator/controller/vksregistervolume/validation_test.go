@@ -412,11 +412,11 @@ func TestDefaultVolumeMode(t *testing.T) {
 	}
 }
 
-// ── TODO(T4+): Reconcile-level tests (see T10) ───────────────────────────────────────────────
+// ── TODO: Reconcile-level tests ──────────────────────────────────────────────────────────────
 //
-// The following test cases require a fully wired Reconcile() loop (T4 complete) and fake
-// Supervisor clients (T6). Add them in validation_test.go or a dedicated
-// vksregistervolume_controller_test.go once T4 is done:
+// Add these end-to-end Reconcile() test cases in a fake-client-backed harness (fake guest client
+// + fake Supervisor clients), in validation_test.go or a dedicated
+// vksregistervolume_controller_test.go:
 //
 //  1. Happy path: Pending PVC + Registered Supervisor CR + Bound Supervisor PVC →
 //     controller creates only the guest PV, PVC binds, Phase=Registered.
