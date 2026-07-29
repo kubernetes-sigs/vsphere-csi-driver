@@ -63,10 +63,6 @@ const (
 	// On deletion the controller only removes this finalizer; it never deletes the guest PV/PVC
 	// or the Supervisor CnsRegisterVolume (both owned by the caller that drives this CR).
 	vksRegisterVolumeFinalizer = "cns.vmware.com/vks-register-volume"
-
-	// TODO(T7): add labels stamped on the guest PV created by this controller
-	// (cns.vmware.com/created-by, .../vksregistervolume-namespace, .../vksregistervolume-name)
-	// alongside the guest PV spec builder in pvspec.go.
 )
 
 var (
@@ -89,16 +85,13 @@ type ReconcileVKSRegisterVolume struct {
 	k8sclient clientset.Interface
 
 	// supervisorNamespace is the Supervisor namespace in which the VKS cluster is deployed.
-	// TODO(T4): populated in Add() from commonconfig.GetSupervisorNamespace.
 	supervisorNamespace string
 
 	// supervisorClient is a CoreV1 client for the Supervisor cluster (Supervisor PVCs/PVs).
-	// TODO(T4): populated in Add() via k8s.NewSupervisorClient.
 	supervisorClient clientset.Interface
 
 	// supervisorCnsOperatorClient is a typed client for the Supervisor cluster restricted to
 	// read-only GET of CnsRegisterVolume CRs (get, list, watch; no create or delete).
-	// TODO(T4): populated in Add() via k8s.NewClientForGroup.
 	supervisorCnsOperatorClient client.Client
 }
 
@@ -109,15 +102,6 @@ var _ reconcile.Reconciler = &ReconcileVKSRegisterVolume{}
 //
 // Guard: only active when clusterFlavor == CnsClusterFlavorGuest AND the VKSRegisterVolume FSS
 // is enabled in both the guest PVCSI ConfigMap and the Supervisor csi-feature-states ConfigMap.
-//
-// TODO(T4): the Supervisor-side dependencies are not yet wired in:
-//   - build restConfig via k8s.GetRestClientConfigForSupervisor(ctx, cfg.GC.Endpoint, cfg.GC.Port)
-//   - create supervisorClient via k8s.NewSupervisorClient(ctx, restConfig)
-//   - create supervisorCnsOperatorClient via k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-//   - read supervisorNamespace via commonconfig.GetSupervisorNamespace(ctx)
-//
-// Until T4 lands, the reconciler is registered with nil Supervisor clients; this is safe because
-// Reconcile() does not yet dereference them (the T6/T7 steps that will are still TODO stubs).
 func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *commonconfig.ConfigurationInfo, volumeManager volumes.Manager) error {
 	ctx, log := logger.GetNewContextWithLogger()
@@ -131,12 +115,41 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			common.VKSRegisterVolume)
 		return nil
 	}
-	_ = configInfo
 	_ = volumeManager
 
 	k8sclient, err := k8s.NewClient(ctx)
 	if err != nil {
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
+		return err
+	}
+
+	supervisorNamespace, err := commonconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("Failed to get supervisor namespace. Err: %v", err)
+		return err
+	}
+
+	if configInfo == nil {
+		log.Errorf("configInfo is nil")
+		return fmt.Errorf("configInfo is nil")
+	}
+
+	restClientConfig := k8s.GetRestClientConfigForSupervisor(ctx,
+		configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
+	if restClientConfig == nil {
+		log.Errorf("Failed to build rest client config for supervisor")
+		return fmt.Errorf("failed to build rest client config for supervisor")
+	}
+
+	supervisorClient, err := k8s.NewSupervisorClient(ctx, restClientConfig)
+	if err != nil {
+		log.Errorf("Failed to create supervisorClient. Err: %v", err)
+		return err
+	}
+
+	supervisorCnsOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, apis.GroupName)
+	if err != nil {
+		log.Errorf("Failed to create supervisorCnsOperatorClient. Err: %v", err)
 		return err
 	}
 
@@ -146,13 +159,13 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	)
 	recorder := eventBroadcaster.NewRecorder(k8sscheme.Scheme, corev1.EventSource{Component: apis.GroupName})
 
-	// TODO(T4): pass real supervisorNamespace/supervisorClient/supervisorCnsOperatorClient here.
-	reconciler := newReconciler(mgr, recorder, k8sclient, "", nil, nil)
+	reconciler := newReconciler(mgr, recorder, k8sclient, supervisorNamespace,
+		supervisorClient, supervisorCnsOperatorClient)
 	return add(mgr, reconciler)
 }
 
 // add wires the reconciler into the controller-runtime manager.
-// Called from Add() once all dependencies are initialised (T4).
+// Called from Add() once all dependencies are initialised.
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	ctx, log := logger.GetNewContextWithLogger()
 
@@ -171,7 +184,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// newReconciler constructs the reconciler once all Supervisor clients are available (T4).
+// newReconciler constructs the reconciler once all Supervisor clients are available.
 // Kept separate from Add() so tests can construct ReconcileVKSRegisterVolume directly.
 func newReconciler(
 	mgr manager.Manager,
@@ -194,18 +207,19 @@ func newReconciler(
 
 // Reconcile implements the reconcile.Reconciler interface.
 //
-// Phase state machine (T5 wires steps 1–3; T6 wires steps 4–5; T7 wires steps 6–8):
+// Phase state machine:
 //  1. Finalizer — add vksRegisterVolumeFinalizer; requeue if absent.
 //  2. Validate spec fields (terminal Failed on any missing field).
 //  3. Resolve guest PVC: GET + validate (Pending, volumeName set, accessModes, storage>0,
 //     storageClass w/ svstorageclass); transient requeue if PVC not yet created (bounded window),
 //     terminal Failed otherwise.
 //     3b. VolumeMode default — Filesystem if nil/empty.
-//  4. [TODO T6] WaitingForSupervisorRegistration — GET Supervisor CnsRegisterVolume; wait Registered==true.
-//  5. [TODO T6] WaitingForSupervisorBinding — GET Supervisor PVC; wait Bound; read topology.
-//  6. [TODO T7] CreatingGuestPV — GET-before-CREATE guest PV with volumeHandle, claimRef, nodeAffinity.
-//  7. [TODO T7] WaitingForGuestPVCBound — poll until guest PVC↔PV are Bound.
-//  8. [TODO T7] Registered — set Phase=Registered, Registered=true.
+//  4. WaitingForSupervisorRegistration — GET Supervisor CnsRegisterVolume; wait Registered==true.
+//  5. WaitingForSupervisorBinding — GET Supervisor PVC; wait Bound; read topology.
+//  6. CreatingGuestPV — GET-before-CREATE guest PV via buildGuestPV/guestPVMatchesExpected
+//     (pvspec.go), using supervisorPVCName/accessibleTopology from step 5.
+//  7. WaitingForGuestPVCBound — poll until guest PVC↔PV are Bound.
+//  8. Registered — call setStatusRegistered.
 func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 	request reconcile.Request) (reconcile.Result, error) {
 	ctx = logger.NewContextWithLogger(ctx)
@@ -284,11 +298,6 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 
 	// ── Step 3b: Default VolumeMode to Filesystem if unset ────────────────────────────────────
 	volumeMode := defaultVolumeMode(pvc.Spec.VolumeMode)
-	// volumeMode is forwarded to buildGuestPV in T7.  Suppress unused-var until then.
-	_ = volumeMode
-
-	// pvc is used by T6 (topology read) and T7 (PV spec build).  Suppress until then.
-	_ = pvc
 
 	// ── Advance phase to WaitingForSupervisorRegistration ────────────────────────────────────
 	if err := r.setStatusPhase(ctx, instance,
@@ -298,42 +307,129 @@ func (r *ReconcileVKSRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// ── TODO(T6): WaitingForSupervisorRegistration ────────────────────────────────────────────
-	// GET Supervisor CnsRegisterVolume instance.Spec.CnsRegisterVolumeName in
-	// r.supervisorNamespace (the VKS cluster's own Supervisor namespace; a VKS cluster
-	// can only ever access resources there, so it is not repeated on the spec) via
-	// r.supervisorCnsOperatorClient.
-	// If NotFound and CR has not yet reached Registered, treat as transient (bounded window).
-	// If already past WaitingForSupervisorRegistration (CR reached Registered before), skip.
-	// When CnsRegisterVolume.Status.Registered == true:
-	//   supervisorPVCName = CnsRegisterVolume.Spec.PvcName
-	//   advance phase to WaitingForSupervisorBinding.
+	// ── Step 4: WaitingForSupervisorRegistration ──────────────────────────────────────────────
+	supervisorPVCName, terminal, err := waitForSupervisorRegistration(ctx,
+		r.supervisorCnsOperatorClient, r.supervisorNamespace, instance)
+	if err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s waiting for supervisor registration failed (terminal=%v): %v",
+			instance.Namespace, instance.Name, terminal, err)
+		if terminal {
+			r.setStatusFailed(ctx, instance, err.Error())
+			return reconcile.Result{}, nil // no requeue — terminal
+		}
+		r.setStatusError(ctx, instance, err.Error())
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T6): WaitingForSupervisorBinding ─────────────────────────────────────────────────
-	// GET Supervisor PVC supervisorPVCName in r.supervisorNamespace via r.supervisorClient.
-	// Wait until its Phase == Bound.
-	// Read topology from PVC annotation common.AnnVolumeAccessibleTopology
-	//   (via generateVolumeAccessibleTopologyFromPVCAnnotation).
-	// Fall back to Supervisor PV spec.nodeAffinity if annotation absent.
-	// Proceed to CreatingGuestPV with (supervisorPVCName, accessibleTopology).
+	// ── Advance phase to WaitingForSupervisorBinding ──────────────────────────────────────────
+	if err := r.setStatusPhase(ctx, instance,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForSupervisorBinding); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to advance phase: %v",
+			instance.Namespace, instance.Name, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T7): CreatingGuestPV ─────────────────────────────────────────────────────────────
-	// guestPVName = pvc.Spec.VolumeName
-	// GET-before-CREATE guest PV via r.client (idempotent).
-	// If not found: call buildGuestPV(pvc, supervisorPVCName, volumeMode, accessibleTopology, instance)
-	//   then r.client.Create.
-	// If found: validate volumeHandle == supervisorPVCName AND claimRef → {instance.Namespace, pvcName};
-	//   if wrong claimRef (bound to a different PVC) → terminal Failed.
+	// ── Step 5: WaitingForSupervisorBinding ───────────────────────────────────────────────────
+	accessibleTopology, terminal, err := waitForSupervisorBinding(ctx,
+		r.supervisorClient, r.supervisorNamespace, supervisorPVCName)
+	if err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s waiting for supervisor binding failed (terminal=%v): %v",
+			instance.Namespace, instance.Name, terminal, err)
+		if terminal {
+			r.setStatusFailed(ctx, instance, err.Error())
+			return reconcile.Result{}, nil // no requeue — terminal
+		}
+		r.setStatusError(ctx, instance, err.Error())
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T7): WaitingForGuestPVCBound ────────────────────────────────────────────────────
-	// GET guest PVC; if Bound to guestPVName → advance.
-	// If Bound to a different PV → terminal Failed.
-	// If still Pending → requeue.
+	// ── Advance phase to CreatingGuestPV ───────────────────────────────────────────────────────
+	if err := r.setStatusPhase(ctx, instance,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseCreatingGuestPV); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to advance phase: %v",
+			instance.Namespace, instance.Name, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 
-	// ── TODO(T7): Registered ─────────────────────────────────────────────────────────────────
-	// setStatusRegistered(ctx, instance)
+	// waitForSupervisorBinding returns the CSI-shaped []*csi.Topology, but buildGuestPV takes the
+	// raw []map[string]string segment form (it does its own toCSITopology conversion) so that it
+	// stays independently unit-testable against plain literals. Convert back at this seam.
+	var accessibleTopologySegments []map[string]string
+	for _, t := range accessibleTopology {
+		if t != nil {
+			accessibleTopologySegments = append(accessibleTopologySegments, t.Segments)
+		}
+	}
 
-	return reconcile.Result{RequeueAfter: timeout}, nil
+	// ── Step 6: CreatingGuestPV — GET-before-CREATE the guest PV ──────────────────────────────
+	guestPVName := pvc.Spec.VolumeName
+	existingPV := &corev1.PersistentVolume{}
+	err = r.client.Get(ctx, apitypes.NamespacedName{Name: guestPVName}, existingPV)
+	switch {
+	case apierrors.IsNotFound(err):
+		pv := buildGuestPV(pvc, guestPVName, supervisorPVCName, volumeMode, accessibleTopologySegments, instance)
+		if err := r.client.Create(ctx, pv); err != nil {
+			log.Errorf("VKSRegisterVolume %s/%s: failed to create guest PV %q: %v",
+				instance.Namespace, instance.Name, guestPVName, err)
+			r.setStatusError(ctx, instance, fmt.Sprintf("failed to create guest PV %q: %v", guestPVName, err))
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	case err == nil:
+		if !guestPVMatchesExpected(existingPV, supervisorPVCName, instance) {
+			msg := fmt.Sprintf("existing guest PV %q does not match expected volumeHandle/claimRef",
+				guestPVName)
+			log.Errorf("VKSRegisterVolume %s/%s: %s", instance.Namespace, instance.Name, msg)
+			r.setStatusFailed(ctx, instance, msg)
+			return reconcile.Result{}, nil // no requeue — terminal
+		}
+		// idempotent no-op — PV already correct.
+	default:
+		log.Errorf("VKSRegisterVolume %s/%s: failed to GET guest PV %q: %v",
+			instance.Namespace, instance.Name, guestPVName, err)
+		r.setStatusError(ctx, instance, fmt.Sprintf("failed to GET guest PV %q: %v", guestPVName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// ── Advance phase to WaitingForGuestPVCBound ──────────────────────────────────────────────
+	if err := r.setStatusPhase(ctx, instance,
+		vksregistervolumev1alpha1.VKSRegisterVolumePhaseWaitingForGuestPVCBound); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to advance phase: %v",
+			instance.Namespace, instance.Name, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// ── Step 7: WaitingForGuestPVCBound ────────────────────────────────────────────────────────
+	guestPVC := &corev1.PersistentVolumeClaim{}
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Namespace: instance.Namespace,
+		Name: instance.Spec.PVCName}, guestPVC); err != nil {
+		log.Errorf("VKSRegisterVolume %s/%s: failed to GET guest PVC %s/%s: %v",
+			instance.Namespace, instance.Name, instance.Namespace, instance.Spec.PVCName, err)
+		r.setStatusError(ctx, instance, fmt.Sprintf("failed to GET guest PVC %s/%s: %v",
+			instance.Namespace, instance.Spec.PVCName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if guestPVC.Status.Phase != corev1.ClaimBound {
+		msg := fmt.Sprintf("guest PVC %s/%s not yet Bound (phase=%q)",
+			instance.Namespace, instance.Spec.PVCName, guestPVC.Status.Phase)
+		log.Infof("VKSRegisterVolume %s/%s: %s; will retry", instance.Namespace, instance.Name, msg)
+		r.setStatusError(ctx, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	if guestPVC.Spec.VolumeName != guestPVName {
+		msg := fmt.Sprintf("guest PVC %s/%s is Bound to PV %q, not the expected %q",
+			instance.Namespace, instance.Spec.PVCName, guestPVC.Spec.VolumeName, guestPVName)
+		log.Errorf("VKSRegisterVolume %s/%s: %s", instance.Namespace, instance.Name, msg)
+		r.setStatusFailed(ctx, instance, msg)
+		return reconcile.Result{}, nil // no requeue — terminal
+	}
+
+	// ── Step 8: Registered ─────────────────────────────────────────────────────────────────────
+	if err := r.setStatusRegistered(ctx, instance); err != nil {
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	return reconcile.Result{}, nil
 }
 
 // reconcileDelete handles VKSRegisterVolume CR deletion.
@@ -408,8 +504,24 @@ func (r *ReconcileVKSRegisterVolume) setStatusPhase(ctx context.Context,
 	return patchVKSRegisterVolumeStatus(ctx, r.client, orig, instance)
 }
 
-// TODO(T7): add setStatusRegistered(ctx, instance) — sets Phase=Registered, Registered=true,
-// clears Error, and records a Normal event — and wire it into the Registered step of Reconcile.
+// setStatusRegistered sets Phase=Registered, Registered=true, clears Error.
+// Called from Reconcile's Registered step (step 8) once the guest PVC↔PV direct bind completes.
+func (r *ReconcileVKSRegisterVolume) setStatusRegistered(ctx context.Context,
+	instance *vksregistervolumev1alpha1.VKSRegisterVolume) error {
+	log := logger.GetLogger(ctx)
+	orig := instance.DeepCopy()
+	instance.Status.Phase = vksregistervolumev1alpha1.VKSRegisterVolumePhaseRegistered
+	instance.Status.Registered = true
+	instance.Status.Error = ""
+	if err := patchVKSRegisterVolumeStatus(ctx, r.client, orig, instance); err != nil {
+		log.Errorf("patchVKSRegisterVolumeStatus failed while setting Registered: %v", err)
+		return err
+	}
+	msg := fmt.Sprintf("VKSRegisterVolume %s/%s: guest PVC successfully bound to registered volume",
+		instance.Namespace, instance.Name)
+	recordEvent(ctx, r, instance, corev1.EventTypeNormal, msg)
+	return nil
+}
 
 // patchVKSRegisterVolumeStatus sends a merge-patch for the status subresource.
 // Mirrors patchCnsRegisterVolumeStatus: always includes "registered" (required field),
