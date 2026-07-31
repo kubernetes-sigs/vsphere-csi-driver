@@ -373,7 +373,7 @@ func TestMutateNewPVC_LinkedClone_Success_SetTopologyAnnotation(t *testing.T) {
 			Name:      "src-pvc",
 			Namespace: "default",
 			Annotations: map[string]string{
-				common.AnnVolumeAccessibleTopology: "zone-1",
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-1"}]`,
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -469,7 +469,7 @@ func TestMutateNewPVC_LinkedClone_Success_ValidateTopologyAnnotation(t *testing.
 			Namespace: "default",
 			Annotations: map[string]string{
 				common.AnnKeyLinkedClone:                "true",
-				common.AnnGuestClusterRequestedTopology: "zone-1",
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone-1"}]`,
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -494,7 +494,7 @@ func TestMutateNewPVC_LinkedClone_Success_ValidateTopologyAnnotation(t *testing.
 			Name:      "src-pvc",
 			Namespace: "default",
 			Annotations: map[string]string{
-				common.AnnVolumeAccessibleTopology: "zone-1",
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-1"}]`,
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -579,7 +579,7 @@ func TestMutateNewPVC_LinkedClone_Error_TopologyMismatch(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				common.AnnKeyLinkedClone:                "true",
-				common.AnnGuestClusterRequestedTopology: "zone-2", // Different from source
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone-2"}]`, // Different from source
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -604,7 +604,8 @@ func TestMutateNewPVC_LinkedClone_Error_TopologyMismatch(t *testing.T) {
 			Name:      "src-pvc",
 			Namespace: "default",
 			Annotations: map[string]string{
-				common.AnnVolumeAccessibleTopology: "zone-1", // Different from linked clone request
+				// Different from linked clone request
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-1"}]`,
 			},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -662,7 +663,7 @@ func TestMutateNewPVC_LinkedClone_Error_TopologyMismatch(t *testing.T) {
 
 	// Verify response - should be denied due to topology mismatch
 	assert.False(t, response.Allowed)
-	assert.Contains(t, response.Result.Message, "expected accessibility requirement: zone-1 but got zone-2")
+	assert.Contains(t, response.Result.Message, "expected accessibility requirement to be a subset of")
 
 	mockCOInterface.AssertExpectations(t)
 }
@@ -735,7 +736,7 @@ func TestMutateNewPVC_LinkedClone_Error_GetDataSourceFails(t *testing.T) {
 
 	// Verify response - should be denied due to error getting data source
 	assert.False(t, response.Allowed)
-	assert.Contains(t, response.Result.Message, "failed to retrieve the linked clone source volumesnapshot")
+	assert.Contains(t, response.Result.Message, "failed to retrieve the PVC data source")
 
 	mockCOInterface.AssertExpectations(t)
 }
@@ -1019,6 +1020,27 @@ func TestMutateNewPVC_LinkedCloneDisabled_Success(t *testing.T) {
 		},
 	}
 
+	// Create source PVC without topology annotation. The generalized snapshot-restore
+	// topology propagation is independent of the linked-clone feature gate, so it still
+	// runs here (best-effort); since the source lacks the annotation, it skips silently
+	// rather than mutating or denying the request.
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "src-pvc",
+			Namespace:   "default",
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"wcpglobal-storage-profile"}[0],
+		},
+	}
+
 	// Create admission request
 	pvcBytes, _ := json.Marshal(testPVC)
 	req := admission.Request{
@@ -1033,6 +1055,9 @@ func TestMutateNewPVC_LinkedCloneDisabled_Success(t *testing.T) {
 	mockCOInterface := &MockCOCommonInterface{}
 	mockCryptoClient := &MockCryptoClient{}
 
+	// Mock GetVolumeSnapshotPVCSource to return source PVC without topology annotation
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
 	// Create webhook handler
 	webhook := &CSISupervisorMutationWebhook{
 		coCommonInterface: mockCOInterface,
@@ -1043,6 +1068,7 @@ func TestMutateNewPVC_LinkedCloneDisabled_Success(t *testing.T) {
 	response := webhook.mutateNewPVC(ctx, req)
 
 	// Verify response - should be allowed without mutations since feature is disabled
+	// (no linked-clone label added, and the source PVC has no topology to propagate)
 	assert.True(t, response.Allowed)
 
 	mockCOInterface.AssertExpectations(t)
