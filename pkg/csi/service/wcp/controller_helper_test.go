@@ -453,3 +453,52 @@ func TestGetHostLocalAccessibleTopology(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// TestResolveHostLocalAccessibleTopologySegments verifies that the PV node-affinity segments for a
+// host-local volume are derived correctly for both the ordinary case (from the host CNS reports in
+// the placement result) and the linked-clone case, where CNS never reports a selected host because
+// only `datastores` (not `hosts`) is supplied for a linked clone create request - the segments must
+// instead come from the single candidate host already known from the accessibility requirement.
+func TestResolveHostLocalAccessibleTopologySegments(t *testing.T) {
+	ctx := context.Background()
+	hostTopo := map[string]map[string]string{
+		"host-1": {v1.LabelHostname: "node-a", v1.LabelTopologyZone: "zone-1"},
+		"host-2": {v1.LabelHostname: "node-b", v1.LabelTopologyZone: "zone-2"},
+	}
+	hostRef1 := vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
+	hostRef2 := vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-2"}
+
+	t.Run("ordinary_host_local_uses_selected_host", func(t *testing.T) {
+		segments, err := resolveHostLocalAccessibleTopologySegments(ctx, false,
+			[]vimtypes.ManagedObjectReference{hostRef1, hostRef2}, hostTopo, &hostRef2, "vol-1")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]string{v1.LabelHostname: "node-b", v1.LabelTopologyZone: "zone-2"}, segments)
+	})
+
+	t.Run("ordinary_host_local_no_selected_host_errors", func(t *testing.T) {
+		_, err := resolveHostLocalAccessibleTopologySegments(ctx, false,
+			[]vimtypes.ManagedObjectReference{hostRef1}, hostTopo, nil, "vol-1")
+		assert.Error(t, err)
+	})
+
+	t.Run("linked_clone_uses_single_candidate_host_ignoring_selected_host", func(t *testing.T) {
+		// Linked clone requests never get a selected host back from CNS (nil here), but the segments
+		// should still resolve from the sole candidate host.
+		segments, err := resolveHostLocalAccessibleTopologySegments(ctx, true,
+			[]vimtypes.ManagedObjectReference{hostRef1}, hostTopo, nil, "vol-1")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]string{v1.LabelHostname: "node-a", v1.LabelTopologyZone: "zone-1"}, segments)
+	})
+
+	t.Run("linked_clone_with_no_candidate_hosts_errors", func(t *testing.T) {
+		_, err := resolveHostLocalAccessibleTopologySegments(ctx, true,
+			nil, hostTopo, nil, "vol-1")
+		assert.Error(t, err)
+	})
+
+	t.Run("linked_clone_with_multiple_candidate_hosts_errors", func(t *testing.T) {
+		_, err := resolveHostLocalAccessibleTopologySegments(ctx, true,
+			[]vimtypes.ManagedObjectReference{hostRef1, hostRef2}, hostTopo, nil, "vol-1")
+		assert.Error(t, err)
+	})
+}
