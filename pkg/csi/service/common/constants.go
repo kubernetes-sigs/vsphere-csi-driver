@@ -466,7 +466,7 @@ const (
 	// and is used to specify the `CnsBackingType` during volume attachment.
 	AnnKeyBackingDiskType = "cns.vmware.com.protected/disk-backing"
 
-	// AnnPrefixVKSWorkloadType is the common prefix for all PVC annotations
+	// AnnPrefixCsiVolumeType is the common prefix for all PVC annotations
 	// that classify a supervisor PVC according to its consumer workload type.
 	// Annotations under this prefix are managed by supervisor full-sync (see
 	// annotateSupervisorPVCsWithWorkloadType in pkg/syncer/fullsync.go) and
@@ -477,13 +477,24 @@ const (
 	// signal (e.g., a guest-cluster Pod volume that also gained a VM owner
 	// reference). Boolean tags let the syncer record both signals without
 	// information loss; consumers can OR / AND them as needed.
-	AnnPrefixVKSWorkloadType = "csi.vsphere.volume.type/"
+	AnnPrefixCsiVolumeType = "csi.vsphere.volume.type/"
 
-	// AnnKeyVKSNode is set to "true" on a supervisor PVC when at least one
-	// of its OwnerReferences has Kind == "VirtualMachine" or "VSphereMachine".
-	// This identifies PVCs backing VKS guest-cluster Node disks (the node VM
-	// is the volume's owner; deletion of the node VM cascades to the PVC).
-	AnnKeyVKSNode = AnnPrefixVKSWorkloadType + "vks-node"
+	// AnnKeyVKSNode is set to "true" on a supervisor PVC when it is owned
+	// (directly, via an OwnerReference of Kind "VirtualMachine" or
+	// "VSphereMachine") by a VKS guest-cluster Node VM. Since a PVC's
+	// OwnerReference can claim either Kind, the underlying VM is looked up
+	// and classified as a Node VM only if that VM itself is owned by a
+	// "VSphereMachine". Deletion of the node VM cascades to the PVC. See
+	// classifySupervisorPVC.
+	AnnKeyVKSNode = AnnPrefixCsiVolumeType + "vks-node"
+
+	// AnnKeySupervisorVMBootDisk is set to "true" on a supervisor PVC when
+	// it is owned (via an OwnerReference of Kind "VirtualMachine" or
+	// "VSphereMachine") by a standalone Supervisor VM (such as a VM Service
+	// VM) rather than a VKS guest-cluster Node VM — determined by looking
+	// up the VM and finding it has no OwnerReferences of its own. See
+	// classifySupervisorPVC.
+	AnnKeySupervisorVMBootDisk = AnnPrefixCsiVolumeType + "supervisor-vm-boot-disk"
 
 	// AnnKeyVKSWorkload is set to "true" on a supervisor PVC when one of its
 	// labels carries the "<guest-cluster-name>/TKGService" marker. This
@@ -491,27 +502,28 @@ const (
 	// running inside a VKS (TKGService) guest cluster. Such PVCs do not have
 	// a VM owner reference; their lifetime is tied to the guest-cluster PVC,
 	// not to any particular Node VM.
-	AnnKeyVKSWorkload = AnnPrefixVKSWorkloadType + "vks-workload"
+	AnnKeyVKSWorkload = AnnPrefixCsiVolumeType + "vks-workload"
 
 	// AnnKeySupervisorPodVM marks a PVC attached to a native Supervisor Pod (PodVM),
 	// detected via a VolumeAttachment reference (see classifySupervisorPVC).
-	AnnKeySupervisorPodVM = AnnPrefixVKSWorkloadType + "supervisor-podvm"
+	AnnKeySupervisorPodVM = AnnPrefixCsiVolumeType + "supervisor-podvm"
 
-	// AnnKeySupervisorVMServiceVM marks a PVC attached as a data disk to a standalone
+	// AnnKeySupervisorVM marks a PVC attached as a data disk to a standalone
 	// VM Service VM, detected via a referencing CnsNodeVMBatchAttachment CR (see
 	// classifySupervisorPVC).
-	AnnKeySupervisorVMServiceVM = AnnPrefixVKSWorkloadType + "supervisor-vmservice-vm"
+	AnnKeySupervisorVM = AnnPrefixCsiVolumeType + "supervisor-vm"
 
 	// AnnKeySupervisorWorkload is set to "true" on a supervisor PVC that
-	// matches none of AnnKeyVKSNode, AnnKeyVKSWorkload, AnnKeySupervisorPodVM,
-	// or AnnKeySupervisorVMServiceVM — i.e., the PVC was created directly on
+	// matches none of AnnKeyVKSNode, AnnKeySupervisorVMBootDisk,
+	// AnnKeyVKSWorkload, AnnKeySupervisorPodVM, or AnnKeySupervisorVM
+	// — i.e., the PVC was created directly on
 	// the supervisor cluster (by an admin, by a third-party operator, or is
 	// simply not yet attached to any consumer) rather than by a VKS guest
 	// cluster or a recognized Supervisor-side attach path. The annotation is
 	// set explicitly rather than implied by absence so that "annotation
 	// missing" reliably means "fullsync has not yet evaluated this PVC"
 	// rather than "this is a supervisor workload".
-	AnnKeySupervisorWorkload = AnnPrefixVKSWorkloadType + "supervisor-workload"
+	AnnKeySupervisorWorkload = AnnPrefixCsiVolumeType + "supervisor-workload"
 
 	// AnnValueTrue is the canonical value used for the boolean
 	// csi.vsphere.volume.type/* annotations.

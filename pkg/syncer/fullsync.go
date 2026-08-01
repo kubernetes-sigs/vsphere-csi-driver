@@ -30,6 +30,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	versioned "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc/codes"
@@ -2226,6 +2227,34 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 	}
 }
 
+// vmOwnerClassification is the cached result of resolving a VM Operator
+// VirtualMachine's ownership, keyed by "namespace/name" (see
+// annotateSupervisorPVCsWithWorkloadType's vmOwnerCache).
+type vmOwnerClassification struct {
+	isVKSNode              bool
+	isSupervisorVMBootDisk bool
+}
+
+// resolveVMOwnerFunc looks up the VM Operator VirtualMachine named vmName in
+// namespace — regardless of whether the PVC's OwnerReference claimed Kind
+// "VirtualMachine" or "VSphereMachine", both of which can appear directly on
+// a PVC — and reports how it should influence the owning PVC's
+// classification:
+//
+//   - isVKSNode is true if the VM itself has an OwnerReference with
+//     Kind == OwnerKindVSphereMachine, i.e. the VM is a VKS guest-cluster
+//     Node VM (managed by Cluster API).
+//
+//   - isSupervisorVMBootDisk is true if the VM has no OwnerReferences at
+//     all, i.e. it is a standalone Supervisor VM (e.g. a VM Service VM)
+//     rather than a VKS Node VM.
+//
+// Implementations are expected to cache VM lookups across calls within a
+// single classification pass, since many PVCs (one per attached disk) can
+// share the same owning VM.
+type resolveVMOwnerFunc func(ctx context.Context, namespace, vmName string) (
+	isVKSNode bool, isSupervisorVMBootDisk bool, err error)
+
 // classifySupervisorPVC examines the labels and ownerReferences of a
 // supervisor PVC and returns the set of csi.vsphere.volume.type/* annotation
 // keys that should be present on it. All returned keys map to AnnValueTrue;
@@ -2233,21 +2262,30 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 //
 // Classification rules (boolean tags, not mutually exclusive):
 //
-//   - AnnKeyVKSNode is included if any OwnerReference has
-//     Kind == OwnerKindVirtualMachine or Kind == OwnerKindVSphereMachine.
-//     This signals that the PVC is consumed as a Node-VM disk in a VKS
-//     guest cluster (lifetime tied to a specific Node VM).
+//   - A PVC's OwnerReference can directly have Kind == OwnerKindVirtualMachine
+//     or Kind == OwnerKindVSphereMachine. Either shape is resolved by looking
+//     up the underlying VM (via resolveVMOwner) and inspecting its own
+//     OwnerReferences:
+//     -- AnnKeyVKSNode is included if the VM is itself owned by a
+//     VSphereMachine (resolveVMOwner reports isVKSNode). This identifies
+//     the PVC as a Node-VM disk in a VKS guest cluster (lifetime tied to a
+//     specific Node VM).
+//     -- AnnKeySupervisorVMBootDisk is included if the VM has no
+//     OwnerReferences of its own (resolveVMOwner reports
+//     isSupervisorVMBootDisk). This identifies a disk owned by a
+//     standalone Supervisor VM (e.g. a VM Service VM) rather than a VKS
+//     guest-cluster Node VM.
 //
 //   - AnnKeyVKSWorkload is included if any label key contains
 //     TKGServiceLabelMarker. VKS guest-cluster Pod PVCs carry a label of
 //     the form "<gc-name>/TKGService" — the presence of that marker is
 //     authoritative even when the rest of the key has been redacted.
 //
-//   - AnnKeySupervisorPodVM is included if neither of the above applies and
+//   - AnnKeySupervisorPodVM is included if none of the above applies and
 //     pvc.Spec.VolumeName is referenced by a VolumeAttachment object.
 //
-//   - AnnKeySupervisorVMServiceVM is included if neither of the first two
-//     applies, pvc.OwnerReferences is empty, and some CnsNodeVMBatchAttachment
+//   - AnnKeySupervisorVM is included if none of the above applies,
+//     pvc.OwnerReferences is empty, and some CnsNodeVMBatchAttachment
 //     CR references this PVC by name.
 //
 //   - AnnKeySupervisorWorkload is included only when none of the above
@@ -2263,17 +2301,26 @@ func RemoveCNSFinalizerFromSnapIfTKGClusterDeleted(ctx context.Context, snapshot
 // supervisor-workload is set only when none match.
 // batchAttachedPVCs must already be scoped to pvc's own namespace (see
 // loadBatchAttachedPVCClaimNames) — its keys are bare PVC names, not "namespace/name".
-func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string]struct{},
-	batchAttachedPVCs map[string]struct{}) map[string]string {
+func classifySupervisorPVC(ctx context.Context, pvc *v1.PersistentVolumeClaim, attachedPVs map[string]struct{},
+	batchAttachedPVCs map[string]struct{}, resolveVMOwner resolveVMOwnerFunc) (map[string]string, error) {
 	desired := make(map[string]string, 2)
 
 	hasVKSNode := false
+	hasSupervisorVMBootDisk := false
 	for _, owner := range pvc.OwnerReferences {
-		if owner.Kind == common.OwnerKindVirtualMachine ||
-			owner.Kind == common.OwnerKindVSphereMachine {
-			hasVKSNode = true
-			break
+		if owner.Kind != common.OwnerKindVirtualMachine && owner.Kind != common.OwnerKindVSphereMachine {
+			continue
 		}
+		// A PVC's OwnerReference can directly claim Kind "VirtualMachine" or
+		// "VSphereMachine" — either way, whether the disk belongs to a VKS
+		// Node VM or a standalone Supervisor VM can only be determined by
+		// looking up the VM itself and inspecting its own OwnerReferences.
+		vmIsVKSNode, vmIsSupervisorVMBootDisk, err := resolveVMOwner(ctx, pvc.Namespace, owner.Name)
+		if err != nil {
+			return nil, err
+		}
+		hasVKSNode = hasVKSNode || vmIsVKSNode
+		hasSupervisorVMBootDisk = hasSupervisorVMBootDisk || vmIsSupervisorVMBootDisk
 	}
 
 	hasVKSWorkload := false
@@ -2301,6 +2348,9 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string
 	if hasVKSNode {
 		desired[common.AnnKeyVKSNode] = common.AnnValueTrue
 	}
+	if hasSupervisorVMBootDisk {
+		desired[common.AnnKeySupervisorVMBootDisk] = common.AnnValueTrue
+	}
 	if hasVKSWorkload {
 		desired[common.AnnKeyVKSWorkload] = common.AnnValueTrue
 	}
@@ -2308,18 +2358,18 @@ func classifySupervisorPVC(pvc *v1.PersistentVolumeClaim, attachedPVs map[string
 		desired[common.AnnKeySupervisorPodVM] = common.AnnValueTrue
 	}
 	if hasVMServiceAttachment {
-		desired[common.AnnKeySupervisorVMServiceVM] = common.AnnValueTrue
+		desired[common.AnnKeySupervisorVM] = common.AnnValueTrue
 	}
-	if !hasVKSNode && !hasVKSWorkload && !hasPodVMAttachment && !hasVMServiceAttachment {
+	if !hasVKSNode && !hasSupervisorVMBootDisk && !hasVKSWorkload && !hasPodVMAttachment && !hasVMServiceAttachment {
 		desired[common.AnnKeySupervisorWorkload] = common.AnnValueTrue
 	}
-	return desired
+	return desired, nil
 }
 
 // reconcilePVCWorkloadTypeAnnotations returns a Strategic-Merge-Patch byte
 // payload that, when applied to pvc, adds every annotation in desired and
 // removes every csi.vsphere.volume.type/* annotation that is NOT in desired.
-// Annotations outside the AnnPrefixVKSWorkloadType namespace are left
+// Annotations outside the AnnPrefixCsiVolumeType namespace are left
 // untouched. Returns (nil, false, nil) if no change is needed; the caller
 // can then skip the API patch entirely.
 //
@@ -2342,7 +2392,7 @@ func reconcilePVCWorkloadTypeAnnotations(pvc *v1.PersistentVolumeClaim,
 	//    in the desired set. In Strategic Merge Patch, setting a map key
 	//    to JSON null deletes that key.
 	for key := range pvc.Annotations {
-		if !strings.HasPrefix(key, common.AnnPrefixVKSWorkloadType) {
+		if !strings.HasPrefix(key, common.AnnPrefixCsiVolumeType) {
 			continue
 		}
 		if _, keep := desired[key]; !keep {
@@ -2441,6 +2491,41 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 	// encountered below, rather than a single cluster-wide list.
 	batchAttachedPVCsByNamespace := map[string]map[string]struct{}{}
 
+	restClientConfig, err := k8s.GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to initialize rest clientconfig. Err: %v", err)
+		return
+	}
+	vmOperatorClient, err := k8s.NewClientForGroup(ctx, restClientConfig, vmoperatortypes.GroupName)
+	if err != nil {
+		log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to get vmOperatorClient. Err: %v", err)
+		return
+	}
+	// Populated lazily, one VirtualMachine Get call per distinct owning VM
+	// encountered below — many PVCs (one per attached disk) commonly share
+	// the same owning VM.
+	vmOwnerCache := map[string]vmOwnerClassification{}
+	resolveVMOwner := func(ctx context.Context, namespace, vmName string) (bool, bool, error) {
+		key := namespace + "/" + vmName
+		if cached, ok := vmOwnerCache[key]; ok {
+			return cached.isVKSNode, cached.isSupervisorVMBootDisk, nil
+		}
+		vm, _, err := utils.GetVirtualMachine(ctx, types.NamespacedName{Namespace: namespace, Name: vmName}, vmOperatorClient)
+		if err != nil {
+			return false, false, err
+		}
+		isVKSNode := false
+		for _, owner := range vm.OwnerReferences {
+			if owner.Kind == common.OwnerKindVSphereMachine {
+				isVKSNode = true
+				break
+			}
+		}
+		isSupervisorVMBootDisk := len(vm.OwnerReferences) == 0
+		vmOwnerCache[key] = vmOwnerClassification{isVKSNode: isVKSNode, isSupervisorVMBootDisk: isSupervisorVMBootDisk}
+		return isVKSNode, isSupervisorVMBootDisk, nil
+	}
+
 	var patched, skipped, failed int
 	for _, pvc := range pvcs {
 		if pvc.ObjectMeta.DeletionTimestamp != nil {
@@ -2460,7 +2545,13 @@ func annotateSupervisorPVCsWithWorkloadType(ctx context.Context,
 			batchAttachedPVCsByNamespace[pvc.Namespace] = batchAttachedPVCs
 		}
 
-		desired := classifySupervisorPVC(pvc, attachedPVs, batchAttachedPVCs)
+		desired, err := classifySupervisorPVC(ctx, pvc, attachedPVs, batchAttachedPVCs, resolveVMOwner)
+		if err != nil {
+			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to classify PVC %s/%s. Err: %v",
+				pvc.Namespace, pvc.Name, err)
+			failed++
+			continue
+		}
 		patchBytes, needsPatch, err := reconcilePVCWorkloadTypeAnnotations(pvc, desired)
 		if err != nil {
 			log.Errorf("annotateSupervisorPVCsWithWorkloadType: failed to build patch for PVC %s/%s. Err: %v",
