@@ -1656,7 +1656,7 @@ func makePVCForClassification(labels map[string]string, ownerKinds []string,
 // vks-node, a TKGService marker in any label key implies vks-workload, a
 // bound PV present in the attachedPVs set implies supervisor-podvm, an
 // ownerRef-less PVC referenced by a CnsNodeVMBatchAttachment CR implies
-// supervisor-vmservice-vm, and the absence of all four implies
+// supervisor-vm, and the absence of all four implies
 // supervisor-workload. The classification is boolean-tag-based — any
 // combination of signals can co-occur, but supervisor-workload is mutually
 // exclusive with all of them.
@@ -1666,6 +1666,12 @@ func TestClassifySupervisorPVC(t *testing.T) {
 	// makePVCForClassification always names the PVC.
 	batchAttached := map[string]struct{}{"test-pvc": {}}
 
+	// vksNodeVM simulates a VM Operator VirtualMachine owned by a VSphereMachine
+	// (a VKS guest-cluster Node VM). supervisorBootDiskVM simulates a
+	// VirtualMachine with no OwnerReferences at all (a standalone Supervisor VM).
+	vksNodeVM := vmOwnerClassification{isVKSNode: true}
+	supervisorBootDiskVM := vmOwnerClassification{isSupervisorVMBootDisk: true}
+
 	tests := []struct {
 		name              string
 		labels            map[string]string
@@ -1674,20 +1680,38 @@ func TestClassifySupervisorPVC(t *testing.T) {
 		annotations       map[string]string
 		attachedPVs       map[string]struct{}
 		batchAttachedPVCs map[string]struct{}
+		vmOwnerByName     map[string]vmOwnerClassification
+		vmOwnerErr        error
 		wantKeys          []string
 		notWanted         []string
+		wantErr           bool
 	}{
 		{
-			name:      "vks node via VirtualMachine ownerRef",
-			owners:    []string{"VirtualMachine"},
-			wantKeys:  []string{common.AnnKeyVKSNode},
-			notWanted: []string{common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload},
+			name:          "vks node via VSphereMachine ownerRef",
+			owners:        []string{"VSphereMachine"},
+			vmOwnerByName: map[string]vmOwnerClassification{"owner-VSphereMachine": vksNodeVM},
+			wantKeys:      []string{common.AnnKeyVKSNode},
+			notWanted: []string{common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload,
+				common.AnnKeySupervisorVMBootDisk},
 		},
 		{
-			name:      "vks node via VSphereMachine ownerRef",
-			owners:    []string{"VSphereMachine"},
-			wantKeys:  []string{common.AnnKeyVKSNode},
-			notWanted: []string{common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload},
+			name:          "supervisor VM boot disk via VirtualMachine ownerRef",
+			owners:        []string{"VirtualMachine"},
+			vmOwnerByName: map[string]vmOwnerClassification{"owner-VirtualMachine": supervisorBootDiskVM},
+			wantKeys:      []string{common.AnnKeySupervisorVMBootDisk},
+			notWanted:     []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorWorkload},
+		},
+		{
+			name:      "VirtualMachine/VSphereMachine ownerRef with neither VM signal -> falls through to supervisor-workload",
+			owners:    []string{"VirtualMachine"},
+			wantKeys:  []string{common.AnnKeySupervisorWorkload},
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeySupervisorVMBootDisk},
+		},
+		{
+			name:       "VM owner lookup error is propagated",
+			owners:     []string{"VirtualMachine"},
+			vmOwnerErr: errors.New("get VirtualMachine failed"),
+			wantErr:    true,
 		},
 		{
 			name:      "vks workload via TKGService label",
@@ -1709,14 +1733,15 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			name:     "no signals -> supervisor-workload",
 			wantKeys: []string{common.AnnKeySupervisorWorkload},
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
-				common.AnnKeySupervisorVMServiceVM},
+				common.AnnKeySupervisorVM},
 		},
 		{
-			name:      "both signals -> double-tagged, supervisor-workload NOT set",
-			labels:    map[string]string{"my-tkc/TKGService": "abc123"},
-			owners:    []string{"VirtualMachine"},
-			wantKeys:  []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
-			notWanted: []string{common.AnnKeySupervisorWorkload},
+			name:          "both signals -> double-tagged, supervisor-workload NOT set",
+			labels:        map[string]string{"my-tkc/TKGService": "abc123"},
+			owners:        []string{"VSphereMachine"},
+			vmOwnerByName: map[string]vmOwnerClassification{"owner-VSphereMachine": vksNodeVM},
+			wantKeys:      []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload},
+			notWanted:     []string{common.AnnKeySupervisorWorkload},
 		},
 		{
 			name:      "unrelated owner kind is ignored",
@@ -1729,7 +1754,7 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			volumeName:  "pv-1",
 			attachedPVs: map[string]struct{}{"pv-1": {}},
 			wantKeys:    []string{common.AnnKeySupervisorPodVM},
-			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorVMServiceVM,
+			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorVM,
 				common.AnnKeySupervisorWorkload},
 		},
 		{
@@ -1737,18 +1762,18 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			volumeName:  "pv-2",
 			attachedPVs: map[string]struct{}{"pv-1": {}},
 			wantKeys:    []string{common.AnnKeySupervisorWorkload},
-			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVM},
 		},
 		{
 			name:        "unbound PVC (no VolumeName) is never podvm-tagged",
 			attachedPVs: map[string]struct{}{"": {}},
 			wantKeys:    []string{common.AnnKeySupervisorWorkload},
-			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+			notWanted:   []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVM},
 		},
 		{
-			name:              "referenced by CnsNodeVMBatchAttachment CR -> supervisor-vmservice-vm",
+			name:              "referenced by CnsNodeVMBatchAttachment CR -> supervisor-vm",
 			batchAttachedPVCs: batchAttached,
-			wantKeys:          []string{common.AnnKeySupervisorVMServiceVM},
+			wantKeys:          []string{common.AnnKeySupervisorVM},
 			notWanted: []string{common.AnnKeyVKSNode, common.AnnKeyVKSWorkload, common.AnnKeySupervisorPodVM,
 				common.AnnKeySupervisorWorkload},
 		},
@@ -1757,36 +1782,50 @@ func TestClassifySupervisorPVC(t *testing.T) {
 			owners:            []string{"StatefulSet"},
 			batchAttachedPVCs: batchAttached,
 			wantKeys:          []string{common.AnnKeySupervisorWorkload},
-			notWanted:         []string{common.AnnKeySupervisorVMServiceVM},
+			notWanted:         []string{common.AnnKeySupervisorVM},
 		},
 		{
 			name:              "podvm and vmservice-vm signals co-occur -> double-tagged, supervisor-workload NOT set",
 			volumeName:        "pv-1",
 			attachedPVs:       map[string]struct{}{"pv-1": {}},
 			batchAttachedPVCs: batchAttached,
-			wantKeys:          []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVMServiceVM},
+			wantKeys:          []string{common.AnnKeySupervisorPodVM, common.AnnKeySupervisorVM},
 			notWanted:         []string{common.AnnKeySupervisorWorkload},
 		},
 		{
-			name:        "vks node and podvm signals co-occur -> double-tagged, supervisor-workload NOT set",
-			owners:      []string{"VirtualMachine"},
-			volumeName:  "pv-1",
-			attachedPVs: map[string]struct{}{"pv-1": {}},
-			wantKeys:    []string{common.AnnKeyVKSNode, common.AnnKeySupervisorPodVM},
-			notWanted:   []string{common.AnnKeySupervisorWorkload},
+			name:          "vks node and podvm signals co-occur -> double-tagged, supervisor-workload NOT set",
+			owners:        []string{"VSphereMachine"},
+			volumeName:    "pv-1",
+			attachedPVs:   map[string]struct{}{"pv-1": {}},
+			vmOwnerByName: map[string]vmOwnerClassification{"owner-VSphereMachine": vksNodeVM},
+			wantKeys:      []string{common.AnnKeyVKSNode, common.AnnKeySupervisorPodVM},
+			notWanted:     []string{common.AnnKeySupervisorWorkload},
 		},
 		{
 			name:              "vks node disk also referenced by a CnsNodeVMBatchAttachment CR -> vmservice-vm NOT set",
-			owners:            []string{"VirtualMachine"},
+			owners:            []string{"VSphereMachine"},
 			batchAttachedPVCs: batchAttached,
+			vmOwnerByName:     map[string]vmOwnerClassification{"owner-VSphereMachine": vksNodeVM},
 			wantKeys:          []string{common.AnnKeyVKSNode},
-			notWanted:         []string{common.AnnKeySupervisorVMServiceVM, common.AnnKeySupervisorWorkload},
+			notWanted:         []string{common.AnnKeySupervisorVM, common.AnnKeySupervisorWorkload},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pvc := makePVCForClassification(tt.labels, tt.owners, tt.volumeName, tt.annotations)
-			got := classifySupervisorPVC(pvc, tt.attachedPVs, tt.batchAttachedPVCs)
+			resolveVMOwner := func(_ context.Context, _, vmName string) (bool, bool, error) {
+				if tt.vmOwnerErr != nil {
+					return false, false, tt.vmOwnerErr
+				}
+				cls := tt.vmOwnerByName[vmName]
+				return cls.isVKSNode, cls.isSupervisorVMBootDisk, nil
+			}
+			got, err := classifySupervisorPVC(context.Background(), pvc, tt.attachedPVs, tt.batchAttachedPVCs, resolveVMOwner)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
 			for _, k := range tt.wantKeys {
 				v, ok := got[k]
 				assert.True(t, ok, "missing expected key %s in classification (got=%v)", k, got)
@@ -1984,7 +2023,7 @@ func TestReconcilePVCWorkloadTypeAnnotations(t *testing.T) {
 		// (for deletions of stale tags)
 		mustContainDeletion []string
 		// substrings the generated patch JSON must NOT contain (e.g.,
-		// annotations outside the AnnPrefixVKSWorkloadType namespace
+		// annotations outside the AnnPrefixCsiVolumeType namespace
 		// must never be mentioned)
 		mustNotContain []string
 	}{
