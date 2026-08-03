@@ -352,6 +352,13 @@ const (
 	// AnnGuestClusterRequestedTopology is the key for guest cluster requested topology
 	AnnGuestClusterRequestedTopology = "csi.vsphere.volume-requested-topology"
 
+	// ControlPlaneNodeRoleLabel marks a guest cluster Node as a control plane node.
+	// Used to identify hosts/zones that only run control plane VMs, so that host/zone
+	// topology requirements pinned solely to such hosts/zones (where no worker node,
+	// and therefore no workload pod, will ever be scheduled) can be discarded from
+	// volume provisioning requests.
+	ControlPlaneNodeRoleLabel = "node-role.kubernetes.io/control-plane"
+
 	// AnnVolumeAccessibleTopology is the annotation set by the supervisor cluster on PVC
 	AnnVolumeAccessibleTopology = "csi.vsphere.volume-accessible-topology"
 

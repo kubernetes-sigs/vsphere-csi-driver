@@ -29,6 +29,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	testclient "k8s.io/client-go/kubernetes/fake"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -46,6 +47,17 @@ const (
 // the same array-of-segment-maps shape) carrying hostKey and the standard zone key.
 func hostLocalWantAnnotation(hostKey string) string {
 	return `[{"` + hostKey + `":"` + hostLocalHostValue + `","topology.kubernetes.io/zone":"` + hostLocalZoneValue + `"}]`
+}
+
+// seedHostLocalWorkerNode creates a worker (non-control-plane) guest cluster
+// Node labeled with hostLocalHostValue, so that filterOutControlPlaneOnlyTopologySegments
+// treats the host as eligible instead of erroring out on zero worker nodes.
+func seedHostLocalWorkerNode(t *testing.T, c *controller) {
+	t.Helper()
+	node := makeGuestNode("worker-1", hostLocalHostValue, hostLocalZoneValue, false)
+	if _, err := c.guestClient.CoreV1().Nodes().Create(context.Background(), node, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("failed to seed worker node: %v", err)
+	}
 }
 
 // hostLocalCreateRequest builds a CreateVolumeRequest carrying the VKS host
@@ -232,6 +244,7 @@ func TestCreateVolume_HostLocal_RequestedTopology_TranslatesHostKey(t *testing.T
 	if err := co.EnableFSS(context.Background(), common.HostLocalStorageSupportFSS); err != nil {
 		t.Fatalf("failed to enable FSS: %v", err)
 	}
+	seedHostLocalWorkerNode(t, c)
 
 	req := hostLocalCreateRequest(hostLocalAccessMode, hostLocalZoneValue, hostLocalHostValue)
 	pvc, _, err := runCreateVolumeAndBindSupervisorPVC(t, c, req)
@@ -311,6 +324,7 @@ func TestCreateVolume_HostLocal_AccessibleTopology_TranslatesBack(t *testing.T) 
 	if err := co.EnableFSS(context.Background(), common.HostLocalStorageSupportFSS); err != nil {
 		t.Fatalf("failed to enable FSS: %v", err)
 	}
+	seedHostLocalWorkerNode(t, c)
 
 	req := hostLocalCreateRequest(hostLocalAccessMode, hostLocalZoneValue, hostLocalHostValue)
 	accessibleTopologyAnnotation := hostLocalWantAnnotation(v1.LabelHostname)
@@ -340,6 +354,7 @@ func TestCreateVolume_HostLocal_AccessibleTopology_TranslatesBack_FSSDisabledAtR
 	if err := co.EnableFSS(context.Background(), common.HostLocalStorageSupportFSS); err != nil {
 		t.Fatalf("failed to enable FSS: %v", err)
 	}
+	seedHostLocalWorkerNode(t, c)
 
 	req := hostLocalCreateRequest(hostLocalAccessMode, hostLocalZoneValue, hostLocalHostValue)
 	accessibleTopologyAnnotation := hostLocalWantAnnotation(v1.LabelHostname)
@@ -369,5 +384,107 @@ func assertAccessibleTopologyHasHostKey(t *testing.T, resp *csi.CreateVolumeResp
 	}
 	if !reflect.DeepEqual(segments, want) {
 		t.Fatalf("AccessibleTopology segments = %+v, want %+v", segments, want)
+	}
+}
+
+// --- filterOutControlPlaneOnlyTopologySegments helper tests ---------------
+
+// makeGuestNode builds a guest cluster Node with the given host/zone topology
+// labels; controlPlane marks it with common.ControlPlaneNodeRoleLabel.
+func makeGuestNode(name, host, zone string, controlPlane bool) *v1.Node {
+	labels := map[string]string{}
+	if host != "" {
+		labels[common.GuestClusterTopologyLabelHost] = host
+	}
+	if zone != "" {
+		labels[v1.LabelTopologyZone] = zone
+	}
+	if controlPlane {
+		labels[common.ControlPlaneNodeRoleLabel] = ""
+	}
+	return &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels},
+	}
+}
+
+func TestFilterOutControlPlaneOnlyTopologySegments(t *testing.T) {
+	cpOnlyHost := "cp-only-host"
+	workerHost := "worker-host"
+	cpOnlyZone := "cp-only-zone"
+	workerZone := "worker-zone"
+
+	tests := []struct {
+		name    string
+		nodes   []*v1.Node
+		in      []*csi.Topology
+		want    []*csi.Topology
+		wantErr bool
+	}{
+		{
+			name: "drops a host segment with no worker node on that host",
+			nodes: []*v1.Node{
+				makeGuestNode("cp-1", cpOnlyHost, workerZone, true),
+				makeGuestNode("worker-1", workerHost, workerZone, false),
+			},
+			in: []*csi.Topology{
+				{Segments: map[string]string{common.GuestClusterTopologyLabelHost: cpOnlyHost, v1.LabelTopologyZone: workerZone}},
+				{Segments: map[string]string{common.GuestClusterTopologyLabelHost: workerHost, v1.LabelTopologyZone: workerZone}},
+			},
+			want: []*csi.Topology{
+				{Segments: map[string]string{common.GuestClusterTopologyLabelHost: workerHost, v1.LabelTopologyZone: workerZone}},
+			},
+		},
+		{
+			// Zone-only segments (no host key at all) are never subject to this
+			// filtering, so it must not even consult Node state for them -
+			// proven here by a cluster that would otherwise error out (zero
+			// worker nodes) still returning the input unchanged.
+			name: "zone-only segments are left untouched regardless of worker node state",
+			nodes: []*v1.Node{
+				makeGuestNode("cp-1", cpOnlyHost, cpOnlyZone, true),
+			},
+			in: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: cpOnlyZone}},
+				{Segments: map[string]string{v1.LabelTopologyZone: workerZone}},
+			},
+			want: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: cpOnlyZone}},
+				{Segments: map[string]string{v1.LabelTopologyZone: workerZone}},
+			},
+		},
+		{
+			name: "errors out when a host segment is requested but the cluster has zero worker nodes",
+			nodes: []*v1.Node{
+				makeGuestNode("cp-1", cpOnlyHost, cpOnlyZone, true),
+			},
+			in: []*csi.Topology{
+				{Segments: map[string]string{common.GuestClusterTopologyLabelHost: cpOnlyHost, v1.LabelTopologyZone: cpOnlyZone}},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			guestClient := testclient.NewClientset()
+			for _, n := range tc.nodes {
+				if _, err := guestClient.CoreV1().Nodes().Create(context.Background(), n, metav1.CreateOptions{}); err != nil {
+					t.Fatalf("failed to seed node %s: %v", n.Name, err)
+				}
+			}
+			got, err := filterOutControlPlaneOnlyTopologySegments(context.Background(), guestClient, tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got result: %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("filterOutControlPlaneOnlyTopologySegments failed: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("filterOutControlPlaneOnlyTopologySegments() = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

@@ -308,6 +308,84 @@ func translateTopologyHostKey(segments map[string]string, fromKey, toKey string,
 	return translated
 }
 
+// getWorkerNodeHostValues lists guest cluster Nodes and returns the set of
+// distinct common.GuestClusterTopologyLabelHost values observed on worker
+// nodes (i.e. nodes without common.ControlPlaneNodeRoleLabel). Host values
+// that only ever appear on control plane nodes are absent from the result.
+// The returned workerNodeCount is the total number of worker nodes seen,
+// regardless of whether they carry the host label.
+func getWorkerNodeHostValues(ctx context.Context, guestClient clientset.Interface) (
+	workerHostValues map[string]bool, workerNodeCount int, err error) {
+	nodeList, err := guestClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list nodes in guest cluster: %v", err)
+	}
+	workerHostValues = make(map[string]bool)
+	for _, node := range nodeList.Items {
+		if _, isControlPlane := node.Labels[common.ControlPlaneNodeRoleLabel]; isControlPlane {
+			continue
+		}
+		workerNodeCount++
+		if val, ok := node.Labels[common.GuestClusterTopologyLabelHost]; ok && val != "" {
+			workerHostValues[val] = true
+		}
+	}
+	return workerHostValues, workerNodeCount, nil
+}
+
+// filterOutControlPlaneOnlyTopologySegments drops any topology segment that
+// is pinned to a host where only control plane VMs are deployed. Workload
+// pods are never scheduled onto control plane nodes, so a volume provisioned
+// against a host with no worker node present can never actually be attached
+// to the pod that requested it. Segments without the host key (plain
+// zone-scoped topology) are left untouched; the caller is expected to only
+// invoke this for host-scoped requests, gated on the host-local-storage-
+// support FSS/capability being enabled.
+//
+// If the guest cluster currently has zero worker nodes, host-local topology
+// aware provisioning cannot succeed at all (every segment would be dropped,
+// including any that a caller might otherwise expect to survive), so this
+// returns an error instead of silently emptying the result.
+func filterOutControlPlaneOnlyTopologySegments(ctx context.Context, guestClient clientset.Interface,
+	segments []*csi.Topology) ([]*csi.Topology, error) {
+	log := logger.GetLogger(ctx)
+	if len(segments) == 0 || guestClient == nil {
+		return segments, nil
+	}
+	hasHostKeySegment := false
+	for _, topology := range segments {
+		if host, ok := topology.Segments[common.GuestClusterTopologyLabelHost]; ok && host != "" {
+			hasHostKeySegment = true
+			break
+		}
+	}
+	if !hasHostKeySegment {
+		// Plain zone-scoped topology request: no host-local requirement to
+		// evaluate, so behave exactly as before this filtering existed.
+		return segments, nil
+	}
+
+	workerHostValues, workerNodeCount, err := getWorkerNodeHostValues(ctx, guestClient)
+	if err != nil {
+		return nil, err
+	}
+	if workerNodeCount == 0 {
+		return nil, fmt.Errorf("unable to provision a topology aware volume: no worker nodes found in guest cluster")
+	}
+
+	filtered := make([]*csi.Topology, 0, len(segments))
+	for _, topology := range segments {
+		host, hasHostKey := topology.Segments[common.GuestClusterTopologyLabelHost]
+		if hasHostKey && host != "" && !workerHostValues[host] {
+			log.Infof("filterOutControlPlaneOnlyTopologySegments: dropping topology segment %+v because "+
+				"host %q has no worker nodes (control plane VMs only)", topology.Segments, host)
+			continue
+		}
+		filtered = append(filtered, topology)
+	}
+	return filtered, nil
+}
+
 // generateGuestClusterRequestedTopologyJSON translates the topology into a json string to be set on the supervisor
 // PVC
 func generateGuestClusterRequestedTopologyJSON(topologies []*csi.Topology) (string, error) {
