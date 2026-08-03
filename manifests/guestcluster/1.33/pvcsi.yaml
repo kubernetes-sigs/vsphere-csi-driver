@@ -62,6 +62,12 @@ rules:
   - apiGroups: [ "cns.vmware.com" ]
     resources: [ "csinodetopologies" ]
     verbs: ["get", "update", "watch", "list"]
+  - apiGroups: [ "cns.vmware.com" ]
+    resources: [ "vksregistervolumes" ]
+    verbs: [ "get", "list", "watch", "update", "delete" ]
+  - apiGroups: [ "cns.vmware.com" ]
+    resources: [ "vksregistervolumes/status" ]
+    verbs: [ "update", "patch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
     verbs: [ "get", "list", "watch", "patch"]
@@ -668,6 +674,7 @@ data:
   "sv-pvc-snapshot-protection-finalizer": "true"
   "linked-clone-support": "true"
   "CSI_Backup_API": "false"
+  "vks-register-volume": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
