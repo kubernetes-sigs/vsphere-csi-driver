@@ -3924,7 +3924,7 @@ func compileBatchAttachTaskResult(ctx context.Context, m *defaultManager, result
 		log.Errorf("failed to attach cns volume: %q to node vm: %q. fault: %q. opId: %q",
 			volumeId, vm.String(), faultType, activationId)
 		msg := fmt.Sprintf("failed to attach cns volume: %q Error: %s",
-			volumeId, volumeOperationResult.Fault.LocalizedMessage)
+			volumeId, ExtractDetailedFaultMessage(ctx, volumeOperationResult.Fault))
 		batchAttachResult.Error = errors.New(msg)
 		log.Infof("Constructed batch attach result for volume %s with failure", volumeId)
 		return batchAttachResult, nil
