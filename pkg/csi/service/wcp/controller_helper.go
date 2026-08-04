@@ -591,6 +591,34 @@ func getHostLocalAccessibleTopology(ctx context.Context, hostRef vimtypes.Manage
 	return segments, nil
 }
 
+// resolveHostLocalAccessibleTopologySegments returns the topology segments (zone + hostname) to
+// publish as PV node affinity for a host-local volume.
+//
+// For ordinary host-local volumes, CNS is supplied a candidate host set via `hosts` and reports the
+// host it selected in the placement result (selectedHost); the segments are looked up from that host.
+//
+// For linked-clone host-local volumes, CNS is instead supplied `datastores` (CNS rejects `hosts` when
+// creating a linked clone), so the placement result never reports a selected host. The target host is
+// nonetheless already known deterministically: it's the same host as the source volume, i.e. the
+// single candidate host resolved from the accessibility requirement (hostMoRefs).
+func resolveHostLocalAccessibleTopologySegments(ctx context.Context, isLinkedCloneRequest bool,
+	hostMoRefs []vimtypes.ManagedObjectReference, hostMoIDToTopology map[string]map[string]string,
+	selectedHost *vimtypes.ManagedObjectReference, volumeID string) (map[string]string, error) {
+	log := logger.GetLogger(ctx)
+	if isLinkedCloneRequest {
+		if len(hostMoRefs) != 1 {
+			return nil, logger.LogNewErrorf(log, "expected exactly one candidate host for host-local "+
+				"linked clone volume %q, got %d", volumeID, len(hostMoRefs))
+		}
+		return getHostLocalAccessibleTopology(ctx, hostMoRefs[0], hostMoIDToTopology)
+	}
+	if selectedHost == nil {
+		return nil, logger.LogNewErrorf(log, "CNS did not return a host in the placement result "+
+			"for host-local volume %q", volumeID)
+	}
+	return getHostLocalAccessibleTopology(ctx, *selectedHost, hostMoIDToTopology)
+}
+
 // GetVolumeToHostMapping returns a map containing VM MoID to host MoID and VolumeID
 // and VM MoID. This map is constructed by fetching all virtual machines belonging to each host.
 // Look up for VMs will be performed in the supplied list of clusterComputeResourceMoIds

@@ -809,6 +809,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// ("createSpecs.hosts and createSpecs.activeClusters cannot both be set"). For a
 			// host-local request the candidate hosts (built below) are supplied instead of
 			// clusters, so vSphereClusterMorefs is intentionally left empty here.
+			linkedCloneDatastores, err := c.getDatastoresForHostLocalLinkedClone(ctx, req,
+				linkedCloneSupportEnabled, isLinkedCloneRequest)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, err
+			}
+			if linkedCloneDatastores != nil {
+				sharedDatastores = linkedCloneDatastores
+			}
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
 				if storageTopologyType == "" {
@@ -914,6 +922,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 		} else if hostnameLabelPresent {
 			log.Infof("Host Local volume provisioning with requirement: %+v", topologyRequirement)
+			linkedCloneDatastores, err := c.getDatastoresForHostLocalLinkedClone(ctx, req,
+				linkedCloneSupportEnabled, isLinkedCloneRequest)
+			if err != nil {
+				return nil, csifault.CSIInternalFault, err
+			}
+			if linkedCloneDatastores != nil {
+				sharedDatastores = linkedCloneDatastores
+			}
 		} else {
 			// No topology labels present in the topologyRequirement
 			if isWorkloadDomainIsolationEnabled {
@@ -1186,13 +1202,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			// For host-local volumes, build the PV node affinity (zone + hostname) from the host
 			// that CNS selected, reported in the placement result. Publishing both keys pins pods
 			// to the specific host the volume was provisioned on.
-			var segments map[string]string
-			if volumeInfo.Host != nil {
-				segments, err = getHostLocalAccessibleTopology(ctx, *volumeInfo.Host, hostMoIDToTopology)
-			} else {
-				err = logger.LogNewErrorf(log, "CNS did not return a host in the placement result "+
-					"for host-local volume %q", volumeInfo.VolumeID.Id)
-			}
+			segments, err := resolveHostLocalAccessibleTopologySegments(ctx, isLinkedCloneRequest,
+				hostMoRefs, hostMoIDToTopology, volumeInfo.Host, volumeInfo.VolumeID.Id)
 			if err != nil {
 				// The provisioned volume is unusable without correct host affinity, so clean it up.
 				log.Errorf("Encountered error building host-local topology after creating volume. Cleaning up...")
@@ -1602,6 +1613,34 @@ func (c *controller) getDatastoreForLinkedCloneRequest(
 
 	return nil, logger.LogNewErrorf(log,
 		"getDatastoreForLinkedCloneRequest: datastore with URL %q not found in any datacenter", datastoreURL)
+}
+
+// getDatastoresForHostLocalLinkedClone resolves the datastore(s) to supply in the
+// CnsVolumeCreateSpec for a host-local linked-clone request. CNS only accepts `datastores` (not
+// `hosts`) when creating a linked clone. For a host-local volume, this is the datastore exclusive
+// to the single ESX host that owns the source volume - not a datastore shared across hosts, despite
+// the name of the `sharedDatastores` variable it feeds into at the call site, which is only reused
+// here as plumbing to reach CreateBlockVolumeUtil's Datastores-based code path.
+//
+// Returns nil if the request is not a linked-clone-from-snapshot request.
+func (c *controller) getDatastoresForHostLocalLinkedClone(ctx context.Context, req *csi.CreateVolumeRequest,
+	linkedCloneSupportEnabled, isLinkedCloneRequest bool) ([]*cnsvsphere.DatastoreInfo, error) {
+	if req.GetVolumeContentSource() == nil || !linkedCloneSupportEnabled || !isLinkedCloneRequest {
+		return nil, nil
+	}
+	log := logger.GetLogger(ctx)
+	snapshotSource := req.GetVolumeContentSource().GetSnapshot()
+	if snapshotSource == nil || snapshotSource.GetSnapshotId() == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"linked clone request must specify a snapshot as VolumeContentSource")
+	}
+	snapshotID := snapshotSource.GetSnapshotId()
+	datastoreInfo, err := c.getDatastoreForLinkedCloneRequest(ctx, snapshotID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to retrieve datastore for linked clone request (snapshot: %q): %v", snapshotID, err)
+	}
+	return []*cnsvsphere.DatastoreInfo{datastoreInfo}, nil
 }
 
 // createFileVolume creates a file volume based on the CreateVolumeRequest.

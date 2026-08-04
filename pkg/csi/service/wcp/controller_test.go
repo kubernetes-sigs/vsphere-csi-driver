@@ -1425,6 +1425,130 @@ func TestCreateVolumeFromSnapshot(t *testing.T) {
 	}
 }
 
+// TestGetDatastoresForHostLocalLinkedClone verifies the datastore resolution used by the host-local
+// linked-clone-from-snapshot path: it must resolve to the single datastore of the source volume when
+// the request is an eligible linked-clone-from-snapshot request, and return nil otherwise.
+func TestGetDatastoresForHostLocalLinkedClone(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: volID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	}
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	contentSource := &csi.VolumeContentSource{
+		Type: &csi.VolumeContentSource_Snapshot{
+			Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapID},
+		},
+	}
+
+	t.Run("nil_when_no_content_source", func(t *testing.T) {
+		datastores, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx,
+			&csi.CreateVolumeRequest{}, true, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if datastores != nil {
+			t.Fatalf("expected nil datastores, got: %+v", datastores)
+		}
+	})
+
+	t.Run("nil_when_linked_clone_support_disabled", func(t *testing.T) {
+		req := &csi.CreateVolumeRequest{VolumeContentSource: contentSource}
+		datastores, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx, req, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if datastores != nil {
+			t.Fatalf("expected nil datastores, got: %+v", datastores)
+		}
+	})
+
+	t.Run("nil_when_not_a_linked_clone_request", func(t *testing.T) {
+		req := &csi.CreateVolumeRequest{VolumeContentSource: contentSource}
+		datastores, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx, req, true, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if datastores != nil {
+			t.Fatalf("expected nil datastores, got: %+v", datastores)
+		}
+	})
+
+	t.Run("resolves_source_volume_datastore_for_eligible_request", func(t *testing.T) {
+		req := &csi.CreateVolumeRequest{VolumeContentSource: contentSource}
+		datastores, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx, req, true, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if len(datastores) != 1 {
+			t.Fatalf("expected exactly one resolved datastore, got: %d", len(datastores))
+		}
+
+		expectedDatastore, err := ct.controller.getDatastoreForLinkedCloneRequest(ctx, snapID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if datastores[0].Info.Url != expectedDatastore.Info.Url {
+			t.Fatalf("expected resolved datastore URL %q to match source volume's datastore URL %q",
+				datastores[0].Info.Url, expectedDatastore.Info.Url)
+		}
+	})
+
+	t.Run("error_on_malformed_snapshot_id", func(t *testing.T) {
+		req := &csi.CreateVolumeRequest{
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: "malformed-snapshot-id"},
+				},
+			},
+		}
+		_, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx, req, true, true)
+		if err == nil {
+			t.Fatal("expected an error for a malformed snapshot ID, got nil")
+		}
+	})
+}
+
 func TestWCPDeleteVolumeWithSnapshots(t *testing.T) {
 	ct := getControllerTest(t)
 

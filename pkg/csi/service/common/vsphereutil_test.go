@@ -442,3 +442,88 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts verifies that, for a host-local
+// linked-clone-from-snapshot request, CreateBlockVolumeUtil populates CnsVolumeCreateSpec.Datastores
+// (from the resolved source-volume datastore supplied via sharedDatastores) and does not set
+// CnsVolumeCreateSpec.Hosts, even though spec.Hosts (the host-local candidate host set) is non-empty.
+// CNS rejects a linked-clone create spec that sets `hosts` ("volumeCreateSpec only accepts datastores
+// when creating linkedClone").
+func TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts(t *testing.T) {
+	datastoreMoRef := types.ManagedObjectReference{Type: "Datastore", Value: "datastore-hostlocal"}
+	datastoreURL := "ds:///vmfs/volumes/hostlocal-datastore/"
+	hostMoRef := types.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
+
+	// Mock getVCenterInternal to return a mock VirtualCenter.
+	originalGetVCenter := getVCenterInternal
+	getVCenterInternal = func(_ context.Context, _ *Manager) (*vsphere.VirtualCenter, error) {
+		return &vsphere.VirtualCenter{
+			Config: &vsphere.VirtualCenterConfig{
+				Host:            "test-vc",
+				DatacenterPaths: []string{},
+			},
+		}, nil
+	}
+	defer func() { getVCenterInternal = originalGetVCenter }()
+
+	// Mock queryVolumeByIDInternal to return the datastore URL of the source volume.
+	originalQueryVolumeByID := queryVolumeByIDInternal
+	queryVolumeByIDInternal = func(_ context.Context, _ cnsvolume.Manager, _ string,
+		_ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return &cnstypes.CnsVolume{DatastoreUrl: datastoreURL}, nil
+	}
+	defer func() { queryVolumeByIDInternal = originalQueryVolumeByID }()
+
+	// Track the create spec passed to CreateVolume.
+	var capturedCreateSpec *cnstypes.CnsVolumeCreateSpec
+	mockVolumeManager := &mockVolumeManager{
+		createVolumeFunc: func(_ context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+			_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+			capturedCreateSpec = spec
+			return &cnsvolume.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: "test-volume-id"}}, "", nil
+		},
+	}
+
+	manager := &Manager{
+		VolumeManager: mockVolumeManager,
+		CnsConfig:     &config.Config{},
+	}
+	manager.CnsConfig.Global.ClusterID = "test-cluster"
+	manager.CnsConfig.VirtualCenter = map[string]*config.VirtualCenterConfig{
+		"test-vc": {User: "test-user"},
+	}
+
+	hostLocalDatastoreInfo := &vsphere.DatastoreInfo{
+		Datastore: &vsphere.Datastore{Datastore: object.NewDatastore(nil, datastoreMoRef)},
+		Info:      &types.DatastoreInfo{Url: datastoreURL},
+	}
+
+	// spec.Hosts mirrors what the WCP controller resolves for a host-local request; despite being
+	// non-empty here, it must not end up on the create spec for a linked clone.
+	spec := &CreateVolumeSpec{
+		Name:                    "test-volume",
+		CapacityMB:              1024,
+		VolumeType:              BlockVolumeType,
+		ContentSourceSnapshotID: "source-volume-id+snapshot-id",
+		ScParams:                &StorageClassParams{},
+		IsLinkedCloneRequest:    true,
+		Hosts:                   []types.ManagedObjectReference{hostMoRef},
+	}
+
+	// sharedDatastores mirrors what getDatastoresForHostLocalLinkedClone resolves in the WCP
+	// controller: the single host-local datastore of the source volume.
+	sharedDatastores := []*vsphere.DatastoreInfo{hostLocalDatastoreInfo}
+
+	_, _, err := CreateBlockVolumeUtil(context.Background(), cnstypes.CnsClusterFlavorWorkload,
+		manager, spec, sharedDatastores, []string{}, CreateBlockVolumeOptions{},
+		&cnsvolume.CreateVolumeExtraParams{IsMultipleClustersPerVsphereZoneEnabled: true})
+
+	assert.NoError(t, err, "CreateBlockVolumeUtil should not return an error")
+	assert.NotNil(t, capturedCreateSpec, "Create spec should have been captured")
+	assert.Len(t, capturedCreateSpec.Datastores, 1, "Datastores should be set to the source volume's datastore")
+	assert.Equal(t, datastoreMoRef, capturedCreateSpec.Datastores[0])
+	assert.Empty(t, capturedCreateSpec.Hosts, "Hosts must not be set on a linked clone create spec")
+	snapshotVolumeSource, ok := capturedCreateSpec.VolumeSource.(*cnstypes.CnsSnapshotVolumeSource)
+	assert.True(t, ok, "VolumeSource should be a CnsSnapshotVolumeSource")
+	assert.True(t, snapshotVolumeSource.LinkedClone, "LinkedClone should be true")
+}
