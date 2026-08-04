@@ -73,6 +73,12 @@ func validateVanillaControllerExpandVolumeRequest(ctx context.Context,
 		return err
 	}
 
+	// Vanilla does not support expansion of file volumes.
+	if common.IsFileVolumeRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
+		return logger.LogNewErrorCode(log, codes.Unimplemented,
+			"volume expansion is only supported for block volume type")
+	}
+
 	// Check online extend FSS and vCenter support.
 	if isOnlineExpansionEnabled && isOnlineExpansionSupported {
 		return nil
