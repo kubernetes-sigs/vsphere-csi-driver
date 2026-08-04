@@ -367,11 +367,12 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" &&
 		isVSphereDPLPModernAppEnabled {
 		// Both fields supplied and VSphereDPLPModernApp WCP capability is active:
-		// CNS locates the VMDK by URL and stamps the provided FCD UUID onto it
+		// CNS locates the VMDK by URL and stamps the provided UUID onto it
 		// (VKSRegisterVolume restore path — ss-metadata-manager supplies both fields).
-		// Guard is required: older vCenters do not support both fields and would return an error.
+		// Guard is required: older vCenters do not support this combination and would
+		// return an error.
+		createSpec.VolumeId = &cnstypes.CnsVolumeId{Id: instance.Spec.VolumeID}
 		createSpec.BackingObjectDetails = &cnstypes.CnsBlockBackingDetails{
-			BackingDiskId:      instance.Spec.VolumeID,
 			BackingDiskUrlPath: instance.Spec.DiskURLPath,
 		}
 	} else if instance.Spec.VolumeID != "" {
