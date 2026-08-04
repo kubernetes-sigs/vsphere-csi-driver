@@ -1834,6 +1834,10 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityEn
 		},
 	}
 
+	origSharedDisk, origCapability := isSharedDiskEnabled, isVSphereDPLPModernAppEnabled
+	t.Cleanup(func() {
+		isSharedDiskEnabled, isVSphereDPLPModernAppEnabled = origSharedDisk, origCapability
+	})
 	isSharedDiskEnabled = false
 	isVSphereDPLPModernAppEnabled = true
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
@@ -1857,6 +1861,10 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDi
 		},
 	}
 
+	origSharedDisk, origCapability := isSharedDiskEnabled, isVSphereDPLPModernAppEnabled
+	t.Cleanup(func() {
+		isSharedDiskEnabled, isVSphereDPLPModernAppEnabled = origSharedDisk, origCapability
+	})
 	isSharedDiskEnabled = false
 	isVSphereDPLPModernAppEnabled = false
 	err := validateCnsRegisterVolumeSpec(context.TODO(), instance)
@@ -1865,7 +1873,9 @@ func TestValidateCnsRegisterVolumeSpecWithBothVolumeIDAndDiskURLPathCapabilityDi
 
 // TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled verifies that
 // when both VolumeID and DiskURLPath are set and the VSphereDPLPModernApp WCP capability
-// is active, BackingObjectDetails carries both fields.
+// is active, the UUID goes on CnsVolumeCreateSpec.VolumeId (not BackingObjectDetails.BackingDiskId
+// — CNS rejects BackingDiskId combined with BackingDiskUrlPath, see Bugzilla 3766210) and
+// BackingObjectDetails carries only BackingDiskUrlPath.
 func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityEnabled(t *testing.T) {
 	volumeID := "fcd-uuid-123456"
 	diskURL := "https://vc-ip/folder/path/disk.vmdk?dcPath=dc&dsName=ds"
@@ -1892,11 +1902,16 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
+	origCapability := isVSphereDPLPModernAppEnabled
+	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = true
 	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	if assert.NotNil(t, spec.VolumeId, "VolumeId should be set") {
+		assert.Equal(t, volumeID, spec.VolumeId.Id, "VolumeId.Id should be VolumeID")
+	}
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
-	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
+	assert.Equal(t, "", backing.BackingDiskId, "BackingDiskId must NOT be set alongside BackingDiskUrlPath")
 	assert.Equal(t, diskURL, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be DiskURLPath")
 }
 
@@ -1930,8 +1945,11 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
+	origCapability := isVSphereDPLPModernAppEnabled
+	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = false
 	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.Nil(t, spec.VolumeId, "VolumeId should not be set on the legacy VolumeID-only path")
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
 	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
