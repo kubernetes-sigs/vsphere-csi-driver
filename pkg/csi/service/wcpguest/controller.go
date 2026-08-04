@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -44,20 +45,18 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
@@ -99,20 +98,32 @@ var (
 	}
 )
 
-// snapshotMetadataServiceCRName is the cluster-scoped name of the
-// SnapshotMetadataService CR that advertises the Supervisor's Snapshot
-// Metadata Service endpoint. By convention the CR is named after the CSI
-// driver, so we reuse csitypes.Name as the source of truth.
-const snapshotMetadataServiceCRName = csitypes.Name
+const (
+	// supervisorCBTConfigDir is the directory where the Secret carrying the
+	// Supervisor Snapshot Metadata Service connection details (address,
+	// audience, caCert) is mounted into the guest pvCSI controller pod.
+	supervisorCBTConfigDir = "/etc/cloud/supervisor-cbt-config"
 
-// snapshotMetadataTokenExpirationSeconds is the requested lifetime for
-// the audience-bound ServiceAccount token minted via TokenRequest before
-// each Snapshot Metadata Service RPC. We use the Kubernetes default of
-// one hour, which matches `kubectl create token`, kubelet's projected
-// ServiceAccount token rotation, and the value used by most upstream
-// CSI sidecars. The Supervisor API server may further cap this via
-// --service-account-max-token-expiration.
-const snapshotMetadataTokenExpirationSeconds int64 = 3600
+	// supervisorCBTConfigKey is the Secret data key (and therefore the file
+	// name kubelet projects under supervisorCBTConfigDir) holding the
+	// YAML-encoded connection details.
+	supervisorCBTConfigKey = "config"
+)
+
+// supervisorCBTConfigPath is the full path of the Secret-backed file read by
+// getSnapshotMetadataClient.
+var supervisorCBTConfigPath = filepath.Join(supervisorCBTConfigDir, supervisorCBTConfigKey)
+
+// supervisorCBTConfig is the schema of the YAML blob stored under
+// supervisorCBTConfigKey in the Supervisor CBT config Secret.
+type supervisorCBTConfig struct {
+	// sigs.k8s.io/yaml converts YAML to JSON and unmarshals via encoding/json, which keys
+	// off json tags (falling back to case-insensitive field-name matching only when a tag
+	// is absent). The json tags below make that explicit rather than relying on the fallback.
+	Address  string `json:"address" yaml:"address"`
+	Audience string `json:"audience" yaml:"audience"`
+	CACert   string `json:"caCert" yaml:"caCert"`
+}
 
 // dialSnapshotMetadata builds the gRPC client connection to the Supervisor
 // Snapshot Metadata Service. It is intentionally a package-level function
@@ -2542,160 +2553,47 @@ func (c *controller) waitForSupervisorPVCModifyVolume(
 	}
 }
 
-// mintSnapshotMetadataToken mints a fresh, audience-bound ServiceAccount
-// token for the Supervisor pvcsi-provider ServiceAccount via the
-// Kubernetes TokenRequest API. The returned token's "aud" claim equals
-// the SnapshotMetadataService CR's spec.audience, which is exactly what
-// the Supervisor csi-snapshot-metadata sidecar validates via TokenReview
-// before serving snapshot metadata RPCs.
-//
-// The function is a package-level variable so unit tests can substitute
-// a fixed token without reaching the API server. The default
-// implementation is defaultMintSnapshotMetadataToken.
-var mintSnapshotMetadataToken = defaultMintSnapshotMetadataToken
-
-// defaultMintSnapshotMetadataToken is the production implementation of
-// mintSnapshotMetadataToken. It first identifies the bootstrap
-// ServiceAccount the guest pvCSI is authenticated as on the Supervisor
-// (by inspecting the JWT "sub" claim of the bearer token loaded into
-// the Supervisor REST client config), and then asks the Supervisor API
-// server to mint a fresh, short-lived token bound to the requested
-// audience for that same ServiceAccount.
-func defaultMintSnapshotMetadataToken(
-	ctx context.Context,
-	supervisorClient clientset.Interface,
-	bootstrapToken string,
-	audience string,
-) (string, error) {
-	saNs, saName, err := parseServiceAccountFromJWT(bootstrapToken)
-	if err != nil {
-		return "", fmt.Errorf("identifying Supervisor ServiceAccount from "+
-			"pvcsi-provider bearer token: %w", err)
-	}
-	expSec := snapshotMetadataTokenExpirationSeconds
-	tr, err := supervisorClient.CoreV1().ServiceAccounts(saNs).CreateToken(
-		ctx, saName,
-		&authv1.TokenRequest{
-			Spec: authv1.TokenRequestSpec{
-				Audiences:         []string{audience},
-				ExpirationSeconds: &expSec,
-			},
-		},
-		metav1.CreateOptions{},
-	)
-	if err != nil {
-		return "", fmt.Errorf("TokenRequest for ServiceAccount %s/%s with "+
-			"audience %q: %w", saNs, saName, audience, err)
-	}
-	return tr.Status.Token, nil
-}
-
-// parseServiceAccountFromJWT decodes the payload of a Kubernetes
-// ServiceAccount JWT and returns its (namespace, name). The signature is
-// intentionally not verified — we only consult the token to learn our
-// own identity (the Supervisor pvcsi-provider SA) so we can target a
-// subsequent TokenRequest at it. The token itself was placed in our pod
-// by Supervisor (via the pvcsi-provider-creds Secret), not received over
-// the wire, so it is already trusted by construction.
-//
-// Both modern projected SA tokens (which encode identity in the JWT
-// "sub" claim) and legacy SA secret tokens (which use the
-// "kubernetes.io/serviceaccount/{namespace,service-account.name}" claims)
-// are supported.
-func parseServiceAccountFromJWT(token string) (namespace, name string, err error) {
-	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) != 3 {
-		return "", "", fmt.Errorf("token is not a JWT (got %d segments, want 3)", len(parts))
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		// Some environments emit base64 with padding; tolerate that too.
-		payload, err = base64.StdEncoding.DecodeString(parts[1])
-		if err != nil {
-			return "", "", fmt.Errorf("decoding JWT payload: %w", err)
-		}
-	}
-	var claims struct {
-		Sub             string `json:"sub"`
-		LegacyNamespace string `json:"kubernetes.io/serviceaccount/namespace"`
-		LegacySAName    string `json:"kubernetes.io/serviceaccount/service-account.name"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", "", fmt.Errorf("unmarshal JWT claims: %w", err)
-	}
-	if claims.LegacyNamespace != "" && claims.LegacySAName != "" {
-		return claims.LegacyNamespace, claims.LegacySAName, nil
-	}
-	const prefix = "system:serviceaccount:"
-	if strings.HasPrefix(claims.Sub, prefix) {
-		rest := strings.TrimPrefix(claims.Sub, prefix)
-		if i := strings.Index(rest, ":"); i > 0 && i < len(rest)-1 {
-			return rest[:i], rest[i+1:], nil
-		}
-	}
-	return "", "", fmt.Errorf("token does not identify a ServiceAccount (sub=%q)", claims.Sub)
-}
-
 // getSnapshotMetadataClient returns a gRPC client connected to the
 // Supervisor's Snapshot Metadata Service.
 //
-// Authentication uses an audience-bound ServiceAccount token minted
-// fresh on every call via the Kubernetes TokenRequest API. The audience
-// is taken from the SnapshotMetadataService CR's spec.audience and must
-// match what the Supervisor csi-snapshot-metadata sidecar validates with
-// TokenReview. The returned token is also handed back to callers so
-// they can populate the per-request `security_token` field — the SMS
-// proto requires the same audience-bound token in both the gRPC bearer
-// header and the request body.
+// Authentication reuses the bootstrap pvcsi-provider token as-is (loaded into
+// c.restClientConfig.BearerToken from the pvcsi-provider-creds Secret by
+// k8s.GetRestClientConfigForSupervisor) — the Supervisor mints this token
+// already bound to this CSI driver's own audience (cfg.Audience), so no
+// per-call TokenRequest is needed. The token is also handed back to callers
+// so they can populate the per-request `security_token` field — the SMS
+// proto requires the same token in both the gRPC bearer header and the
+// request body.
 func (c *controller) getSnapshotMetadataClient(
 	ctx context.Context) (snapshotmetadataapi.SnapshotMetadataClient, *grpc.ClientConn, string, error) {
 	log := logger.GetLogger(ctx)
 
-	// Fetch the SnapshotMetadataService CR using the dynamic client. The CR
-	// name is the same as the CSI driver name (see snapshotMetadataServiceCRName).
-	smsGVK := schema.GroupVersionKind{
-		Group:   "cbt.storage.k8s.io",
-		Version: "v1beta1",
-		Kind:    "SnapshotMetadataService",
-	}
-
-	smsCR := &unstructured.Unstructured{}
-	smsCR.SetGroupVersionKind(smsGVK)
-
-	err := c.cnsOperatorClient.Get(ctx, client.ObjectKey{Name: snapshotMetadataServiceCRName}, smsCR)
+	data, err := os.ReadFile(supervisorCBTConfigPath)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("failed to get SnapshotMetadataService CR: %v", err)
+		return nil, nil, "", fmt.Errorf("failed to read Supervisor CBT config from %q: %w", supervisorCBTConfigPath, err)
+	}
+	cfg := &supervisorCBTConfig{}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, nil, "", fmt.Errorf("failed to parse Supervisor CBT config: %w", err)
 	}
 
-	address, found, err := unstructured.NestedString(smsCR.Object, "spec", "address")
-	if !found || err != nil || address == "" {
-		return nil, nil, "", fmt.Errorf("failed to get address from SnapshotMetadataService CR: %v", err)
+	if cfg.Address == "" {
+		return nil, nil, "", fmt.Errorf("address is empty in Supervisor CBT config")
 	}
 
-	// spec.audience is the audience that the Supervisor SMS sidecar passes
-	// to TokenReview when validating the SecurityToken on every RPC. It
-	// must therefore also be the audience embedded in the JWT we send. An
-	// empty audience would silently fall back to the API server default
-	// audience (a property of legacy non-bound tokens), which is exactly
-	// the fragile behaviour we are eliminating, so we reject it loudly.
-	audience, found, err := unstructured.NestedString(smsCR.Object, "spec", "audience")
-	if !found || err != nil || audience == "" {
-		return nil, nil, "", fmt.Errorf("failed to get audience from SnapshotMetadataService CR: %v", err)
+	if cfg.Audience == "" {
+		return nil, nil, "", fmt.Errorf("audience is empty in Supervisor CBT config")
 	}
 
-	caCert, found, err := unstructured.NestedString(smsCR.Object, "spec", "caCert")
-	if !found || err != nil {
-		return nil, nil, "", fmt.Errorf("failed to get caCert from SnapshotMetadataService CR: %v", err)
-	}
-
-	if caCert == "" {
-		return nil, nil, "", fmt.Errorf("caCert is empty in SnapshotMetadataService CR")
+	if cfg.CACert == "" {
+		return nil, nil, "", fmt.Errorf("caCert is empty in Supervisor CBT config")
 	}
 	certPool := x509.NewCertPool()
-	caBytes := []byte(caCert)
+	caBytes := []byte(cfg.CACert)
 	if !certPool.AppendCertsFromPEM(caBytes) {
-		// SnapshotMetadataService CRD uses OpenAPI "byte" (base64 on the wire); accept PEM or base64-of-PEM.
-		decoded, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(caCert))
+		// caCert mirrors the SnapshotMetadataService CR's OpenAPI "byte" encoding
+		// (base64-of-PEM); accept PEM or base64-of-PEM.
+		decoded, decErr := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.CACert))
 		if decErr != nil || !certPool.AppendCertsFromPEM(decoded) {
 			if decErr != nil {
 				return nil, nil, "", fmt.Errorf("failed to append caCert to pool: %w", decErr)
@@ -2705,25 +2603,19 @@ func (c *controller) getSnapshotMetadataClient(
 	}
 	transportCreds := credentials.NewClientTLSFromCert(certPool, "")
 
-	// Mint a fresh audience-bound token via TokenRequest on every call.
-	// We pass the bootstrap pvcsi-provider bearer token (loaded by
-	// k8s.GetRestClientConfigForSupervisor from the pvcsi-provider-creds
-	// Secret) only so the minter can recover the SA identity from its
-	// JWT "sub" claim — the bootstrap token itself is never sent to the
-	// SMS sidecar.
-	bootstrapToken := ""
-	if c.restClientConfig != nil {
-		bootstrapToken = c.restClientConfig.BearerToken
+	// Read c.restClientConfig exactly once: ReloadConfiguration can replace it (including with
+	// nil, on failure) concurrently from the fsnotify watcher goroutine, so checking and then
+	// re-reading the field separately would be a TOCTOU race that could panic on a nil pointer.
+	restClientConfig := c.restClientConfig
+	if restClientConfig == nil || restClientConfig.BearerToken == "" {
+		return nil, nil, "", fmt.Errorf("bootstrap Supervisor token is not available")
 	}
-	token, err := mintSnapshotMetadataToken(ctx, c.supervisorClient, bootstrapToken, audience)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("failed to mint audience-bound Supervisor token: %w", err)
-	}
+	token := restClientConfig.BearerToken
 
-	log.Infof("Dialing SnapshotMetadataService at %s (audience=%s)", address, audience)
-	conn, err := dialSnapshotMetadata(address, transportCreds, tokenAuth{token: token})
+	log.Infof("Dialing SnapshotMetadataService at %s (audience=%s)", cfg.Address, cfg.Audience)
+	conn, err := dialSnapshotMetadata(cfg.Address, transportCreds, tokenAuth{token: token})
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("failed to connect to Snapshot Metadata Service at %s: %v", address, err)
+		return nil, nil, "", fmt.Errorf("failed to connect to Snapshot Metadata Service at %s: %w", cfg.Address, err)
 	}
 
 	return snapshotmetadataapi.NewSnapshotMetadataClient(conn), conn, token, nil

@@ -25,9 +25,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,11 +47,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	clientset "k8s.io/client-go/kubernetes"
-	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/client-go/rest"
 	snapshotterfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
+	"sigs.k8s.io/yaml"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -97,13 +100,32 @@ type mockSupervisorSnapshotMetadataServer struct {
 	// afterSendsReturn is returned from the handler after all configured Sends (e.g. io.EOF for a
 	// normal end of stream, or a non-EOF status such as OutOfRange to simulate a Supervisor error).
 	afterSendsReturn error
+	// blockAfterSendsUntilCtxDoneMu guards blockAfterSendsUntilCtxDone: it's read by the handler
+	// goroutine (started internally by grpc.Server) and written by tests from a separate
+	// goroutine with no other synchronization between the two, which is a real data race under
+	// -race without this lock (the client observing the stream end does not imply the server-side
+	// handler goroutine's reads have completed).
+	blockAfterSendsUntilCtxDoneMu sync.Mutex
 	// blockAfterSendsUntilCtxDone: after sending all responses, block until server.Context() is done,
-	// then return afterSendsReturn (or Canceled).
+	// then return afterSendsReturn (or Canceled). Access only via setBlockAfterSendsUntilCtxDone /
+	// shouldBlockAfterSends.
 	blockAfterSendsUntilCtxDone bool
 	// lastAllocatedReq / lastDeltaReq capture the last request each handler received so tests can
 	// assert on the (namespace, snapshot_name) translation done by the driver.
 	lastAllocatedReq *snapshotmetadataapi.GetMetadataAllocatedRequest
 	lastDeltaReq     *snapshotmetadataapi.GetMetadataDeltaRequest
+}
+
+func (m *mockSupervisorSnapshotMetadataServer) setBlockAfterSendsUntilCtxDone(v bool) {
+	m.blockAfterSendsUntilCtxDoneMu.Lock()
+	defer m.blockAfterSendsUntilCtxDoneMu.Unlock()
+	m.blockAfterSendsUntilCtxDone = v
+}
+
+func (m *mockSupervisorSnapshotMetadataServer) shouldBlockAfterSends() bool {
+	m.blockAfterSendsUntilCtxDoneMu.Lock()
+	defer m.blockAfterSendsUntilCtxDoneMu.Unlock()
+	return m.blockAfterSendsUntilCtxDone
 }
 
 func (m *mockSupervisorSnapshotMetadataServer) GetMetadataAllocated(
@@ -122,7 +144,7 @@ func (m *mockSupervisorSnapshotMetadataServer) GetMetadataAllocated(
 			return err
 		}
 	}
-	if m.blockAfterSendsUntilCtxDone {
+	if m.shouldBlockAfterSends() {
 		<-server.Context().Done()
 		if m.afterSendsReturn != nil {
 			return m.afterSendsReturn
@@ -151,7 +173,7 @@ func (m *mockSupervisorSnapshotMetadataServer) GetMetadataDelta(
 			return err
 		}
 	}
-	if m.blockAfterSendsUntilCtxDone {
+	if m.shouldBlockAfterSends() {
 		<-server.Context().Done()
 		if m.afterSendsReturn != nil {
 			return m.afterSendsReturn
@@ -209,29 +231,42 @@ func setupMockSupervisorServer(t *testing.T) (*grpc.Server, *mockSupervisorSnaps
 	return setupMockSupervisorServerWithOptions(t, nil)
 }
 
-// installFakeTokenMinterForTest swaps the package-level
-// mintSnapshotMetadataToken function with one that returns the supplied
-// (token, err) on every invocation, ignoring its inputs. The original is
-// restored via t.Cleanup. Production replaces this seam with a call to
-// the Kubernetes TokenRequest API against the Supervisor — see
-// defaultMintSnapshotMetadataToken in controller.go. Tests use it to:
+// installBootstrapTokenForTest sets the controller's restClientConfig.BearerToken to token for
+// the duration of the test, standing in for the pvcsi-provider-creds bootstrap token that
+// getSnapshotMetadataClient now uses directly (production mints this once, on the Supervisor
+// side, already bound to the CBT audience — see getSnapshotMetadataClient in controller.go).
+// The original restClientConfig is restored via t.Cleanup. Tests use it to:
 //
 //   - return a constant "test-token" matching the value the in-process
 //     mock SMS server expects in the Authorization header;
-//   - return a different token to exercise the Unauthenticated path;
-//   - return an error to exercise the minter-failure path.
-func installFakeTokenMinterForTest(t *testing.T, token string, mintErr error) {
+//   - return a different token to exercise the Unauthenticated path.
+func installBootstrapTokenForTest(t *testing.T, c *controller, token string) {
 	t.Helper()
-	orig := mintSnapshotMetadataToken
-	mintSnapshotMetadataToken = func(
-		_ context.Context,
-		_ clientset.Interface,
-		_ string,
-		_ string,
-	) (string, error) {
-		return token, mintErr
+	orig := c.restClientConfig
+	c.restClientConfig = &rest.Config{BearerToken: token}
+	t.Cleanup(func() { c.restClientConfig = orig })
+}
+
+// installSupervisorCBTConfigForTest writes cfg as YAML to a temp file and
+// points the package-level supervisorCBTConfigPath at it for the duration of
+// the test, standing in for the real Secret-backed file. The original path
+// is restored via t.Cleanup. Passing a nil cfg points supervisorCBTConfigPath
+// at a path that does not exist, so getSnapshotMetadataClient's os.ReadFile
+// fails exactly like it would if the Secret were missing.
+func installSupervisorCBTConfigForTest(t *testing.T, cfg *supervisorCBTConfig) {
+	t.Helper()
+	orig := supervisorCBTConfigPath
+	t.Cleanup(func() { supervisorCBTConfigPath = orig })
+
+	if cfg == nil {
+		supervisorCBTConfigPath = filepath.Join(t.TempDir(), "does-not-exist")
+		return
 	}
-	t.Cleanup(func() { mintSnapshotMetadataToken = orig })
+	data, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "config")
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+	supervisorCBTConfigPath = path
 }
 
 // installInsecureDialForTest swaps the package-level dialSnapshotMetadata
@@ -377,30 +412,18 @@ func TestGetMetadataAllocated(t *testing.T) {
 	// is bypassed by installInsecureDialForTest below, which swaps
 	// dialSnapshotMetadata for an insecure dialer.
 	caPEM, _ := testLocalhostTLSCert(t)
-	smsCR := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cbt.storage.k8s.io/v1beta1",
-			"kind":       "SnapshotMetadataService",
-			"metadata": map[string]interface{}{
-				"name": "csi.vsphere.vmware.com",
-			},
-			"spec": map[string]interface{}{
-				"address":  addr,
-				"caCert":   string(caPEM),
-				"audience": "test-audience",
-			},
-		},
-	}
+	installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+		Address:  addr,
+		CACert:   string(caPEM),
+		Audience: "test-audience",
+	})
 
-	scheme := runtime.NewScheme()
-	ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().WithScheme(scheme).WithObjects(smsCR).Build()
-
-	// Install test-only seams: a fake token minter that returns the
+	// Install test-only seams: a bootstrap Supervisor token set to the
 	// constant "test-token" the mock SMS server checks for in the
 	// Authorization header, and an insecure dialer (the production
 	// binary always uses TLS — see dialSnapshotMetadata in
 	// controller.go).
-	installFakeTokenMinterForTest(t, "test-token", nil)
+	installBootstrapTokenForTest(t, ct.controller, "test-token")
 	installInsecureDialForTest(t)
 
 	// Enable CBT FSS
@@ -500,14 +523,13 @@ func TestGetMetadataAllocated(t *testing.T) {
 		assert.Equal(t, codes.NotFound, status.Code(err))
 	})
 
-	t.Run("minted token rejected by supervisor", func(t *testing.T) {
-		// Mint a token whose value differs from the one the mock SMS
-		// server expects in the Authorization header. This exercises
-		// the path where the audience-bound TokenRequest succeeds but
-		// the supervisor rejects the call (e.g. audience mismatch on
-		// the wire).
+	t.Run("bootstrap token rejected by supervisor", func(t *testing.T) {
+		// Use a bootstrap token whose value differs from the one the mock
+		// SMS server expects in the Authorization header. This exercises
+		// the path where the Supervisor rejects the call (e.g. an
+		// unexpected/stale bootstrap token).
 		mockServer.errToReturn = nil
-		installFakeTokenMinterForTest(t, "wrong-token", nil)
+		installBootstrapTokenForTest(t, ct.controller, "wrong-token")
 
 		req := &csi.GetMetadataAllocatedRequest{
 			SnapshotId:     "snap-1",
@@ -524,30 +546,6 @@ func TestGetMetadataAllocated(t *testing.T) {
 		assert.Equal(t, codes.Unauthenticated, status.Code(err))
 	})
 
-	t.Run("token mint failure", func(t *testing.T) {
-		// Simulate the Supervisor TokenRequest API rejecting our mint
-		// (e.g. RBAC missing on the pvcsi-provider SA, or the API
-		// being unreachable). The driver must surface this as an
-		// Internal error rather than papering it over.
-		mockServer.errToReturn = nil
-		installFakeTokenMinterForTest(t, "", fmt.Errorf("simulated TokenRequest failure"))
-
-		req := &csi.GetMetadataAllocatedRequest{
-			SnapshotId:     "snap-1",
-			StartingOffset: 0,
-			MaxResults:     10,
-		}
-
-		mockStream := &mockAllocatedStreamServer{
-			ctx: ctx,
-		}
-
-		err := ct.controller.GetMetadataAllocated(req, mockStream)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "audience-bound Supervisor token")
-	})
-
 	t.Run("nil request", func(t *testing.T) {
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataAllocated(nil, mockStream)
@@ -559,7 +557,7 @@ func TestGetMetadataAllocated(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = nil
 		mockServer.afterSendsReturn = nil
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
@@ -569,27 +567,15 @@ func TestGetMetadataAllocated(t *testing.T) {
 	})
 
 	t.Run("supervisor GetMetadataAllocated RPC not implemented", func(t *testing.T) {
-		prevClient := ct.controller.cnsOperatorClient
-		defer func() { ct.controller.cnsOperatorClient = prevClient }()
-
 		bareSrv, addr := setupBareGRPCServer(t)
 		defer bareSrv.Stop()
 
 		bareCAPEM, _ := testLocalhostTLSCert(t)
-		smsCR := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  addr,
-					"caCert":   string(bareCAPEM),
-					"audience": "test-audience",
-				},
-			},
-		}
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().
-			WithScheme(runtime.NewScheme()).WithObjects(smsCR).Build()
+		installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+			Address:  addr,
+			CACert:   string(bareCAPEM),
+			Audience: "test-audience",
+		})
 
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
@@ -602,7 +588,7 @@ func TestGetMetadataAllocated(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "startOffset is out of range")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1",
 			StartingOffset: 123456789123456789, MaxResults: 10}
@@ -617,7 +603,7 @@ func TestGetMetadataAllocated(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.ResourceExhausted, "slow down")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
@@ -630,7 +616,7 @@ func TestGetMetadataAllocated(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.DeadlineExceeded, "timeout")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
 		mockStream := &mockAllocatedStreamServer{ctx: ctx}
@@ -658,7 +644,7 @@ func TestGetMetadataAllocated(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.afterSendsReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 100}}
-		mockServer.blockAfterSendsUntilCtxDone = true
+		mockServer.setBlockAfterSendsUntilCtxDone(true)
 
 		ctx2, cancel := context.WithCancel(ctx)
 		req := &csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10}
@@ -674,12 +660,10 @@ func TestGetMetadataAllocated(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("timeout waiting for GetMetadataAllocated")
 		}
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 	})
 
 	t.Run("tls caCert PEM to supervisor", func(t *testing.T) {
-		prevClient := ct.controller.cnsOperatorClient
-		defer func() { ct.controller.cnsOperatorClient = prevClient }()
 		withProductionTLSDialForSubtest(t)
 
 		caPEM, leaf := testLocalhostTLSCert(t)
@@ -687,20 +671,11 @@ func TestGetMetadataAllocated(t *testing.T) {
 		grpcServer, mockServer, addr := setupMockSupervisorServerWithOptions(t, tlsConf)
 		defer grpcServer.Stop()
 
-		smsCR := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  addr,
-					"caCert":   string(caPEM),
-					"audience": "test-audience",
-				},
-			},
-		}
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().
-			WithScheme(runtime.NewScheme()).WithObjects(smsCR).Build()
+		installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+			Address:  addr,
+			CACert:   string(caPEM),
+			Audience: "test-audience",
+		})
 
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 500}}
@@ -713,8 +688,6 @@ func TestGetMetadataAllocated(t *testing.T) {
 	})
 
 	t.Run("tls caCert base64-encoded PEM", func(t *testing.T) {
-		prevClient := ct.controller.cnsOperatorClient
-		defer func() { ct.controller.cnsOperatorClient = prevClient }()
 		withProductionTLSDialForSubtest(t)
 
 		caPEM, leaf := testLocalhostTLSCert(t)
@@ -722,20 +695,11 @@ func TestGetMetadataAllocated(t *testing.T) {
 		grpcServer, mockServer, addr := setupMockSupervisorServerWithOptions(t, tlsConf)
 		defer grpcServer.Stop()
 
-		smsCR := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  addr,
-					"caCert":   base64.StdEncoding.EncodeToString(caPEM),
-					"audience": "test-audience",
-				},
-			},
-		}
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().
-			WithScheme(runtime.NewScheme()).WithObjects(smsCR).Build()
+		installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+			Address:  addr,
+			CACert:   base64.StdEncoding.EncodeToString(caPEM),
+			Audience: "test-audience",
+		})
 
 		mockServer.errToReturn = nil
 		mockServer.allocatedResponses = []*snapshotmetadataapi.GetMetadataAllocatedResponse{{VolumeCapacityBytes: 500}}
@@ -764,30 +728,18 @@ func TestGetMetadataDelta(t *testing.T) {
 	// is bypassed by installInsecureDialForTest below, which swaps
 	// dialSnapshotMetadata for an insecure dialer.
 	caPEM, _ := testLocalhostTLSCert(t)
-	smsCR := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "cbt.storage.k8s.io/v1beta1",
-			"kind":       "SnapshotMetadataService",
-			"metadata": map[string]interface{}{
-				"name": "csi.vsphere.vmware.com",
-			},
-			"spec": map[string]interface{}{
-				"address":  addr,
-				"caCert":   string(caPEM),
-				"audience": "test-audience",
-			},
-		},
-	}
+	installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+		Address:  addr,
+		CACert:   string(caPEM),
+		Audience: "test-audience",
+	})
 
-	scheme := runtime.NewScheme()
-	ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().WithScheme(scheme).WithObjects(smsCR).Build()
-
-	// Install test-only seams: a fake token minter that returns the
+	// Install test-only seams: a bootstrap Supervisor token set to the
 	// constant "test-token" the mock SMS server checks for in the
 	// Authorization header, and an insecure dialer (the production
 	// binary always uses TLS — see dialSnapshotMetadata in
 	// controller.go).
-	installFakeTokenMinterForTest(t, "test-token", nil)
+	installBootstrapTokenForTest(t, ct.controller, "test-token")
 	installInsecureDialForTest(t)
 
 	// Enable CBT FSS
@@ -962,9 +914,9 @@ func TestGetMetadataDelta(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid format")
 	})
 
-	t.Run("minted token rejected by supervisor", func(t *testing.T) {
+	t.Run("bootstrap token rejected by supervisor", func(t *testing.T) {
 		mockServer.errToReturn = nil
-		installFakeTokenMinterForTest(t, "wrong-token", nil)
+		installBootstrapTokenForTest(t, ct.controller, "wrong-token")
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId:   testValidChangeID,
@@ -982,27 +934,6 @@ func TestGetMetadataDelta(t *testing.T) {
 		assert.Equal(t, codes.Unauthenticated, status.Code(err))
 	})
 
-	t.Run("token mint failure", func(t *testing.T) {
-		mockServer.errToReturn = nil
-		installFakeTokenMinterForTest(t, "", fmt.Errorf("simulated TokenRequest failure"))
-
-		req := &csi.GetMetadataDeltaRequest{
-			BaseSnapshotId:   testValidChangeID,
-			TargetSnapshotId: "snap-2",
-			StartingOffset:   0,
-			MaxResults:       10,
-		}
-
-		mockStream := &mockDeltaStreamServer{
-			ctx: ctx,
-		}
-
-		err := ct.controller.GetMetadataDelta(req, mockStream)
-		assert.Error(t, err)
-		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "audience-bound Supervisor token")
-	})
-
 	t.Run("nil request", func(t *testing.T) {
 		mockStream := &mockDeltaStreamServer{ctx: ctx}
 		err := ct.controller.GetMetadataDelta(nil, mockStream)
@@ -1014,7 +945,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.deltaResponses = nil
 		mockServer.afterSendsReturn = nil
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
@@ -1026,27 +957,15 @@ func TestGetMetadataDelta(t *testing.T) {
 	})
 
 	t.Run("supervisor GetMetadataDelta RPC not implemented", func(t *testing.T) {
-		prevClient := ct.controller.cnsOperatorClient
-		defer func() { ct.controller.cnsOperatorClient = prevClient }()
-
 		bareSrv, addr := setupBareGRPCServer(t)
 		defer bareSrv.Stop()
 
 		bareCAPEM, _ := testLocalhostTLSCert(t)
-		smsCR := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  addr,
-					"caCert":   string(bareCAPEM),
-					"audience": "test-audience",
-				},
-			},
-		}
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().
-			WithScheme(runtime.NewScheme()).WithObjects(smsCR).Build()
+		installSupervisorCBTConfigForTest(t, &supervisorCBTConfig{
+			Address:  addr,
+			CACert:   string(bareCAPEM),
+			Audience: "test-audience",
+		})
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
@@ -1061,7 +980,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.deltaResponses = []*snapshotmetadataapi.GetMetadataDeltaResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.OutOfRange, "startOffset is out of range")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2",
@@ -1078,7 +997,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.deltaResponses = []*snapshotmetadataapi.GetMetadataDeltaResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.ResourceExhausted, "slow down")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
@@ -1093,7 +1012,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.deltaResponses = []*snapshotmetadataapi.GetMetadataDeltaResponse{{VolumeCapacityBytes: 100}}
 		mockServer.afterSendsReturn = status.Error(codes.DeadlineExceeded, "timeout")
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 
 		req := &csi.GetMetadataDeltaRequest{
 			BaseSnapshotId: testValidChangeID, TargetSnapshotId: "snap-2", StartingOffset: 0, MaxResults: 10,
@@ -1125,7 +1044,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		mockServer.errToReturn = nil
 		mockServer.afterSendsReturn = nil
 		mockServer.deltaResponses = []*snapshotmetadataapi.GetMetadataDeltaResponse{{VolumeCapacityBytes: 100}}
-		mockServer.blockAfterSendsUntilCtxDone = true
+		mockServer.setBlockAfterSendsUntilCtxDone(true)
 
 		ctx2, cancel := context.WithCancel(ctx)
 		req := &csi.GetMetadataDeltaRequest{
@@ -1143,7 +1062,7 @@ func TestGetMetadataDelta(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("timeout waiting for GetMetadataDelta")
 		}
-		mockServer.blockAfterSendsUntilCtxDone = false
+		mockServer.setBlockAfterSendsUntilCtxDone(false)
 	})
 }
 
@@ -1185,168 +1104,118 @@ func TestGetSnapshotMetadataClient_Errors(t *testing.T) {
 	// lookup, so the lookup itself must succeed for "snap-1".
 	seedSupervisorVolumeSnapshots(t, ct.controller, "snap-1")
 
-	// Install a test-only token minter (the production binary always
-	// uses TokenRequest — see defaultMintSnapshotMetadataToken in
+	// Install a bootstrap Supervisor token (production reads this from
+	// c.restClientConfig.BearerToken — see getSnapshotMetadataClient in
 	// controller.go) and an insecure dialer for the whole function.
 	// Sub-tests that assert errors before the dial path is reached
 	// (invalid PEM, empty caCert, missing audience, etc.) never invoke
 	// these; the "grpc dial failure" sub-test relies on the dialer to
 	// hit 127.0.0.1:1 and return Unavailable.
-	installFakeTokenMinterForTest(t, "test-token", nil)
+	installBootstrapTokenForTest(t, ct.controller, "test-token")
 	installInsecureDialForTest(t)
 
-	runAllocated := func(sms *unstructured.Unstructured) error {
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().
-			WithScheme(runtime.NewScheme()).WithObjects(sms).Build()
+	runAllocated := func(cfg *supervisorCBTConfig) error {
+		installSupervisorCBTConfigForTest(t, cfg)
 		return ct.controller.GetMetadataAllocated(
 			&csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10},
 			&mockAllocatedStreamServer{ctx: ctx},
 		)
 	}
 
-	t.Run("SnapshotMetadataService CR missing", func(t *testing.T) {
-		ct.controller.cnsOperatorClient = ctrlclientfake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+	t.Run("Supervisor CBT config unreadable", func(t *testing.T) {
+		err := runAllocated(nil)
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "failed to read Supervisor CBT config")
+	})
+
+	t.Run("Supervisor CBT config is malformed YAML", func(t *testing.T) {
+		origPath := supervisorCBTConfigPath
+		t.Cleanup(func() { supervisorCBTConfigPath = origPath })
+		path := filepath.Join(t.TempDir(), "config")
+		require.NoError(t, os.WriteFile(path, []byte("address: [this is not valid yaml"), 0o600))
+		supervisorCBTConfigPath = path
+
 		err := ct.controller.GetMetadataAllocated(
 			&csi.GetMetadataAllocatedRequest{SnapshotId: "snap-1", StartingOffset: 0, MaxResults: 10},
 			&mockAllocatedStreamServer{ctx: ctx},
 		)
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "failed to get SnapshotMetadataService CR")
+		assert.Contains(t, err.Error(), "failed to parse Supervisor CBT config")
 	})
 
-	t.Run("empty spec.address", func(t *testing.T) {
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec":       map[string]interface{}{"address": "", "caCert": ""},
-			},
-		}
-		err := runAllocated(sms)
+	t.Run("empty address", func(t *testing.T) {
+		err := runAllocated(&supervisorCBTConfig{Address: "", CACert: ""})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
 		assert.Contains(t, err.Error(), "address")
 	})
 
-	t.Run("missing spec.audience", func(t *testing.T) {
-		// spec.audience is mandatory: the Supervisor SMS sidecar uses
-		// it to bind the TokenReview audience, so an empty audience
-		// would silently fall back to the API server default audience
-		// (the fragile pre-TokenRequest behaviour we deliberately
-		// replaced). The driver must reject this loudly.
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec":       map[string]interface{}{"address": "127.0.0.1:9", "audience": ""},
-			},
-		}
-		err := runAllocated(sms)
+	t.Run("missing audience", func(t *testing.T) {
+		// audience is mandatory: it identifies which audience the bootstrap
+		// Supervisor token (c.restClientConfig.BearerToken) is expected to be
+		// bound to. An empty audience means the Supervisor CBT config is
+		// incomplete/misconfigured, and the driver must reject this loudly
+		// rather than dial with an unverified token.
+		err := runAllocated(&supervisorCBTConfig{Address: "127.0.0.1:9", Audience: ""})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
 		assert.Contains(t, err.Error(), "audience")
 	})
 
-	t.Run("missing spec.caCert", func(t *testing.T) {
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec":       map[string]interface{}{"address": "127.0.0.1:9", "audience": "test-audience"},
-			},
-		}
-		err := runAllocated(sms)
-		require.Error(t, err)
-		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "caCert")
-	})
-
 	t.Run("invalid caCert PEM and base64", func(t *testing.T) {
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  "127.0.0.1:9",
-					"audience": "test-audience",
-					"caCert":   "not-valid-pem",
-				},
-			},
-		}
-		err := runAllocated(sms)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:9",
+			Audience: "test-audience",
+			CACert:   "not-valid-pem",
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
 		assert.Contains(t, err.Error(), "caCert")
 	})
 
 	t.Run("base64 decodes but PEM append still fails", func(t *testing.T) {
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  "127.0.0.1:9",
-					"audience": "test-audience",
-					"caCert":   base64.StdEncoding.EncodeToString([]byte("not a pem block")),
-				},
-			},
-		}
-		err := runAllocated(sms)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:9",
+			Audience: "test-audience",
+			CACert:   base64.StdEncoding.EncodeToString([]byte("not a pem block")),
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
 	})
 
 	t.Run("empty caCert is rejected", func(t *testing.T) {
-		// TLS is mandatory for the Supervisor dial — an empty spec.caCert
+		// TLS is mandatory for the Supervisor dial — an empty caCert
 		// must always be rejected (the production binary has no insecure
 		// fallback; see getSnapshotMetadataClient in controller.go).
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  "127.0.0.1:9",
-					"audience": "test-audience",
-					"caCert":   "",
-				},
-			},
-		}
-		err := runAllocated(sms)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:9",
+			Audience: "test-audience",
+			CACert:   "",
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
 		assert.Contains(t, err.Error(), "caCert is empty")
 	})
 
-	t.Run("token mint failure", func(t *testing.T) {
-		// Verify that a TokenRequest API failure (e.g. RBAC missing or
-		// API server unreachable) is surfaced as Internal. We override
-		// the minter just for this sub-test; t.Cleanup restores the
-		// happy-path minter installed at the top of the test function.
+	t.Run("bootstrap token unavailable", func(t *testing.T) {
+		// Verify that a missing bootstrap Supervisor token (e.g.
+		// restClientConfig failed to load, or the pvcsi-provider-creds
+		// Secret's token file was empty) is surfaced as Internal rather
+		// than dialing with an empty bearer token. We override just for
+		// this sub-test; t.Cleanup restores the happy-path bootstrap
+		// token installed at the top of the test function.
+		installBootstrapTokenForTest(t, ct.controller, "")
 		caPEM, _ := testLocalhostTLSCert(t)
-		installFakeTokenMinterForTest(t, "", fmt.Errorf("simulated TokenRequest failure"))
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  "127.0.0.1:1",
-					"audience": "test-audience",
-					"caCert":   string(caPEM),
-				},
-			},
-		}
-		err := runAllocated(sms)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:1",
+			Audience: "test-audience",
+			CACert:   string(caPEM),
+		})
 		require.Error(t, err)
 		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "audience-bound Supervisor token")
+		assert.Contains(t, err.Error(), "bootstrap Supervisor token is not available")
 	})
 
 	t.Run("grpc dial failure", func(t *testing.T) {
@@ -1355,21 +1224,35 @@ func TestGetSnapshotMetadataClient_Errors(t *testing.T) {
 		// installed at the top of TestGetSnapshotMetadataClient_Errors and
 		// then fails because nothing is listening on 127.0.0.1:1.
 		caPEM, _ := testLocalhostTLSCert(t)
-		sms := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "cbt.storage.k8s.io/v1beta1",
-				"kind":       "SnapshotMetadataService",
-				"metadata":   map[string]interface{}{"name": "csi.vsphere.vmware.com"},
-				"spec": map[string]interface{}{
-					"address":  "127.0.0.1:1",
-					"audience": "test-audience",
-					"caCert":   string(caPEM),
-				},
-			},
-		}
-		err := runAllocated(sms)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:1",
+			Audience: "test-audience",
+			CACert:   string(caPEM),
+		})
 		require.Error(t, err)
 		// gRPC surfaces connection refused as Unavailable when the client fails the RPC (lazy dial).
 		assert.Equal(t, codes.Unavailable, status.Code(err))
+	})
+
+	t.Run("dial setup itself fails", func(t *testing.T) {
+		// Distinct from "grpc dial failure" above: here dialSnapshotMetadata (grpc.NewClient)
+		// itself returns an error synchronously, exercising getSnapshotMetadataClient's own
+		// wrapping of that error rather than a later RPC-time failure on a lazy dial.
+		origDial := dialSnapshotMetadata
+		dialSnapshotMetadata = func(string, credentials.TransportCredentials, credentials.PerRPCCredentials,
+		) (*grpc.ClientConn, error) {
+			return nil, errors.New("dial setup failed")
+		}
+		t.Cleanup(func() { dialSnapshotMetadata = origDial })
+
+		caPEM, _ := testLocalhostTLSCert(t)
+		err := runAllocated(&supervisorCBTConfig{
+			Address:  "127.0.0.1:1",
+			Audience: "test-audience",
+			CACert:   string(caPEM),
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "failed to connect to Snapshot Metadata Service")
 	})
 }
