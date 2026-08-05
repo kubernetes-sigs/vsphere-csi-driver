@@ -393,6 +393,9 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
+            - mountPath: /etc/vmware/wcp/k8s-cloud-operator-certs
+              name: k8s-cloud-operator-client-certs
+              readOnly: true
         - name: csi-attacher
           image: localhost:5000/vmware.io/csi-attacher:v4.12.0_vmware.1
           args:
