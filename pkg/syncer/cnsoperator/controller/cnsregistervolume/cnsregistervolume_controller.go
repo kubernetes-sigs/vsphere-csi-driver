@@ -971,25 +971,41 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				return reconcile.Result{RequeueAfter: timeout}, nil
 			}
 			finalStoragePolicyUsageCR = currentStoragePolicyUsageCR.DeepCopy()
-			// Decrease the Reserved field for StoragePolicyUsageCR
-			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(
-				*resource.NewQuantity(currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Value(),
-					currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Format))
-			// Increase the Used field for StoragePolicyUsageCR
-			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(
-				*currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved)
-			err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR, finalStoragePolicyUsageCR)
+			// Decrease the Reserved field, and increase the Used field, by this PVC's own
+			// capacity only. Reserved is a pool shared across every disk in the same (e.g.
+			// multi-disk VM import) batch, so it may transiently hold other PVCs'
+			// still-outstanding reservations at the moment of this Get; draining the CR's
+			// entire current Reserved value here (instead of just this PVC's pvCapacity
+			// share) would steal those sibling reservations and double-count them into Used.
+			reservedBeforeTransfer := finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved
+			if reservedBeforeTransfer.Cmp(pvCapacity) < 0 {
+				// Reserved should always be at least this PVC's own pvCapacity, since it was
+				// added there earlier in this same reconcile. If it isn't, the shared pool is
+				// already inconsistent for reasons outside this PVC's transition; clamp to
+				// zero instead of underflowing Reserved negative, and surface it loudly so the
+				// inconsistency is visible rather than silently compounding.
+				log.Errorf("StoragePolicyUsage CR %q in namespace %q has Reserved (%s) less than "+
+					"this PVC's own capacity (%s) being transferred to Used; the Reserved pool is "+
+					"inconsistent. Clamping Reserved to zero instead of underflowing negative.",
+					currentStoragePolicyUsageCR.Name, currentStoragePolicyUsageCR.Namespace,
+					reservedBeforeTransfer.String(), pvCapacity.String())
+				*finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved = resource.Quantity{}
+			} else {
+				finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved.Sub(pvCapacity)
+			}
+			finalStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(pvCapacity)
+			err = syncer.PatchStoragePolicyUsage(ctx, cnsOperatorClient, currentStoragePolicyUsageCR,
+				finalStoragePolicyUsageCR)
 			if err != nil {
 				log.Errorf("patching operation failed for StoragePolicyUsage CR: %q in namespace: %q. err: %v",
 					currentStoragePolicyUsageCR.Name, currentStoragePolicyUsageCR.Namespace, err)
 			} else {
-				reservedQty := currentStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Reserved
 				log.Infof("Successfully decreased the reserved field by %s "+
 					"for storagepolicyusage CR: %q in namespace: %q",
-					reservedQty.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
+					pvCapacity.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
 				log.Infof("Successfully increased the used field by %s "+
 					"for storagepolicyusage CR: %q in namespace: %q",
-					reservedQty.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
+					pvCapacity.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
 			}
 		}
 	} else {
