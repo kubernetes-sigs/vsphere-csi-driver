@@ -2493,3 +2493,252 @@ func TestCsiPVDeleted_BlockVolume_ImprovedVolumeVisibility(t *testing.T) {
 			"DeleteVolume must still be called for block volumes when ImprovedVolumeVisibility is disabled")
 	})
 }
+
+// TestDeriveStoragePolicyUsageKeyForDeletion covers the SPU-key derivation used by
+// csiPVDeleted when decrementing "Used" on volume deletion. It must agree with the key
+// derivation in handleVACChangeForVolumeInfo (VAC-keyed SPU once a VolumeAttributesClass is
+// set and the mutability FSS is on; StorageClass-keyed SPU otherwise) - otherwise a migrated
+// volume's usage gets decremented from the wrong, stale SPU on deletion.
+func TestDeriveStoragePolicyUsageKeyForDeletion(t *testing.T) {
+	origCO := commonco.ContainerOrchestratorUtility
+	defer func() { commonco.ContainerOrchestratorUtility = origCO }()
+
+	newFakeCO := func(t *testing.T, fssEnabled bool) {
+		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(t, err)
+		if fssEnabled {
+			assert.NoError(t, co.(interface {
+				EnableFSS(context.Context, string) error
+			}).EnableFSS(context.Background(), common.VMPVCStoragePolicyMutability))
+		}
+		commonco.ContainerOrchestratorUtility = co
+	}
+
+	cases := []struct {
+		name             string
+		fssEnabled       bool
+		storageClassName string
+		vacName          string
+		want             string
+	}{
+		{
+			name:             "FSS enabled, VAC set -> VAC-keyed SPU",
+			fssEnabled:       true,
+			storageClassName: "sc-old",
+			vacName:          "vac-gold",
+			want:             "vac-vac-gold",
+		},
+		{
+			name:             "FSS enabled, no VAC -> StorageClass-keyed SPU",
+			fssEnabled:       true,
+			storageClassName: "sc-old",
+			vacName:          "",
+			want:             "sc-old",
+		},
+		{
+			name:             "FSS disabled, VAC set -> still StorageClass-keyed SPU",
+			fssEnabled:       false,
+			storageClassName: "sc-old",
+			vacName:          "vac-gold",
+			want:             "sc-old",
+		},
+		{
+			name:             "FSS disabled, no VAC -> StorageClass-keyed SPU",
+			fssEnabled:       false,
+			storageClassName: "sc-old",
+			vacName:          "",
+			want:             "sc-old",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newFakeCO(t, tc.fssEnabled)
+			got := deriveStoragePolicyUsageKeyForDeletion(context.Background(), tc.storageClassName, tc.vacName)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestSyncStoragePolicyUsageUsedValues covers the full-sync recompute logic extracted from
+// storagePolicyUsageCRSync. It specifically verifies the fix for stale "Used" values left
+// behind on a migrated-then-deleted volume: previously, an SPU whose namespace (or the whole
+// cluster) had no remaining Bound PVs was skipped instead of having its Used reset to 0.
+func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
+	const namespace = "test-ns"
+
+	mkSPU := func(name, scName, vacName, policyID, resourceKind string,
+		used resource.Quantity) *storagepolicyv1alpha3.StoragePolicyUsage {
+		return &storagepolicyv1alpha3.StoragePolicyUsage{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
+				StoragePolicyId:           policyID,
+				StorageClassName:          scName,
+				VolumeAttributesClassName: vacName,
+				ResourceKind:              resourceKind,
+			},
+			Status: storagepolicyv1alpha3.StoragePolicyUsageStatus{
+				ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
+					Used: &used,
+				},
+			},
+		}
+	}
+
+	mkPV := func(name, namespace, volumeHandle string) *v1.PersistentVolume {
+		return &v1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1.PersistentVolumeSpec{
+				ClaimRef: &v1.ObjectReference{Namespace: namespace},
+				PersistentVolumeSource: v1.PersistentVolumeSource{
+					CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: volumeHandle},
+				},
+			},
+		}
+	}
+
+	mkCVI := func(scName, vacName, policyID string, capacity resource.Quantity) *cnsvolumeinfov1alpha1.CNSVolumeInfo {
+		return &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+			Spec: cnsvolumeinfov1alpha1.CNSVolumeInfoSpec{
+				Namespace:                namespace,
+				StorageClassName:         scName,
+				VolumeAttributeClassName: vacName,
+				StoragePolicyID:          policyID,
+				Capacity:                 &capacity,
+			},
+		}
+	}
+
+	newFakeClient := func(t *testing.T, objs ...client.Object) client.Client {
+		scheme := runtime.NewScheme()
+		assert.NoError(t, cnsoperatorv1alpha1.AddToScheme(scheme))
+		return fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(objs...).
+			WithStatusSubresource(&storagepolicyv1alpha3.StoragePolicyUsage{}).
+			Build()
+	}
+
+	getUsed := func(t *testing.T, c client.Client, name string) int64 {
+		got := &storagepolicyv1alpha3.StoragePolicyUsage{}
+		assert.NoError(t, c.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: name}, got))
+		return got.Status.ResourceTypeLevelQuotaUsage.Used.Value()
+	}
+
+	t.Run("orphaned namespace: SPU is reset to 0 when its namespace has no Bound PVs left", func(t *testing.T) {
+		cap10Gi := resource.MustParse("10Gi")
+		spu := mkSPU("sc-old-pvc-usage", "sc-old", "", "policy-uuid", ResourceKindPVC, cap10Gi.DeepCopy())
+		fakeClient := newFakeClient(t, spu)
+
+		// namespaceToK8sVolumesMap has no entry for "test-ns" at all - simulating that the
+		// migrated volume (the only one in this namespace) has already been deleted.
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*spu}},
+			map[string][]*v1.PersistentVolume{},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
+			map[string]*resource.Quantity{})
+
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, spu.Name),
+			"stale Used must be reset to 0 when the SPU's namespace has no remaining Bound PVs")
+	})
+
+	t.Run("cluster-wide empty state: every SPU is reset to 0, not silently skipped", func(t *testing.T) {
+		cap5Gi := resource.MustParse("5Gi")
+		scSPU := mkSPU("sc-old-pvc-usage", "sc-old", "", "policy-uuid", ResourceKindPVC, cap5Gi.DeepCopy())
+		vacSPU := mkSPU("vac-vac-gold-pvc-usage", "", "vac-gold", "policy-uuid", ResourceKindPVC, cap5Gi.DeepCopy())
+		fakeClient := newFakeClient(t, scSPU, vacSPU)
+
+		// No PVs, no CNSVolumeInfo CRs anywhere in the cluster (the previous guard used to skip
+		// the whole recompute loop in this case).
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{
+				Items: []storagepolicyv1alpha3.StoragePolicyUsage{*scSPU, *vacSPU},
+			},
+			map[string][]*v1.PersistentVolume{},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
+			map[string]*resource.Quantity{})
+
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, scSPU.Name))
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, vacSPU.Name))
+	})
+
+	t.Run("VAC-keyed SPU: matching Bound PV keeps Used at its correct total", func(t *testing.T) {
+		cap10Gi := resource.MustParse("10Gi")
+		vacSPU := mkSPU("vac-vac-gold-pvc-usage", "", "vac-gold", "policy-uuid", ResourceKindPVC, cap10Gi.DeepCopy())
+		fakeClient := newFakeClient(t, vacSPU)
+
+		pv := mkPV("pv-1", namespace, "csi-handle-1")
+		cvi := mkCVI("sc-old", "vac-gold", "policy-uuid", cap10Gi)
+
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*vacSPU}},
+			map[string][]*v1.PersistentVolume{namespace: {pv}},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi},
+			map[string]*resource.Quantity{})
+
+		assert.Equal(t, cap10Gi.Value(), getUsed(t, fakeClient, vacSPU.Name))
+	})
+
+	t.Run("VAC-keyed SPU: other volumes in the same namespace do not affect its Used", func(t *testing.T) {
+		cap10Gi := resource.MustParse("10Gi")
+		vacSPU := mkSPU("vac-vac-gold-pvc-usage", "", "vac-gold", "policy-uuid", ResourceKindPVC, cap10Gi.DeepCopy())
+		fakeClient := newFakeClient(t, vacSPU)
+
+		// pv-1 belongs to a different StorageClass (no VAC) and must not be counted towards
+		// the VAC-keyed SPU, even though it is Bound in the same namespace.
+		pv := mkPV("pv-1", namespace, "csi-handle-1")
+		cvi := mkCVI("sc-other", "", "policy-uuid-other", resource.MustParse("20Gi"))
+
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*vacSPU}},
+			map[string][]*v1.PersistentVolume{namespace: {pv}},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi},
+			map[string]*resource.Quantity{})
+
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, vacSPU.Name),
+			"VAC-keyed SPU must reset to 0 when the deleted volume was its only member, "+
+				"even though an unrelated PV remains Bound in the namespace")
+	})
+
+	t.Run("snapshot SPU: aggregated sum drives Used, resets to 0 with no snapshots left", func(t *testing.T) {
+		origM2 := isStorageQuotaM2FSSEnabled
+		isStorageQuotaM2FSSEnabled = true
+		defer func() { isStorageQuotaM2FSSEnabled = origM2 }()
+
+		cap3Gi := resource.MustParse("3Gi")
+		snapSPU := mkSPU("sc-old-snapshot-usage", "sc-old", "", "policy-uuid", ResourceKindSnapshot, cap3Gi.DeepCopy())
+		fakeClient := newFakeClient(t, snapSPU)
+
+		// No entry in spuAggregatedSumMap for this SPU's key - simulating that the last
+		// snapshot under it was deleted - must still reset stale Used to 0, not leave it be.
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU}},
+			map[string][]*v1.PersistentVolume{},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
+			map[string]*resource.Quantity{})
+
+		assert.Equal(t, int64(0), getUsed(t, fakeClient, snapSPU.Name),
+			"stale snapshot Used must be reset to 0 when spuAggregatedSumMap has no entry for its key")
+	})
+
+	t.Run("snapshot SPU: matching aggregated sum keeps Used at its correct total", func(t *testing.T) {
+		origM2 := isStorageQuotaM2FSSEnabled
+		isStorageQuotaM2FSSEnabled = true
+		defer func() { isStorageQuotaM2FSSEnabled = origM2 }()
+
+		cap3Gi := resource.MustParse("3Gi")
+		snapSPU := mkSPU("sc-old-snapshot-usage", "sc-old", "", "policy-uuid", ResourceKindSnapshot, cap3Gi.DeepCopy())
+		fakeClient := newFakeClient(t, snapSPU)
+
+		spuKey := generateSPUKey(mkCVI("sc-old", "", "policy-uuid", cap3Gi))
+		sum := cap3Gi.DeepCopy()
+
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU}},
+			map[string][]*v1.PersistentVolume{},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
+			map[string]*resource.Quantity{spuKey: &sum})
+
+		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, snapSPU.Name))
+	})
+}
