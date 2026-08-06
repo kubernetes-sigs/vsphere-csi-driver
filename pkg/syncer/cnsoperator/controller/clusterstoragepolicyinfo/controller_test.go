@@ -3906,7 +3906,7 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 
 			// Call populateVolumeCapabilities with minimal required parameters
 			// We pass nil for vc, zoneCompatibleDS and zoneClusters since we only want to test the logic
-			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil)
+			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil, false)
 
 			// For marker policies, there should be no error since we skip the HPLC check
 			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
@@ -3940,6 +3940,46 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 			assert.Equal(t, tt.expectedSupportsHPLinkedClone, actualHPLC,
 				"SupportsHighPerformanceLinkedClone should be %v for k8sCompliantName %s",
 				tt.expectedSupportsHPLinkedClone, tt.k8sCompliantName)
+		})
+	}
+}
+
+// TestPopulateVolumeCapabilities_HostLocal verifies that SupportsHostLocal is populated
+// from the isHostLocal argument for non-marker policies. isHostLocal is resolved once by the
+// caller (syncInfraSPIAttributes, via PbmRetrieveContentRaw + ProfilesContainHostLocal) and passed
+// straight through here — no PBM call is made inside populateVolumeCapabilities itself.
+func TestPopulateVolumeCapabilities_HostLocal(t *testing.T) {
+	ctx := context.Background()
+	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
+
+	tests := []struct {
+		name             string
+		isHostLocal      bool
+		expectedSupports bool
+	}{
+		{
+			name:             "policy carries host-local capability",
+			isHostLocal:      true,
+			expectedSupports: true,
+		},
+		{
+			name:             "policy does not carry host-local capability",
+			isHostLocal:      false,
+			expectedSupports: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+			infraSPI.Name = "some-regular-policy"
+
+			err := populateVolumeCapabilities(ctx, infraSPI, stubVC, "test-policy", nil, nil, tt.isHostLocal)
+			assert.NoError(t, err)
+
+			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHostLocal]
+			assert.True(t, exists, "SupportsHostLocal should be set")
+			assert.Equal(t, tt.expectedSupports, actual)
 		})
 	}
 }

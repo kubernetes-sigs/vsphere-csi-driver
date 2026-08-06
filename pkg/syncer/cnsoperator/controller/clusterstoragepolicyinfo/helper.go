@@ -509,7 +509,8 @@ func findStoragePolicyProfile(ctx context.Context,
 //
 // SupportsVolumeModeBlock is always true except when the policy is a marker policy
 // (k8scompliantname is "vsan-file-service-policy").
-// For marker policies, SupportsHighPerformanceLinkedClone and SupportsLinkedClone are also false.
+// For marker policies, SupportsHighPerformanceLinkedClone, SupportsLinkedClone and
+// SupportsHostLocal are also false.
 //
 // SupportsLinkedClone is true only if every zone with compatible datastores has at least one
 // mounting host running ESXi 9.1 or above.
@@ -517,12 +518,16 @@ func findStoragePolicyProfile(ctx context.Context,
 // SupportsHighPerformanceLinkedClone is true only if SupportsLinkedClone is true AND every zone
 // has at least one ESXi 9.1+ host in a cluster with vSAN-ESA enabled.
 //
+// SupportsHostLocal is passed in by the caller (isHostLocal), already derived from the same raw
+// SPBM profile fetched for policyContent (via VirtualCenter.PbmRetrieveContentRaw and
+// ProfilesContainHostLocal), so no separate PBM call is made here to determine it.
+//
 // This function accepts an optional cache from topology calculation to avoid redundant vCenter calls.
 func populateVolumeCapabilities(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	vc *cnsvsphere.VirtualCenter, profileID string,
 	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo,
-	zoneClusters map[string][]string) error {
+	zoneClusters map[string][]string, isHostLocal bool) error {
 	log := logger.GetLogger(ctx)
 
 	caps := map[infraspiv1alpha1.VolumeCapability]bool{
@@ -539,12 +544,13 @@ func populateVolumeCapabilities(ctx context.Context,
 	log.Infof("Storage policy %s SupportsVolumeModeBlock=%v (isMarkerPolicy=%v)",
 		profileID, !isMarkerPolicy, isMarkerPolicy)
 
-	// For marker policies, linked clone capabilities are always false
+	// For marker policies, linked clone and host-local capabilities are always false.
 	if isMarkerPolicy {
 		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
 		caps[infraspiv1alpha1.SupportsLinkedClone] = false
+		caps[infraspiv1alpha1.SupportsHostLocal] = false
 		log.Infof("Storage policy %s is a marker policy - SupportsHighPerformanceLinkedClone=false, "+
-			"SupportsLinkedClone=false", profileID)
+			"SupportsLinkedClone=false, SupportsHostLocal=false", profileID)
 
 		infraSPI.Status.VolumeCapabilities = caps
 		return nil
@@ -581,6 +587,9 @@ func populateVolumeCapabilities(ctx context.Context,
 	caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = hplc
 	log.Infof("Storage policy %s SupportsLinkedClone=%v, SupportsHighPerformanceLinkedClone=%v",
 		profileID, lc, hplc)
+
+	caps[infraspiv1alpha1.SupportsHostLocal] = isHostLocal
+	log.Infof("Storage policy %s SupportsHostLocal=%v", profileID, isHostLocal)
 
 	infraSPI.Status.VolumeCapabilities = caps
 	return nil

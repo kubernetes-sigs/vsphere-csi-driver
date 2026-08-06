@@ -36,7 +36,6 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -180,7 +179,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 			Interface: k8sclient.CoreV1().Events(""),
 		},
 	)
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: apis.GroupName})
+	recorder := eventBroadcaster.NewRecorder(mgr.GetScheme(), v1.EventSource{Component: apis.GroupName})
 	return add(mgr, newReconciler(mgr, configInfo, topologyMgr, k8sclient, dynamicClient, recorder))
 }
 
@@ -572,7 +571,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
 
-	policyContent, err := vc.PbmRetrieveContent(ctx, []string{profile.ID})
+	rawProfiles, err := vc.PbmRetrieveContentRaw(ctx, []string{profile.ID})
 	if err != nil {
 		log.Errorf("Failed to retrieve policy content for profile %s: %v", profile.ID, err)
 		errorMsg := fmt.Sprintf("Failed to retrieve policy content: %v", err)
@@ -581,6 +580,8 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
+	policyContent := cnsvsphere.PbmSimplifyProfileContent(ctx, rawProfiles)
+	isHostLocal := cnsvsphere.ProfilesContainHostLocal(rawProfiles)
 
 	// Sync storage policy attributes for ClusterSPI instance.
 	err = r.syncClusterSPIAttributes(ctx, instance, profile, vc, policyContent)
@@ -600,7 +601,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	}
 
 	// Sync InfraSPI attributes for InfraSPI instance.
-	err = r.syncInfraSPIAttributes(ctx, instance, infraSPI, vc, profile, policyContent)
+	err = r.syncInfraSPIAttributes(ctx, instance, infraSPI, vc, profile, policyContent, isHostLocal)
 	if err != nil {
 		log.Errorf("Failed to sync InfraSPI attributes for %q: %v.", request.Name, err)
 		errorMsg := fmt.Sprintf("Failed to sync InfraSPI attributes: %v", err)
@@ -940,7 +941,7 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	vc *cnsvsphere.VirtualCenter, profile *cnsvsphere.ProfileDetail,
-	policyContent []cnsvsphere.SpbmPolicyContent) error {
+	policyContent []cnsvsphere.SpbmPolicyContent, isHostLocal bool) error {
 	log := logger.GetLogger(ctx)
 
 	log.Infof("Syncing InfraSPI attributes for %q (policy ID: %s, name: %s)",
@@ -949,7 +950,8 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	var overallErr error
 
 	// Populate topology capabilities for InfraSPI.
-	zoneCompatibleDS, err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc, policyContent)
+	zoneCompatibleDS, err := r.populateTopologyCapabilities(ctx, instance, infraSPI, profile.ID, vc, policyContent,
+		isHostLocal)
 	if err != nil {
 		log.Errorf("Failed to populate topology capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
@@ -961,7 +963,8 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 	zoneClusters := r.topologyMgr.GetAZClustersMap(ctx)
 
 	// Populate volume capabilities.
-	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, zoneCompatibleDS, zoneClusters); err != nil {
+	if err := populateVolumeCapabilities(ctx, infraSPI, vc, profile.ID, zoneCompatibleDS, zoneClusters,
+		isHostLocal); err != nil {
 		log.Errorf("Failed to populate volume capabilities for profile %s: %v", profile.ID, err)
 		overallErr = errors.Join(overallErr, err)
 	}
@@ -970,13 +973,16 @@ func (r *ReconcileClusterStoragePolicyInfo) syncInfraSPIAttributes(ctx context.C
 }
 
 // populateTopologyCapabilities populates topology information for the storage policy in InfraSPI,
-// and returns the zone->compatible-datastore map computed along the way (nil for marker
-// policies).
+// and returns the zone->compatible-datastore map computed along the way (nil for marker policies,
+// which derive zones from FVS instance namespaces rather than datastore/PBM compatibility; for
+// host-local policies, this map still gets populated by GetHostLocalAccessibleZones, so
+// LinkedClone/HighPerformanceLinkedClone are computed normally).
 func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx context.Context,
 	clusterSPI *clusterspiv1alpha1.ClusterStoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo, profileID string,
 	vc *cnsvsphere.VirtualCenter,
-	clusterSPIPolicyContent []cnsvsphere.SpbmPolicyContent) (map[string][]*cnsvsphere.DatastoreInfo, error) {
+	clusterSPIPolicyContent []cnsvsphere.SpbmPolicyContent, isHostLocal bool) (
+	map[string][]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 
 	// Marker policies (e.g. vSAN File Service) derive their cluster-wide accessible zones from
@@ -1028,20 +1034,39 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 			profileID, topologyType)
 	}
 
-	// Initialize topology status with the topology type
+	// Initialize topology status with the topology type and empty accessibleZones.
 	infraSPI.Status.Topology = &infraspiv1alpha1.Topology{
-		TopologyType: topologyType,
+		TopologyType:    topologyType,
+		AccessibleZones: []string{},
 	}
 
 	log.Infof("Storage policy %s: populating accessible zones", profileID)
 
-	// GetZoneCompatibleDatastoresForPolicy makes SPBM CheckRequirements call, scoped to
-	// every cluster registered to a vSphere AvailabilityZone, to determine both the accessible
-	// zones and the compatible datastores within each zone.
-	accessibleZones, zoneCompatibleDS, dsIDs, err := cnsoperatorutil.GetZoneCompatibleDatastoresForPolicy(ctx,
-		r.topologyMgr, vc, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get accessible zones: %w", err)
+	var accessibleZones, dsIDs []string
+	var zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo
+	if isHostLocal {
+		// A host-local datastore is mounted on exactly one host, so it can never be
+		// attributed to a zone via PbmPlacementHubInfo.ZoneClusters (populated by PBM only when a
+		// datastore is mounted on every host in a cluster).
+		//
+		// Resolve accessible zones by walking each PBM-compatible datastore's mounting host
+		// directly instead. GetHostLocalAccessibleZones also returns a zoneCompatibleDS map (one
+		// entry per host-local datastore's zone) so LinkedClone/HighPerformanceLinkedClone are
+		// still computed for host-local policies via the same checkLinkedClone path below.
+		accessibleZones, zoneCompatibleDS, dsIDs, err = cnsoperatorutil.GetHostLocalAccessibleZones(ctx,
+			r.topologyMgr, vc, profileID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get accessible zones for host-local policy: %w", err)
+		}
+	} else {
+		// GetZoneCompatibleDatastoresForPolicy makes SPBM CheckRequirements call, scoped to
+		// every cluster registered to a vSphere AvailabilityZone, to determine both the accessible
+		// zones and the compatible datastores within each zone.
+		accessibleZones, zoneCompatibleDS, dsIDs, err = cnsoperatorutil.GetZoneCompatibleDatastoresForPolicy(ctx,
+			r.topologyMgr, vc, profileID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get accessible zones: %w", err)
+		}
 	}
 
 	// Record which datastores this policy is compatible with, so the shared
