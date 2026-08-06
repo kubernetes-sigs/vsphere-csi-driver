@@ -4304,11 +4304,45 @@ func TestCheckDatastorePolicyCompatibility(t *testing.T) {
 	})
 }
 
+// newStorageLocalityProfile builds the SPBM profile vCenter returns for a policy carrying the
+// com.vmware.storage.volumeallocation/StorageLocality capability with the given property value
+// (HostLocalStorage or None).
+func newStorageLocalityProfile(value string) *pbmtypes.PbmCapabilityProfile {
+	return &pbmtypes.PbmCapabilityProfile{
+		PbmProfile: pbmtypes.PbmProfile{ProfileId: pbmtypes.PbmProfileId{UniqueId: "host-local-policy-id"}},
+		Constraints: &pbmtypes.PbmCapabilitySubProfileConstraints{
+			SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+				{Capability: []pbmtypes.PbmCapabilityInstance{
+					{
+						Id: pbmtypes.PbmCapabilityMetadataUniqueId{
+							Namespace: "com.vmware.storage.volumeallocation",
+							Id:        "StorageLocality",
+						},
+						Constraint: []pbmtypes.PbmCapabilityConstraintInstance{
+							{PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{
+								{Id: "StorageLocality", Value: value},
+							}},
+						},
+					},
+				}},
+			},
+		},
+	}
+}
+
 // newHostLocalReconcileFixture wires a reconciler and the patches common to a host-local reconcile
-// test: capability enabled, VC instance, create spec, volume query (host-local policy),
-// IsHostLocalStoragePolicy=true, datastore resolution, and setInstanceError/cleanup observers.
+// test: capability enabled, VC instance, create spec, volume query (host-local policy), datastore
+// resolution, and setInstanceError/cleanup observers.
+//
+// storageLocality is the StorageLocality property value of the storage policy the volume uses
+// ("HostLocalStorage" or "None"). Rather than stubbing IsHostLocalStoragePolicy, the fixture stubs
+// PbmRetrieveContentRaw with the SPBM profile such a policy produces, so the reconcile exercises the
+// real detection chain: IsHostLocalStoragePolicy -> ProfilesContainHostLocal ->
+// IsHostLocalStorageCapabilityPolicy. Patching PbmRetrieveContentRaw also keeps ConnectPbm out of
+// the path, so the fake VC client is sufficient.
+//
 // Callers add PBM/topology behavior and must `defer func(){ fssEnabledOverride = nil }()`.
-func newHostLocalReconcileFixture(patches *gomonkey.Patches) (
+func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality string) (
 	*ReconcileCnsRegisterVolume, *bool, *bool) {
 	// Initialize backOffDuration map to prevent nil map assignment panic when a test runs alone.
 	backOffDuration = make(map[types.NamespacedName]time.Duration)
@@ -4332,6 +4366,10 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches) (
 	r := &ReconcileCnsRegisterVolume{
 		client: fakeClient,
 		scheme: scheme,
+		// Empty clientset: a reconcile that gets past the host-local block stops at the storage
+		// class lookup rather than dereferencing a nil client.
+		k8sclient:  k8sfake.NewSimpleClientset(),
+		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{}},
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
 				_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
@@ -4359,9 +4397,9 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches) (
 			},
 		}, nil
 	})
-	patches.ApplyMethod(reflect.TypeOf(&cnsvsphere.VirtualCenter{}), "IsHostLocalStoragePolicy",
-		func(_ *cnsvsphere.VirtualCenter, _ context.Context, _ string) (bool, error) {
-			return true, nil
+	patches.ApplyMethod(reflect.TypeOf(&cnsvsphere.VirtualCenter{}), "PbmRetrieveContentRaw",
+		func(_ *cnsvsphere.VirtualCenter, _ context.Context, _ []string) ([]pbmtypes.BasePbmProfile, error) {
+			return []pbmtypes.BasePbmProfile{newStorageLocalityProfile(storageLocality)}, nil
 		})
 	patches.ApplyFunc(cnsvsphere.GetDatastoreInfoByURL, func(_ context.Context, vc *cnsvsphere.VirtualCenter,
 		_ []string, url string) (*cnsvsphere.DatastoreInfo, error) {
@@ -4392,7 +4430,7 @@ func TestReconcileHostLocalPBMIncompatible(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches)
+	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
 	defer func() { fssEnabledOverride = nil }()
 
 	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
@@ -4410,6 +4448,103 @@ func TestReconcileHostLocalPBMIncompatible(t *testing.T) {
 	assert.True(t, *cleanupCalled, "cleanupCNSVolume should be called for a PBM-incompatible host-local volume")
 }
 
+// TestReconcileHostLocalDetectedFromNewSchemaPolicy verifies that a storage policy carrying the
+// com.vmware.storage.volumeallocation/StorageLocality = HostLocalStorage capability is recognized
+// through the real detection chain (IsHostLocalStoragePolicy -> ProfilesContainHostLocal ->
+// IsHostLocalStorageCapabilityPolicy) and drives the host-local branch of the reconcile: the
+// datastore is PBM-checked against the policy and the PV topology is derived from the host the
+// datastore is mounted on, instead of the shared-datastore accessibility path.
+func TestReconcileHostLocalDetectedFromNewSchemaPolicy(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	r, _, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
+	defer func() { fssEnabledOverride = nil }()
+
+	compatChecked := false
+	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ string) (bool, error) {
+		compatChecked = true
+		return true, nil
+	}
+	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
+
+	var resolvedTopology []map[string]string
+	getHostLocalAccessibleTopologyFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) ([]map[string]string, error) {
+		resolvedTopology = []map[string]string{{
+			corev1.LabelTopologyZone: "zone-a",
+			corev1.LabelHostname:     "host-1",
+		}}
+		return resolvedTopology, nil
+	}
+	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
+	_, err := r.Reconcile(ctx, req)
+
+	assert.NoError(t, err)
+	assert.True(t, compatChecked,
+		"host-local branch should PBM-check the datastore against the StorageLocality policy")
+	assert.NotEmpty(t, resolvedTopology,
+		"host-local branch should derive the PV topology from the datastore's host")
+	// The reconcile continues past the host-local block and stops at the storage class lookup (no
+	// StorageClass exists in the fixture), which requeues without cleanup. So a cleanup here would
+	// mean the host-local block itself rejected the volume.
+	assert.False(t, *cleanupCalled, "host-local block should accept the volume and not clean it up")
+}
+
+// TestReconcileHostLocalNotDetectedForStorageLocalityNone verifies that StorageLocality = None (the
+// capability's default, meaning no locality preference) is not treated as host-local: the
+// host-local branch is skipped entirely and the reconcile falls through to the pre-existing
+// shared-datastore path.
+func TestReconcileHostLocalNotDetectedForStorageLocalityNone(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	r, _, _ := newHostLocalReconcileFixture(patches, "None")
+	defer func() { fssEnabledOverride = nil }()
+
+	// Pin the non-host-local route to the shared-datastore accessibility gate and observe it.
+	origStretch := syncer.IsPodVMOnStretchSupervisorFSSEnabled
+	syncer.IsPodVMOnStretchSupervisorFSSEnabled = false
+	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
+
+	sharedDatastoreGateChecked := false
+	patches.ApplyFunc(isDatastoreAccessibleToCluster, func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ string, _ string) bool {
+		sharedDatastoreGateChecked = true
+		return true
+	})
+
+	compatChecked := false
+	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ string) (bool, error) {
+		compatChecked = true
+		return true, nil
+	}
+	defer func() { checkDatastorePolicyCompatibilityFn = checkDatastorePolicyCompatibility }()
+
+	topologyResolved := false
+	getHostLocalAccessibleTopologyFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
+		_ *cnsvsphere.DatastoreInfo, _ map[string]string) ([]map[string]string, error) {
+		topologyResolved = true
+		return nil, nil
+	}
+	defer func() { getHostLocalAccessibleTopologyFn = getHostLocalAccessibleTopology }()
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
+	_, err := r.Reconcile(ctx, req)
+
+	assert.NoError(t, err)
+	assert.False(t, compatChecked, "StorageLocality None must not enter the host-local branch")
+	assert.False(t, topologyResolved, "StorageLocality None must not derive host-local topology")
+	assert.True(t, sharedDatastoreGateChecked,
+		"StorageLocality None should fall through to the shared-datastore accessibility gate")
+}
+
 // TestReconcileHostLocalTopologyError verifies that when the host-local topology cannot be derived
 // (e.g. no cluster-derived zone), the reconcile fails permanently and the CNS volume is cleaned up.
 func TestReconcileHostLocalTopologyError(t *testing.T) {
@@ -4417,7 +4552,7 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches)
+	r, setErrCalled, cleanupCalled := newHostLocalReconcileFixture(patches, "HostLocalStorage")
 	defer func() { fssEnabledOverride = nil }()
 
 	checkDatastorePolicyCompatibilityFn = func(_ context.Context, _ *cnsvsphere.VirtualCenter,
