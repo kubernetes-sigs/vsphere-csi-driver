@@ -659,6 +659,7 @@ data:
   "sv-pvc-snapshot-protection-finalizer": "true"
   "high-pv-node-density": "false" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
   "improved-volume-visibility": "false"
+  "vks-register-volume": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
