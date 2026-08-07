@@ -767,7 +767,42 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 	}
 
 	volumeOperationDetails, finalErr = m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
-	if finalErr != nil && !apierrors.IsNotFound(finalErr) {
+	switch {
+	case finalErr == nil:
+		if volumeOperationDetails.OperationDetails != nil {
+			// Validate if a previous attempt already completed successfully. This guards
+			// against duplicate/retried CreateVolume calls for the same volume name (e.g. a
+			// provisioner retry that races an in-flight or just-completed call): without this
+			// check, a concurrent caller would re-invoke CNS CreateVolume with the same
+			// pre-assigned VolumeId, get CnsVolumeAlreadyExistsFault, and the fault handler in
+			// CreateVolume() would delete and recreate a volume that another caller may have
+			// already returned to the CO as a bound PV.
+			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess &&
+				volumeOperationDetails.VolumeID != "" {
+				log.Infof("Volume with name %q and id %q is already created on CNS with opId: %q.",
+					volNameFromInputSpec, volumeOperationDetails.VolumeID,
+					volumeOperationDetails.OperationDetails.OpID)
+				return &CnsVolumeInfo{
+					DatastoreURL: "",
+					VolumeID: cnstypes.CnsVolumeId{
+						Id: volumeOperationDetails.VolumeID,
+					},
+				}, "", nil
+			}
+			// Validate if a previous operation is still pending. If so, reuse that task instead
+			// of invoking CNS CreateVolume a second time for the same volume name.
+			if IsTaskPending(volumeOperationDetails) {
+				log.Infof("Volume with name %s has CreateVolume task %s pending on CNS.",
+					volNameFromInputSpec,
+					volumeOperationDetails.OperationDetails.TaskID)
+				taskMoRef := vim25types.ManagedObjectReference{
+					Type:  "Task",
+					Value: volumeOperationDetails.OperationDetails.TaskID,
+				}
+				task = object.NewTask(m.virtualCenter.Client.Client, taskMoRef)
+			}
+		}
+	case !apierrors.IsNotFound(finalErr):
 		return nil, csifault.CSIInternalFault, finalErr
 	}
 
@@ -815,32 +850,39 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 			}
 		}
 	}()
-	volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
-		quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
-		taskInvocationStatusInProgress, "", "")
-	err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
-	if err != nil {
-		// Don't return if CreateVolume details can't be stored.
-		log.Warnf("failed to store CreateVolume details with error: %v", err)
-	}
-	task, finalErr = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
-	if finalErr != nil {
-		log.Errorf("failed to create volume with error: %v", finalErr)
+	if task == nil {
+		// The task object is nil in two cases:
+		// - No previous CreateVolume task for this volume was retrieved from the
+		//   persistent store.
+		// - The previous CreateVolume task failed.
+		// In both cases, invoke CNS CreateVolume again.
 		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
-			quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
-			vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error(), "")
-		faultType = ExtractFaultTypeFromErr(ctx, finalErr)
-		return nil, faultType, finalErr
-	}
-	if !isStaticallyProvisioned(spec) {
-		// Persist task details only for dynamically provisioned volumes.
-		volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
-			quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
+			quotaInfo, metav1.Now(), "", vCenterServerForVolumeOperationCR, "",
 			taskInvocationStatusInProgress, "", "")
 		err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
 		if err != nil {
 			// Don't return if CreateVolume details can't be stored.
 			log.Warnf("failed to store CreateVolume details with error: %v", err)
+		}
+		task, finalErr = invokeCNSCreateVolume(ctx, m.virtualCenter, spec)
+		if finalErr != nil {
+			log.Errorf("failed to create volume with error: %v", finalErr)
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+				quotaInfo, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, "",
+				vCenterServerForVolumeOperationCR, "", taskInvocationStatusError, finalErr.Error(), "")
+			faultType = ExtractFaultTypeFromErr(ctx, finalErr)
+			return nil, faultType, finalErr
+		}
+		if !isStaticallyProvisioned(spec) {
+			// Persist task details only for dynamically provisioned volumes.
+			volumeOperationDetails = createRequestDetails(volNameFromInputSpec, "", "", 0,
+				quotaInfo, metav1.Now(), task.Reference().Value, vCenterServerForVolumeOperationCR, "",
+				taskInvocationStatusInProgress, "", "")
+			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
+			if err != nil {
+				// Don't return if CreateVolume details can't be stored.
+				log.Warnf("failed to store CreateVolume details with error: %v", err)
+			}
 		}
 	}
 

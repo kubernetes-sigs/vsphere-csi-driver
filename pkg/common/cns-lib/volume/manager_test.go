@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -16,9 +17,13 @@ import (
 	"github.com/vmware/govmomi/vslm"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
 
 const createVolumeTaskTimeout = 3 * time.Second
@@ -972,4 +977,148 @@ func TestDefaultVslmHooksDisconnectedVC(t *testing.T) {
 	assert.Error(t, err)
 	_, err = defaultRetrieveSnapshotDetailsHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{})
 	assert.Error(t, err)
+}
+
+// fakeOperationStore is a minimal in-memory stand-in for
+// cnsvolumeoperationrequest.VolumeOperationRequest, used to unit test
+// createVolumeWithTransaction's idempotency behavior without a real API server.
+type fakeOperationStore struct {
+	getRequestDetails func(ctx context.Context, name string) (
+		*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error)
+	storeCallCount int
+}
+
+func (f *fakeOperationStore) GetRequestDetails(ctx context.Context, name string) (
+	*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
+	return f.getRequestDetails(ctx, name)
+}
+
+func (f *fakeOperationStore) StoreRequestDetails(ctx context.Context,
+	instance *cnsvolumeoperationrequest.VolumeOperationRequestDetails) error {
+	f.storeCallCount++
+	return nil
+}
+
+func (f *fakeOperationStore) DeleteRequestDetails(ctx context.Context, name string) error {
+	return nil
+}
+
+func (f *fakeOperationStore) HasPriorSuccessfulCreate(ctx context.Context, name string) bool {
+	return false
+}
+
+// notFoundErr builds a k8s NotFound error the same way a real API server would
+// for a CnsVolumeOperationRequest CR that does not exist yet.
+func notFoundErr(name string) error {
+	return apierrors.NewNotFound(
+		cnsvolumeoprequestv1alpha1.Resource(cnsvolumeoperationrequest.CRDPlural), name)
+}
+
+// TestCreateVolumeWithTransactionPriorSuccessSkipsCNSInvocation is a regression test for the
+// PR-3762313-Perf incident: a duplicate/retried CreateVolume call for a volume name that the
+// CnsVolumeOperationRequest store already reports as successfully created must return the
+// cached volume ID directly, without invoking CNS CreateVolume again. Before this fix,
+// createVolumeWithTransaction unconditionally re-invoked CNS, which raced a concurrent
+// successful caller, hit CnsVolumeAlreadyExistsFault, and triggered a delete+recreate of a
+// volume that had already been returned to the CO as a bound PV.
+//
+// virtualCenter is left as a zero value (nil CnsClient) on purpose: if the idempotency
+// short-circuit regresses and the code falls through to invokeCNSCreateVolume, that call
+// panics on the nil CnsClient, so assert.NotPanics below fails loudly instead of the test
+// silently passing for the wrong reason.
+func TestCreateVolumeWithTransactionPriorSuccessSkipsCNSInvocation(t *testing.T) {
+	ctx := context.TODO()
+	const volName = "pvc-5954ecf3-215f-4396-8b8d-87d6ae007247"
+	const cachedVolumeID = "5954ecf3-215f-4396-8b8d-87d6ae007247"
+
+	store := &fakeOperationStore{
+		getRequestDetails: func(ctx context.Context, name string) (
+			*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
+			assert.Equal(t, volName, name)
+			return &cnsvolumeoperationrequest.VolumeOperationRequestDetails{
+				Name:     volName,
+				VolumeID: cachedVolumeID,
+				OperationDetails: &cnsvolumeoperationrequest.OperationDetails{
+					TaskStatus: cnsvolumeoperationrequest.TaskInvocationStatusSuccess,
+					OpID:       "opid-1",
+				},
+			}, nil
+		},
+	}
+	m := &defaultManager{
+		operationStore: store,
+		virtualCenter:  &cnsvsphere.VirtualCenter{},
+	}
+	spec := &cnstypes.CnsVolumeCreateSpec{Name: volName}
+
+	var resp *CnsVolumeInfo
+	var faultType string
+	var err error
+	assert.NotPanics(t, func() {
+		resp, faultType, err = m.createVolumeWithTransaction(ctx, spec, nil)
+	})
+
+	assert.NoError(t, err)
+	assert.Empty(t, faultType)
+	if assert.NotNil(t, resp) {
+		assert.Equal(t, cachedVolumeID, resp.VolumeID.Id)
+	}
+	assert.Zero(t, store.storeCallCount,
+		"a duplicate call for an already-successfully-created volume must not persist a new InProgress record")
+}
+
+// TestCreateVolumeWithTransactionNoPriorRecordInvokesCNS is the counterpart to the test above:
+// when the operation store has no record at all for this volume name (a genuinely new
+// CreateVolume call), createVolumeWithTransaction must still fall through and attempt to invoke
+// CNS CreateVolume, i.e. the idempotency short-circuit must not swallow first-time creates too.
+// It asserts this indirectly: with a nil CnsClient, reaching invokeCNSCreateVolume panics, so a
+// panic here is the expected, correct outcome and proves the fall-through path is intact.
+func TestCreateVolumeWithTransactionNoPriorRecordInvokesCNS(t *testing.T) {
+	ctx := context.TODO()
+	const volName = "pvc-brand-new-volume"
+
+	store := &fakeOperationStore{
+		getRequestDetails: func(ctx context.Context, name string) (
+			*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
+			return nil, notFoundErr(name)
+		},
+	}
+	m := &defaultManager{
+		operationStore: store,
+		virtualCenter:  &cnsvsphere.VirtualCenter{},
+	}
+	spec := &cnstypes.CnsVolumeCreateSpec{Name: volName}
+
+	assert.Panics(t, func() {
+		_, _, _ = m.createVolumeWithTransaction(ctx, spec, nil)
+	})
+	assert.Equal(t, 1, store.storeCallCount,
+		"a first-time create must persist an InProgress record before invoking CNS")
+}
+
+// TestCreateVolumeWithTransactionOperationStorePropagatesUnexpectedError verifies that an
+// unexpected (non-NotFound) error reading the operation store is still surfaced as a
+// CSIInternalFault, preserving the pre-existing error-handling behavior after restructuring the
+// GetRequestDetails handling into the idempotency-checking switch statement.
+func TestCreateVolumeWithTransactionOperationStorePropagatesUnexpectedError(t *testing.T) {
+	ctx := context.TODO()
+	wantErr := errors.New("etcd is unavailable")
+
+	store := &fakeOperationStore{
+		getRequestDetails: func(ctx context.Context, name string) (
+			*cnsvolumeoperationrequest.VolumeOperationRequestDetails, error) {
+			return nil, wantErr
+		},
+	}
+	m := &defaultManager{
+		operationStore: store,
+		virtualCenter:  &cnsvsphere.VirtualCenter{},
+	}
+	spec := &cnstypes.CnsVolumeCreateSpec{Name: "pvc-test"}
+
+	resp, faultType, err := m.createVolumeWithTransaction(ctx, spec, nil)
+	assert.Nil(t, resp)
+	assert.Equal(t, csifault.CSIInternalFault, faultType)
+	assert.Equal(t, wantErr, err)
+	assert.Zero(t, store.storeCallCount)
 }
