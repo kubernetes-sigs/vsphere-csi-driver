@@ -1302,20 +1302,10 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
-		// Retrieve Supervisor PVC
-		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-			ctx, req.VolumeId, metav1.GetOptions{})
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("failed to retrieve supervisor PVC %q in %q namespace. Error: %+v",
-				req.VolumeId, c.supervisorNamespace, err)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
-		}
-		var isFileVolume bool
-		for _, accessMode := range svPVC.Spec.AccessModes {
-			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-				isFileVolume = true
-			}
+			log.Error(err.Error())
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
 		}
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
@@ -2309,6 +2299,50 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 
 	log.Infof("Volume %s successfully modified to VAC %q", volumeID, targetVAC)
 	return &csi.ControllerModifyVolumeResponse{}, nil
+}
+
+// isFileVolumeAttachment determines whether the (req.NodeId, req.VolumeId) attachment that
+// ControllerUnpublishVolume is being asked to tear down was published as a file volume. It
+// checks two independent, unambiguous signals instead of inferring file-vs-block from any
+// PVC's overall access mode:
+//  1. Whether the Supervisor PVC is FVS-backed (a Supervisor-volume-level property; FVS
+//     volumes never get a CnsFileAccessConfig CR, so they must be special-cased here).
+//  2. Whether the CnsFileAccessConfig CR that ControllerPublishVolume would have created for
+//     this exact (node, volume) pair exists.
+//
+// A PVC's access mode is not a reliable signal here: a block FCD mistakenly registered as a
+// second, static RWX PV/PVC on the guest cluster shares its volumeHandle with the real,
+// dynamically-provisioned RWO PV, so any volumeID-keyed lookup (guest or Supervisor) can
+// resolve to either PVC. The CnsFileAccessConfig CR's existence has no such ambiguity: it is
+// the exact artifact Publish created (or didn't) for this specific req.NodeId/req.VolumeId
+// pair.
+func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (
+	bool, error) {
+	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+		ctx, req.VolumeId, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
+			req.VolumeId, c.supervisorNamespace, err)
+	}
+	if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
+		return true, nil
+	}
+
+	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
+	existingInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	err = c.cnsOperatorClient.Get(ctx, types.NamespacedName{
+		Namespace: c.supervisorNamespace,
+		Name:      cnsFileAccessConfigInstanceName,
+	}, existingInstance)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.IsNotFound(err):
+		return false, nil
+	default:
+		return false, fmt.Errorf("failed to get CnsFileAccessConfig instance %q/%q: %v",
+			c.supervisorNamespace, cnsFileAccessConfigInstanceName, err)
+	}
 }
 
 // getTargetVACForVolume resolves the target VolumeAttributesClass name from the guest PVC.

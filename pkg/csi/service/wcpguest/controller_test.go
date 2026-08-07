@@ -45,6 +45,8 @@ import (
 	ktesting "k8s.io/client-go/testing"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	fakesnapshotclient "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -1769,6 +1771,156 @@ func TestGetTargetVACForVolume(t *testing.T) {
 		assert.Empty(t, result)
 		assert.Contains(t, err.Error(), "failed to get guest PVC")
 	})
+}
+
+// TestIsFileVolumeAttachment tests the isFileVolumeAttachment helper function used by
+// ControllerUnpublishVolume to decide between the file and block volume teardown paths.
+// It must key off the CnsFileAccessConfig CR (or FVS storage class) for the specific
+// (node, volume) attachment rather than any PVC's overall access mode, since a block FCD
+// mistakenly registered as a second, static RWX PV/PVC on the guest cluster shares its
+// volumeHandle with the real, dynamically-provisioned RWO PV.
+func TestIsFileVolumeAttachment(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		mockSupervisorNamespace = "mock-namespace"
+		mockVolumeID            = "test-volume-123"
+		mockNodeID              = "test-node"
+	)
+
+	newReq := func() *csi.ControllerUnpublishVolumeRequest {
+		return &csi.ControllerUnpublishVolumeRequest{VolumeId: mockVolumeID, NodeId: mockNodeID}
+	}
+
+	makeSupervisorPVC := func(supervisorClient *testclient.Clientset, storageClassName string) {
+		pvc := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: mockVolumeID, Namespace: mockSupervisorNamespace},
+		}
+		if storageClassName != "" {
+			pvc.Spec.StorageClassName = &storageClassName
+		}
+		_, err := supervisorClient.CoreV1().PersistentVolumeClaims(mockSupervisorNamespace).Create(
+			ctx, pvc, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+
+	cnsOperatorScheme := runtime.NewScheme()
+	require.NoError(t, cnsoperatorv1alpha1.AddToScheme(cnsOperatorScheme))
+
+	t.Run("FVS-backed supervisor PVC is a file volume, regardless of CnsFileAccessConfig", func(t *testing.T) {
+		origFVSEnabled := IsVsanFileVolumeServiceEnabled
+		IsVsanFileVolumeServiceEnabled = true
+		defer func() { IsVsanFileVolumeServiceEnabled = origFVSEnabled }()
+
+		supervisorClient := testclient.NewClientset()
+		makeSupervisorPVC(supervisorClient, common.StorageClassVsanFileServicePolicy)
+		cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   cnsOperatorClient,
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.NoError(t, err)
+		assert.True(t, isFileVolume)
+	})
+
+	t.Run("CnsFileAccessConfig CR exists for this node/volume is a file volume", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		makeSupervisorPVC(supervisorClient, "")
+		cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).WithObjects(
+			&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      mockNodeID + "-" + mockVolumeID,
+					Namespace: mockSupervisorNamespace,
+				},
+			},
+		).Build()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   cnsOperatorClient,
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.NoError(t, err)
+		assert.True(t, isFileVolume)
+	})
+
+	t.Run("no CnsFileAccessConfig CR and non-FVS PVC is a block volume", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		makeSupervisorPVC(supervisorClient, "")
+		cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   cnsOperatorClient,
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.NoError(t, err)
+		assert.False(t, isFileVolume)
+	})
+
+	t.Run("mis-registered static RWX PV sharing a volumeHandle with the real RWO PV "+
+		"is still a block volume when no CnsFileAccessConfig CR exists for this attachment", func(t *testing.T) {
+		// Regression test: the underlying Supervisor PVC/CNS volume is block, and no
+		// CnsFileAccessConfig CR was ever created for this (node, volume) pair (e.g. attach
+		// never reached the file-volume publish path), so unpublish must take the block path
+		// regardless of what access mode any guest PV/PVC referencing this volumeHandle has.
+		supervisorClient := testclient.NewClientset()
+		makeSupervisorPVC(supervisorClient, "")
+		cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   cnsOperatorClient,
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.NoError(t, err)
+		assert.False(t, isFileVolume)
+	})
+
+	t.Run("supervisor PVC not found returns an error", func(t *testing.T) {
+		c := &controller{
+			supervisorClient:    testclient.NewClientset(),
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build(),
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.Error(t, err)
+		assert.False(t, isFileVolume)
+		assert.Contains(t, err.Error(), "failed to retrieve supervisor PVC")
+	})
+
+	t.Run("CnsFileAccessConfig Get API failure returns an error", func(t *testing.T) {
+		supervisorClient := testclient.NewClientset()
+		makeSupervisorPVC(supervisorClient, "")
+		cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build()
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   errorInjectingClient{Client: cnsOperatorClient},
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.Error(t, err)
+		assert.False(t, isFileVolume)
+		assert.Contains(t, err.Error(), "failed to get CnsFileAccessConfig instance")
+	})
+}
+
+// errorInjectingClient wraps a controller-runtime client and forces every Get call to fail
+// with a non-NotFound error, used to exercise isFileVolumeAttachment's generic error path.
+type errorInjectingClient struct {
+	ctrlclient.Client
+}
+
+func (errorInjectingClient) Get(ctx context.Context, key ctrlclient.ObjectKey, obj ctrlclient.Object,
+	opts ...ctrlclient.GetOption) error {
+	return errors.NewInternalError(assert.AnError)
 }
 
 // TestWaitForSupervisorPVCModifyVolume tests the waitForSupervisorPVCModifyVolume helper function
