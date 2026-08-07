@@ -2698,6 +2698,23 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 	return nil
 }
 
+// vcConfigChanged reports whether newVCConfig differs from currentHost/
+// oldVCConfig in a way that requires reconnecting to vCenter with new
+// credentials, or whether the caller has already decided a reconnect is
+// required regardless (forceReconnect). Split out from ReloadConfiguration so
+// this comparison can be tested without the surrounding function's much
+// larger surface (VC connection, singleton reset, and process exit on
+// unrecoverable errors).
+func vcConfigChanged(currentHost string, oldVCConfig *cnsconfig.VirtualCenterConfig,
+	newVCConfig *cnsvsphere.VirtualCenterConfig, forceReconnect bool) bool {
+	return currentHost != newVCConfig.Host ||
+		oldVCConfig.User != newVCConfig.Username ||
+		oldVCConfig.Password != newVCConfig.Password ||
+		oldVCConfig.VCSessionManagerURL != newVCConfig.VCSessionManagerURL ||
+		oldVCConfig.VCSessionManagerToken != newVCConfig.VCSessionManagerToken ||
+		forceReconnect
+}
+
 // ReloadConfiguration reloads configuration from the secret, and update
 // controller's cached configs. The function takes metadatasyncerInformer and
 // reconnectToVCFromNewConfig as parameters. If reconnectToVCFromNewConfig
@@ -2792,10 +2809,8 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			newVCConfig.ReloadVCConfigForNewClient = true
-			if metadataSyncer.host != newVCConfig.Host ||
-				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User != newVCConfig.Username ||
-				metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].Password != newVCConfig.Password ||
-				reconnectToVCFromNewConfig {
+			vcConfig := metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host]
+			if vcConfigChanged(metadataSyncer.host, vcConfig, newVCConfig, reconnectToVCFromNewConfig) {
 				// Verify if new configuration has valid credentials by connecting
 				// to vCenter. Proceed only if the connection succeeds, else return
 				// error.
