@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -130,6 +131,12 @@ func waitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 				if apierrors.IsNotFound(err) {
 					framework.Logf("VolumeSnapshotContent: %s is deleted", name)
 					return true, nil
+				} else if errors.Is(err, context.DeadlineExceeded) {
+					// transient client-side throttling/rate-limiter timeout, retry within
+					// the overall poll timeout instead of failing the test immediately
+					framework.Logf("transient error fetching volumesnapshotcontent %s details, "+
+						"retrying: %v", name, err)
+					return false, nil
 				} else {
 					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
 				}
@@ -192,6 +199,12 @@ func waitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 					ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
 					time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 					return true, nil
+				} else if errors.Is(err, context.DeadlineExceeded) {
+					// transient client-side throttling/rate-limiter timeout, retry within
+					// the overall poll timeout instead of failing the test immediately
+					framework.Logf("transient error fetching volumesnapshotcontent %s details, "+
+						"retrying: %v", name, err)
+					return false, nil
 				} else {
 					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
 				}
@@ -738,8 +751,18 @@ func verifyVolumeRestoreOperation(ctx context.Context, client clientset.Interfac
 			cmd = []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
 				"cat ", filePathPod1}
 		}
-		output := e2ekubectl.RunKubectlOrDie(namespace, cmd...)
-		gomega.Expect(strings.Contains(output, "Hello message from Pod1")).NotTo(gomega.BeFalse())
+		// The pod's container is marked Running as soon as its entrypoint process starts,
+		// which can race ahead of the entrypoint's own "echo ... > Pod1.html" write completing,
+		// especially on higher-latency datastores (e.g. VVOL, VMFS, NFS, VSAN2). Poll briefly
+		// instead of a single immediate read to tolerate that startup race.
+		var output string
+		waitErr := wait.PollUntilContextTimeout(ctx, poll, pollTimeoutShort, true,
+			func(ctx context.Context) (bool, error) {
+				output = e2ekubectl.RunKubectlOrDie(namespace, cmd...)
+				return strings.Contains(output, "Hello message from Pod1"), nil
+			})
+		gomega.Expect(waitErr).NotTo(gomega.HaveOccurred(),
+			fmt.Sprintf("file content mismatch, expected \"Hello message from Pod1\" got: %q", output))
 
 		var wrtiecmd []string
 		if windowsEnv {
