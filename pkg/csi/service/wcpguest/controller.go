@@ -1024,6 +1024,18 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			},
 		}
 		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+		// Adding the volume to VirtualMachine.Spec.Volumes records the attach as
+		// desired state, which vm-operator keeps reconciling until it succeeds -
+		// including after this RPC has given up and reported failure. Confirm the
+		// attach is still requested before writing it, so that a request which
+		// became stale while we were retrying cannot leave the volume attached
+		// with no VolumeAttachment left to drive its detach.
+		if !c.isAttachStillRequested(ctx, req.VolumeId, req.NodeId) {
+			msg := fmt.Sprintf("attach of volume %q to node %q is no longer requested, "+
+				"not adding it to virtualmachine %q spec", req.VolumeId, req.NodeId, virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
+		}
 		// Issue a patch with the modified VM against the patch created above.
 		if err := utils.PatchVirtualMachine(ctx, c.vmOperatorClient, virtualMachine, oldVirtualMachine); err == nil {
 			break
@@ -1031,9 +1043,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
 		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			msg := fmt.Sprintf("timed out after %d minute(s) trying to add volume %q to virtualmachine %q spec",
+				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
 			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
@@ -1065,11 +1078,14 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			// blocking wait for update event
 			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
 			event := <-watchVirtualMachine.ResultChan()
+			if event.Type == watch.Error {
+				faultType, err := vmWatchErrorEventError(ctx, "attach", virtualMachine.Name, event.Object)
+				return nil, faultType, err
+			}
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				faultType, err := vmWatchClosedError(ctx, "attach", virtualMachine.Name)
+				return nil, faultType, err
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
@@ -1396,9 +1412,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
 		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			msg := fmt.Sprintf("timed out after %d minute(s) trying to remove volume %q from virtualmachine %q spec",
+				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
 			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
@@ -1437,11 +1454,14 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
 			// Block on update events
 			event := <-watchVirtualMachine.ResultChan()
+			if event.Type == watch.Error {
+				faultType, err := vmWatchErrorEventError(ctx, "detach", virtualMachine.Name, event.Object)
+				return nil, faultType, err
+			}
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				faultType, err := vmWatchClosedError(ctx, "detach", virtualMachine.Name)
+				return nil, faultType, err
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",

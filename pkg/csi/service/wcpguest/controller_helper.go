@@ -18,6 +18,7 @@ package wcpguest
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,15 +31,20 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snap "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
 const (
@@ -585,6 +591,79 @@ func getModifyVolumeTimeoutInMin(ctx context.Context) int {
 		}
 	}
 	return modifyVolumeTimeoutInMin
+}
+
+// vmWatchErrorEventError reports a watch.Error event, which carries a
+// *metav1.Status explaining why the watch itself failed (e.g. an expired
+// resourceVersion). Uses codes.Unavailable, not Internal: the attach/detach
+// may still be in progress via VirtualMachine.Spec.Volumes, so sidecars must
+// keep retrying rather than treat this as final.
+func vmWatchErrorEventError(ctx context.Context, operation string, vmName string, obj runtime.Object) (string, error) {
+	log := logger.GetLogger(ctx)
+	msg := fmt.Sprintf("watch on virtualmachine %q failed while waiting for volume %s to complete", vmName, operation)
+	if watchStatus, ok := obj.(*metav1.Status); ok {
+		msg = fmt.Sprintf("%s: %s", msg, watchStatus.Message)
+	}
+	msg += ". The operation may still be in progress."
+	log.Error(msg)
+	return csifault.CSIInternalFault, status.Error(codes.Unavailable, msg)
+}
+
+// vmWatchClosedError reports the VirtualMachine watch closing (context done or
+// watch timeout) without observing the expected state. Uses codes.Canceled or
+// codes.DeadlineExceeded, not Internal: the volume may still be reconciling via
+// VirtualMachine.Spec.Volumes, so sidecars must keep retrying rather than treat
+// this as final.
+func vmWatchClosedError(ctx context.Context, operation string, vmName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	code := codes.DeadlineExceeded
+	var msg string
+	switch ctx.Err() {
+	case context.Canceled:
+		code = codes.Canceled
+		msg = fmt.Sprintf("watch on virtualmachine %q was cancelled while waiting for volume %s to complete. "+
+			"The operation may still be in progress.", vmName, operation)
+	case context.DeadlineExceeded:
+		msg = fmt.Sprintf("context deadline exceeded while watching virtualmachine %q for volume %s to complete. "+
+			"The operation may still be in progress.", vmName, operation)
+	default:
+		msg = fmt.Sprintf("watch on virtualmachine %q timed out after %d minute(s) waiting for volume %s to "+
+			"complete. The operation may still be in progress.", vmName, getAttacherTimeoutInMin(ctx), operation)
+	}
+	log.Error(msg)
+	return csifault.CSIInternalFault, status.Error(code, msg)
+}
+
+// volumeAttachmentName returns the name of the VolumeAttachment object that the
+// Kubernetes attach/detach controller creates for the given volume handle, CSI
+// driver and node. The name is a deterministic hash of those three values,
+// mirroring getAttachmentName() in k8s.io/kubernetes/pkg/volume/csi, which lets
+// callers look the object up directly instead of listing every VolumeAttachment
+// in the cluster.
+func volumeAttachmentName(volumeHandle, driverName, nodeName string) string {
+	return fmt.Sprintf("csi-%x", sha256.Sum256([]byte(volumeHandle+driverName+nodeName)))
+}
+
+// isAttachStillRequested checks the VolumeAttachment still exists before we add
+// the volume to VirtualMachine.Spec.Volumes. That's desired state vm-operator
+// keeps reconciling regardless of this RPC's outcome, so writing it after the
+// VolumeAttachment is gone would strand the volume attached with nothing left
+// to detach it. Fails open: only a definitive NotFound blocks the attach, so a
+// transient API error or missing RBAC rule doesn't fail a legitimate request.
+func (c *controller) isAttachStillRequested(ctx context.Context, volumeHandle, nodeName string) bool {
+	log := logger.GetLogger(ctx)
+	vaName := volumeAttachmentName(volumeHandle, csitypes.Name, nodeName)
+	if _, err := c.guestClient.StorageV1().VolumeAttachments().Get(
+		ctx, vaName, metav1.GetOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("VolumeAttachment %q for volume %q on node %q no longer exists, "+
+				"attach is no longer requested", vaName, volumeHandle, nodeName)
+			return false
+		}
+		log.Warnf("failed to get VolumeAttachment %q for volume %q on node %q, proceeding with attach. Error: %v",
+			vaName, volumeHandle, nodeName, err)
+	}
+	return true
 }
 
 func constructListSnapshotEntry(vs snap.VolumeSnapshot) *csi.ListSnapshotsResponse_Entry {
