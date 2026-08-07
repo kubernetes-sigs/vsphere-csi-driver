@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/k8sorchestrator"
@@ -429,7 +428,50 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	return admission.PatchResponseFromRaw(req.Object.Raw, newRawCnsFileAccessConfig)
 }
 
+// pvcTopologyZones parses a csi.vsphere.volume-*-topology annotation value into the
+// set of "topology.kubernetes.io/zone" segments it contains. The annotation value is a
+// JSON array of topology segments, e.g. [{"topology.kubernetes.io/zone":"az1"}].
+func pvcTopologyZones(topologyAnnotation string) (map[string]bool, error) {
+	var segments []map[string]string
+	if err := json.Unmarshal([]byte(topologyAnnotation), &segments); err != nil {
+		return nil, err
+	}
+	zones := make(map[string]bool)
+	for _, seg := range segments {
+		if zone := seg[corev1.LabelTopologyZone]; zone != "" {
+			zones[zone] = true
+		}
+	}
+	return zones, nil
+}
+
+// isTopologyZoneSubset returns true if every zone in requestedTopology is also present
+// in accessibleTopology, i.e. the PVC can only be scheduled somewhere the accessible
+// PVC's volume can actually be reached from. Returns false if requestedTopology has no
+// zones at all, since a request with no zones cannot be a meaningful subset.
+func isTopologyZoneSubset(requestedTopology, accessibleTopology string) (bool, error) {
+	requestedZones, err := pvcTopologyZones(requestedTopology)
+	if err != nil {
+		return false, err
+	}
+	accessibleZones, err := pvcTopologyZones(accessibleTopology)
+	if err != nil {
+		return false, err
+	}
+	if len(requestedZones) == 0 {
+		return false, nil
+	}
+	for zone := range requestedZones {
+		if !accessibleZones[zone] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
+	log := logger.GetLogger(ctx)
+
 	newPVC := &corev1.PersistentVolumeClaim{}
 	if err := json.Unmarshal(req.Object.Raw, newPVC); err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
@@ -445,9 +487,18 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 		}
 	}
 
-	if featureIsLinkedCloneSupportEnabled &&
+	isLinkedCloneReq := featureIsLinkedCloneSupportEnabled &&
 		v1.HasAnnotation(newPVC.ObjectMeta, common.AnnKeyLinkedClone) &&
-		newPVC.Annotations[common.AnnKeyLinkedClone] == "true" {
+		newPVC.Annotations[common.AnnKeyLinkedClone] == "true"
+
+	// Retrieve the datasource. This is a pure in-memory computation on the PVC spec
+	// (no API calls), so it is safe/cheap to do for every PVC, not just linked clones.
+	dataSource, err := k8sorchestrator.GetPVCDataSource(ctx, newPVC)
+	if err != nil {
+		return admission.Denied("failed to retrieve the PVC data source. err:" + err.Error())
+	}
+
+	if isLinkedCloneReq {
 		// Set the same label
 		if newPVC.Labels == nil {
 			newPVC.Labels = make(map[string]string)
@@ -456,49 +507,71 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 			newPVC.Labels[common.LinkedClonePVCLabel] = newPVC.Annotations[common.AnnKeyLinkedClone]
 			wasMutated = true
 		}
-		// Retrieve the datasource
-		dataSource, err := k8sorchestrator.GetPVCDataSource(ctx, newPVC)
-		if err != nil {
-			return admission.Denied("failed to retrieve the linked clone source " +
-				"volumesnapshot. err:" + err.Error())
-		}
+	}
+
+	// Propagate the source snapshot's accessible topology onto this PVC's requested
+	// topology whenever restoring from a VolumeSnapshot, not just for linked clones. This
+	// lets vm-operator (via csi.vsphere.volume-requested-topology) constrain the consuming
+	// VM's placement to a zone where the snapshot's data is actually reachable, instead of
+	// only discovering the mismatch when CreateVolume later fails against CNS.
+	if dataSource != nil && dataSource.Kind == "VolumeSnapshot" {
 		volumeSnapshotNamespace, volumeSnapshotName := dataSource.Namespace, dataSource.Name
 		// Retrieve the source PVC
 		sourcePVC, err := h.coCommonInterface.GetVolumeSnapshotPVCSource(ctx, volumeSnapshotNamespace,
 			volumeSnapshotName)
 		if err != nil {
-			return admission.Denied("failed to retrieve the linked clone source PVC. err:" + err.Error())
-		}
-		sourcePVCAccessibility, ok := sourcePVC.Annotations[common.AnnVolumeAccessibleTopology]
-		if !ok {
-			errMsg := fmt.Sprintf("source PVC %s/%s does not have volume accessiblity annotation %s"+
-				" set, cannot determine accessibility requrirement for linked clone PVC %s/%s",
-				sourcePVC.Namespace, sourcePVC.Name, common.AnnVolumeAccessibleTopology,
-				newPVC.Namespace, newPVC.Name)
-			return admission.Denied(errMsg)
-		}
-		// Case-1: If the linked clone PVC has "csi.vsphere.volume-requested-topology" annotation:
-		// - Determine the source PVC accessibility from "csi.vsphere.volume-accessible-topology" annotation
-		// - Validate that it is same the linked clone PVC requested topology, fail the request if not.
-		// Case-2: If the linked clone PVC does NOT have "csi.vsphere.volume-requested-topology" annotation:
-		// - Determine the source PVC accessibility from "csi.vsphere.volume-accessible-topology" annotation
-		// - Add it as the "csi.vsphere.volume-requested-topology" annotation on the linked clone PVC
-		hasTopologyRequirement := v1.HasAnnotation(newPVC.ObjectMeta, common.AnnGuestClusterRequestedTopology)
-		if hasTopologyRequirement {
-			// determined the source accessibility requirement
-			newPVCAccessibility := newPVC.Annotations[common.AnnGuestClusterRequestedTopology]
-			if strings.Compare(newPVCAccessibility, sourcePVCAccessibility) != 0 {
-				// accessibility requirement mismatch, deny the request and suggest the correct annotation
-				errMsg := fmt.Sprintf("expected accessibility requirement: %s but got %s, "+
-					"linked clone volumes must have the same accessibility as the source volume, if unset, it "+
-					"will be automatically chosen", sourcePVCAccessibility, newPVCAccessibility)
+			if isLinkedCloneReq {
+				return admission.Denied("failed to retrieve the linked clone source PVC. err:" + err.Error())
+			}
+			// Best-effort for a plain restore: if the source PVC can't be resolved, skip
+			// propagating the topology hint rather than blocking the request.
+			log.Warnf("failed to retrieve source PVC for volumesnapshot %s/%s, skipping requested-topology "+
+				"propagation for PVC %s/%s. err: %v", volumeSnapshotNamespace, volumeSnapshotName,
+				newPVC.Namespace, newPVC.Name, err)
+		} else if sourcePVCAccessibility, ok := sourcePVC.Annotations[common.AnnVolumeAccessibleTopology]; !ok {
+			if isLinkedCloneReq {
+				errMsg := fmt.Sprintf("source PVC %s/%s does not have volume accessiblity annotation %s"+
+					" set, cannot determine accessibility requrirement for linked clone PVC %s/%s",
+					sourcePVC.Namespace, sourcePVC.Name, common.AnnVolumeAccessibleTopology,
+					newPVC.Namespace, newPVC.Name)
 				return admission.Denied(errMsg)
 			}
+			// Best-effort for a plain restore: no accessibility info available to propagate.
 		} else {
-			// If not present, set it as the same as the source PVC
-			newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = sourcePVCAccessibility
-			wasMutated = true
+			// Case-1: If the PVC has "csi.vsphere.volume-requested-topology" annotation:
+			// - Validate that its zones are a subset of the source PVC's accessible zones,
+			//   fail the request if not.
+			// Case-2: If the PVC does NOT have "csi.vsphere.volume-requested-topology" annotation:
+			// - Add the source PVC's accessible topology as-is, so the consuming VM can only
+			//   be placed where the snapshot's data is reachable.
+			hasTopologyRequirement := v1.HasAnnotation(newPVC.ObjectMeta, common.AnnGuestClusterRequestedTopology)
+			if hasTopologyRequirement {
+				newPVCAccessibility := newPVC.Annotations[common.AnnGuestClusterRequestedTopology]
+				isSubset, err := isTopologyZoneSubset(newPVCAccessibility, sourcePVCAccessibility)
+				if err != nil {
+					return admission.Denied("failed to parse topology annotations. err:" + err.Error())
+				}
+				if !isSubset {
+					// accessibility requirement mismatch, deny the request and suggest the correct annotation
+					errMsg := fmt.Sprintf("expected accessibility requirement to be a subset of: %s but got %s, "+
+						"volumes restored from a snapshot must request a zone where the source snapshot is "+
+						"accessible, if unset, it will be automatically chosen", sourcePVCAccessibility,
+						newPVCAccessibility)
+					return admission.Denied(errMsg)
+				}
+			} else {
+				// If not present, set it as the same as the source PVC
+				if newPVC.Annotations == nil {
+					newPVC.Annotations = make(map[string]string)
+				}
+				newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = sourcePVCAccessibility
+				wasMutated = true
+			}
 		}
+	} else if isLinkedCloneReq {
+		return admission.Denied(fmt.Sprintf(
+			"linked clone PVC %s/%s does not have a volumesnapshot data source",
+			newPVC.Namespace, newPVC.Name))
 	}
 
 	if !wasMutated {

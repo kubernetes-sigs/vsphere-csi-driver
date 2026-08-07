@@ -909,6 +909,11 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 						}
 						log.Infof("vSphere clusters: %v for the namespace %q accessible to snapshot: %q", vSphereClusterMorefs,
 							pvcNamespace, req.GetVolumeContentSource().GetSnapshot().GetSnapshotId())
+						if len(vSphereClusterMorefs) == 0 {
+							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+								"no vSphere cluster in zone(s) %v for namespace %q can access the datastore "+
+									"backing snapshot %q", zones, pvcNamespace, snapshotID)
+						}
 					}
 				} else {
 					vSphereClusterMorefs, err = commonco.ContainerOrchestratorUtility.
@@ -918,6 +923,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 							"failed to find active clusters for the namespace: %q, err :%v", pvcNamespace, err)
 					}
 					log.Infof("Active vSphere clusters: %v for the namespace: %q", vSphereClusterMorefs, pvcNamespace)
+					if len(vSphereClusterMorefs) == 0 {
+						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+							"no active vSphere cluster found in zone(s) %v for namespace %q", zones, pvcNamespace)
+					}
 				}
 			}
 		} else if hostnameLabelPresent {
