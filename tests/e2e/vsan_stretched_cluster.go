@@ -695,7 +695,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			scParameters["StoragePolicyName"] = storagePolicyName
 			storageClassName = "nginx-sc-default"
 			if os.Getenv(envFullSyncWaitTime) != "" {
-				fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+				fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 				framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {
@@ -1434,7 +1434,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 		defer cancel()
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
@@ -2873,7 +2873,7 @@ var _ = ginkgo.Describe("[vsan-stretch-vanilla] vsan stretched cluster tests", f
 			storageClassName = "nginx-sc-default"
 			var pvclaims []*v1.PersistentVolumeClaim
 			if os.Getenv(envFullSyncWaitTime) != "" {
-				fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+				fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 				framework.Logf("Full-Sync interval time value is = %v", fullSyncWaitTime)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			} else {

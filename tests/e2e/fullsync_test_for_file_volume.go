@@ -72,7 +72,7 @@ var _ bool = ginkgo.Describe("[csi-file-vanilla] Full sync test for file volume"
 		}
 		bootstrap()
 		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
 				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)

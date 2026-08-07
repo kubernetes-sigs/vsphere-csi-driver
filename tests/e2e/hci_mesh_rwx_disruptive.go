@@ -2068,7 +2068,7 @@ var _ = ginkgo.Describe("[rwx-hci-singlevc-disruptive] RWX-Topology-HciMesh-Sing
 		createDepItr := 1
 
 		if os.Getenv(envFullSyncWaitTime) != "" {
-			fullSyncWaitTime, err := strconv.Atoi(os.Getenv(envFullSyncWaitTime))
+			fullSyncWaitTime, err = strconv.Atoi(os.Getenv(envFullSyncWaitTime))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			if fullSyncWaitTime <= 0 || fullSyncWaitTime > defaultFullSyncWaitTime {
 				framework.Failf("The FullSync Wait time %v is not set correctly", fullSyncWaitTime)
