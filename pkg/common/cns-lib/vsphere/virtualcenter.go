@@ -26,6 +26,7 @@ import (
 	neturl "net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -511,19 +512,42 @@ func (vc *VirtualCenter) ListDatacenters(ctx context.Context) (
 	return dcs, nil
 }
 
-// getDatacenters returns Datacenter instances given their paths.
+// getDatacenters returns Datacenter instances given their paths or MoRef values.
+// Entries starting with "/" are treated as inventory paths (e.g. "/DC1").
+// Entries not starting with "/" are treated as MoRef values (e.g. "datacenter-3"),
+// which are resilient to datacenter renames.
 func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 	[]*Datacenter, error) {
 	log := logger.GetLogger(ctx)
 	finder := find.NewFinder(vc.Client.Client, false)
 	var dcs []*Datacenter
 	for _, dcPath := range dcPaths {
-		dcObj, err := finder.Datacenter(ctx, dcPath)
-		if err != nil {
-			log.Errorf("failed to fetch datacenter given dcPath %s with err: %v", dcPath, err)
-			return nil, err
+		var dc *Datacenter
+		if strings.HasPrefix(dcPath, "/") {
+			// Inventory path lookup.
+			dcObj, err := finder.Datacenter(ctx, dcPath)
+			if err != nil {
+				log.Errorf("failed to fetch datacenter given dcPath %s with err: %v", dcPath, err)
+				return nil, err
+			}
+			dc = &Datacenter{Datacenter: dcObj, VirtualCenterHost: vc.Config.Host}
+		} else {
+			// MoRef-based lookup: rename-resilient since MoRefs are stable identifiers.
+			moref := types.ManagedObjectReference{Type: "Datacenter", Value: dcPath}
+			var dcMo mo.Datacenter
+			if err := vc.Client.RetrieveOne(ctx, moref, []string{"name"}, &dcMo); err != nil {
+				log.Errorf("failed to fetch datacenter given MoRef %s with err: %v", dcPath, err)
+				return nil, err
+			}
+			dcObj := object.NewDatacenter(vc.Client.Client, moref)
+			// InventoryPath is not resolved by a MoRef lookup; set it to the datacenter name
+			// so log messages remain meaningful.
+			dcObj.InventoryPath = dcMo.Name
+			dc = &Datacenter{
+				Datacenter:        dcObj,
+				VirtualCenterHost: vc.Config.Host,
+			}
 		}
-		dc := &Datacenter{Datacenter: dcObj, VirtualCenterHost: vc.Config.Host}
 		dcs = append(dcs, dc)
 	}
 	return dcs, nil

@@ -207,7 +207,10 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
 		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
-			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+			entry := strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+			// Strip the "Datacenter:" type prefix to normalise MoRef entries
+			// (e.g. "Datacenter:datacenter-3" → "datacenter-3").
+			vcConfig.DatacenterPaths[idx] = strings.TrimPrefix(entry, "Datacenter:")
 		}
 	}
 
@@ -258,7 +261,10 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
 			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
 			for idx := range vcConfig.DatacenterPaths {
-				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+				entry := strings.TrimSpace(vcConfig.DatacenterPaths[idx])
+				// Strip the "Datacenter:" type prefix to normalise MoRef entries
+				// (e.g. "Datacenter:datacenter-3" → "datacenter-3").
+				vcConfig.DatacenterPaths[idx] = strings.TrimPrefix(entry, "Datacenter:")
 			}
 		}
 		VirtualCenterConfigs = append(VirtualCenterConfigs, vcConfig)
