@@ -240,28 +240,61 @@ func PbmSimplifyProfileContent(ctx context.Context, profiles []pbmtypes.BasePbmP
 }
 
 const (
-	// hostLocalStorageNamespace and hostLocalStorageCapabilityID identify the SPBM capability
-	// that marks a storage policy as host-local storage. This mirrors the check used by the WCP
-	// control plane; the hostlocalstorage namespace defines exactly one capability
-	// (hostLocalStorage) and it carries no constraint/property instances, so it must be matched
-	// directly against the capability id rather than via PbmRetrieveContent/SpbmPolicyContent,
-	// which only emits a rule per PropertyInstance and would silently drop a property-less
-	// capability like this one. This does NOT match vSAN Direct or vSAN locality/SNA policies.
-	hostLocalStorageNamespace    = "com.vmware.storage.hostlocalstorage"
-	hostLocalStorageCapabilityID = "hostLocalStorage"
+	volumeAllocationNamespace = "com.vmware.storage.volumeallocation"
+	// storageLocalityID is both the capability id and the property id in this schema.
+	storageLocalityID        = "StorageLocality"
+	storageLocalityHostLocal = "HostLocalStorage"
 )
 
-// IsHostLocalStorageCapabilityPolicy reports whether the SPBM capability subprofile constraints
-// contain the com.vmware.storage.hostlocalstorage/hostLocalStorage capability.
+// IsHostLocalStorageCapabilityPolicy returns true if the policy contains the
+// com.vmware.storage.volumeallocation/StorageLocality SPBM capability with its property value set
+// to HostLocalStorage. The StorageLocality capability also allows the value None (its default),
+// which means no locality preference must NOT be treated as host-local.
+// This function does NOT match vSAN Direct or vSAN locality/SNA policies.
 func IsHostLocalStorageCapabilityPolicy(subprofiles *pbmtypes.PbmCapabilitySubProfileConstraints) bool {
 	if subprofiles == nil {
 		return false
 	}
 	for _, subprofile := range subprofiles.SubProfiles {
 		for _, capIns := range subprofile.Capability {
-			if capIns.Id.Namespace == hostLocalStorageNamespace && capIns.Id.Id == hostLocalStorageCapabilityID {
-				return true
+			if capIns.Id.Namespace != volumeAllocationNamespace || capIns.Id.Id != storageLocalityID {
+				continue
 			}
+			for _, constraint := range capIns.Constraint {
+				for _, propInstance := range constraint.PropertyInstance {
+					if propInstance.Id == storageLocalityID && storageLocalityValueIsHostLocal(propInstance.Value) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// storageLocalityValueIsHostLocal reports whether an SPBM property instance value denotes
+// HostLocalStorage. SPBM may encode a discrete-set-constrained string property either as a
+// scalar or wrapped in a PbmCapabilityDiscreteSet.
+func storageLocalityValueIsHostLocal(value vimtypes.AnyType) bool {
+	switch v := value.(type) {
+	case string:
+		return v == storageLocalityHostLocal
+	case pbmtypes.PbmCapabilityDiscreteSet:
+		return discreteSetHasHostLocal(&v)
+	case *pbmtypes.PbmCapabilityDiscreteSet:
+		return discreteSetHasHostLocal(v)
+	}
+	return false
+}
+
+// discreteSetHasHostLocal reports whether any member of the set equals HostLocalStorage.
+func discreteSetHasHostLocal(set *pbmtypes.PbmCapabilityDiscreteSet) bool {
+	if set == nil {
+		return false
+	}
+	for _, member := range set.Values {
+		if s, ok := member.(string); ok && s == storageLocalityHostLocal {
+			return true
 		}
 	}
 	return false

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -604,13 +605,48 @@ func TestPbmQueryMatchingHub_LoggingBehavior(t *testing.T) {
 	})
 }
 
-func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
-	hostLocalCapability := pbmtypes.PbmCapabilityInstance{
-		Id: pbmtypes.PbmCapabilityMetadataUniqueId{
-			Namespace: "com.vmware.storage.hostlocalstorage",
-			Id:        "hostLocalStorage",
+// capability builds a capability instance in the given namespace, carrying a single property
+// instance with the given id and value. A nil value means the capability carries no
+// constraint/property instances at all.
+func capability(namespace, capID, propID string, value vimtypes.AnyType) pbmtypes.PbmCapabilityInstance {
+	capIns := pbmtypes.PbmCapabilityInstance{
+		Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: namespace, Id: capID},
+	}
+	if value != nil {
+		capIns.Constraint = []pbmtypes.PbmCapabilityConstraintInstance{
+			{PropertyInstance: []pbmtypes.PbmCapabilityPropertyInstance{{Id: propID, Value: value}}},
+		}
+	}
+	return capIns
+}
+
+// The SPBM schema strings are spelled out literally here rather than reused from the constants in
+// pbm.go: these are the identifiers vCenter sends, so a test built from the constants would only
+// prove the matcher is self-consistent and would still pass if a constant held the wrong value.
+const (
+	testVolumeAllocationNs   = "com.vmware.storage.volumeallocation"
+	testStorageLocalityID    = "StorageLocality"
+	testHostLocalStorage     = "HostLocalStorage"
+	testStorageLocalityNone  = "None"
+	testVolumeAllocationType = "VolumeAllocationType"
+)
+
+// storageLocalitySubProfiles wraps a single StorageLocality capability with the given property
+// value into subprofile constraints, mirroring what SPBM returns for such a policy.
+func storageLocalitySubProfiles(value vimtypes.AnyType) *pbmtypes.PbmCapabilitySubProfileConstraints {
+	return &pbmtypes.PbmCapabilitySubProfileConstraints{
+		SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+			{Capability: []pbmtypes.PbmCapabilityInstance{
+				capability(testVolumeAllocationNs, testStorageLocalityID, testStorageLocalityID, value),
+			}},
 		},
 	}
+}
+
+func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
+	hostLocalCapability := capability(testVolumeAllocationNs, testStorageLocalityID,
+		testStorageLocalityID, testHostLocalStorage)
+	vsanCapability := capability("VSAN", "hostFailuresToTolerate", "hostFailuresToTolerate", int32(1))
 
 	tests := []struct {
 		name        string
@@ -618,7 +654,7 @@ func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
 		want        bool
 	}{
 		{
-			name: "hostLocalStorage capability present",
+			name: "StorageLocality set to HostLocalStorage",
 			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
 				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
 					{Capability: []pbmtypes.PbmCapabilityInstance{hostLocalCapability}},
@@ -627,23 +663,49 @@ func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "hostLocalStorage capability alongside other capabilities",
+			name: "HostLocalStorage alongside other capabilities",
 			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
 				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
-					{Capability: []pbmtypes.PbmCapabilityInstance{
-						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "hostFailuresToTolerate"}},
-						hostLocalCapability,
-					}},
+					{Capability: []pbmtypes.PbmCapabilityInstance{vsanCapability, hostLocalCapability}},
 				},
 			},
 			want: true,
 		},
 		{
-			name: "no hostLocalStorage capability",
+			name:        "StorageLocality set to None (default, no locality preference)",
+			subprofiles: storageLocalitySubProfiles(testStorageLocalityNone),
+			want:        false,
+		},
+		{
+			name: "HostLocalStorage wrapped in a discrete set",
+			subprofiles: storageLocalitySubProfiles(pbmtypes.PbmCapabilityDiscreteSet{
+				Values: []vimtypes.AnyType{testHostLocalStorage},
+			}),
+			want: true,
+		},
+		{
+			name:        "StorageLocality capability with no property instances",
+			subprofiles: storageLocalitySubProfiles(nil),
+			want:        false,
+		},
+		{
+			name: "sibling capability in the same namespace (VolumeAllocationType)",
 			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
 				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
 					{Capability: []pbmtypes.PbmCapabilityInstance{
-						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "hostFailuresToTolerate"}},
+						capability(testVolumeAllocationNs, testVolumeAllocationType,
+							testVolumeAllocationType, "thickProvision"),
+					}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "vSAN locality capability, not host-local storage",
+			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
+				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
+					{Capability: []pbmtypes.PbmCapabilityInstance{
+						capability("VSAN", "locality", "locality", testStorageLocalityNone),
 					}},
 				},
 			},
@@ -654,22 +716,75 @@ func TestIsHostLocalStorageCapabilityPolicy(t *testing.T) {
 			subprofiles: nil,
 			want:        false,
 		},
-		{
-			name: "matching id but different namespace (vSAN locality, not host-local storage)",
-			subprofiles: &pbmtypes.PbmCapabilitySubProfileConstraints{
-				SubProfiles: []pbmtypes.PbmCapabilitySubProfile{
-					{Capability: []pbmtypes.PbmCapabilityInstance{
-						{Id: pbmtypes.PbmCapabilityMetadataUniqueId{Namespace: "VSAN", Id: "locality"}},
-					}},
-				},
-			},
-			want: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, IsHostLocalStorageCapabilityPolicy(tt.subprofiles))
+		})
+	}
+}
+
+// TestProfilesContainHostLocal feeds raw SPBM profiles, as PbmRetrieveContentRaw returns them,
+// through ProfilesContainHostLocal. This covers the two type assertions the profile walk relies
+// on: a BasePbmProfile that is not a *PbmCapabilityProfile, and a capability profile whose
+// Constraints are not subprofile constraints. Both must be skipped rather than reported as
+// host-local.
+func TestProfilesContainHostLocal(t *testing.T) {
+	// storageLocalityProfile builds the profile SPBM returns for a policy carrying the
+	// StorageLocality capability with the given property value.
+	storageLocalityProfile := func(value vimtypes.AnyType) *pbmtypes.PbmCapabilityProfile {
+		return &pbmtypes.PbmCapabilityProfile{
+			PbmProfile:  pbmtypes.PbmProfile{ProfileId: pbmtypes.PbmProfileId{UniqueId: "test-profile-id"}},
+			Constraints: storageLocalitySubProfiles(value),
+		}
+	}
+
+	tests := []struct {
+		name     string
+		profiles []pbmtypes.BasePbmProfile
+		want     bool
+	}{
+		{
+			name:     "host-local capability profile",
+			profiles: []pbmtypes.BasePbmProfile{storageLocalityProfile(testHostLocalStorage)},
+			want:     true,
+		},
+		{
+			name: "host-local profile is not the first in the result",
+			profiles: []pbmtypes.BasePbmProfile{
+				storageLocalityProfile(testStorageLocalityNone),
+				storageLocalityProfile(testHostLocalStorage),
+			},
+			want: true,
+		},
+		{
+			name:     "StorageLocality set to None",
+			profiles: []pbmtypes.BasePbmProfile{storageLocalityProfile(testStorageLocalityNone)},
+			want:     false,
+		},
+		{
+			name:     "profile is not a capability profile",
+			profiles: []pbmtypes.BasePbmProfile{&pbmtypes.PbmProfile{}},
+			want:     false,
+		},
+		{
+			name: "capability profile without subprofile constraints",
+			profiles: []pbmtypes.BasePbmProfile{&pbmtypes.PbmCapabilityProfile{
+				Constraints: &pbmtypes.PbmCapabilityConstraints{},
+			}},
+			want: false,
+		},
+		{
+			name:     "no profiles",
+			profiles: nil,
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ProfilesContainHostLocal(tt.profiles))
 		})
 	}
 }
