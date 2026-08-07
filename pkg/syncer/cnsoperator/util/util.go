@@ -30,7 +30,6 @@ import (
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -96,15 +95,15 @@ const (
 // provider is not set on the sole NetworkSettings object.
 var ErrNetworkSettingsUnavailable = errors.New("NetworkSettings CR is unavailable or provider is not set")
 
-// GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName.
-func GetVolumeID(ctx context.Context, client client.Client, pvcName string, namespace string) (string, error) {
+// GetVolumeID gets the volume ID from the PV that is bound to PVC by pvcName. PVC/PV are
+// read from the shared informer cache (commonco.ContainerOrchestratorUtility) rather than
+// a manager client — this is a pure read with no subsequent mutation of the returned
+// objects, so it's safe to serve from the cache. Callers must not mutate the returned
+// objects.
+func GetVolumeID(ctx context.Context, pvcName string, namespace string) (string, error) {
 	log := logger.GetLogger(ctx)
 	// Get PVC by pvcName from namespace.
-	pvc := &v1.PersistentVolumeClaim{}
-	// TODO:
-	// Enhancements to use informers instead of API server invocations is tracked here:
-	// https://github.com/kubernetes-sigs/vsphere-csi-driver/issues/599
-	err := client.Get(ctx, apitypes.NamespacedName{Name: pvcName, Namespace: namespace}, pvc)
+	pvc, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, namespace)
 	if err != nil {
 		log.Errorf("failed to get PVC with volumename: %q on namespace: %q. Err: %+v",
 			pvcName, namespace, err)
@@ -112,8 +111,7 @@ func GetVolumeID(ctx context.Context, client client.Client, pvcName string, name
 	}
 
 	// Get PV by name.
-	pv := &v1.PersistentVolume{}
-	err = client.Get(ctx, apitypes.NamespacedName{Name: pvc.Spec.VolumeName, Namespace: ""}, pv)
+	pv, err := commonco.ContainerOrchestratorUtility.GetPvObjectByName(ctx, pvc.Spec.VolumeName)
 	if err != nil {
 		log.Errorf("failed to get PV with name: %q for PVC: %q. Err: %+v",
 			pvc.Spec.VolumeName, pvcName, err)

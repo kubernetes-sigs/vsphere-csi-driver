@@ -714,6 +714,10 @@ func (m *mockCOCommonForFullSync) GetPvcObjectByName(
 	return nil, nil
 }
 
+func (m *mockCOCommonForFullSync) GetPvObjectByName(ctx context.Context, pvName string) (*v1.PersistentVolume, error) {
+	return nil, nil
+}
+
 func (m *mockCOCommonForFullSync) GetVolumeIDFromPVCName(namespace, pvcName string) (string, bool) {
 	return "", false
 }

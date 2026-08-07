@@ -145,6 +145,15 @@ func (c *FakeK8SOrchestrator) IsFakeAttachAllowed(
 
 func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 	pvcName string, namespace string) (*v1.PersistentVolumeClaim, error) {
+	// Fixtures registered via SetPVCs take priority over the magic-name fixtures below,
+	// and are matched exactly (no fallback fabricated object) so tests asserting NotFound
+	// behavior work correctly.
+	for _, pvc := range c.pvcs {
+		if pvc.Name == pvcName && pvc.Namespace == namespace {
+			return pvc, nil
+		}
+	}
+
 	if pvcName == "pvc-rwx" {
 		pvc := &v1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
@@ -281,6 +290,22 @@ func (c *FakeK8SOrchestrator) GetPvcObjectByName(ctx context.Context,
 		},
 	}
 	return pvc, nil
+}
+
+// GetPvObjectByName looks up a PV registered via SetPVs by name. Returns NotFound if no
+// matching PV was registered, mirroring a real lister miss.
+func (c *FakeK8SOrchestrator) GetPvObjectByName(ctx context.Context, pvName string) (*v1.PersistentVolume, error) {
+	for _, pv := range c.pvs {
+		if pv.Name == pvName {
+			return pv, nil
+		}
+	}
+	return nil, apierrors.NewNotFound(v1.Resource("persistentvolume"), pvName)
+}
+
+// SetPVs sets the PVs for testing, consumed by GetPvObjectByName.
+func (c *FakeK8SOrchestrator) SetPVs(pvs []*v1.PersistentVolume) {
+	c.pvs = pvs
 }
 
 // MarkFakeAttached marks the volume as fake attached.

@@ -23,6 +23,7 @@ import (
 
 	snapclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -33,6 +34,27 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
+
+// TransformStripManagedFields is a cache.TransformFunc that drops the
+// metadata.managedFields of every cached object. ManagedFields is server-side-apply
+// bookkeeping that this driver never reads; on clusters with large numbers of
+// PVs/PVCs it can account for a substantial fraction of an informer cache's heap
+// (a single PVC's managedFields commonly dwarf its spec). Stripping it at cache
+// admission time reduces the resident footprint of every informer it is attached to.
+//
+// It is safe to attach to any informer / controller-runtime cache: the returned
+// object is otherwise identical, and no code path in this driver consumes
+// managedFields. Use with SharedIndexInformer.SetTransform (client-go) or
+// cache.Options.DefaultTransform (controller-runtime).
+func TransformStripManagedFields(obj interface{}) (interface{}, error) {
+	if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		obj = d.Obj
+	}
+	if accessor, err := meta.Accessor(obj); err == nil {
+		accessor.SetManagedFields(nil)
+	}
+	return obj, nil
+}
 
 const (
 	// resyncPeriodConfigMapInformer is the time interval between each resync
@@ -141,6 +163,11 @@ func (im *InformerManager) AddPVCListener(ctx context.Context, add func(obj inte
 	log := logger.GetLogger(ctx)
 	if im.pvcInformer == nil {
 		im.pvcInformer = im.informerFactory.Core().V1().PersistentVolumeClaims().Informer()
+		// Drop managedFields before caching; this informer holds every PVC in the
+		// cluster and managedFields is never read by this driver.
+		if err := im.pvcInformer.SetTransform(TransformStripManagedFields); err != nil {
+			log.Warnf("failed to set managedFields-stripping transform on PVC informer: %v", err)
+		}
 	}
 	im.pvcSynced = im.pvcInformer.HasSynced
 
@@ -161,6 +188,11 @@ func (im *InformerManager) AddPVListener(ctx context.Context, add func(obj inter
 	log := logger.GetLogger(ctx)
 	if im.pvInformer == nil {
 		im.pvInformer = im.informerFactory.Core().V1().PersistentVolumes().Informer()
+		// Drop managedFields before caching; this informer holds every PV in the
+		// cluster and managedFields is never read by this driver.
+		if err := im.pvInformer.SetTransform(TransformStripManagedFields); err != nil {
+			log.Warnf("failed to set managedFields-stripping transform on PV informer: %v", err)
+		}
 	}
 	im.pvSynced = im.pvInformer.HasSynced
 

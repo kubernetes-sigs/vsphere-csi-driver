@@ -125,6 +125,10 @@ type COCommonInterface interface {
 	GetActiveClustersForNamespaceInRequestedZones(ctx context.Context, ns string, zones []string) ([]string, error)
 	// GetPvcObjectByName return PVC object for the given PVC name
 	GetPvcObjectByName(ctx context.Context, pvcName string, namespace string) (*v1.PersistentVolumeClaim, error)
+	// GetPvObjectByName returns the PV object for the given PV name, served from the
+	// shared PV informer cache. Callers must treat the returned object as read-only
+	// (it is a pointer into the informer's store, not a copy) — DeepCopy before mutating.
+	GetPvObjectByName(ctx context.Context, pvName string) (*v1.PersistentVolume, error)
 	HandleLateEnablementOfCapability(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor, capability,
 		gcPort, gcEndpoint string)
 	// IsDPOServiceInstalled returns whether the Data Protection Operator service is installed on the cluster.
