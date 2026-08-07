@@ -311,6 +311,18 @@ func fetchHosts(ctx context.Context, entity mo.Reference, vCenter *cnsvsphere.Vi
 			hosts = append(hosts,
 				&cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, host.Reference())})
 		}
+	case "Datastore":
+		ds := object.NewDatastore(vCenter.Client.Client, entity.Reference())
+		hostList, err := ds.AttachedHosts(ctx)
+		if err != nil {
+			return nil, logger.LogNewErrorf(log,
+				"failed to retrieve attached host from Datastore %+v. Error: %+v",
+				entity.Reference(), err)
+		}
+		for _, host := range hostList {
+			hosts = append(hosts,
+				&cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, host.Reference())})
+		}
 	case "HostSystem":
 		host := cnsvsphere.HostSystem{HostSystem: object.NewHostSystem(vCenter.Client.Client, entity.Reference())}
 		hosts = append(hosts, &host)
