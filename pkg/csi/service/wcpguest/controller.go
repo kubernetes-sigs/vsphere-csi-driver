@@ -566,14 +566,35 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					!isLinkedCloneRequest && // the cns-csi mutation webhook in supervisor will automatically set it.
 					(commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.WorkloadDomainIsolationFSS) ||
 						!isFileVolumeRequest) {
+					// Drop any host requirement that is only satisfied by control plane nodes.
+					// Workload pods are never scheduled onto control plane nodes, so a host
+					// with no worker node present can never actually run the pod that needs
+					// this volume; forwarding it to the Supervisor would pin the volume to a
+					// host it can never be attached from. Filtering it out here means the
+					// remaining (if any) worker-eligible host requirements are honored instead,
+					// without requiring every control-plane host to also have a worker node.
+					// Scoped to host-local storage (host-scoped topology) only: plain
+					// zone-scoped topology requests are unaffected and behave as before.
+					filteredPreferred := req.AccessibilityRequirements.Preferred
+					if isHostLocalStorageSupportFSSEnabled {
+						var err error
+						filteredPreferred, err = filterOutControlPlaneOnlyTopologySegments(ctx, c.guestClient,
+							req.AccessibilityRequirements.Preferred)
+						if err != nil {
+							msg := fmt.Sprintf("failed to filter control-plane-only topology segments for pvc "+
+								"with name: %s on namespace: %s. Error: %+v",
+								supervisorPVCName, c.supervisorNamespace, err)
+							return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+						}
+					}
 					// Reject the request if it carries the VKS host-scoped topology key while the
 					// host-local-storage-support FSS/capability is disabled. Silently dropping the
 					// host key here would let the volume be provisioned without honoring the
 					// topology constraint the guest scheduler required (e.g. a pod already bound to
 					// a specific node via WaitForFirstConsumer), which is worse than failing fast.
 					// Mirrors the equivalent rejection in pkg/csi/service/wcp/controller.go.
-					translatedPreferred := make([]*csi.Topology, 0, len(req.AccessibilityRequirements.Preferred))
-					for _, t := range req.AccessibilityRequirements.Preferred {
+					translatedPreferred := make([]*csi.Topology, 0, len(filteredPreferred))
+					for _, t := range filteredPreferred {
 						if _, hasHostKey := t.Segments[common.GuestClusterTopologyLabelHost]; hasHostKey &&
 							!isHostLocalStorageSupportFSSEnabled {
 							msg := fmt.Sprintf("host-local storage policy volume provisioning is not supported: "+
