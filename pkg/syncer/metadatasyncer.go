@@ -4585,7 +4585,7 @@ func volumeAttributesClassAPIAvailableFromConfig(cfg *restclient.Config) (bool, 
 			continue
 		}
 		for i := range list.APIResources {
-			if list.APIResources[i].Name == "volumeattributesclasses" {
+			if list.APIResources[i].Name == common.VolumeAttributesClassResourceName {
 				return true, nil
 			}
 		}

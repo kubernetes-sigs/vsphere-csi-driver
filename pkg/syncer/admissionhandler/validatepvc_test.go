@@ -3,6 +3,7 @@ package admissionhandler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -1141,6 +1142,243 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 					"Expected error message to contain '%s' but got: %s",
 					test.expectedMessageContain, response.Result.Message)
 			}
+		})
+	}
+}
+
+func TestValidatePVC_VACChange(t *testing.T) {
+	oldVACName := "old-vac"
+	newVACName := "new-vac"
+
+	makeVACUpdateReq := func(oldVAC, newVAC *string) *admissionv1.AdmissionRequest {
+		oldPVC := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName:          &testStorageClassName,
+				VolumeAttributesClassName: oldVAC,
+				AccessModes:               []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				VolumeMode:                &volumeMode,
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("5Gi")},
+				},
+			},
+		}
+		newPVC := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName:          &testStorageClassName,
+				VolumeAttributesClassName: newVAC,
+				AccessModes:               []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				VolumeMode:                &volumeMode,
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("5Gi")},
+				},
+			},
+		}
+		oldRaw, err := json.Marshal(oldPVC)
+		assert.NoError(t, err)
+		newRaw, err := json.Marshal(newPVC)
+		assert.NoError(t, err)
+		return &admissionv1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: admissionv1.Update,
+			OldObject: runtime.RawExtension{Raw: oldRaw},
+			Object:    runtime.RawExtension{Raw: newRaw},
+		}
+	}
+
+	tests := []struct {
+		name string
+		// blockVolumeSnapshotEnabled is set explicitly per case (rather than left to whatever
+		// other tests in this package leave the global at) so validatePVC's top-level gate -
+		// "featureGateBlockVolumeSnapshotEnabled || featureIsVACPolicyMutabilityEnabled" - is
+		// satisfied deterministically even for cases where vacPolicyMutabilityEnabled is false.
+		blockVolumeSnapshotEnabled    bool
+		vacPolicyMutabilityEnabled    bool
+		isVolumeAttributesClassServed func(ctx context.Context) (bool, error)
+		req                           *admissionv1.AdmissionRequest
+		expectedAllowed               bool
+		expectedReason                metav1.StatusReason
+	}{
+		{
+			name:                       "no VAC change is unaffected regardless of feature state",
+			blockVolumeSnapshotEnabled: true,
+			vacPolicyMutabilityEnabled: false,
+			req:                        makeVACUpdateReq(&oldVACName, &oldVACName),
+			expectedAllowed:            true,
+		},
+		{
+			name:                       "VAC change denied when VACPolicyMutability feature is disabled",
+			blockVolumeSnapshotEnabled: true,
+			vacPolicyMutabilityEnabled: false,
+			req:                        makeVACUpdateReq(&oldVACName, &newVACName),
+			expectedAllowed:            false,
+			expectedReason:             VACChangeFeatureDisabledErrorMessage,
+		},
+		{
+			name:                       "VAC change denied when VolumeAttributesClass API is not served",
+			vacPolicyMutabilityEnabled: true,
+			isVolumeAttributesClassServed: func(ctx context.Context) (bool, error) {
+				return false, nil
+			},
+			req:             makeVACUpdateReq(&oldVACName, &newVACName),
+			expectedAllowed: false,
+			expectedReason:  VACChangeAPINotServedErrorMessage,
+		},
+		{
+			name:                       "VAC change denied when API availability check errors",
+			vacPolicyMutabilityEnabled: true,
+			isVolumeAttributesClassServed: func(ctx context.Context) (bool, error) {
+				return false, errors.New("discovery unavailable")
+			},
+			req:             makeVACUpdateReq(&oldVACName, &newVACName),
+			expectedAllowed: false,
+		},
+		{
+			name:                       "VAC change allowed when feature enabled and API served",
+			vacPolicyMutabilityEnabled: true,
+			isVolumeAttributesClassServed: func(ctx context.Context) (bool, error) {
+				return true, nil
+			},
+			req:             makeVACUpdateReq(&oldVACName, &newVACName),
+			expectedAllowed: true,
+		},
+	}
+
+	origBlockVolumeSnapshotEnabled := featureGateBlockVolumeSnapshotEnabled
+	origVACPolicyMutabilityEnabled := featureIsVACPolicyMutabilityEnabled
+	origIsVolumeAttributesClassServed := isVolumeAttributesClassServed
+	defer func() {
+		featureGateBlockVolumeSnapshotEnabled = origBlockVolumeSnapshotEnabled
+		featureIsVACPolicyMutabilityEnabled = origVACPolicyMutabilityEnabled
+		isVolumeAttributesClassServed = origIsVolumeAttributesClassServed
+	}()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			featureGateBlockVolumeSnapshotEnabled = test.blockVolumeSnapshotEnabled
+			featureIsVACPolicyMutabilityEnabled = test.vacPolicyMutabilityEnabled
+			if test.isVolumeAttributesClassServed != nil {
+				isVolumeAttributesClassServed = test.isVolumeAttributesClassServed
+			} else {
+				isVolumeAttributesClassServed = origIsVolumeAttributesClassServed
+			}
+
+			resp := validatePVC(context.Background(), test.req)
+			assert.Equal(t, test.expectedAllowed, resp.Allowed)
+			if test.expectedReason != "" {
+				assert.Equal(t, test.expectedReason, resp.Result.Reason)
+			}
+		})
+	}
+}
+
+func TestDetectVACChange(t *testing.T) {
+	vacA := "vac-a"
+	vacB := "vac-b"
+
+	tests := []struct {
+		name            string
+		oldVAC          *string
+		newVAC          *string
+		expectedChanged bool
+		expectedOldVAC  string
+		expectedNewVAC  string
+	}{
+		{name: "both nil", oldVAC: nil, newVAC: nil, expectedChanged: false},
+		{name: "unset to set", oldVAC: nil, newVAC: &vacA, expectedChanged: true, expectedNewVAC: vacA},
+		{name: "set to unset", oldVAC: &vacA, newVAC: nil, expectedChanged: true, expectedOldVAC: vacA},
+		{name: "same value", oldVAC: &vacA, newVAC: &vacA, expectedChanged: false,
+			expectedOldVAC: vacA, expectedNewVAC: vacA},
+		{name: "different values", oldVAC: &vacA, newVAC: &vacB, expectedChanged: true,
+			expectedOldVAC: vacA, expectedNewVAC: vacB},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			oldPVC := corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: test.oldVAC},
+			}
+			newPVC := corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: test.newVAC},
+			}
+			changed, oldVAC, newVAC := detectVACChange(oldPVC, newPVC)
+			assert.Equal(t, test.expectedChanged, changed)
+			assert.Equal(t, test.expectedOldVAC, oldVAC)
+			assert.Equal(t, test.expectedNewVAC, newVAC)
+		})
+	}
+}
+
+func TestIsVolumeAttributesClassServed(t *testing.T) {
+	tests := []struct {
+		name           string
+		resources      []*metav1.APIResourceList
+		clientErr      error
+		expectedServed bool
+		expectErr      bool
+	}{
+		{
+			name: "GA v1 serves VolumeAttributesClass",
+			resources: []*metav1.APIResourceList{
+				{GroupVersion: "storage.k8s.io/v1", APIResources: []metav1.APIResource{
+					{Name: common.VolumeAttributesClassResourceName},
+				}},
+			},
+			expectedServed: true,
+		},
+		{
+			name: "beta v1beta1 only is not sufficient (GA required)",
+			resources: []*metav1.APIResourceList{
+				{GroupVersion: "storage.k8s.io/v1beta1", APIResources: []metav1.APIResource{
+					{Name: common.VolumeAttributesClassResourceName},
+				}},
+			},
+			expectedServed: false,
+		},
+		{
+			name: "GA served without the volumeattributesclasses resource",
+			resources: []*metav1.APIResourceList{
+				{GroupVersion: "storage.k8s.io/v1", APIResources: []metav1.APIResource{{Name: "storageclasses"}}},
+			},
+			expectedServed: false,
+		},
+		{
+			name:           "GA not served",
+			resources:      []*metav1.APIResourceList{},
+			expectedServed: false,
+		},
+		{
+			name:      "client construction error propagates",
+			clientErr: errors.New("failed to build client"),
+			expectErr: true,
+		},
+	}
+
+	origK8sClient := newK8sClient
+	defer func() { newK8sClient = origK8sClient }()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.clientErr != nil {
+				newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+					return nil, test.clientErr
+				}
+			} else {
+				kubeClient := fake.NewClientset()
+				kubeClient.Fake.Resources = test.resources
+				newK8sClient = func(ctx context.Context) (clientset.Interface, error) {
+					return kubeClient, nil
+				}
+			}
+
+			served, err := isVolumeAttributesClassServed(context.Background())
+			if test.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, test.expectedServed, served)
 		})
 	}
 }
