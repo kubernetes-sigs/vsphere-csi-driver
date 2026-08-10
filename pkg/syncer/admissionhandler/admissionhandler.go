@@ -63,6 +63,7 @@ var (
 	featureFileVolumesWithVmServiceEnabled bool
 	featureIsSharedDiskEnabled             bool
 	featureIsLinkedCloneSupportEnabled     bool
+	featureIsVACPolicyMutabilityEnabled    bool
 )
 
 // watchConfigChange watches on the webhook configuration directory for changes
@@ -172,6 +173,15 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		}
 		featureIsLinkedCloneSupportEnabled = linkedClonePVCSIFSS && linkedCloneCapability
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
+		vacPolicyMutabilityCapability := false
+		vacPolicyMutabilityPVCSIFSS := containerOrchestratorUtility.IsPVCSIFSSEnabled(ctx,
+			common.VMPVCStoragePolicyMutabilityFSS)
+		if vacPolicyMutabilityPVCSIFSS {
+			// Check the VAC policy mutability capability only if the internal fss is enabled.
+			vacPolicyMutabilityCapability = containerOrchestratorUtility.IsFSSEnabled(ctx,
+				common.VMPVCStoragePolicyMutabilityFSS)
+		}
+		featureIsVACPolicyMutabilityEnabled = vacPolicyMutabilityPVCSIFSS && vacPolicyMutabilityCapability
 		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
 		// capability is disabled.
 		if linkedClonePVCSIFSS && !linkedCloneCapability {

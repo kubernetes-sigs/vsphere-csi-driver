@@ -136,7 +136,8 @@ func newDiscoveryTestServer(t *testing.T, includeVAC bool) *httptest.Server {
 		}
 		if includeVAC {
 			list.APIResources = append(list.APIResources, metav1.APIResource{
-				Name: "volumeattributesclasses", Namespaced: false, Kind: "VolumeAttributesClass", Verbs: verbs,
+				Name: common.VolumeAttributesClassResourceName, Namespaced: false, Kind: "VolumeAttributesClass",
+				Verbs: verbs,
 			})
 		}
 		payload, err := json.Marshal(list)

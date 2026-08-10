@@ -27,6 +27,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
 // newDiscoveryTestServer stubs just the storage.k8s.io/v1 discovery endpoint that
@@ -45,7 +46,8 @@ func newDiscoveryTestServer(t *testing.T, includeVAC bool) *httptest.Server {
 		}
 		if includeVAC {
 			list.APIResources = append(list.APIResources, metav1.APIResource{
-				Name: "volumeattributesclasses", Namespaced: false, Kind: "VolumeAttributesClass", Verbs: verbs,
+				Name: csicommon.VolumeAttributesClassResourceName, Namespaced: false, Kind: "VolumeAttributesClass",
+				Verbs: verbs,
 			})
 		}
 		payload, err := json.Marshal(list)

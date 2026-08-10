@@ -126,7 +126,7 @@ func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (re
 
 	resp = admission.Allowed("")
 	if req.Kind.Kind == "PersistentVolumeClaim" {
-		if featureGateBlockVolumeSnapshotEnabled {
+		if featureGateBlockVolumeSnapshotEnabled || featureIsVACPolicyMutabilityEnabled {
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}

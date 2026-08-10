@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	csicommon "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/persistentvolumeclaim"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/byokoperator/controller/storageclass"
@@ -72,7 +73,7 @@ func volumeAttributesClassAPIAvailable(cfg *rest.Config) (bool, error) {
 		return false, err
 	}
 	for i := range resources.APIResources {
-		if resources.APIResources[i].Name == "volumeattributesclasses" {
+		if resources.APIResources[i].Name == csicommon.VolumeAttributesClassResourceName {
 			return true, nil
 		}
 	}
