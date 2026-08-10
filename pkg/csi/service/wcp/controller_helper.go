@@ -591,6 +591,61 @@ func getHostLocalAccessibleTopology(ctx context.Context, hostRef vimtypes.Manage
 	return segments, nil
 }
 
+// datastoreHostMounts returns the ESX hosts that mount the given datastore. Declared as a
+// variable so tests can substitute a fake implementation without a live vCenter.
+var datastoreHostMounts = func(ctx context.Context,
+	dsInfo *vsphere.DatastoreInfo) ([]vimtypes.DatastoreHostMount, error) {
+	var dsMo mo.Datastore
+	if err := dsInfo.Properties(ctx, dsInfo.Reference(), []string{"host"}, &dsMo); err != nil {
+		return nil, err
+	}
+	return dsMo.Host, nil
+}
+
+// isHostExclusiveDatastore reports whether the datastore is mounted by exactly one ESX host.
+// Host-local storage policies place volumes on such host-exclusive datastores; a datastore
+// shared across the hosts of a cluster reports more than one mount.
+func isHostExclusiveDatastore(ctx context.Context, dsInfo *vsphere.DatastoreInfo) (bool, error) {
+	log := logger.GetLogger(ctx)
+	hostMounts, err := datastoreHostMounts(ctx, dsInfo)
+	if err != nil {
+		return false, logger.LogNewErrorf(log,
+			"failed to retrieve host mounts for datastore %q: %v", dsInfo.Info.Url, err)
+	}
+	if len(hostMounts) == 0 {
+		return false, logger.LogNewErrorf(log, "datastore %q has no host mounts", dsInfo.Info.Url)
+	}
+	return len(hostMounts) == 1, nil
+}
+
+// getDatastoresAccessibleToHost returns the datastores mounted by the given ESX host. Used to
+// constrain a restore from a host-exclusive datastore to destinations that host can reach, so the
+// disk copy has a host in common with the source.
+func getDatastoresAccessibleToHost(ctx context.Context, vc *vsphere.VirtualCenter,
+	hostMoRef vimtypes.ManagedObjectReference) ([]*vsphere.DatastoreInfo, error) {
+	host := &vsphere.HostSystem{
+		HostSystem: object.NewHostSystem(vc.Client.Client, hostMoRef),
+	}
+	return vsphere.GetAllAccessibleDatastoresForHosts(ctx, []*vsphere.HostSystem{host})
+}
+
+// narrowToSnapshotSourceHost reduces the candidate host set of a host-local volume to the single
+// host that owns the snapshot's source volume. That host is the only one that can run the restore
+// copy, so it must be one of the hosts the accessibility requirement allows.
+func narrowToSnapshotSourceHost(ctx context.Context, candidates []vimtypes.ManagedObjectReference,
+	sourceHost vimtypes.ManagedObjectReference) ([]vimtypes.ManagedObjectReference, error) {
+	log := logger.GetLogger(ctx)
+	for _, candidate := range candidates {
+		if candidate.Value == sourceHost.Value {
+			return []vimtypes.ManagedObjectReference{candidate}, nil
+		}
+	}
+	return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+		"host %q owning the source volume of the snapshot is not among the candidate hosts %v "+
+			"allowed by the accessibility requirement; the restore can only run on that host",
+		sourceHost.Value, candidates)
+}
+
 // resolveHostLocalAccessibleTopologySegments returns the topology segments (zone + hostname) to
 // publish as PV node affinity for a host-local volume.
 //
