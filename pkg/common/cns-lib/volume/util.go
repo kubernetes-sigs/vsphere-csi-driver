@@ -633,7 +633,24 @@ func IsNotSupportedFaultType(ctx context.Context, faultType string) bool {
 	return faultType == "vim25:NotSupported"
 }
 
-// IsCnsVolumeAlreadyExistsFault returns true if a given faultType value is vim.fault.CnsVolumeAlreadyExistsFault
+// IsCnsVolumeAlreadyExistsFault returns true if a given faultType value is vim.fault.CnsVolumeAlreadyExistsFault.
+//
+// CNS CreateVolume throws this fault when a volume with the requested VolumeId
+// already exists (either just created by this call, or left over from an
+// earlier attempt that used the same deterministic VolumeId), but that volume
+// lives on a datastore, cluster, or host outside the placement scope requested
+// in the current CnsVolumeCreateSpec:
+//   - the volume's datastore is not in the requested Datastores list, or
+//   - none of the clusters backing the volume's datastore are in the requested
+//     ActiveClusters (multiple clusters per vSphere Zone), or
+//   - the volume's host is not in the requested Hosts (host-local placement).
+//
+// CNS cannot silently reuse such a volume, since doing so would place the
+// workload's data outside the domain/zone/host actually requested, so it fails
+// the request instead. Callers respond by deleting the out-of-scope volume and
+// retrying CreateVolume so a fresh volume lands within the current request's
+// scope — see createVolumeWithTransaction in manager.go and
+// CreateBlockVolumeUtilForMultiVC in vsphereutil.go.
 func IsCnsVolumeAlreadyExistsFault(ctx context.Context, faultType string) bool {
 	log := logger.GetLogger(ctx)
 	log.Infof("Checking fault type: %q is vim.fault.CnsVolumeAlreadyExistsFault", faultType)

@@ -715,7 +715,11 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 		spec.Metadata.ContainerClusterArray[0].ClusterId)
 }
 
-// createVolumeWithTransaction creates volume with supplied PVC UUID as VolumeID in the CreateVolumeSpec
+// createVolumeWithTransaction creates a volume using the PVC UID as a
+// deterministic VolumeId (supplied via CnsVolumeCreateSpec.VolumeId), making
+// CreateVolume idempotent across retries — see IsCnsVolumeAlreadyExistsFault
+// for how a retry with different placement candidates is detected and
+// recovered from.
 func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 	extraParams interface{}) (resp *CnsVolumeInfo, faultType string, finalErr error) {
 	log := logger.GetLogger(ctx)
@@ -1050,6 +1054,19 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 					log.Errorf("failed to create volume with VolumeID: %q, faultType: %q, err: %v",
 						spec.VolumeId.Id, faultType, err)
 					if IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+						// CSI Transaction Support derives VolumeId deterministically from the
+						// PVC UID (see ExtractVolumeIDFromPVName) so a CreateVolume retry after
+						// a lost response, timeout, or CSI restart is idempotent instead of
+						// producing a duplicate FCD. But a retry can carry different placement
+						// candidates than the original attempt (e.g. the scheduler picked a
+						// different host, or the set of compatible datastores/clusters changed
+						// between attempts), so the volume CNS already created under this
+						// VolumeId may no longer satisfy the current request's placement scope.
+						// CNS reports that mismatch as CnsVolumeAlreadyExistsFault rather than
+						// silently reusing the volume. Delete it and recreate: VolumeId is
+						// unique to this PVC, so deleting it cannot affect any other volume,
+						// and the recreate lands the volume within the scope this request
+						// actually asked for.
 						log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", spec.VolumeId.Id)
 						deleteFaultType, deleteError := m.deleteVolume(ctx, spec.VolumeId.Id, true)
 						if deleteError != nil {

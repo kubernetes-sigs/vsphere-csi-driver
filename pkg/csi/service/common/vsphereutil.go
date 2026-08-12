@@ -557,6 +557,11 @@ func CreateBlockVolumeUtilForMultiVC(ctx context.Context, reqParams interface{},
 		log.Errorf("failed to create disk %s on vCenter %q with error %+v faultType %q",
 			params.Spec.Name, params.Vcenter.Config.Host, err, faultType)
 		if cnsvolume.IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
+			// The volume for this deterministic VolumeId exists but outside the
+			// placement scope of the current request (see IsCnsVolumeAlreadyExistsFault
+			// and createVolumeWithTransaction in cns-lib/volume/manager.go for why
+			// this can happen on a retry). Delete the out-of-scope volume and retry
+			// CreateVolume so it is placed within the current request's scope.
 			log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", createSpec.VolumeId.Id)
 			_, deleteError := params.VolumeManager.DeleteVolume(ctx, createSpec.VolumeId.Id, true)
 			if deleteError != nil {
