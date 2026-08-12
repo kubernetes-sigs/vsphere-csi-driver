@@ -582,7 +582,24 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 		log.Infof("Successfully attached all volumes")
 	}
 
-	// Update instance based on the result of BatchAttach
+	// Update instance based on the result of BatchAttach. Adding the PVC
+	// protection finalizer involves multiple sequential API-server round trips
+	// per PVC (see addPvcFinalizer), so PVCs are processed concurrently (up to
+	// maxConcurrentPVCFinalizers at a time) to keep this from scaling linearly
+	// with the number of disks attached to a VM. Each PVC holds its own
+	// VolumeLock and the API calls are independent, so this is safe.
+	type attachStatusResult struct {
+		volumeName   string
+		pvcName      string
+		volumeID     string
+		diskUUID     string
+		attachErr    error // error from the CNS attach itself, as reported in batchAttachResult
+		finalizerErr error // error from addPvcFinalizer; only attempted when attachErr == nil
+	}
+	results := make(chan attachStatusResult, len(batchAttachResult))
+	sem := make(chan struct{}, maxConcurrentPVCFinalizers)
+	var wg sync.WaitGroup
+
 	for _, result := range batchAttachResult {
 		pvcName, ok := volumeIdsInAttachList[result.VolumeID]
 		if !ok {
@@ -596,23 +613,48 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 
 		}
 
+		result := result
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			attachRes := attachStatusResult{
+				volumeName: volumeName,
+				pvcName:    pvcName,
+				volumeID:   result.VolumeID,
+				diskUUID:   result.DiskUUID,
+				attachErr:  result.Error,
+			}
+			// If attach was successful, add finalizer to the PVC.
+			if attachRes.attachErr == nil {
+				if pvcErr := addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace,
+					instance.Spec.InstanceUUID); pvcErr != nil {
+					log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
+					attachRes.finalizerErr = pvcErr
+				}
+			}
+			results <- attachRes
+		}()
+	}
+
+	go func() { wg.Wait(); close(results) }()
+
+	for res := range results {
 		reason := v1alpha1.ReasonAttachFailed
-		// If attach was successful, add finalizer to the PVC.
-		if result.Error == nil {
+		statusErr := res.attachErr
+		if res.attachErr == nil {
 			reason = ""
-			// Add finalizer on PVC as attach was successful.
-			err = addPvcFinalizer(ctx, r.client, k8sClient, pvcName, instance.Namespace, instance.Spec.InstanceUUID)
-			if err != nil {
-				log.Errorf("failed to add finalizer %s on PVC %s", cnsoperatortypes.CNSPvcFinalizer, pvcName)
-				result.Error = err
+			if res.finalizerErr != nil {
+				statusErr = res.finalizerErr
 				attachErr = errors.Join(attachErr,
-					fmt.Errorf("failure during attach of PVC %s", pvcName))
+					fmt.Errorf("failure during attach of PVC %s", res.pvcName))
 			}
 		}
 		// Update instance with attach result.
-		updateInstanceVolumeStatus(ctx, instance, volumeName, pvcName, result.VolumeID, result.DiskUUID, result.Error,
+		updateInstanceVolumeStatus(ctx, instance, res.volumeName, res.pvcName, res.volumeID, res.diskUUID, statusErr,
 			v1alpha1.ConditionAttached, reason)
-
 	}
 	return attachErr
 }
