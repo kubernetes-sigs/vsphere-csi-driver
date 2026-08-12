@@ -7,12 +7,15 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/stretchr/testify/assert"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -450,6 +453,96 @@ func TestGetHostLocalAccessibleTopology(t *testing.T) {
 	t.Run("incomplete_topology_errors", func(t *testing.T) {
 		_, err := getHostLocalAccessibleTopology(ctx,
 			vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-2"}, hostTopo)
+		assert.Error(t, err)
+	})
+}
+
+// TestIsHostExclusiveDatastore verifies the host-mount count check used to tell a host-exclusive
+// datastore (the backing of a host-local storage policy) apart from a datastore shared across the
+// hosts of a cluster.
+func TestIsHostExclusiveDatastore(t *testing.T) {
+	ctx := context.Background()
+	dsInfo := &cnsvsphere.DatastoreInfo{
+		Datastore: &cnsvsphere.Datastore{},
+		Info:      &vimtypes.DatastoreInfo{Url: "ds:///vmfs/volumes/host-local-1/"},
+	}
+	hostMount := func(id string) vimtypes.DatastoreHostMount {
+		return vimtypes.DatastoreHostMount{
+			Key: vimtypes.ManagedObjectReference{Type: "HostSystem", Value: id},
+		}
+	}
+
+	original := datastoreHostMounts
+	t.Cleanup(func() { datastoreHostMounts = original })
+
+	t.Run("single_host_mount_is_host_exclusive", func(t *testing.T) {
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vimtypes.DatastoreHostMount, error) {
+			return []vimtypes.DatastoreHostMount{hostMount("host-1")}, nil
+		}
+		hostExclusive, err := isHostExclusiveDatastore(ctx, dsInfo)
+		assert.NoError(t, err)
+		assert.True(t, hostExclusive)
+	})
+
+	t.Run("multiple_host_mounts_is_not_host_exclusive", func(t *testing.T) {
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vimtypes.DatastoreHostMount, error) {
+			return []vimtypes.DatastoreHostMount{hostMount("host-1"), hostMount("host-2")}, nil
+		}
+		hostExclusive, err := isHostExclusiveDatastore(ctx, dsInfo)
+		assert.NoError(t, err)
+		assert.False(t, hostExclusive)
+	})
+
+	t.Run("no_host_mounts_errors", func(t *testing.T) {
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vimtypes.DatastoreHostMount, error) {
+			return nil, nil
+		}
+		_, err := isHostExclusiveDatastore(ctx, dsInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no host mounts")
+	})
+
+	t.Run("property_fetch_error_is_propagated", func(t *testing.T) {
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vimtypes.DatastoreHostMount, error) {
+			return nil, assert.AnError
+		}
+		_, err := isHostExclusiveDatastore(ctx, dsInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to retrieve host mounts")
+	})
+}
+
+// TestNarrowToSnapshotSourceHost verifies that a host-local restore is pinned to the host owning
+// the snapshot's source volume. That host mounts the host-exclusive source datastore, so it is the
+// only one that can run the restore copy; leaving the full candidate set lets CNS pick a host that
+// cannot see the source datastore, which vpxd rejects with "No common host found between source
+// and target datastores".
+func TestNarrowToSnapshotSourceHost(t *testing.T) {
+	ctx := context.Background()
+	hostRef := func(id string) vimtypes.ManagedObjectReference {
+		return vimtypes.ManagedObjectReference{Type: "HostSystem", Value: id}
+	}
+	candidates := []vimtypes.ManagedObjectReference{hostRef("host-1"), hostRef("host-2"), hostRef("host-3")}
+
+	t.Run("narrows_to_the_source_host", func(t *testing.T) {
+		narrowed, err := narrowToSnapshotSourceHost(ctx, candidates, hostRef("host-2"))
+		assert.NoError(t, err)
+		assert.Equal(t, []vimtypes.ManagedObjectReference{hostRef("host-2")}, narrowed)
+	})
+
+	t.Run("source_host_outside_the_candidate_set_errors", func(t *testing.T) {
+		_, err := narrowToSnapshotSourceHost(ctx, candidates, hostRef("host-99"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "host-99")
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("empty_candidate_set_errors", func(t *testing.T) {
+		_, err := narrowToSnapshotSourceHost(ctx, nil, hostRef("host-1"))
 		assert.Error(t, err)
 	})
 }

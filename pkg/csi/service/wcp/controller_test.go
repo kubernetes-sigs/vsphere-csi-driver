@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
+	vim25types "github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -40,6 +42,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -1545,6 +1548,715 @@ func TestGetDatastoresForHostLocalLinkedClone(t *testing.T) {
 		_, err := ct.controller.getDatastoresForHostLocalLinkedClone(ctx, req, true, true)
 		if err == nil {
 			t.Fatal("expected an error for a malformed snapshot ID, got nil")
+		}
+	})
+}
+
+// fakeCOOverrides layers a fixed active-cluster list and per-feature FSS values on top of the
+// standard fake orchestrator, whose GetActiveClustersForNamespaceInRequestedZones always returns an
+// empty list and whose feature set does not include linked-clone support.
+type fakeCOOverrides struct {
+	commonco.COCommonInterface
+	clusters           []string
+	err                error
+	fssOverrides       map[string]bool
+	nodeNameToHostMoID map[string]string
+}
+
+func (f *fakeCOOverrides) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
+	if f.nodeNameToHostMoID == nil {
+		return f.COCommonInterface.GetNodeNameToHostMoIDMap(ctx)
+	}
+	return f.nodeNameToHostMoID
+}
+
+func (f *fakeCOOverrides) GetActiveClustersForNamespaceInRequestedZones(ctx context.Context,
+	targetNS string, requestedZones []string) ([]string, error) {
+	return f.clusters, f.err
+}
+
+func (f *fakeCOOverrides) IsFSSEnabled(ctx context.Context, featureName string) bool {
+	if enabled, ok := f.fssOverrides[featureName]; ok {
+		return enabled
+	}
+	return f.COCommonInterface.IsFSSEnabled(ctx, featureName)
+}
+
+// TestGetAccessibleClustersForSnapshot verifies which vSphere clusters are handed to CNS as
+// activeClusters when restoring a volume from a snapshot.
+//
+// A host-local volume lives on a host-exclusive datastore, which is never part of the all-hosts
+// datastore intersection that GetCandidateDatastoresInCluster reports. Narrowing on datastore
+// accessibility therefore matches no cluster at all, and returning that empty list left CNS with a
+// CnsVolumeCreateSpec carrying no datastores, no activeClusters and no hosts - rejected with
+// "A specified parameter was not correct: createSpecs.datastores". Falling back to every active
+// cluster of the namespace lets CNS place the restored volume on a policy-compatible datastore.
+func TestGetAccessibleClustersForSnapshot(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: volID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	reqCreateSnapshot := &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	}
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, reqCreateSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// The datastore the snapshot's source volume resides on.
+	sourceDatastore, err := ct.controller.getDatastoreForLinkedCloneRequest(ctx, snapID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	activeClusters := []string{"domain-c8", "domain-c9"}
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalGetCandidateDatastores := getCandidateDatastores
+	originalHostLocalSupport := isHostLocalStorageSupportEnabled
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		getCandidateDatastores = originalGetCandidateDatastores
+		isHostLocalStorageSupportEnabled = originalHostLocalSupport
+	})
+	commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+		COCommonInterface: originalCO,
+		clusters:          activeClusters,
+	}
+
+	t.Run("no_matching_cluster_returns_empty_without_widening", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		// No active cluster reports the snapshot's datastore among its shared datastores.
+		getCandidateDatastores = func(_ context.Context, _ *cnsvsphere.VirtualCenter, _ string,
+			_ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			return []*cnsvsphere.DatastoreInfo{
+				{
+					Datastore: &cnsvsphere.Datastore{},
+					Info:      &vim25types.DatastoreInfo{Url: "ds:///vmfs/volumes/some-other-shared-ds/"},
+				},
+			}, nil, nil
+		}
+
+		// Widening to every active cluster here is what let CNS place a restored volume on a
+		// datastore no host shares with the source, which vpxd rejects with "No common host found
+		// between source and target datastores". Host-exclusive sources never reach this function.
+		clusters, err := ct.controller.getAccessibleClustersForSnapshot(ctx, snapID, "default", []string{"zone-1"})
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if len(clusters) != 0 {
+			t.Fatalf("expected no clusters when the snapshot datastore matches none, got %v", clusters)
+		}
+	})
+
+	t.Run("shared_source_is_still_narrowed_to_matching_clusters", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		// Only the first active cluster can see the snapshot's datastore.
+		getCandidateDatastores = func(_ context.Context, _ *cnsvsphere.VirtualCenter, clusterMoRef string,
+			_ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			if clusterMoRef == activeClusters[0] {
+				return []*cnsvsphere.DatastoreInfo{sourceDatastore}, nil, nil
+			}
+			return nil, nil, nil
+		}
+
+		clusters, err := ct.controller.getAccessibleClustersForSnapshot(ctx, snapID, "default", []string{"zone-1"})
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if !reflect.DeepEqual(clusters, []string{activeClusters[0]}) {
+			t.Fatalf("expected narrowing to %v, got %v", []string{activeClusters[0]}, clusters)
+		}
+	})
+
+	t.Run("candidate_datastore_error_is_propagated", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		getCandidateDatastores = func(_ context.Context, _ *cnsvsphere.VirtualCenter, _ string,
+			_ bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			return nil, nil, fmt.Errorf("cluster unreachable")
+		}
+
+		if _, err := ct.controller.getAccessibleClustersForSnapshot(ctx, snapID, "default",
+			[]string{"zone-1"}); err == nil {
+			t.Fatal("expected the candidate datastore error to propagate, got nil")
+		}
+	})
+}
+
+// TestLinkedCloneOnHostExclusiveDatastoreRequiresHostLocalPolicy verifies that a linked clone whose
+// source volume sits on a host-exclusive datastore is rejected when the request is not host-local.
+// A linked clone is always created on the source volume's datastore, so a shared storage policy can
+// never be satisfied; rejecting in the controller reports that reason instead of the misleading
+// "not accessible to all nodes" PBM failure raised later by isDataStoreCompatible.
+func TestLinkedCloneOnHostExclusiveDatastoreRequiresHostLocalPolicy(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	reqCreate := &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, reqCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: volID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalMultiCluster := IsMultipleClustersPerVsphereZoneFSSEnabled
+	originalHostLocalSupport := isHostLocalStorageSupportEnabled
+	originalHostMounts := datastoreHostMounts
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		IsMultipleClustersPerVsphereZoneFSSEnabled = originalMultiCluster
+		isHostLocalStorageSupportEnabled = originalHostLocalSupport
+		datastoreHostMounts = originalHostMounts
+	})
+
+	IsMultipleClustersPerVsphereZoneFSSEnabled = true
+	commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+		COCommonInterface: originalCO,
+		clusters:          []string{"domain-c8"},
+		fssOverrides:      map[string]bool{common.LinkedCloneSupport: true},
+	}
+
+	// A linked clone request restoring from the snapshot above, with a zone-only accessibility
+	// requirement - i.e. a StorageClass that is not host-local.
+	linkedCloneReq := func() *csi.CreateVolumeRequest {
+		return &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			Parameters: map[string]string{
+				common.AttributePvcNamespace:        "default",
+				common.AttributeIsLinkedCloneKey:    "true",
+				common.AttributeStoragePolicyID:     "shared-policy-id",
+				common.AttributeStorageTopologyType: "zonal",
+			},
+			VolumeCapabilities: capabilities,
+			AccessibilityRequirements: &csi.TopologyRequirement{
+				Preferred: []*csi.Topology{
+					{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+				},
+				Requisite: []*csi.Topology{
+					{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+				},
+			},
+			VolumeContentSource: &csi.VolumeContentSource{
+				Type: &csi.VolumeContentSource_Snapshot{
+					Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapID},
+				},
+			},
+		}
+	}
+
+	hostMount := func(id string) vim25types.DatastoreHostMount {
+		return vim25types.DatastoreHostMount{
+			Key: vim25types.ManagedObjectReference{Type: "HostSystem", Value: id},
+		}
+	}
+
+	t.Run("host_exclusive_source_is_rejected", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+			return []vim25types.DatastoreHostMount{hostMount("host-1")}, nil
+		}
+
+		_, _, err := ct.controller.createBlockVolume(ctx, linkedCloneReq(), true, clusterComputeResourceMoIds)
+		if err == nil {
+			t.Fatal("expected a linked clone of a host-exclusive datastore under a shared policy to be rejected")
+		}
+		statusErr, ok := status.FromError(err)
+		if !ok {
+			t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+		}
+		if statusErr.Code() != codes.InvalidArgument {
+			t.Fatalf("expected %s, got %s: %v", codes.InvalidArgument, statusErr.Code(), err)
+		}
+		if !strings.Contains(err.Error(), "host-exclusive datastore") {
+			t.Fatalf("expected the error to name the host-exclusive datastore, got: %v", err)
+		}
+	})
+
+	t.Run("shared_source_passes_the_guard", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+			return []vim25types.DatastoreHostMount{hostMount("host-1"), hostMount("host-2")}, nil
+		}
+
+		// Provisioning may still fail further down against the simulator; all that matters here is
+		// that it is not rejected by the host-exclusive guard.
+		_, _, err := ct.controller.createBlockVolume(ctx, linkedCloneReq(), true, clusterComputeResourceMoIds)
+		if err != nil && strings.Contains(err.Error(), "host-exclusive datastore") {
+			t.Fatalf("a datastore mounted by several hosts must not be rejected as host-exclusive: %v", err)
+		}
+	})
+
+	t.Run("guard_is_skipped_when_capability_is_disabled", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = false
+		called := false
+		datastoreHostMounts = func(_ context.Context,
+			_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+			called = true
+			return []vim25types.DatastoreHostMount{hostMount("host-1")}, nil
+		}
+
+		_, _, err := ct.controller.createBlockVolume(ctx, linkedCloneReq(), true, clusterComputeResourceMoIds)
+		if called {
+			t.Fatal("host mounts must not be fetched when supports_host_local_storage is disabled")
+		}
+		if err != nil && strings.Contains(err.Error(), "host-exclusive datastore") {
+			t.Fatalf("the guard must not fire when supports_host_local_storage is disabled: %v", err)
+		}
+	})
+}
+
+// TestRestoreFromHostLocalSnapshotPinsPlacementToSourceHost covers the placement constraints a
+// non-linked-clone restore must obey when the snapshot's source volume lives on a host-exclusive
+// datastore (the backing of a host-local storage policy).
+//
+// The restore is a disk copy and vCenter can only run it on a host that mounts both the source and
+// the destination datastore. Leaving CNS free to choose - via activeClusters for a shared target
+// StorageClass, or via the full candidate host set for a host-local one - lets it pick a
+// destination no host shares with the source, which vpxd rejects with "No common host found
+// between source and target datastores".
+func TestRestoreFromHostLocalSnapshotPinsPlacementToSourceHost(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	volID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: volID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+		SourceVolumeId: volID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Real simulator hosts, so the datastore lookups below hit actual inventory.
+	hosts, err := ct.vcenter.GetHostsByCluster(ctx, clusterComputeResourceMoIds[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) == 0 {
+		t.Fatal("expected at least one host in the simulator cluster")
+	}
+	sourceHostRef := hosts[0].Reference()
+
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalMultiCluster := IsMultipleClustersPerVsphereZoneFSSEnabled
+	originalHostLocalSupport := isHostLocalStorageSupportEnabled
+	originalHostMounts := datastoreHostMounts
+	originalGetCandidateDatastores := getCandidateDatastores
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		IsMultipleClustersPerVsphereZoneFSSEnabled = originalMultiCluster
+		isHostLocalStorageSupportEnabled = originalHostLocalSupport
+		datastoreHostMounts = originalHostMounts
+		getCandidateDatastores = originalGetCandidateDatastores
+	})
+
+	hostMount := func(ref vim25types.ManagedObjectReference) vim25types.DatastoreHostMount {
+		return vim25types.DatastoreHostMount{Key: ref}
+	}
+	// hostExclusiveSource reports the snapshot's datastore as mounted by exactly one host, which is
+	// what a host-local storage policy produces.
+	hostExclusiveSource := func(_ context.Context,
+		_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+		return []vim25types.DatastoreHostMount{hostMount(sourceHostRef)}, nil
+	}
+	snapshotContentSource := &csi.VolumeContentSource{
+		Type: &csi.VolumeContentSource_Snapshot{
+			Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapID},
+		},
+	}
+
+	t.Run("getHostExclusiveSnapshotSourceHost", func(t *testing.T) {
+		t.Run("single_mount_returns_that_host", func(t *testing.T) {
+			datastoreHostMounts = hostExclusiveSource
+			host, err := ct.controller.getHostExclusiveSnapshotSourceHost(ctx, snapID)
+			if err != nil {
+				t.Fatalf("unexpected error: %+v", err)
+			}
+			if host == nil || host.Value != sourceHostRef.Value {
+				t.Fatalf("expected source host %q, got %+v", sourceHostRef.Value, host)
+			}
+		})
+
+		t.Run("multiple_mounts_need_no_pinning", func(t *testing.T) {
+			datastoreHostMounts = func(_ context.Context,
+				_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+				return []vim25types.DatastoreHostMount{
+					hostMount(sourceHostRef),
+					hostMount(vim25types.ManagedObjectReference{Type: "HostSystem", Value: "host-other"}),
+				}, nil
+			}
+			host, err := ct.controller.getHostExclusiveSnapshotSourceHost(ctx, snapID)
+			if err != nil {
+				t.Fatalf("unexpected error: %+v", err)
+			}
+			if host != nil {
+				t.Fatalf("expected no pinning for a shared datastore, got %+v", host)
+			}
+		})
+
+		t.Run("no_mounts_errors", func(t *testing.T) {
+			datastoreHostMounts = func(_ context.Context,
+				_ *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+				return nil, nil
+			}
+			if _, err := ct.controller.getHostExclusiveSnapshotSourceHost(ctx, snapID); err == nil {
+				t.Fatal("expected an error for a datastore with no host mounts")
+			}
+		})
+
+		t.Run("malformed_snapshot_id_errors", func(t *testing.T) {
+			datastoreHostMounts = hostExclusiveSource
+			if _, err := ct.controller.getHostExclusiveSnapshotSourceHost(ctx, "malformed"); err == nil {
+				t.Fatal("expected an error for a malformed snapshot ID")
+			}
+		})
+	})
+
+	t.Run("getSnapshotSourceHostToPinPlacement", func(t *testing.T) {
+		datastoreHostMounts = hostExclusiveSource
+
+		t.Run("nil_without_content_source", func(t *testing.T) {
+			isHostLocalStorageSupportEnabled = true
+			host, err := ct.controller.getSnapshotSourceHostToPinPlacement(ctx, &csi.CreateVolumeRequest{})
+			if err != nil {
+				t.Fatalf("unexpected error: %+v", err)
+			}
+			if host != nil {
+				t.Fatalf("expected no pinning without a content source, got %+v", host)
+			}
+		})
+
+		t.Run("nil_when_capability_disabled", func(t *testing.T) {
+			isHostLocalStorageSupportEnabled = false
+			called := false
+			datastoreHostMounts = func(c context.Context,
+				d *cnsvsphere.DatastoreInfo) ([]vim25types.DatastoreHostMount, error) {
+				called = true
+				return hostExclusiveSource(c, d)
+			}
+			defer func() { datastoreHostMounts = hostExclusiveSource }()
+
+			host, err := ct.controller.getSnapshotSourceHostToPinPlacement(ctx,
+				&csi.CreateVolumeRequest{VolumeContentSource: snapshotContentSource})
+			if err != nil {
+				t.Fatalf("unexpected error: %+v", err)
+			}
+			if host != nil {
+				t.Fatalf("expected no pinning when supports_host_local_storage is disabled, got %+v", host)
+			}
+			if called {
+				t.Fatal("host mounts must not be fetched when supports_host_local_storage is disabled")
+			}
+		})
+
+		t.Run("resolves_source_host_for_a_restore", func(t *testing.T) {
+			isHostLocalStorageSupportEnabled = true
+			host, err := ct.controller.getSnapshotSourceHostToPinPlacement(ctx,
+				&csi.CreateVolumeRequest{VolumeContentSource: snapshotContentSource})
+			if err != nil {
+				t.Fatalf("unexpected error: %+v", err)
+			}
+			if host == nil || host.Value != sourceHostRef.Value {
+				t.Fatalf("expected source host %q, got %+v", sourceHostRef.Value, host)
+			}
+		})
+
+		t.Run("non_snapshot_content_source_is_invalid_argument", func(t *testing.T) {
+			isHostLocalStorageSupportEnabled = true
+			// A VolumeContentSource of type Volume (not Snapshot) reaching a host-local or
+			// zone-topology restore branch is a caller error, not an internal failure.
+			_, err := ct.controller.getSnapshotSourceHostToPinPlacement(ctx, &csi.CreateVolumeRequest{
+				VolumeContentSource: &csi.VolumeContentSource{
+					Type: &csi.VolumeContentSource_Volume{
+						Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: volID},
+					},
+				},
+			})
+			if err == nil {
+				t.Fatal("expected an error for a non-snapshot content source")
+			}
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("expected %s, got %s: %v", codes.InvalidArgument, status.Code(err), err)
+			}
+		})
+	})
+
+	t.Run("getDatastoresAccessibleToHost_returns_the_hosts_datastores", func(t *testing.T) {
+		datastores, err := getDatastoresAccessibleToHost(ctx, ct.vcenter, sourceHostRef)
+		if err != nil {
+			t.Fatalf("unexpected error: %+v", err)
+		}
+		if len(datastores) == 0 {
+			t.Fatal("expected the source host to mount at least one datastore")
+		}
+	})
+
+	t.Run("shared_target_supplies_source_host_datastores_instead_of_clusters", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		IsMultipleClustersPerVsphereZoneFSSEnabled = true
+		datastoreHostMounts = hostExclusiveSource
+		commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+			COCommonInterface: originalCO,
+			clusters:          []string{"domain-c8"},
+		}
+		clusterPathTaken := false
+		getCandidateDatastores = func(c context.Context, vc *cnsvsphere.VirtualCenter, id string,
+			b bool) ([]*cnsvsphere.DatastoreInfo, []*cnsvsphere.DatastoreInfo, error) {
+			clusterPathTaken = true
+			return originalGetCandidateDatastores(c, vc, id, b)
+		}
+
+		// Provisioning may still fail further down against the simulator; what matters is that the
+		// host-scoped datastore path was taken rather than the activeClusters one.
+		_, _, err := ct.controller.createBlockVolume(ctx, &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			Parameters: map[string]string{
+				common.AttributePvcNamespace:        "default",
+				common.AttributeStorageTopologyType: "zonal",
+			},
+			VolumeCapabilities: capabilities,
+			AccessibilityRequirements: &csi.TopologyRequirement{
+				Preferred: []*csi.Topology{
+					{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+				},
+				Requisite: []*csi.Topology{
+					{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+				},
+			},
+			VolumeContentSource: snapshotContentSource,
+		}, true, clusterComputeResourceMoIds)
+		if clusterPathTaken {
+			t.Fatalf("a host-exclusive source must not fall through to the activeClusters path (err: %v)", err)
+		}
+	})
+
+	hostLocalRestoreReq := func() *csi.CreateVolumeRequest {
+		return &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			Parameters: map[string]string{
+				common.AttributePvcNamespace:    "default",
+				common.AttributeHostLocalPolicy: "true",
+			},
+			VolumeCapabilities: capabilities,
+			AccessibilityRequirements: &csi.TopologyRequirement{
+				Preferred: []*csi.Topology{
+					{Segments: map[string]string{
+						v1.LabelTopologyZone: "zone-1",
+						v1.LabelHostname:     "node-a",
+					}},
+					{Segments: map[string]string{
+						v1.LabelTopologyZone: "zone-1",
+						v1.LabelHostname:     "node-b",
+					}},
+				},
+			},
+			VolumeContentSource: snapshotContentSource,
+		}
+	}
+
+	t.Run("host_local_target_reports_invalid_argument_for_a_non_snapshot_content_source", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		IsMultipleClustersPerVsphereZoneFSSEnabled = true
+		commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+			COCommonInterface: originalCO,
+			clusters:          []string{"domain-c8"},
+		}
+
+		req := hostLocalRestoreReq()
+		req.VolumeContentSource = &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Volume{
+				Volume: &csi.VolumeContentSource_VolumeSource{VolumeId: volID},
+			},
+		}
+		_, faultType, err := ct.controller.createBlockVolume(ctx, req, true, clusterComputeResourceMoIds)
+		if err == nil {
+			t.Fatal("expected an error for a non-snapshot content source")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected %s, got %s: %v", codes.InvalidArgument, status.Code(err), err)
+		}
+		if faultType != csifault.CSIInvalidArgumentFault {
+			t.Fatalf("expected fault %q, got %q (err: %v)", csifault.CSIInvalidArgumentFault, faultType, err)
+		}
+	})
+
+	t.Run("host_local_target_narrows_to_the_source_host", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		IsMultipleClustersPerVsphereZoneFSSEnabled = true
+		datastoreHostMounts = hostExclusiveSource
+		// node-b maps to the host owning the snapshot's source volume, so the candidate set
+		// [node-a, node-b] must be narrowed to it rather than left for CNS to choose from.
+		commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+			COCommonInterface: originalCO,
+			clusters:          []string{"domain-c8"},
+			nodeNameToHostMoID: map[string]string{
+				"node-a": "host-not-the-source",
+				"node-b": sourceHostRef.Value,
+			},
+		}
+
+		// Provisioning may still fail further down against the simulator; what matters is that the
+		// candidate set was narrowed rather than rejected.
+		_, _, err := ct.controller.createBlockVolume(ctx, hostLocalRestoreReq(), true,
+			clusterComputeResourceMoIds)
+		if err != nil && strings.Contains(err.Error(), "not among the candidate hosts") {
+			t.Fatalf("the source host is in the requirement and must not be rejected: %v", err)
+		}
+	})
+
+	t.Run("host_local_target_rejects_a_source_host_outside_the_requirement", func(t *testing.T) {
+		isHostLocalStorageSupportEnabled = true
+		IsMultipleClustersPerVsphereZoneFSSEnabled = true
+		datastoreHostMounts = hostExclusiveSource
+		// The accessibility requirement allows only node-a, which maps to a different host than
+		// the one owning the snapshot's source volume.
+		commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+			COCommonInterface:  originalCO,
+			clusters:           []string{"domain-c8"},
+			nodeNameToHostMoID: map[string]string{"node-a": "host-not-the-source"},
+		}
+
+		_, _, err := ct.controller.createBlockVolume(ctx, &csi.CreateVolumeRequest{
+			Name: testVolumeName + "-" + uuid.New().String(),
+			CapacityRange: &csi.CapacityRange{
+				RequiredBytes: 1 * common.GbInBytes,
+			},
+			Parameters: map[string]string{
+				common.AttributePvcNamespace:    "default",
+				common.AttributeHostLocalPolicy: "true",
+			},
+			VolumeCapabilities: capabilities,
+			AccessibilityRequirements: &csi.TopologyRequirement{
+				Preferred: []*csi.Topology{
+					{Segments: map[string]string{
+						v1.LabelTopologyZone: "zone-1",
+						v1.LabelHostname:     "node-a",
+					}},
+				},
+			},
+			VolumeContentSource: snapshotContentSource,
+		}, true, clusterComputeResourceMoIds)
+		if err == nil {
+			t.Fatal("expected the restore to be rejected when the source host is outside the requirement")
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected %s, got %s: %v", codes.InvalidArgument, status.Code(err), err)
+		}
+		if !strings.Contains(err.Error(), "not among the candidate hosts") {
+			t.Fatalf("expected the error to explain the host mismatch, got: %v", err)
 		}
 	})
 }

@@ -697,6 +697,10 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		isLinkedCloneRequest      bool
 		linkedCloneSupportEnabled bool
 		isHostLocalRequest        bool
+		// snapshotSourceHostMoRef is the ESX host that exclusively mounts the datastore of the
+		// snapshot's source volume, when restoring from a host-local volume. The restore is a disk
+		// copy that only that host can run, so the candidate host set is narrowed to it below.
+		snapshotSourceHostMoRef *types.ManagedObjectReference
 	)
 	linkedCloneSupportEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
 	// Support case insensitive parameters.
@@ -816,6 +820,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if linkedCloneDatastores != nil {
 				sharedDatastores = linkedCloneDatastores
+			} else {
+				snapshotSourceHostMoRef, err = c.getSnapshotSourceHostToPinPlacement(ctx, req)
+				if err != nil {
+					if status.Code(err) == codes.InvalidArgument {
+						return nil, csifault.CSIInvalidArgumentFault, err
+					}
+					return nil, csifault.CSIInternalFault, err
+				}
 			}
 		} else if zoneLabelPresent {
 			if !isWorkloadDomainIsolationEnabled {
@@ -898,17 +910,71 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 								"failed to retrieve datastore for linked clone request (snapshot: %q): %v", snapshotID, err)
 						}
+						// This branch is only reached when the request is not host-local: host-local
+						// requests carry hostname labels and take the branches above.
+						//
+						// Gated on the supports_host_local_storage capability: without it no volume can
+						// live on a host-exclusive datastore, so skip the check entirely and keep the
+						// existing behaviour - this also avoids the extra property-collector call on
+						// supervisors without the capability.
+						if isHostLocalStorageSupportEnabled {
+							hostExclusive, err := isHostExclusiveDatastore(ctx, datastoreInfo)
+							if err != nil {
+								return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+									"failed to determine host mounts of datastore %q for linked clone request "+
+										"(snapshot: %q): %v", datastoreInfo.Info.Url, snapshotID, err)
+							}
+							if hostExclusive {
+								// A linked clone is always created on the source volume's datastore. That
+								// datastore is exclusive to a single ESX host, so the clone is only usable
+								// under a host-local storage policy, which pins PV node affinity to that
+								// host. A shared policy is never compatible with a host-exclusive datastore,
+								// so reject here with the real reason rather than letting
+								// isDataStoreCompatible fail later with a node-accessibility message.
+								return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log,
+									codes.InvalidArgument,
+									"linked clone of snapshot %q cannot be provisioned with storage policy %q: "+
+										"the source volume resides on host-exclusive datastore %q, so the linked "+
+										"clone requires a host-local storage policy",
+									snapshotID, storagePolicyID, datastoreInfo.Info.Url)
+							}
+						}
 						sharedDatastores = []*cnsvsphere.DatastoreInfo{datastoreInfo}
 						log.Infof("datastores: %v for linked clone request: (snapshot: %q)", sharedDatastores, snapshotID)
 					} else {
-						vSphereClusterMorefs, err = c.getAccessibleClustersForSnapshot(
-							ctx, snapshotID, pvcNamespace, zones)
+						sourceHost, err := c.getSnapshotSourceHostToPinPlacement(ctx, req)
 						if err != nil {
-							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
-								"failed to find active clusters for the namespace: %q, err :%v", pvcNamespace, err)
+							if status.Code(err) == codes.InvalidArgument {
+								return nil, csifault.CSIInvalidArgumentFault, err
+							}
+							return nil, csifault.CSIInternalFault, err
 						}
-						log.Infof("vSphere clusters: %v for the namespace %q accessible to snapshot: %q", vSphereClusterMorefs,
-							pvcNamespace, req.GetVolumeContentSource().GetSnapshot().GetSnapshotId())
+						if sourceHost != nil {
+							// The source volume is on a host-exclusive datastore (host-local storage
+							// policy). The restore copy can only run on that host, so the destination
+							// must be a datastore it mounts. Supplying activeClusters instead lets CNS
+							// pick any policy-compatible datastore in the cluster, and vpxd then fails
+							// the copy with "No common host found between source and target datastores".
+							// PBM narrows this union down to the datastores that satisfy the requested
+							// (non host-local) storage policy.
+							sharedDatastores, err = getDatastoresAccessibleToHost(ctx, vc, *sourceHost)
+							if err != nil {
+								return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+									"failed to find datastores accessible to host %q owning the source volume "+
+										"of snapshot %q: %v", sourceHost.Value, snapshotID, err)
+							}
+							log.Infof("datastores: %v accessible to host %q owning the source volume of "+
+								"snapshot: %q", sharedDatastores, sourceHost.Value, snapshotID)
+						} else {
+							vSphereClusterMorefs, err = c.getAccessibleClustersForSnapshot(
+								ctx, snapshotID, pvcNamespace, zones)
+							if err != nil {
+								return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+									"failed to find active clusters for the namespace: %q, err :%v", pvcNamespace, err)
+							}
+							log.Infof("vSphere clusters: %v for the namespace %q accessible to snapshot: %q",
+								vSphereClusterMorefs, pvcNamespace, snapshotID)
+						}
 					}
 				} else {
 					vSphereClusterMorefs, err = commonco.ContainerOrchestratorUtility.
@@ -929,6 +995,14 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if linkedCloneDatastores != nil {
 				sharedDatastores = linkedCloneDatastores
+			} else {
+				snapshotSourceHostMoRef, err = c.getSnapshotSourceHostToPinPlacement(ctx, req)
+				if err != nil {
+					if status.Code(err) == codes.InvalidArgument {
+						return nil, csifault.CSIInvalidArgumentFault, err
+					}
+					return nil, csifault.CSIInternalFault, err
+				}
 			}
 		} else {
 			// No topology labels present in the topologyRequirement
@@ -1093,6 +1167,18 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		if err != nil {
 			log.Errorf("failed to resolve candidate hosts for host-local volume %q. Error: %+v", req.Name, err)
 			return nil, csifault.CSIInternalFault, err
+		}
+		if snapshotSourceHostMoRef != nil {
+			// Restoring from a host-exclusive datastore: only the host that mounts it can run the
+			// copy, so replace the candidate set with that single host. Leaving the full set would
+			// let CNS place the restored volume on a host that cannot see the source datastore,
+			// which vpxd rejects with "No common host found between source and target datastores".
+			hostMoRefs, err = narrowToSnapshotSourceHost(ctx, hostMoRefs, *snapshotSourceHostMoRef)
+			if err != nil {
+				return nil, csifault.CSIInvalidArgumentFault, err
+			}
+			log.Infof("Pinned host-local volume %q to host %q owning the snapshot's source volume",
+				req.Name, snapshotSourceHostMoRef.Value)
 		}
 	}
 
@@ -1466,6 +1552,10 @@ func (c *controller) getDatastoreAccessibleTopologyForSnapshot(ctx context.Conte
 // 4. Finds active clusters in the specified namespace and zones.
 // 5. For each active cluster, queries accessible datastores.
 // 6. Determines which clusters have access to the snapshot's datastore and returns those clusters.
+//
+// Callers must not use this for a snapshot whose source volume is on a host-exclusive datastore:
+// that datastore is never in the all-hosts intersection GetCandidateDatastoresInCluster reports, so
+// no cluster matches. See getHostExclusiveSnapshotSourceHost for how those restores are placed.
 func (c *controller) getAccessibleClustersForSnapshot(
 	ctx context.Context,
 	contentSourceSnapshotID string,
@@ -1524,7 +1614,7 @@ func (c *controller) getAccessibleClustersForSnapshot(
 	// TODO: Improve this code using cache backed by property collector, instead of making
 	// explicit call to vCenter to get candidate datastores from cluster
 	for _, clusterMoRef := range activeClusterMoRefs {
-		candidateDatastores, _, err := cnsvsphere.GetCandidateDatastoresInCluster(ctx, vc, clusterMoRef, false)
+		candidateDatastores, _, err := getCandidateDatastores(ctx, vc, clusterMoRef, false)
 		if err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"getAccessibleClustersForSnapshot: failed to get candidate datastores for cluster %q. Error: %+v",
@@ -1542,6 +1632,72 @@ func (c *controller) getAccessibleClustersForSnapshot(
 	log.Infof("getAccessibleClustersForSnapshot: snapshot %q is accessible in clusters: %v",
 		contentSourceSnapshotID, accessibleClusters)
 	return accessibleClusters, nil
+}
+
+// getSnapshotSourceHostToPinPlacement returns the ESX host a host-local restore must be pinned to,
+// or nil when no pinning is needed.
+//
+// It returns nil unless the request restores from a snapshot whose source volume sits on a
+// host-exclusive datastore, and only consults vCenter when the supports_host_local_storage
+// capability is enabled - without it no volume can live on such a datastore, so ordinary
+// provisioning keeps its existing behaviour and makes no extra calls.
+//
+// Callers must not use this for a linked clone: those are placed on the source volume's datastore
+// directly and CNS rejects `hosts` on a linked clone create spec.
+func (c *controller) getSnapshotSourceHostToPinPlacement(ctx context.Context,
+	req *csi.CreateVolumeRequest) (*types.ManagedObjectReference, error) {
+	if req.GetVolumeContentSource() == nil || !isHostLocalStorageSupportEnabled {
+		return nil, nil
+	}
+	log := logger.GetLogger(ctx)
+	snapshotSource := req.GetVolumeContentSource().GetSnapshot()
+	if snapshotSource == nil || snapshotSource.GetSnapshotId() == "" {
+		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument,
+			"restore request must specify a snapshot as VolumeContentSource")
+	}
+	return c.getHostExclusiveSnapshotSourceHost(ctx, snapshotSource.GetSnapshotId())
+}
+
+// getHostExclusiveSnapshotSourceHost returns the ESX host that exclusively mounts the datastore of
+// the snapshot's source volume, or nil when more than one host mounts it (an ordinary shared
+// datastore, where placement needs no host constraint).
+//
+// A restore is a disk copy and vCenter can only run it on a host that mounts both the source and
+// the destination datastore. When the source datastore is host-exclusive - the backing of a
+// host-local storage policy - that host is the only one that can serve the restore, so callers must
+// constrain placement to it. Otherwise vpxd fails the copy with "No common host found between
+// source and target datastores".
+func (c *controller) getHostExclusiveSnapshotSourceHost(ctx context.Context,
+	contentSourceSnapshotID string) (*types.ManagedObjectReference, error) {
+	log := logger.GetLogger(ctx)
+
+	datastoreInfo, err := c.getDatastoreForLinkedCloneRequest(ctx, contentSourceSnapshotID)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to find the datastore of the source volume of snapshot %q: %v",
+			contentSourceSnapshotID, err)
+	}
+	hostMounts, err := datastoreHostMounts(ctx, datastoreInfo)
+	if err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to retrieve host mounts for datastore %q of snapshot %q: %v",
+			datastoreInfo.Info.Url, contentSourceSnapshotID, err)
+	}
+	if len(hostMounts) == 0 {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"datastore %q of snapshot %q has no host mounts", datastoreInfo.Info.Url,
+			contentSourceSnapshotID)
+	}
+	if len(hostMounts) > 1 {
+		log.Debugf("getHostExclusiveSnapshotSourceHost: datastore %q of snapshot %q is mounted by %d "+
+			"hosts, placement needs no host constraint", datastoreInfo.Info.Url, contentSourceSnapshotID,
+			len(hostMounts))
+		return nil, nil
+	}
+	sourceHost := hostMounts[0].Key
+	log.Infof("getHostExclusiveSnapshotSourceHost: datastore %q of snapshot %q is exclusive to host %q",
+		datastoreInfo.Info.Url, contentSourceSnapshotID, sourceHost.Value)
+	return &sourceHost, nil
 }
 
 // getDatastoreForLinkedCloneRequest returns the DatastoreInfo object corresponding to
