@@ -78,6 +78,16 @@ var (
 	// Declared as a var so it can be adjusted in tests.
 	modifyVolumeTimeoutInMin = defaultModifyVolumeTimeoutInMin
 
+	// attachStillRequestedCheckInterval is how often ControllerPublishVolume
+	// re-checks that the attach is still requested while waiting for the volume
+	// to be attached. Declared as a var so it can be shortened in tests.
+	attachStillRequestedCheckInterval = 15 * time.Second
+
+	// removeStaleVolumeTimeout bounds how long we retry removing a volume entry
+	// from VirtualMachine.Spec.Volumes once the attach is known to be stale.
+	// Declared as a var so it can be shortened in tests.
+	removeStaleVolumeTimeout = 30 * time.Second
+
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
@@ -995,6 +1005,56 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	return resp, err
 }
 
+// removeVolumeFromVMSpec removes volumeID from the VirtualMachine's
+// Spec.Volumes if it is present, retrying until deadline on patch conflicts.
+// It is a no-op (returns nil) when the VirtualMachine is gone or the volume is
+// not in the spec, so it is safe to call speculatively.
+//
+// This is only called once the attach is known to be unwanted - the
+// VolumeAttachment that requested it no longer exists. Removing the entry then
+// mirrors what ControllerUnpublishVolume would have done, and is the only way
+// to stop vm-operator from continuing to reconcile an attach that nothing in
+// Kubernetes is left to detach.
+func removeVolumeFromVMSpec(ctx context.Context, c *controller, vmKey types.NamespacedName,
+	volumeID string, deadline time.Time) error {
+	log := logger.GetLogger(ctx)
+	for {
+		virtualMachine, _, err := utils.GetVirtualMachine(ctx, vmKey, c.vmOperatorClient)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				log.Infof("VirtualMachine %q not found, nothing to remove for volume %q", vmKey.Name, volumeID)
+				return nil
+			}
+			return err
+		}
+		oldVirtualMachine := virtualMachine.DeepCopy()
+		found := false
+		for index, volume := range virtualMachine.Spec.Volumes {
+			if volume.Name == volumeID {
+				virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes[:index],
+					virtualMachine.Spec.Volumes[index+1:]...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Infof("Volume %q is not present in virtualmachine %q spec, nothing to remove",
+				volumeID, vmKey.Name)
+			return nil
+		}
+		if err := utils.PatchVirtualMachine(ctx, c.vmOperatorClient, virtualMachine, oldVirtualMachine); err == nil {
+			log.Infof("Removed volume %q from virtualmachine %q spec", volumeID, vmKey.Name)
+			return nil
+		} else {
+			log.Errorf("failed to remove volume %q from virtualmachine %q spec. Err: %v",
+				volumeID, vmKey.Name, err)
+			if time.Now().After(deadline) {
+				return err
+			}
+		}
+	}
+}
+
 // controllerPublishForBlockVolume is a helper mthod for handling ControllerPublishVolume request for Block volumes
 func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest, c *controller) (
 	*csi.ControllerPublishVolumeResponse, string, error) {
@@ -1045,6 +1105,18 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			},
 		}
 		virtualMachine.Spec.Volumes = append(virtualMachine.Spec.Volumes, vmvolumes)
+		// Adding the volume to VirtualMachine.Spec.Volumes records the attach as
+		// desired state, which vm-operator keeps reconciling until it succeeds -
+		// including after this RPC has given up and reported failure. Confirm the
+		// attach is still requested before writing it, so that a request which
+		// became stale while we were retrying cannot leave the volume attached
+		// with no VolumeAttachment left to drive its detach.
+		if !c.isAttachStillRequested(ctx, req.VolumeId, req.NodeId) {
+			msg := fmt.Sprintf("attach of volume %q to node %q is no longer requested, "+
+				"not adding it to virtualmachine %q spec", req.VolumeId, req.NodeId, virtualMachine.Name)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
+		}
 		// Issue a patch with the modified VM against the patch created above.
 		if err := utils.PatchVirtualMachine(ctx, c.vmOperatorClient, virtualMachine, oldVirtualMachine); err == nil {
 			break
@@ -1052,9 +1124,10 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
 		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			msg := fmt.Sprintf("timed out after %d minute(s) trying to add volume %q to virtualmachine %q spec",
+				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
 			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
@@ -1081,16 +1154,44 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		}
 		defer watchVirtualMachine.Stop()
 
+		// The volume is already recorded in VirtualMachine.Spec.Volumes at this
+		// point, so the pre-patch guard can no longer help: if the VolumeAttachment
+		// disappears while we wait, nothing is left to issue ControllerUnpublishVolume
+		// and vm-operator would keep reconciling the attach forever. Re-check
+		// periodically and undo our own spec entry if the attach became stale.
+		staleCheck := time.NewTicker(attachStillRequestedCheckInterval)
+		defer staleCheck.Stop()
+
 		// Watch all update events made on VirtualMachine instance until volume.DiskUuid is set
 		for diskUUID == "" {
 			// blocking wait for update event
 			log.Debugf("waiting for update on virtualmachine: %q", virtualMachine.Name)
-			event := <-watchVirtualMachine.ResultChan()
+			var event watch.Event
+			select {
+			case <-staleCheck.C:
+				if c.isAttachStillRequested(ctx, req.VolumeId, req.NodeId) {
+					continue
+				}
+				msg := fmt.Sprintf("attach of volume %q to node %q is no longer requested while waiting for it "+
+					"to be attached, removing it from virtualmachine %q spec",
+					req.VolumeId, req.NodeId, virtualMachine.Name)
+				log.Error(msg)
+				if rmErr := removeVolumeFromVMSpec(ctx, c, vmKey, req.VolumeId,
+					time.Now().Add(removeStaleVolumeTimeout)); rmErr != nil {
+					return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+						"%s. Failed to remove it, volume may stay attached: %v", msg, rmErr)
+				}
+				return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition, msg)
+			case event = <-watchVirtualMachine.ResultChan():
+			}
+			if event.Type == watch.Error {
+				faultType, err := vmWatchErrorEventError(ctx, "attach", virtualMachine.Name, event.Object)
+				return nil, faultType, err
+			}
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				faultType, err := vmWatchClosedError(ctx, "attach", virtualMachine.Name)
+				return nil, faultType, err
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
@@ -1417,9 +1518,10 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
 		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timedout to update VirtualMachines %q", virtualMachine.Name)
+			msg := fmt.Sprintf("timed out after %d minute(s) trying to remove volume %q from virtualmachine %q spec",
+				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
 			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
@@ -1458,11 +1560,14 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 			log.Debugf("Waiting for update on VirtualMachine: %q", virtualMachine.Name)
 			// Block on update events
 			event := <-watchVirtualMachine.ResultChan()
+			if event.Type == watch.Error {
+				faultType, err := vmWatchErrorEventError(ctx, "detach", virtualMachine.Name, event.Object)
+				return nil, faultType, err
+			}
 			vm, ok := event.Object.(*vmoperatortypes.VirtualMachine)
 			if !ok {
-				msg := fmt.Sprintf("Watch on virtualmachine %q timed out", virtualMachine.Name)
-				log.Error(msg)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+				faultType, err := vmWatchClosedError(ctx, "detach", virtualMachine.Name)
+				return nil, faultType, err
 			}
 			if vm.Name != virtualMachine.Name {
 				log.Debugf("Observed vm name: %q, expecting vm name: %q, volumeID: %q",
