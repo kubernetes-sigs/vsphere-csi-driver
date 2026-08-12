@@ -1883,9 +1883,55 @@ func TestIsFileVolumeAttachment(t *testing.T) {
 		assert.False(t, isFileVolume)
 	})
 
-	t.Run("supervisor PVC not found returns an error", func(t *testing.T) {
+	t.Run("orphaned CnsFileAccessConfig CR is still a file volume when the supervisor PVC is gone",
+		func(t *testing.T) {
+			// Regression test: a CR can outlive its Supervisor PVC (the PVC deletes cleanly
+			// whenever the pvc-protection finalizer was never added). Such an orphaned CR is
+			// exactly what unpublish has to remove, so a missing Supervisor PVC must not abort
+			// the lookup - otherwise external-attacher retries forever and the CR leaks.
+			cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).WithObjects(
+				&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      mockNodeID + "-" + mockVolumeID,
+						Namespace: mockSupervisorNamespace,
+					},
+				},
+			).Build()
+
+			c := &controller{
+				supervisorClient:    testclient.NewClientset(), // no Supervisor PVC at all
+				supervisorNamespace: mockSupervisorNamespace,
+				cnsOperatorClient:   cnsOperatorClient,
+			}
+			isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+			assert.NoError(t, err)
+			assert.True(t, isFileVolume)
+		})
+
+	t.Run("supervisor PVC gone and no CR is a block volume", func(t *testing.T) {
 		c := &controller{
 			supervisorClient:    testclient.NewClientset(),
+			supervisorNamespace: mockSupervisorNamespace,
+			cnsOperatorClient:   ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build(),
+		}
+		isFileVolume, err := c.isFileVolumeAttachment(ctx, newReq())
+		assert.NoError(t, err)
+		assert.False(t, isFileVolume)
+	})
+
+	t.Run("supervisor PVC API failure under FVS returns an error", func(t *testing.T) {
+		origFVSEnabled := IsVsanFileVolumeServiceEnabled
+		IsVsanFileVolumeServiceEnabled = true
+		defer func() { IsVsanFileVolumeServiceEnabled = origFVSEnabled }()
+
+		supervisorClient := testclient.NewClientset()
+		supervisorClient.PrependReactor("get", "persistentvolumeclaims",
+			func(action ktesting.Action) (handled bool, ret runtime.Object, err error) {
+				return true, nil, errors.NewInternalError(assert.AnError)
+			})
+
+		c := &controller{
+			supervisorClient:    supervisorClient,
 			supervisorNamespace: mockSupervisorNamespace,
 			cnsOperatorClient:   ctrlclientfake.NewClientBuilder().WithScheme(cnsOperatorScheme).Build(),
 		}

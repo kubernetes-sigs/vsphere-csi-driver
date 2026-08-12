@@ -1416,27 +1416,52 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
+		// Publish can leave behind two INDEPENDENT artifacts for a single (NodeId, VolumeId):
+		// a CnsFileAccessConfig CR (file path) and an entry in the VirtualMachine's volume spec
+		// (block path). They are not mutually exclusive, because two guest PVs can share one
+		// volumeHandle - the real dynamically-provisioned RWO PV plus a mis-registered static
+		// RWX PV pointing at the same FCD. Pods using each can land on the same node, so both
+		// attachments arrive here under identical CSI identifiers and neither the request nor
+		// any PVC access mode can tell them apart.
+		//
+		// Therefore tear down BOTH artifacts rather than choosing one: each teardown is a no-op
+		// when its artifact is absent (controllerUnpublishForFileVolume returns success when the
+		// CR is not found; controllerUnpublishForBlockVolume returns success when the volume is
+		// not in the VM spec/status). Choosing only one is what let the CnsFileAccessConfig CR
+		// leak, and choosing the file path alone for a block attachment would leave the disk
+		// attached to the VM.
 		isFileVolume, err := c.isFileVolumeAttachment(ctx, req)
 		if err != nil {
 			log.Error(err.Error())
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, err.Error())
 		}
-		log.Infof("DEBUG ControllerUnpublishVolume: dispatch decision for volumeId=%q nodeId=%q: isFileVolume=%v",
+		log.Infof("DEBUG ControllerUnpublishVolume: volumeId=%q nodeId=%q isFileVolume=%v",
 			req.VolumeId, req.NodeId, isFileVolume)
+
 		if isFileVolume {
 			volumeType = prometheus.PrometheusFileVolumeType
-			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
-				log.Infof("DEBUG ControllerUnpublishVolume: routing volumeId=%q to controllerUnpublishForFileVolume",
-					req.VolumeId)
-				return controllerUnpublishForFileVolume(ctx, req, c)
+			// Deliberately not gated on the FileVolume FSS. A CnsFileAccessConfig CR only exists
+			// because a publish created it, and it holds a pvc-protection finalizer on the
+			// Supervisor PVC. Refusing to remove it when the FSS is off (as this used to do)
+			// wedges the PVC in Terminating forever, so always clean it up.
+			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
+				log.Warnf("ControllerUnpublishVolume: FileVolume FSS is disabled but a CnsFileAccessConfig "+
+					"exists for volumeId=%q on node %q; cleaning it up anyway to avoid leaking the "+
+					"pvc-protection finalizer", req.VolumeId, req.NodeId)
 			}
-			// Feature is disabled on the cluster
-			log.Infof("DEBUG ControllerUnpublishVolume: FileVolume FSS disabled, failing volumeId=%q", req.VolumeId)
-			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "File volume not supported.")
+			log.Infof("DEBUG ControllerUnpublishVolume: running file-volume teardown for volumeId=%q", req.VolumeId)
+			resp, faultType, err := controllerUnpublishForFileVolume(ctx, req, c)
+			if err != nil {
+				return resp, faultType, err
+			}
+		} else {
+			volumeType = prometheus.PrometheusBlockVolumeType
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
-		log.Infof("DEBUG ControllerUnpublishVolume: routing volumeId=%q to controllerUnpublishForBlockVolume",
-			req.VolumeId)
+
+		// Always follow with the block teardown. For a genuine file volume the guest driver never
+		// adds the volume to the VM spec, so this is a no-op; for the shared-volumeHandle case it
+		// is what actually detaches the disk.
+		log.Infof("DEBUG ControllerUnpublishVolume: running block-volume teardown for volumeId=%q", req.VolumeId)
 		return controllerUnpublishForBlockVolume(ctx, req, c)
 	}
 	resp, faultType, err := controllerUnpublishVolumeInternal()
@@ -2452,26 +2477,44 @@ func (c *controller) isFileVolumeAttachment(ctx context.Context, req *csi.Contro
 	log.Infof("DEBUG isFileVolumeAttachment: checking volumeId=%q nodeId=%q in supervisorNamespace=%q",
 		req.VolumeId, req.NodeId, c.supervisorNamespace)
 
-	svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
-		ctx, req.VolumeId, metav1.GetOptions{})
-	if err != nil {
-		log.Errorf("DEBUG isFileVolumeAttachment: failed to get supervisor PVC %q: %v", req.VolumeId, err)
-		return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
-			req.VolumeId, c.supervisorNamespace, err)
-	}
-	log.Infof("DEBUG isFileVolumeAttachment: supervisor PVC %q accessModes=%v storageClass=%v "+
-		"IsVsanFileVolumeServiceEnabled=%v",
-		req.VolumeId, svPVC.Spec.AccessModes, svPVC.Spec.StorageClassName, IsVsanFileVolumeServiceEnabled)
-	if IsVsanFileVolumeServiceEnabled && common.IsFVSPersistentVolumeClaim(svPVC) {
-		log.Infof("DEBUG isFileVolumeAttachment: volumeId=%q is FVS-backed, treating as file volume", req.VolumeId)
-		return true, nil
+	// The Supervisor PVC is consulted only for the FVS check, so it is fetched only when FVS
+	// is enabled and a NotFound is tolerated. It must never gate the CnsFileAccessConfig lookup
+	// below: a CR can outlive its Supervisor PVC (the PVC is deleted cleanly whenever the
+	// pvc-protection finalizer had not been added yet - see addPvcFinalizer, which the
+	// CnsFileAccessConfig reconciler only reaches after adding its own finalizer and setting the
+	// VM ownerRef). Failing here on a missing PVC would leave precisely those orphaned CRs
+	// unremovable, since external-attacher would retry this RPC forever and the Delete below
+	// would never be issued.
+	if IsVsanFileVolumeServiceEnabled {
+		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+			ctx, req.VolumeId, metav1.GetOptions{})
+		switch {
+		case err == nil:
+			log.Infof("DEBUG isFileVolumeAttachment: supervisor PVC %q accessModes=%v storageClass=%v",
+				req.VolumeId, svPVC.Spec.AccessModes, svPVC.Spec.StorageClassName)
+			if common.IsFVSPersistentVolumeClaim(svPVC) {
+				log.Infof("DEBUG isFileVolumeAttachment: volumeId=%q is FVS-backed, treating as file volume",
+					req.VolumeId)
+				return true, nil
+			}
+		case errors.IsNotFound(err):
+			// Not fatal: fall through to the CnsFileAccessConfig check so an orphaned CR can
+			// still be cleaned up. An FVS volume never has a CR, so it correctly reports block
+			// here and its teardown is a no-op.
+			log.Infof("DEBUG isFileVolumeAttachment: supervisor PVC %q not found; skipping FVS check "+
+				"and falling through to the CnsFileAccessConfig lookup", req.VolumeId)
+		default:
+			log.Errorf("DEBUG isFileVolumeAttachment: failed to get supervisor PVC %q: %v", req.VolumeId, err)
+			return false, fmt.Errorf("failed to retrieve supervisor PVC %q in %q namespace: %v",
+				req.VolumeId, c.supervisorNamespace, err)
+		}
 	}
 
 	cnsFileAccessConfigInstanceName := req.NodeId + "-" + req.VolumeId
 	log.Infof("DEBUG isFileVolumeAttachment: looking up CnsFileAccessConfig %q/%q",
 		c.supervisorNamespace, cnsFileAccessConfigInstanceName)
 	existingInstance := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
-	err = c.cnsOperatorClient.Get(ctx, types.NamespacedName{
+	err := c.cnsOperatorClient.Get(ctx, types.NamespacedName{
 		Namespace: c.supervisorNamespace,
 		Name:      cnsFileAccessConfigInstanceName,
 	}, existingInstance)
