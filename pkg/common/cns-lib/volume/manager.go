@@ -1054,20 +1054,26 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 					log.Errorf("failed to create volume with VolumeID: %q, faultType: %q, err: %v",
 						spec.VolumeId.Id, faultType, err)
 					if IsCnsVolumeAlreadyExistsFault(ctx, faultType) {
-						// CSI Transaction Support derives VolumeId deterministically from the
-						// PVC UID (see ExtractVolumeIDFromPVName) so a CreateVolume retry after
-						// a lost response, timeout, or CSI restart is idempotent instead of
-						// producing a duplicate FCD. But a retry can carry different placement
-						// candidates than the original attempt (e.g. the scheduler picked a
-						// different host, or the set of compatible datastores/clusters changed
-						// between attempts), so the volume CNS already created under this
-						// VolumeId may no longer satisfy the current request's placement scope.
-						// CNS reports that mismatch as CnsVolumeAlreadyExistsFault rather than
-						// silently reusing the volume. Delete it and recreate: VolumeId is
-						// unique to this PVC, so deleting it cannot affect any other volume,
-						// and the recreate lands the volume within the scope this request
-						// actually asked for.
-						log.Infof("Observed volume with Id: %q is already Exists. Deleting Volume.", spec.VolumeId.Id)
+						// CSI Transaction Support derives VolumeId deterministically from the PVC
+						// UID, so a retry can hit a volume CNS already created under this VolumeId
+						// but placed outside the current request's scope (e.g. datastore/zone
+						// candidates changed between attempts). VolumeId is unique to this PVC, so
+						// deleting it cannot affect any other volume. But if the existing volume
+						// already satisfies the current request, deleting and recreating it is
+						// unnecessary and would discard state such as a concurrent
+						// ControllerExpandVolume's growth — so check compatibility first.
+						compatible, queryErr := isExistingVolumeCompatible(ctx, m, spec)
+						if queryErr != nil {
+							log.Errorf("failed to check compatibility of existing volume: %q, err: %v. "+
+								"Proceeding to delete and recreate.", spec.VolumeId.Id, queryErr)
+							compatible = false
+						}
+						if compatible {
+							log.Infof("Existing volume %q is compatible with requested spec, treating as success",
+								spec.VolumeId.Id)
+							return &CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: spec.VolumeId.Id}}, "", nil
+						}
+						log.Infof("Existing volume %q is not compatible with requested spec, deleting", spec.VolumeId.Id)
 						deleteFaultType, deleteError := m.deleteVolume(ctx, spec.VolumeId.Id, true)
 						if deleteError != nil {
 							log.Errorf("failed to delete volume: %q to handle CnsVolumeAlreadyExistsFault , err :%v", spec.VolumeId.Id, err)
@@ -1099,6 +1105,107 @@ func (m *defaultManager) CreateVolume(ctx context.Context, spec *cnstypes.CnsVol
 	}
 
 	return resp, faultType, err
+}
+
+// isExistingVolumeCompatible checks whether the volume referenced by spec.VolumeId satisfies the
+// incoming CnsVolumeCreateSpec (zone, VolumeType, storage policy, capacity). Capacity is checked
+// as >=, not ==, so a volume already grown by a concurrent ControllerExpandVolume isn't mistaken
+// for incompatible.
+func isExistingVolumeCompatible(ctx context.Context, m *defaultManager,
+	spec *cnstypes.CnsVolumeCreateSpec) (bool, error) {
+	log := logger.GetLogger(ctx).With("volumeId", spec.VolumeId.Id)
+	queryFilter := cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: spec.VolumeId.Id}},
+	}
+	queryResult, err := m.QueryVolume(ctx, queryFilter)
+	if err != nil {
+		return false, logger.LogNewErrorf(log, "failed to query volume: %v", err)
+	}
+	if queryResult == nil || len(queryResult.Volumes) == 0 {
+		log.Infof("volume not found by QueryVolume, treating as incompatible")
+		return false, nil
+	}
+	return isQueriedVolumeCompatible(ctx, m, queryResult.Volumes[0], spec)
+}
+
+// isQueriedVolumeCompatible checks zone, then delegates the rest of the compatibility checks to
+// isVolumeSpecCompatible. Split out from isExistingVolumeCompatible so it can be unit tested with
+// a fake existing volume instead of a live QueryVolume call.
+func isQueriedVolumeCompatible(ctx context.Context, m *defaultManager, existing cnstypes.CnsVolume,
+	spec *cnstypes.CnsVolumeCreateSpec) (bool, error) {
+	log := logger.GetLogger(ctx).With("volumeId", spec.VolumeId.Id)
+	if len(spec.Datastores) > 0 {
+		inZone, err := isDatastoreAmongCandidates(ctx, m, existing.DatastoreUrl, spec.Datastores)
+		if err != nil {
+			return false, err
+		}
+		if !inZone {
+			log.Infof("existing volume is on datastore %q, outside the requested zone", existing.DatastoreUrl)
+			return false, nil
+		}
+	}
+
+	return isVolumeSpecCompatible(ctx, existing, spec)
+}
+
+// isDatastoreAmongCandidates checks whether datastoreURL matches one of the candidate datastores.
+func isDatastoreAmongCandidates(ctx context.Context, m *defaultManager, datastoreURL string,
+	candidates []vim25types.ManagedObjectReference) (bool, error) {
+	log := logger.GetLogger(ctx)
+	for _, candidate := range candidates {
+		url, err := GetDatastoreURLHook(ctx, m.virtualCenter, candidate)
+		if err != nil {
+			return false, logger.LogNewErrorf(log, "failed to get URL for candidate datastore %v: %v", candidate, err)
+		}
+		if url == datastoreURL {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetDatastoreURLHook resolves a candidate datastore moref to its URL; unit tests may replace it.
+var GetDatastoreURLHook = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+	ref vim25types.ManagedObjectReference) (string, error) {
+	ds := &cnsvsphere.Datastore{Datastore: object.NewDatastore(vc.Client.Client, ref)}
+	url, _, err := ds.GetDatastoreURLAndType(ctx)
+	return url, err
+}
+
+// isVolumeSpecCompatible compares an existing CNS volume against a requested CnsVolumeCreateSpec.
+// Split out so the comparison logic can be unit tested without a live CNS connection.
+func isVolumeSpecCompatible(ctx context.Context, existing cnstypes.CnsVolume,
+	spec *cnstypes.CnsVolumeCreateSpec) (bool, error) {
+	log := logger.GetLogger(ctx).With("volumeId", spec.VolumeId.Id)
+
+	if existing.VolumeType != spec.VolumeType {
+		log.Infof("VolumeType mismatch, existing %q requested %q", existing.VolumeType, spec.VolumeType)
+		return false, nil
+	}
+
+	if len(spec.Profile) > 0 {
+		if requestedProfile, ok := spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec); ok {
+			if existing.StoragePolicyId != requestedProfile.ProfileId {
+				log.Infof("StoragePolicyId mismatch, existing %q requested %q",
+					existing.StoragePolicyId, requestedProfile.ProfileId)
+				return false, nil
+			}
+		}
+	}
+
+	requestedBacking, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	if !ok {
+		return false, logger.LogNewErrorf(log, "unable to retrieve requested capacity")
+	}
+	existingBacking, ok := existing.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	if !ok {
+		return false, logger.LogNewErrorf(log, "unable to retrieve existing capacity")
+	}
+	if existingBacking.CapacityInMb < requestedBacking.CapacityInMb {
+		log.Infof("capacity %dMb less than requested %dMb", existingBacking.CapacityInMb, requestedBacking.CapacityInMb)
+		return false, nil
+	}
+	return true, nil
 }
 
 // ensureOperationContextHasATimeout checks if the passed context has a timeout associated with it.
