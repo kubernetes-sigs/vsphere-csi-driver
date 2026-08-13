@@ -60,7 +60,7 @@ const (
 	// self-signed serving certificate for the Snapshot Metadata gRPC endpoint.
 	// In the self-signed single-CA model, the Secret's ca.crt IS this served
 	// certificate, so the certificate must itself carry the LB IP in its IP SANs.
-	targetCertificateName = "vmware-system-csi-snapshot-metadata-service-cert"
+	targetCertificateName = "csi-snapshot-metadata-service-cert"
 
 	// targetSMSName is the (cluster-scoped) SnapshotMetadataService CR that
 	// this controller owns. It is the primary reconciled object: the controller
@@ -75,7 +75,7 @@ const (
 	// Metadata gRPC port. Its external ingress IP is the address advertised in
 	// the SnapshotMetadataService CR and the IP that must appear in the served
 	// certificate's IP SANs.
-	targetServiceName = "vmware-system-csi-snapshot-metadata-service"
+	targetServiceName = "csi-snapshot-metadata-service"
 )
 
 // backOffDuration is a map of SnapshotMetadataService CR name's to the time

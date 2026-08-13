@@ -161,7 +161,7 @@ func generateSelfSignedCertPEM(t *testing.T, ips ...net.IP) []byte {
 
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "vsphere-csi-snapshot-metadata-service"},
+		Subject:      pkix.Name{CommonName: "csi-snapshot-metadata-service"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		IPAddresses:  ips,
