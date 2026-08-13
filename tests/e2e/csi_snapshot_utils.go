@@ -27,6 +27,7 @@ import (
 	snapclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,7 +38,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/test/e2e/framework"
-
 	e2ekubectl "k8s.io/kubernetes/test/e2e/framework/kubectl"
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 )
@@ -789,12 +789,33 @@ func createPVCAndQueryVolumeInCNS(ctx context.Context, client clientset.Interfac
 	// Verify the volume in CNS if required
 	if verifyCNSVolume {
 		ginkgo.By(fmt.Sprintf("Invoking QueryCNSVolumeWithResult with VolumeID: %s", volHandle))
-		queryResult, err := e2eVSphere.queryCNSVolumeWithResult(volHandle)
-		if err != nil {
-			return pvclaim, persistentvolumes, fmt.Errorf("failed to query CNS volume: %w", err)
-		}
-		if len(queryResult.Volumes) == 0 || queryResult.Volumes[0].VolumeId.Id != volHandle {
-			return pvclaim, persistentvolumes, fmt.Errorf("CNS query returned unexpected result")
+
+		var queryResult *cnstypes.CnsQueryResult // Ensure this matches your actual return type
+		var err error
+
+		// Start timer for 2 minutes
+		timeout := time.After(2 * time.Minute)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			// 1. The specific method to retry
+			queryResult, err = e2eVSphere.queryCNSVolumeWithResult(volHandle)
+
+			// 2. Check for success condition
+			if err == nil && len(queryResult.Volumes) > 0 && queryResult.Volumes[0].VolumeId.Id == volHandle {
+				break
+			}
+
+			// 3. Handle retry interval and total timeout
+			select {
+			case <-timeout:
+				// Final failure after 2 minutes
+				return pvclaim, persistentvolumes, fmt.Errorf("timed out after 2m: last err: %v", err)
+			case <-ticker.C:
+				ginkgo.By("Retrying QueryCNSVolumeWithResult in 30 seconds...")
+				continue
+			}
 		}
 	}
 

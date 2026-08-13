@@ -195,8 +195,14 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] "+
 		framework.Logf("storageclass name :%s", storageclass.GetName())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
-			err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			// For supervisor clusters, storageclass.Name is the shared storage policy
+			// name, which is recreated with the original (Immediate) binding mode by
+			// the defer below. Deleting it unconditionally here would remove that
+			// restored StorageClass and break every other test relying on it.
+			if !supervisorCluster {
+				err := client.StorageV1().StorageClasses().Delete(ctx, storageclass.Name, *metav1.NewDeleteOptions(0))
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}()
 		defer func() {
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
