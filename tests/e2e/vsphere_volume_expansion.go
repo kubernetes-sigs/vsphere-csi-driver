@@ -278,8 +278,8 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 	// 9. Delete pod and Wait for Volume Disk to be detached from the Node.
 	// 10. Delete PVC, PV and Storage Class.
 
-	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][ef-wcp][csi-block-vanilla][csi-guest]"+
-		"[csi-supervisor][csi-block-vanilla-parallelized][csi-vcp-mig][vks-exp-nonprod] Verify "+
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][csi-block-vanilla][csi-guest]"+
+		"[csi-block-vanilla-parallelized][csi-vcp-mig][vks-exp-nonprod] Verify "+
 		"volume expansion can happen multiple times", ginkgo.Label(p1, block, vanilla, wcp, core, vc70), func() {
 		invokeTestForExpandVolumeMultipleTimes(f, client, namespace, "", storagePolicyName, profileID)
 	})
@@ -2766,6 +2766,113 @@ var _ = ginkgo.Describe("Volume Expansion Test", func() {
 
 	})
 
+	/*
+		Offline Volume expansion multiple times, validate the error message
+
+		Steps
+		1. Create PVC with a valid storage policy.
+		2. Wait for PVC and PV to be Bound.
+		3. Expand the PVC for the first time. The controller resize (PV
+		   capacity) should complete, while the PVC's own status capacity
+		   is not yet updated since no pod is attached.
+		4. Expand the PVC for a second time immediately. The update should
+		   be denied by the quota webhook with the error message
+		   "Last PVC expansion to size 4Gi is still going on. Perform new
+		   expansion operation once last one is completed."
+		5. Create a Pod using the PVC and wait for the (first) expansion to
+		   complete, i.e. the PVC's status capacity catches up.
+		6. Delete the Pod and the PVC.
+	*/
+	ginkgo.It("[csi-supervisor] [ef-wcp] Offline Volume expansion multiple times Validate the error message",
+		ginkgo.Label(p1, block, wcp, vc70), func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			ginkgo.By("Creating Storage Class and PVC with allowVolumeExpansion = true")
+			scParameters := make(map[string]string)
+			scParameters[scParamStoragePolicyID] = profileID
+			createResourceQuota(client, namespace, rqLimit, storagePolicyName)
+			_, pvclaim, err := createPVCAndStorageClass(ctx, client,
+				namespace, nil, scParameters, "", nil, "", true, "", storagePolicyName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				ginkgo.By("Delete Resource quota")
+				deleteResourceQuota(client, namespace)
+			}()
+
+			ginkgo.By("Waiting for PVC to be in Bound phase")
+			pvs, err := fpv.WaitForPVClaimBoundPhase(ctx, client,
+				[]*v1.PersistentVolumeClaim{pvclaim}, framework.ClaimProvisionTimeout)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			volHandle := pvs[0].Spec.CSI.VolumeHandle
+
+			defer func() {
+				err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Expanding the PVC for the first time to 4Gi")
+			firstSize := resource.MustParse("4Gi")
+			pvclaim, err = expandPVCSize(pvclaim, firstSize, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(pvclaim).NotTo(gomega.BeNil())
+
+			// The quota extension only clears its "expansion in progress" tracking for the
+			// first request shortly after the controller resize completes, so the second
+			// request has to land immediately (no intervening wait) to reliably observe
+			// the rejection below. Retry immediately on a resourceVersion conflict (caused
+			// by external-resizer concurrently updating the PVC's conditions) rather than
+			// treating it as the denial we're looking for.
+			ginkgo.By("Expanding the PVC for the second time immediately, expecting it to be denied")
+			secondSize := resource.MustParse("6Gi")
+			expectedErrorMsg := "Last PVC expansion to size 4Gi is still going on. " +
+				"Perform new expansion operation once last one is completed."
+			var secondUpdateErr error
+			for attempt := 0; attempt < 20; attempt++ {
+				latestPvc, getErr := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+				gomega.Expect(getErr).NotTo(gomega.HaveOccurred())
+				latestPvc.Spec.Resources.Requests[v1.ResourceStorage] = secondSize
+				_, secondUpdateErr = client.CoreV1().PersistentVolumeClaims(namespace).Update(
+					ctx, latestPvc, metav1.UpdateOptions{})
+				if secondUpdateErr == nil || !apierrors.IsConflict(secondUpdateErr) {
+					break
+				}
+				framework.Logf("Retrying second expansion attempt %d after conflict: %v", attempt, secondUpdateErr)
+			}
+			gomega.Expect(secondUpdateErr).To(gomega.HaveOccurred())
+			gomega.Expect(secondUpdateErr.Error()).To(gomega.ContainSubstring(expectedErrorMsg),
+				fmt.Sprintf("expected PVC update to be denied with %q but got: %v", expectedErrorMsg, secondUpdateErr))
+
+			ginkgo.By("Waiting for controller resize of the first expansion to complete")
+			err = waitForPvResizeForGivenPvc(pvclaim, client, totalResizeWaitPeriod)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.By("Verifying PVC status capacity has not caught up yet since no pod is attached")
+			pvclaim, err = client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvclaim.Name, metav1.GetOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			pvcStatusSize := pvclaim.Status.Capacity[v1.ResourceStorage]
+			gomega.Expect(pvcStatusSize.Cmp(firstSize)).To(gomega.BeNumerically("<", 0),
+				"PVC status capacity should not have caught up to the new size yet")
+
+			ginkgo.By("Creating a Pod using the PVC")
+			pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvclaim}, false, execCommand)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			defer func() {
+				ginkgo.By(fmt.Sprintf("Deleting the pod %s in namespace %s", pod.Name, namespace))
+				err := fpod.DeletePodWithWait(ctx, client, pod)
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}()
+
+			ginkgo.By("Waiting for the first expansion's file system resize to complete now that a pod is attached")
+			pvclaim, err = waitForFSResize(pvclaim, client)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(len(pvclaim.Status.Conditions)).To(gomega.Equal(0), "pvc should not have conditions")
+		})
+
 })
 
 // increaseOnlineVolumeMultipleTimes this method increases the same volume
@@ -4230,12 +4337,13 @@ func expandPVCSize(origPVC *v1.PersistentVolumeClaim, size resource.Quantity,
 	pvcName := origPVC.Name
 	updatedPVC := origPVC.DeepCopy()
 
-	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, 30*time.Second, true,
+	waitErr := wait.PollUntilContextTimeout(ctx, resizePollInterval, pollTimeoutShort, true,
 		func(ctx context.Context) (bool, error) {
 			var err error
 			updatedPVC, err = c.CoreV1().PersistentVolumeClaims(origPVC.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
 			if err != nil {
-				return false, fmt.Errorf("error fetching pvc %q for resizing with %v", pvcName, err)
+				framework.Logf("Error fetching pvc %s with %v", pvcName, err)
+				return false, nil
 			}
 
 			updatedPVC.Spec.Resources.Requests[v1.ResourceStorage] = size
