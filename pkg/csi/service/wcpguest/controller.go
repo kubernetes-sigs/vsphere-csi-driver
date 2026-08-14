@@ -408,6 +408,17 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		// If thr reqeust failed due to object not found, "csi.fault.NotFound" will be return.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
+		// A "server" StorageClass parameter selects the vendored nfsdriver backend
+		// (pkg/csi/service/wcpguest/nfsdriver): the volume is created entirely within this
+		// guest cluster, with no Supervisor PVC and no Supervisor interaction at all. This
+		// check must run before validateGuestClusterCreateVolumeRequest, which whitelists
+		// StorageClass parameters for the normal Supervisor-proxy path and would otherwise
+		// reject "server"/"share" as unrecognized. The vendored nfsdriver validates its own
+		// parameters internally.
+		if hasNFSServerParam(req.GetParameters()) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return c.createGuestNFSVolume(ctx, req)
+		}
 		err := validateGuestClusterCreateVolumeRequest(ctx, req)
 		if err != nil {
 			log.Errorf("validation for CreateVolume Request: %+v has failed. Error: %+v",
@@ -847,6 +858,10 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
+		if IsGuestNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return c.deleteGuestNFSVolume(ctx, req)
+		}
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, req.VolumeId, metav1.GetOptions{})
@@ -971,6 +986,15 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				req, err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.Internal, msg)
+		}
+
+		// Guest-local NFS driver volumes (see createGuestNFSVolume) need no controller
+		// publish step at all: the vendored nfsdriver's NodePublishVolume reads the mount
+		// source straight from VolumeContext, not from PublishContext.
+		if IsGuestNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			log.Infof("ControllerPublishVolume: skipping publish for guest NFS volume %q", req.VolumeId)
+			return &csi.ControllerPublishVolumeResponse{}, "", nil
 		}
 
 		// File volumes support
@@ -1427,6 +1451,12 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
+		if IsGuestNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			log.Infof("ControllerUnpublishVolume: skipping unpublish for guest NFS volume %q", req.VolumeId)
+			return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+		}
+
 		// Retrieve Supervisor PVC
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, req.VolumeId, metav1.GetOptions{})
@@ -1749,6 +1779,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+		if IsGuestNFSVolumeID(volumeID) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			return expandGuestNFSVolume(ctx, req)
+		}
 
 		// Retrieve Supervisor PVC early so we can dispatch on volume type.
 		svPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(

@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/externalnfs"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/placementengine"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
@@ -1478,6 +1479,20 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		}
 		if common.IsFileVolumeRequest(ctx, volumeCapabilities) {
 			volumeType = prometheus.PrometheusFileVolumeType
+			if externalnfs.IsExternalNFSRequest(req.GetParameters()) {
+				volumeID, volumeContext, err := externalnfs.CreateVolume(ctx, req.GetParameters(), req.GetName())
+				if err != nil {
+					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+						"failed to create external NFS volume: %+v", err)
+				}
+				return &csi.CreateVolumeResponse{
+					Volume: &csi.Volume{
+						VolumeId:      volumeID,
+						CapacityBytes: req.GetCapacityRange().GetRequiredBytes(),
+						VolumeContext: volumeContext,
+					},
+				}, "", nil
+			}
 			if len(c.managers.VcenterConfigs) > 1 {
 				isvSANFileServicesDisabledInAllVCs := true
 				for _, vcconfig := range c.managers.VcenterConfigs {
@@ -1564,6 +1579,14 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		err = validateVanillaDeleteVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, err
+		}
+		if externalnfs.IsExternalNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			if err := externalnfs.DeleteVolume(ctx, req.VolumeId); err != nil {
+				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to delete external NFS volume: %q. Error: %+v", req.VolumeId, err)
+			}
+			return &csi.DeleteVolumeResponse{}, "", nil
 		}
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			volumeType = prometheus.PrometheusBlockVolumeType
@@ -1687,6 +1710,21 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"validation for PublishVolume Request: %+v has failed. Error: %v", req, err)
+		}
+		if externalnfs.IsExternalNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			id, err := externalnfs.DecodeVolumeID(req.VolumeId)
+			if err != nil {
+				return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
+					"failed to decode external NFS volume Id: %q. Error: %v", req.VolumeId, err)
+			}
+			log.Infof("ControllerPublishVolume successful with publish context for external NFS volume: %q", req.VolumeId)
+			return &csi.ControllerPublishVolumeResponse{
+				PublishContext: map[string]string{
+					common.AttributeDiskType: common.DiskTypeFileVolume,
+					common.Nfsv4AccessPoint:  id.MountSource(),
+				},
+			}, "", nil
 		}
 		publishInfo := make(map[string]string)
 		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
@@ -1829,6 +1867,11 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"validation for UnpublishVolume Request: %+v has failed. Error: %v", req, err)
 		}
+		if externalnfs.IsExternalNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			log.Infof("Skipping ControllerUnpublish for external NFS volume %q", req.VolumeId)
+			return &csi.ControllerUnpublishVolumeResponse{}, "", nil
+		}
 
 		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
 		if err != nil {
@@ -1944,6 +1987,15 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// Later we may need to define different csi faults.
 
 		// csifault.CSIInternalFault csifault.CSIUnimplementedFault csifault.CSIInvalidArgumentFault
+		if externalnfs.IsExternalNFSVolumeID(req.VolumeId) {
+			volumeType = prometheus.PrometheusFileVolumeType
+			log.Infof("ControllerExpandVolume: external NFS volume %q has no real quota; "+
+				"echoing back requested size", req.VolumeId)
+			return &csi.ControllerExpandVolumeResponse{
+				CapacityBytes:         req.GetCapacityRange().GetRequiredBytes(),
+				NodeExpansionRequired: false,
+			}, "", nil
+		}
 		if strings.Contains(req.VolumeId, ".vmdk") {
 			if err := initVolumeMigrationService(ctx, c); err != nil {
 				// Error is already wrapped in CSI error code.

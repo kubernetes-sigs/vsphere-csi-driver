@@ -1,0 +1,19 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: example-vanilla-external-nfs-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: csi.vsphere.vmware.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  # Required: address/hostname of a pre-existing NFS server.
+  nfs.csi.vsphere.vmware.com/server: "10.0.0.5"
+  # Required: path of a pre-existing NFS export on the server above.
+  nfs.csi.vsphere.vmware.com/share: "/export/vol1"
+  # Optional: fixed subdirectory name to create for each volume. Defaults to the PV name
+  # (unique per volume); only set this to a fixed value for single-volume use cases.
+  # nfs.csi.vsphere.vmware.com/subDir: "my-fixed-subdir"
+  # Optional: extra NFS mount options.
+  # nfs.csi.vsphere.vmware.com/mountOptions: "nfsvers=4.1"
