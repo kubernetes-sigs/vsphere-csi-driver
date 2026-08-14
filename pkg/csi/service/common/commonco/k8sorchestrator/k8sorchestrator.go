@@ -1727,6 +1727,17 @@ func (c *K8sOrchestrator) GetPvcObjectByName(ctx context.Context, pvcName string
 
 }
 
+// GetPvObjectByName returns the PV object for the given PV name.
+func (c *K8sOrchestrator) GetPvObjectByName(ctx context.Context, pvName string) (*v1.PersistentVolume, error) {
+	log := logger.GetLogger(ctx)
+	pvObj, err := c.informerManager.GetPVLister().Get(pvName)
+	if err != nil {
+		log.Errorf("failed to get pv: %s. err=%v", pvName, err)
+		return nil, err
+	}
+	return pvObj, nil
+}
+
 // IsFakeAttachAllowed checks if the volume is eligible to be fake attached
 // and returns a bool value.
 func (c *K8sOrchestrator) IsFakeAttachAllowed(ctx context.Context, volumeID string,

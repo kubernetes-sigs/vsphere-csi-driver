@@ -23,6 +23,7 @@ import (
 
 	snapclientset "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/kubernetes-csi/external-snapshotter/client/v8/informers/externalversions"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/informers"
 	v1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -33,6 +34,24 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
+
+// TransformStripManagedFields drops metadata.managedFields, which this driver never
+// reads but which can dominate a cached object's size at scale.
+func TransformStripManagedFields(obj interface{}) (interface{}, error) {
+	if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+		if d.Obj == nil {
+			return obj, nil
+		}
+		if accessor, err := meta.Accessor(d.Obj); err == nil {
+			accessor.SetManagedFields(nil)
+		}
+		return d, nil
+	}
+	if accessor, err := meta.Accessor(obj); err == nil {
+		accessor.SetManagedFields(nil)
+	}
+	return obj, nil
+}
 
 const (
 	// resyncPeriodConfigMapInformer is the time interval between each resync
@@ -141,6 +160,9 @@ func (im *InformerManager) AddPVCListener(ctx context.Context, add func(obj inte
 	log := logger.GetLogger(ctx)
 	if im.pvcInformer == nil {
 		im.pvcInformer = im.informerFactory.Core().V1().PersistentVolumeClaims().Informer()
+		if err := im.pvcInformer.SetTransform(TransformStripManagedFields); err != nil {
+			log.Warnf("failed to set managedFields-stripping transform on PVC informer: %v", err)
+		}
 	}
 	im.pvcSynced = im.pvcInformer.HasSynced
 
@@ -161,6 +183,9 @@ func (im *InformerManager) AddPVListener(ctx context.Context, add func(obj inter
 	log := logger.GetLogger(ctx)
 	if im.pvInformer == nil {
 		im.pvInformer = im.informerFactory.Core().V1().PersistentVolumes().Informer()
+		if err := im.pvInformer.SetTransform(TransformStripManagedFields); err != nil {
+			log.Warnf("failed to set managedFields-stripping transform on PV informer: %v", err)
+		}
 	}
 	im.pvSynced = im.pvInformer.HasSynced
 

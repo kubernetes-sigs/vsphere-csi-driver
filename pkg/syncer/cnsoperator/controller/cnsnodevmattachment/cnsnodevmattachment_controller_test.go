@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
@@ -130,6 +131,17 @@ func TestReconcileDetachWithVolumeIDFallback(t *testing.T) {
 		WithStatusSubresource(instance).
 		WithRuntimeObjects(instance, pvc, pv).
 		Build()
+
+	// getVolumeID reads PVC/PV via commonco, not r.client — register fixtures there too.
+	fakeCOIf, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	fakeCO, ok := fakeCOIf.(*unittestcommon.FakeK8SOrchestrator)
+	require.True(t, ok)
+	origCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = fakeCO
+	defer func() { commonco.ContainerOrchestratorUtility = origCO }()
+	fakeCO.SetPVCs([]*v1.PersistentVolumeClaim{pvc})
+	fakeCO.SetPVs([]*v1.PersistentVolume{pv})
 
 	// Initialize backOffDuration map (required by controller)
 	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
@@ -243,8 +255,9 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 			Finalizers:        []string{"cns.vmware.com/cnsnodevmattachment"},
 		},
 		Spec: v1a1.CnsNodeVmAttachmentSpec{
-			NodeUUID:   "test-node-uuid",
-			VolumeName: "nonexistent-pvc", // This PVC doesn't exist
+			NodeUUID: "test-node-uuid",
+			// "not-found-error" is FakeK8SOrchestrator's NotFound sentinel name.
+			VolumeName: "not-found-error",
 		},
 		Status: v1a1.CnsNodeVmAttachmentStatus{
 			// AttachmentMetadata is missing CNS volume ID - this triggers the fallback
@@ -259,6 +272,15 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 		WithStatusSubresource(instance).
 		WithRuntimeObjects(instance).
 		Build()
+
+	// getVolumeID reads PVC/PV via commonco, not r.client.
+	fakeCOIf, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	fakeCO, ok := fakeCOIf.(*unittestcommon.FakeK8SOrchestrator)
+	require.True(t, ok)
+	origCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = fakeCO
+	defer func() { commonco.ContainerOrchestratorUtility = origCO }()
 
 	// Initialize backOffDuration map (required by controller)
 	backOffDuration = make(map[k8stypes.NamespacedName]time.Duration)
@@ -424,6 +446,16 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 	_ = cnsopapis.AddToScheme(scheme)
 	_ = v1.AddToScheme(scheme)
 
+	// applyAttachedPvcLabelToInstance reads the PVC via commonco; each subtest registers
+	// what it needs via SetPVCs.
+	fakeCOIf, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	fakeCO, ok := fakeCOIf.(*unittestcommon.FakeK8SOrchestrator)
+	require.True(t, ok)
+	origCO := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = fakeCO
+	defer func() { commonco.ContainerOrchestratorUtility = origCO }()
+
 	testPVCUID := "test-pvc-uid"
 
 	// Base instance (attached state toggled inside tests)
@@ -490,6 +522,7 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 				UID:       k8stypes.UID(testPVCUID),
 			},
 		}
+		fakeCO.SetPVCs([]*v1.PersistentVolumeClaim{pvc})
 
 		clientFake := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -510,6 +543,9 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 	t.Run("returns error when PVC fetch fails", func(t *testing.T) {
 		instance := baseInstance.DeepCopy()
 		instance.Status.Attached = true // triggers PVC lookup
+		// "not-found-error" is FakeK8SOrchestrator's NotFound sentinel name.
+		instance.Spec.VolumeName = "not-found-error"
+		fakeCO.SetPVCs(nil)
 
 		clientFake := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -534,6 +570,7 @@ func TestApplyAttachedPvcLabelToInstance(t *testing.T) {
 				UID:       k8stypes.UID(testPVCUID),
 			},
 		}
+		fakeCO.SetPVCs([]*v1.PersistentVolumeClaim{pvc})
 
 		clientFake := fake.NewClientBuilder().
 			WithScheme(scheme).
