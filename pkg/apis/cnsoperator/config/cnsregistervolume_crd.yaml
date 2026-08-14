@@ -82,6 +82,14 @@ spec:
                 x-kubernetes-validations:
                 - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
                   message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
+              storagePolicyId:
+                description: StoragePolicyId is the vSphere storage policy to assign
+                  to the volume being registered, in case the volume does not already
+                  have a storage policy associated with it in CNS. This is optional
+                  and only takes effect when the volume in CNS has no storage policy
+                  of its own; it does not override a policy the volume is already
+                  associated with.
+                type: string
             required:
             - pvcName
             type: object

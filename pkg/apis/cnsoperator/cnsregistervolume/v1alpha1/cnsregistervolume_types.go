@@ -65,6 +65,13 @@ type CnsRegisterVolumeSpec struct {
 	// SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo,
 	// LocalPMemBackingInfo, or empty string.
 	BackingType string `json:"backingType,omitempty"`
+
+	// StoragePolicyId is the vSphere storage policy to assign to the volume being
+	// registered, in case the volume does not already have a storage policy
+	// associated with it in CNS. This is optional and only takes effect when the
+	// volume in CNS has no storage policy of its own; it does not override a
+	// policy the volume is already associated with.
+	StoragePolicyId string `json:"storagePolicyId,omitempty"`
 }
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume

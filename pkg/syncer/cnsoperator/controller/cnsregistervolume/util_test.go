@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -321,4 +322,44 @@ func TestGetPersistentVolumeSpec_VolumeModeFilesystem(t *testing.T) {
 		)
 	}
 
+}
+
+// TestConstructPolicyOnlyCreateSpec verifies that the create spec used to backfill a storage
+// policy onto an already-registered volume carries the supplied policy as Profile, references
+// the volume by its CNS volume ID, reuses the original spec's type/metadata, and — critically —
+// uses a Name distinct from the original spec's. CreateVolume's idempotency cache is keyed by
+// Name (see defaultManager.createVolumeWithImprovedIdempotency): the original registration call
+// already stored a success record under the original Name in the same Reconcile, so reusing it
+// here would make CNS return the cached result without ever invoking CNS to apply the policy.
+func TestConstructPolicyOnlyCreateSpec(t *testing.T) {
+	volumeID := "fcd-uuid-123456"
+	storagePolicyID := "policy-abc"
+	originalSpec := &cnstypes.CnsVolumeCreateSpec{
+		Name:       "static-pv-fcd-uuid-123456",
+		VolumeType: "BLOCK",
+		Metadata: cnstypes.CnsVolumeMetadata{
+			ContainerCluster: cnstypes.CnsContainerCluster{
+				ClusterId: "test-cluster",
+			},
+		},
+	}
+
+	spec := constructPolicyOnlyCreateSpec(originalSpec, volumeID, storagePolicyID)
+
+	assert.NotEqual(t, originalSpec.Name, spec.Name,
+		"policy-only spec must use a different Name than the original create spec, "+
+			"otherwise CreateVolume's Name-keyed idempotency cache returns the cached result "+
+			"from the original call without ever applying the policy")
+	assert.Contains(t, spec.Name, originalSpec.Name)
+	assert.Equal(t, originalSpec.VolumeType, spec.VolumeType)
+	assert.Equal(t, originalSpec.Metadata, spec.Metadata)
+
+	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
+	assert.Equal(t, volumeID, backing.BackingDiskId)
+
+	assert.Len(t, spec.Profile, 1)
+	profileSpec, ok := spec.Profile[0].(*types.VirtualMachineDefinedProfileSpec)
+	assert.True(t, ok, "Profile entry should be a VirtualMachineDefinedProfileSpec")
+	assert.Equal(t, storagePolicyID, profileSpec.ProfileId)
 }
