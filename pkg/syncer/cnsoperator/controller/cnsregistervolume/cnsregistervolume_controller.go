@@ -323,7 +323,13 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		pvNodeAffinity *v1.VolumeNodeAffinity
 	)
 	// Create Volume for the input CnsRegisterVolume instance.
-	createSpec := constructCreateSpecForInstance(ctx, r, instance, vc.Config.Host, isTKGSHAEnabled)
+	createSpec, err := constructCreateSpecForInstance(ctx, r, instance, vc.Config.Host, isTKGSHAEnabled)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to construct CNS create spec: %+v", err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
 	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)

@@ -337,10 +337,15 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 	return pvcCopy, nil
 }
 
+// scParamStoragePolicyID is the StorageClass parameter key under which Supervisor
+// storage classes carry the vSphere storage policy ID directly (as opposed to a
+// policy name requiring PBM resolution, which is the vanilla/guest-cluster convention).
+const scParamStoragePolicyID = "storagePolicyID"
+
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
 func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-	host string, useSupervisorId bool) *cnstypes.CnsVolumeCreateSpec {
+	host string, useSupervisorId bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
@@ -387,7 +392,22 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 
 	createSpec.VolumeType = common.BlockVolumeType
 
-	return createSpec
+	if instance.Spec.StorageClassName != "" {
+		sc, err := r.k8sclient.StorageV1().StorageClasses().Get(ctx, instance.Spec.StorageClassName, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch StorageClass %q: %w", instance.Spec.StorageClassName, err)
+		}
+		policyID := sc.Parameters[scParamStoragePolicyID]
+		if policyID == "" {
+			return nil, fmt.Errorf("StorageClass %q has no %s parameter",
+				instance.Spec.StorageClassName, scParamStoragePolicyID)
+		}
+		createSpec.Profile = []vimtypes.BaseVirtualMachineProfileSpec{
+			&vimtypes.VirtualMachineDefinedProfileSpec{ProfileId: policyID},
+		}
+	}
+
+	return createSpec, nil
 }
 
 // getK8sStorageClassNameWithImmediateBindingModeForPolicy gets the storage class name in K8S mapping the vsphere

@@ -82,6 +82,13 @@ spec:
                 x-kubernetes-validations:
                 - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
                   message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
+              storageClassName:
+                description: StorageClassName is the name of the Kubernetes StorageClass
+                  whose associated vSphere storage policy should be assigned to
+                  the volume being registered. This is optional. If set, the storage
+                  policy is applied unconditionally, regardless of whether the volume
+                  already has a storage policy associated with it in CNS.
+                type: string
             required:
             - pvcName
             type: object
