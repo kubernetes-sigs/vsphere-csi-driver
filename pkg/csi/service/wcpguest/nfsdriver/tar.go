@@ -226,8 +226,7 @@ func TarUnpack(srcPath, dstDirPath string, enableCompression bool) (err error) {
 			for checkDir != dstDirPath {
 				if realDir, evalErr := filepath.EvalSymlinks(checkDir); evalErr == nil {
 					realDirRel, relErr := filepath.Rel(dstDirPath, realDir)
-					if relErr != nil || realDirRel == ".." ||
-						strings.HasPrefix(realDirRel, ".."+string(os.PathSeparator)) || filepath.IsAbs(realDirRel) {
+					if relErr != nil || realDirRel == ".." || strings.HasPrefix(realDirRel, ".."+string(os.PathSeparator)) || filepath.IsAbs(realDirRel) {
 						return tar.ErrInsecurePath
 					}
 					break

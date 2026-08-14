@@ -123,8 +123,7 @@ func NewDriver(options *DriverOptions) *Driver {
 
 	var err error
 	getter := func(_ string) (interface{}, error) { return nil, nil }
-	volStatsCacheExpire := time.Duration(options.VolStatsCacheExpireInMinutes) * time.Minute
-	if n.volStatsCache, err = NewTimedCache(volStatsCacheExpire, getter, false); err != nil {
+	if n.volStatsCache, err = NewTimedCache(time.Duration(options.VolStatsCacheExpireInMinutes)*time.Minute, getter, false); err != nil {
 		klog.Fatalf("%v", err)
 	}
 	if n.volDeletionCache, err = NewTimedCache(time.Minute, getter, false); err != nil {

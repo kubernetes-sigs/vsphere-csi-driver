@@ -79,13 +79,13 @@ func NewNodeServiceCapability(c csi.NodeServiceCapability_RPC_Type) *csi.NodeSer
 }
 
 type VolumeLocks struct {
-	locks sets.Set[string]
+	locks sets.String //nolint:staticcheck
 	mux   sync.Mutex
 }
 
 func NewVolumeLocks() *VolumeLocks {
 	return &VolumeLocks{
-		locks: sets.New[string](),
+		locks: sets.NewString(),
 	}
 }
 
