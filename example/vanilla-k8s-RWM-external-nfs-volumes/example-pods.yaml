@@ -1,0 +1,38 @@
+# Example read-write pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-vanilla-external-nfs-pod1
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox:1.24
+      command: ["/bin/sh", "-c", "echo 'Hello! This is Pod1' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
+      volumeMounts:
+        - name: test-volume
+          mountPath: /mnt/volume1
+  restartPolicy: Never
+  volumes:
+    - name: test-volume
+      persistentVolumeClaim:
+        claimName: example-vanilla-external-nfs-pvc
+---
+# Example read-write pod using the same PVC as above, to exercise RWX across pods
+# (schedule these two pods on different nodes to prove cross-node RWX).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-vanilla-external-nfs-pod2
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox:1.24
+      command: ["/bin/sh", "-c", "echo 'Hello! This is Pod2' >> /mnt/volume1/index.html && while true ; do sleep 2 ; done"]
+      volumeMounts:
+        - name: test-volume
+          mountPath: /mnt/volume1
+  restartPolicy: Never
+  volumes:
+    - name: test-volume
+      persistentVolumeClaim:
+        claimName: example-vanilla-external-nfs-pvc
