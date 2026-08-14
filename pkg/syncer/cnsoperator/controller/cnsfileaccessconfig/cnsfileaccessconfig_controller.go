@@ -260,7 +260,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 				instance.Name, instance.Spec.VMName)
 			// Fetch the PVC and PV instance and get volume ID
 			skipConfigureVolumeACL := false
-			volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+			volumeID, err := util.GetVolumeID(ctx, instance.Spec.PvcName, instance.Namespace)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					// If PVC instance is NotFound (deleted), then there is no need to configure ACL on file volume.
@@ -328,7 +328,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	if instance.DeletionTimestamp != nil {
 		log.Infof("CnsFileAccessConfig instance %q has deletion timestamp set", instance.Name)
 		volumeExists := true
-		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+		volumeID, err := util.GetVolumeID(ctx, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			if ifFileVolumesWithVmserviceVmsSupported &&
 				apierrors.IsNotFound(err) {
@@ -436,7 +436,7 @@ func (r *ReconcileCnsFileAccessConfig) Reconcile(ctx context.Context,
 	log.Infof("Reconciling CnsFileAccessConfig with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, instance.Namespace, timeout)
 	if !instance.Status.Done {
-		volumeID, err := util.GetVolumeID(ctx, r.client, instance.Spec.PvcName, instance.Namespace)
+		volumeID, err := util.GetVolumeID(ctx, instance.Spec.PvcName, instance.Namespace)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to get volumeID from pvcName: %q. Error: %+v", instance.Spec.PvcName, err)
 			log.Error(msg)

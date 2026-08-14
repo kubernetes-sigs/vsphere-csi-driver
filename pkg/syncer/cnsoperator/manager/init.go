@@ -27,11 +27,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -422,6 +425,20 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+		},
+		// No controller here watches PVC/PV, only Get()s them, so don't let the manager
+		// cache them — at 120K+ PVC scale that cache alone costs 1GB+.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.PersistentVolumeClaim{},
+					&corev1.PersistentVolume{},
+				},
+			},
+		},
+		// managedFields is never read; strip it from what this manager still caches.
+		Cache: ctrlcache.Options{
+			DefaultTransform: k8s.TransformStripManagedFields,
 		},
 	})
 	if err != nil {
