@@ -1546,38 +1546,70 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 			}
 
 			if volumeType == common.BlockVolumeType {
-				// For Block volume, CNS only allow one instances for one
-				// EntityMetadata type in UpdateVolumeMetadataSpec. If there are
-				// more than one pod instances in the UpdateVolumeMetadataSpec,
-				// need to invoke multiple UpdateVolumeMetadata call.
-				var metadataList []cnstypes.BaseCnsEntityMetadata
-				var podMetadataList []cnstypes.BaseCnsEntityMetadata
-				for _, metadata := range updateSpec.Metadata.EntityMetadata {
-					entityType := metadata.(*cnstypes.CnsKubernetesEntityMetadata).EntityType
-					if entityType == string(cnstypes.CnsKubernetesEntityTypePOD) {
-						podMetadataList = append(podMetadataList, metadata)
-					} else {
-						metadataList = append(metadataList, metadata)
+				// CNS only allows one instance of each EntityMetadata type
+				// (e.g. PERSISTENT_VOLUME, PERSISTENT_VOLUME_CLAIM, POD) per
+				// UpdateVolumeMetadataSpec call — this includes an add and a
+				// delete of the same type together, e.g. when a stale PV
+				// entity (Delete=true, detected above) coexists with a
+				// renamed/recreated PV entity (add) for the same volume,
+				// such as after a static PV/PVC is recreated over a
+				// previously pv_missing-labeled volume. A duplicate-type
+				// spec is rejected outright by CNS with "Duplicated entity
+				// for each entity type in one cluster is found".
+				//
+				// Bucket entities by type and round-robin them across
+				// calls so each call has at most one instance per type.
+				// Deletes are grouped and issued before adds/updates so
+				// the final call in the sequence always carries the
+				// desired end-state metadata, never a stale delete-only
+				// entity.
+				bucketByType := func(entities []cnstypes.BaseCnsEntityMetadata) []cnstypes.CnsVolumeMetadataUpdateSpec {
+					entityMetadataByType := make(map[string][]cnstypes.BaseCnsEntityMetadata)
+					var entityTypeOrder []string
+					for _, metadata := range entities {
+						entityType := metadata.(*cnstypes.CnsKubernetesEntityMetadata).EntityType
+						if _, seen := entityMetadataByType[entityType]; !seen {
+							entityTypeOrder = append(entityTypeOrder, entityType)
+						}
+						entityMetadataByType[entityType] = append(entityMetadataByType[entityType], metadata)
 					}
-				}
-				if len(podMetadataList) > 0 {
-					for _, podMetadata := range podMetadataList {
-						updateSpecNew := cnstypes.CnsVolumeMetadataUpdateSpec{
+					var specs []cnstypes.CnsVolumeMetadataUpdateSpec
+					for {
+						var batch []cnstypes.BaseCnsEntityMetadata
+						for _, entityType := range entityTypeOrder {
+							if len(entityMetadataByType[entityType]) > 0 {
+								batch = append(batch, entityMetadataByType[entityType][0])
+								entityMetadataByType[entityType] = entityMetadataByType[entityType][1:]
+							}
+						}
+						if len(batch) == 0 {
+							break
+						}
+						specs = append(specs, cnstypes.CnsVolumeMetadataUpdateSpec{
 							VolumeId: cnstypes.CnsVolumeId{
 								Id: volumeHandle,
 							},
 							Metadata: cnstypes.CnsVolumeMetadata{
 								ContainerCluster:      containerCluster,
 								ContainerClusterArray: []cnstypes.CnsContainerCluster{containerCluster},
-								// Update metadata in CNS with the new metadata present in K8S.
-								EntityMetadata: append(metadataList, podMetadata),
+								EntityMetadata:        batch,
 							},
-						}
-						log.Debugf("FullSync for VC %s: updateSpec %+v is added to updateSpecArray\n", vc, spew.Sdump(updateSpecNew))
-						updateSpecArray = append(updateSpecArray, updateSpecNew)
+						})
 					}
-				} else {
-					updateSpecArray = append(updateSpecArray, updateSpec)
+					return specs
+				}
+
+				var deleteEntities, addEntities []cnstypes.BaseCnsEntityMetadata
+				for _, metadata := range updateSpec.Metadata.EntityMetadata {
+					if metadata.(*cnstypes.CnsKubernetesEntityMetadata).Delete {
+						deleteEntities = append(deleteEntities, metadata)
+					} else {
+						addEntities = append(addEntities, metadata)
+					}
+				}
+				for _, updateSpecNew := range append(bucketByType(deleteEntities), bucketByType(addEntities)...) {
+					log.Debugf("FullSync for VC %s: updateSpec %+v is added to updateSpecArray\n", vc, spew.Sdump(updateSpecNew))
+					updateSpecArray = append(updateSpecArray, updateSpecNew)
 				}
 			} else {
 				updateSpecArray = append(updateSpecArray, updateSpec)
@@ -1763,17 +1795,29 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 			continue
 		}
 		foundInClusterPV = true
-		labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)
-		if labels == nil {
-			labels = make(map[string]string)
-		}
-		if labels[prometheus.PrometheusPVMissingLabelKey] == prometheus.PrometheusPVMissingLabelValue {
-			// Already labeled in CNS; nothing to do for this entity.
+		existingLabels := cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)
+		if len(existingLabels) == 1 &&
+			existingLabels[prometheus.PrometheusPVMissingLabelKey] == prometheus.PrometheusPVMissingLabelValue {
+			// Already labeled in CNS with nothing else to clean up.
 			log.Infof("FullSync for VC %s: buildPVMissingUpdateSpec: volume %q PV entity %q"+
 				" already has pv_missing=true label, skipping", vc, vol.VolumeId.Id, k8sEm.EntityName)
 			continue
 		}
-		labels[prometheus.PrometheusPVMissingLabelKey] = prometheus.PrometheusPVMissingLabelValue
+		// The volume is confirmed orphaned: its K8s PV object is gone, so any
+		// other labels mirrored onto this entity (e.g. CnsRegisterVolume/
+		// VKSRegisterVolume provenance labels such as cnsregistervolume-name,
+		// cnsregistervolume-namespace, created-by) describe a K8s object that
+		// no longer exists and can never be reconciled again. Reset the label
+		// set to just pv_missing=true instead of merging into the stale
+		// labels, so they don't survive forever. This also self-heals volumes
+		// that were already labeled pv_missing under the older merge
+		// behavior — the length check above lets a genuinely clean pv_missing
+		// entity skip re-issuing every cycle, while an entity with leftover
+		// stale labels gets reissued once to strip them. The entity's
+		// EntityName (last-known PV name) is left untouched.
+		labels := map[string]string{
+			prometheus.PrometheusPVMissingLabelKey: prometheus.PrometheusPVMissingLabelValue,
+		}
 		entityMetadata = append(entityMetadata,
 			cnsvsphere.GetCnsKubernetesEntityMetaData(k8sEm.EntityName, labels, false,
 				k8sEm.EntityType, k8sEm.Namespace, k8sEm.ClusterID, k8sEm.ReferredEntity))

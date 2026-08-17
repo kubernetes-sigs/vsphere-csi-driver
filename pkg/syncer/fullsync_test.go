@@ -2421,10 +2421,14 @@ func TestGetMissingPVVolumeUpdateSpecs_PVExists(t *testing.T) {
 		"volume with present PV should not be in grace tracker")
 }
 
-// TestGetMissingPVVolumeUpdateSpecs_PreservesExistingLabels verifies that the
-// pv_missing label is appended on top of any pre-existing labels on the PV-
-// type entity, rather than replacing them.
-func TestGetMissingPVVolumeUpdateSpecs_PreservesExistingLabels(t *testing.T) {
+// TestGetMissingPVVolumeUpdateSpecs_StripsExistingLabels verifies that once a
+// volume is confirmed orphaned, pv_missing=true replaces any pre-existing
+// labels on the PV-type entity rather than being merged alongside them. Those
+// labels (e.g. CnsRegisterVolume/VKSRegisterVolume provenance labels such as
+// cnsregistervolume-name, cnsregistervolume-namespace, created-by) describe a
+// K8s object that no longer exists and can never be reconciled again, so they
+// must not survive forever on the orphaned entity.
+func TestGetMissingPVVolumeUpdateSpecs_StripsExistingLabels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	vc := "test-vc"
@@ -2461,8 +2465,7 @@ func TestGetMissingPVVolumeUpdateSpecs_PreservesExistingLabels(t *testing.T) {
 		}
 	}
 	assert.Equal(t, "true", labels["pv_missing"], "pv_missing label must be set")
-	assert.Equal(t, "nginx", labels["app"], "pre-existing app label must be preserved")
-	assert.Equal(t, "frontend", labels["tier"], "pre-existing tier label must be preserved")
+	assert.Len(t, labels, 1, "stale pre-existing labels must be stripped, leaving only pv_missing")
 }
 
 // TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled verifies idempotency: a
