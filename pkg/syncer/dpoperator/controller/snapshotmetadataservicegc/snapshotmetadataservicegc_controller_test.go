@@ -64,7 +64,7 @@ func makeSMSCR(caCert []byte) *snapshotmetadatav1beta1.SnapshotMetadataService {
 		ObjectMeta: metav1.ObjectMeta{Name: targetSMSName},
 		Spec: snapshotmetadatav1beta1.SnapshotMetadataServiceSpec{
 			CACert:   caCert,
-			Address:  "vmware-system-csi-snapshot-metadata-service.vmware-system-csi.svc.cluster.local:8100",
+			Address:  "csi-snapshot-metadata-service.vmware-system-csi.svc.cluster.local:8100",
 			Audience: "csi.vsphere.vmware.com",
 		},
 	}
