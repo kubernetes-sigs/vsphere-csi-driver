@@ -2138,6 +2138,13 @@ func TestRestoreFromHostLocalSnapshotPinsPlacementToSourceHost(t *testing.T) {
 		if clusterPathTaken {
 			t.Fatalf("a host-exclusive source must not fall through to the activeClusters path (err: %v)", err)
 		}
+		// This path supplies datastores accessible to the source host and intentionally leaves
+		// vSphereClusterMorefs empty, so a placement pre-check keyed on empty clusters would
+		// reject a request that is actually valid. Provisioning may still fail further down
+		// against the simulator, so only that class of failure is asserted here.
+		if status.Code(err) == codes.FailedPrecondition {
+			t.Fatalf("a host-pinned restore must not be rejected by a placement precondition: %v", err)
+		}
 	})
 
 	hostLocalRestoreReq := func() *csi.CreateVolumeRequest {

@@ -2312,12 +2312,12 @@ func (c *K8sOrchestrator) GetLinkedCloneVolumeSnapshotSourceUUID(ctx context.Con
 	volumeSnapshot, err := c.snapshotterClient.SnapshotV1().VolumeSnapshots(dataSource.Namespace).Get(ctx,
 		dataSource.Name, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("failed to get source volumesnaphot %s/%s for linked clone PVC %s in "+
+		log.Errorf("failed to get source volumesnapshot %s/%s for linked clone PVC %s in "+
 			"namespace %s. err: %v", dataSource.Namespace, dataSource.Name, pvcName, pvcNamespace, err)
 		return "", err
 	}
 	vsUID := string(volumeSnapshot.UID)
-	log.Debugf("volumesnaphot %s/%s  has UID: %s for linked clone PVC %s/%s ",
+	log.Debugf("volumesnapshot %s/%s has UID: %s for linked clone PVC %s/%s",
 		dataSource.Namespace, dataSource.Name, vsUID, pvcName, pvcNamespace)
 	return vsUID, nil
 }
@@ -2342,7 +2342,7 @@ func (c *K8sOrchestrator) PreLinkedCloneCreateAction(ctx context.Context, pvcNam
 			linkedClonePVC.Labels = make(map[string]string)
 		}
 		// Add label
-		if _, ok := linkedClonePVC.Labels[common.AnnKeyLinkedClone]; !ok {
+		if _, ok := linkedClonePVC.Labels[common.LinkedClonePVCLabel]; !ok {
 			linkedClonePVC.Labels[common.LinkedClonePVCLabel] = linkedClonePVC.Annotations[common.AttributeIsLinkedClone]
 		}
 
@@ -2373,6 +2373,13 @@ func (c *K8sOrchestrator) GetVolumeSnapshotPVCSource(ctx context.Context, volume
 			volumeSnapshotNamespace, volumeSnapshotName, err)
 	}
 	sourcePVCName := volumeSnapshot.Spec.Source.PersistentVolumeClaimName
+	if sourcePVCName == nil || *sourcePVCName == "" {
+		// The snapshot is pre-provisioned from a VolumeSnapshotContent, so there is no
+		// source PVC in this cluster to derive information from.
+		return nil, logger.LogNewErrorf(log, "volumesnapshot %s/%s has no source PVC "+
+			"(pre-provisioned from a VolumeSnapshotContent)",
+			volumeSnapshotNamespace, volumeSnapshotName)
+	}
 	// Retrieve the source volume
 	sourcePVC, err := c.k8sClient.CoreV1().PersistentVolumeClaims(volumeSnapshotNamespace).Get(ctx, *sourcePVCName,
 		metav1.GetOptions{})

@@ -1182,6 +1182,26 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		}
 	}
 
+	// Every placement mechanism CNS accepts is empty: no candidate hosts, no candidate
+	// datastores and no active clusters. CNS will reject this with an opaque
+	// "A specified parameter was not correct: createSpecs.datastores", which gives no hint
+	// about which precondition actually failed, so record the request shape here to make the
+	// subsequent failure attributable.
+	//
+	// This is deliberately a log and not an early return. Each mechanism is legitimately
+	// empty on its own in several supported combinations - a host-local request supplies
+	// hosts and intentionally no clusters (CNS rejects a spec carrying both), and a restore
+	// pinned to the snapshot's source host supplies datastores and no clusters - so only the
+	// total absence of all three is suspect. Even that is judged from the combinations that
+	// exist today; failing the request here would turn any future placement mechanism into a
+	// spurious rejection, so CNS stays the authority on whether the spec is valid.
+	if len(hostMoRefs) == 0 && len(candidateDatastores) == 0 && len(vSphereClusterMorefs) == 0 {
+		log.Errorf("no candidate host, datastore or vSphere cluster resolved to place volume %q "+
+			"in namespace %q (snapshot: %q, accessibility requirement: %+v); the create is "+
+			"expected to fail in CNS",
+			req.Name, pvcNamespace, contentSourceSnapshotID, req.AccessibilityRequirements)
+	}
+
 	// Create CreateVolumeSpec and populate values.
 	var createVolumeSpec = common.CreateVolumeSpec{
 		CapacityMB:              volSizeMB,
