@@ -1267,6 +1267,21 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		volumeSnapshotUID, err := commonco.ContainerOrchestratorUtility.GetLinkedCloneVolumeSnapshotSourceUUID(ctx,
 			pvcName, pvcNamespace)
 		if err != nil {
+			// The provisioned volume cannot be labeled as a linked clone, so it would be
+			// unreachable by the linked-clone-exists safety check on snapshot deletion. Clean it up.
+			log.Errorf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
+				"Cleaning up volume %q. Error: %+v", pvcName, pvcNamespace, volumeInfo.VolumeID.Id, err)
+			deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+			if deleteOpReqError != nil {
+				log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+					"out. Error received: %+v", deleteOpReqError)
+			} else {
+				if _, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+					volumeInfo.VolumeID.Id, true); deleteVolumeError != nil {
+					log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+						"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+				}
+			}
 			msg := fmt.Sprintf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
 				"Error: %+v", pvcName, pvcNamespace, err)
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCode(log, codes.Internal, msg)
