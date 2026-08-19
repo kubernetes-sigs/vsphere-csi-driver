@@ -188,6 +188,11 @@ func (osUtils *OsUtils) xfsFormatAndMount(ctx context.Context, source string, ta
 				source,
 			}
 		}
+		// -K (nodiscard) skips the full-device SCSI UNMAP/TRIM that mkfs.xfs issues by
+		// default. On a freshly provisioned, empty volume there is nothing to reclaim, but
+		// vSphere's CBT engine treats that discard as a write and marks the entire disk as
+		// changed, which returns incorrect snapshot CBT metadata.
+		args = append([]string{"-K"}, args...)
 
 		log.Infof("xfsFormatAndMount: Disk %q appears to be unformatted, attempting to format as type: %q "+
 			"with options: %v", source, fstype, args)
@@ -207,6 +212,49 @@ func (osUtils *OsUtils) xfsFormatAndMount(ctx context.Context, source string, ta
 	err = osUtils.Mounter.Mount(source, target, fstype, opts)
 	if err != nil {
 		log.Errorf("xfsFormatAndMount: mount of disk %s failed: type:(%q) target:(%q) errcode:(%v)",
+			source, fstype, target, err)
+		return errors.New(err.Error())
+	}
+	return nil
+}
+
+// extFormatAndMount mounts volume to the staging path for ext4/ext3 fstype
+func (osUtils *OsUtils) extFormatAndMount(ctx context.Context, source string, target string,
+	fstype string, opts ...string) error {
+	log := logger.GetLogger(ctx)
+	// Check if the disk is already formatted
+	existingFormat, err := osUtils.getDiskFormat(ctx, source)
+	if err != nil {
+		errStr := fmt.Sprintf("failed to get disk format of disk %s: %v", source, err)
+		return errors.New(errStr)
+	}
+
+	if existingFormat == "" {
+		// Disk is unformatted so format it.
+		// -E nodiscard skips the full-device SCSI UNMAP/TRIM that mkfs.ext4/mkfs.ext3
+		// issue by default. On a freshly provisioned, empty volume there is nothing to
+		// reclaim, but vSphere's CBT engine treats that discard as a write and marks the
+		// entire disk as changed, which defeats GetMetadataAllocated/GetMetadataDelta.
+		args := []string{"-F", "-E", "nodiscard", source}
+
+		log.Infof("extFormatAndMount: Disk %q appears to be unformatted, attempting to format as type: %q "+
+			"with options: %v", source, fstype, args)
+		output, err := osUtils.Mounter.Exec.Command("mkfs."+fstype, args...).CombinedOutput()
+		if err != nil {
+			detailedErr := fmt.Sprintf("format of disk %q failed: type:(%q) errcode:(%v) output:(%v)",
+				source, fstype, err, string(output))
+			log.Errorf(detailedErr)
+			return errors.New(detailedErr)
+		}
+
+		log.Infof("extFormatAndMount: Disk successfully formatted (mkfs): %s - %s %s", fstype, source, target)
+	}
+
+	// Mount the disk
+	log.Infof("extFormatAndMount: Attempting to mount disk %s in %s format at %s", source, fstype, target)
+	err = osUtils.Mounter.Mount(source, target, fstype, opts)
+	if err != nil {
+		log.Errorf("extFormatAndMount: mount of disk %s failed: type:(%q) target:(%q) errcode:(%v)",
 			source, fstype, target, err)
 		return errors.New(err.Error())
 	}
@@ -281,19 +329,30 @@ func (osUtils *OsUtils) NodeStageBlockVolume(
 		// Format and mount the device.
 		log.Debugf("nodeStageBlockVolume: Format and mount the device %q at %q with mount flags %v",
 			dev.FullPath, params.StagingTarget, params.MntFlags)
-		if params.FsType == "xfs" {
+		switch params.FsType {
+		case "xfs":
 			// use internal function for XFS mount, as we want to provide few parameters for mkfs command
 			// which are specific to XFS filesystem
-			err := osUtils.xfsFormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
+			err := osUtils.xfsFormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType,
+				params.MntFlags...)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"error in formating and mounting volume. Parameters: %v err: %v", params, err)
+					"error in formatting and mounting volume. Parameters: %v err: %v", params, err)
 			}
-		} else {
+		case common.Ext4FsType, common.Ext3FsType:
+			// use internal function for ext4/ext3 mount, as we want to provide few parameters
+			// for mkfs command which are specific to the ext filesystem family
+			err := osUtils.extFormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType,
+				params.MntFlags...)
+			if err != nil {
+				return nil, logger.LogNewErrorCodef(log, codes.Internal,
+					"error in formatting and mounting volume. Parameters: %v err: %v", params, err)
+			}
+		default:
 			err := gofsutil.FormatAndMount(ctx, dev.FullPath, params.StagingTarget, params.FsType, params.MntFlags...)
 			if err != nil {
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"error in formating and mounting volume. Parameters: %v err: %v", params, err)
+					"error in formatting and mounting volume. Parameters: %v err: %v", params, err)
 			}
 		}
 	} else {
