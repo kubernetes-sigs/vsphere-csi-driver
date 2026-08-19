@@ -18,6 +18,8 @@ package k8scloudoperator
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"net"
@@ -29,6 +31,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,6 +41,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/certwatcher"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
@@ -56,6 +60,17 @@ const (
 	vsanSnaType               = spTypePrefix + "vsan-sna"
 	spTypeLabelKey            = spTypePrefix + "StoragePoolType"
 	diskDecommissionModeField = "decommMode"
+
+	// DefaultK8sCloudOperatorCertDir is the directory containing the mTLS
+	// identity (tls.crt, tls.key) this gRPC server presents, and the CA
+	// bundle (ca.crt) used to authenticate calling clients.
+	DefaultK8sCloudOperatorCertDir = "/etc/vmware/wcp/k8s-cloud-operator-certs"
+
+	// k8sCloudOperatorClientCertCN is the expected CommonName on the client
+	// certificate presented by callers of this service. Only holders of a
+	// certificate issued for this identity are authorized to invoke any RPC,
+	// even though the CA also signs this server's own certificate.
+	k8sCloudOperatorClientCertCN = "vmware-system-csi-k8scloudoperator-client"
 )
 
 type k8sCloudOperator struct {
@@ -89,7 +104,12 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 		log.Errorf("failed to listen. Err: %v", err)
 		return err
 	}
-	grpcServer := grpc.NewServer()
+	serverCreds, err := newServerTransportCredentials(ctx)
+	if err != nil {
+		log.Errorf("failed to set up TLS credentials for K8s Cloud Operator gRPC service. Err: %v", err)
+		return err
+	}
+	grpcServer := grpc.NewServer(grpc.Creds(serverCreds))
 	server, err := initK8sCloudOperatorType(ctx)
 	if err != nil {
 		return err
@@ -101,6 +121,82 @@ func InitK8sCloudOperatorService(ctx context.Context) error {
 		return err
 	}
 	log.Infof("Successfully initialized the K8s Cloud Operator gRPC service")
+	return nil
+}
+
+// newServerTransportCredentials builds the mTLS server credentials for the
+// K8s Cloud Operator gRPC service. It requires and verifies a client
+// certificate on every connection, and additionally pins the accepted client
+// identity to k8sCloudOperatorClientCertCN so that only that specific
+// identity - not any certificate merely signed by the same CA - may call any
+// RPC on this service.
+func newServerTransportCredentials(ctx context.Context) (credentials.TransportCredentials, error) {
+	log := logger.GetLogger(ctx)
+	certPath := DefaultK8sCloudOperatorCertDir + "/tls.crt"
+	keyPath := DefaultK8sCloudOperatorCertDir + "/tls.key"
+	caPath := DefaultK8sCloudOperatorCertDir + "/ca.crt"
+
+	cw, err := certwatcher.New(certPath, keyPath, caPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load K8s Cloud Operator server certificate: %w", err)
+	}
+	go func() {
+		if err := cw.Start(ctx); err != nil {
+			log.Errorf("K8s Cloud Operator certificate watcher exited with error: %v", err)
+		}
+	}()
+
+	baseTLSConfig := func(clientCAs *x509.CertPool) *tls.Config {
+		return &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_AES_128_GCM_SHA256,
+				tls.TLS_AES_256_GCM_SHA384,
+			},
+			ClientAuth:       tls.RequireAndVerifyClientCert,
+			GetCertificate:   cw.GetCertificate,
+			ClientCAs:        clientCAs,
+			VerifyConnection: verifyK8sCloudOperatorClientConnection,
+			// Session resumption skips full certificate
+			// re-verification, which would let a client that completed a
+			// handshake before a CA rotation keep reconnecting afterwards
+			// without ever going through GetConfigForClient/VerifyConnection
+			// again - defeating the point of fetching a fresh CA pool per
+			// handshake. Disabling it forces every connection through a full
+			// handshake.
+			SessionTicketsDisabled: true,
+		}
+	}
+
+	initialCACertPool, err := cw.GetCACertPool()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load K8s Cloud Operator CA certificate: %w", err)
+	}
+	tlsConfig := baseTLSConfig(initialCACertPool)
+	tlsConfig.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		clientCAs, err := cw.GetCACertPool()
+		if err != nil {
+			return nil, err
+		}
+		return baseTLSConfig(clientCAs), nil
+	}
+
+	return credentials.NewTLS(tlsConfig), nil
+}
+
+// verifyK8sCloudOperatorClientConnection rejects any client certificate
+// whose CommonName does not match k8sCloudOperatorClientCertCN, even if it
+// chains to the trusted CA.
+func verifyK8sCloudOperatorClientConnection(cs tls.ConnectionState) error {
+	if len(cs.VerifiedChains) == 0 || len(cs.VerifiedChains[0]) == 0 {
+		return fmt.Errorf("no verified client certificate chain")
+	}
+	cn := cs.VerifiedChains[0][0].Subject.CommonName
+	if cn != k8sCloudOperatorClientCertCN {
+		return fmt.Errorf("unauthorized client certificate CommonName: %s", cn)
+	}
 	return nil
 }
 
