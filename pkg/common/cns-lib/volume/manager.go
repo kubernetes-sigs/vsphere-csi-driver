@@ -3844,8 +3844,20 @@ func (m *defaultManager) ReRegisterVolume(ctx context.Context, volumeID string) 
 	log := logger.GetLogger(ctx)
 	log.Infof("ReRegisterVolume: Attempting to re-register volume %q to CNS", volumeID)
 
+	// Config.Username is empty when the vCenter is authenticated through the
+	// shared session manager, and holds a PEM certificate under cert-based
+	// authentication, so it cannot be used directly. Note this path calls
+	// m.createVolume rather than the public CreateVolume, so it does not go
+	// through setupConnection, which is what corrects VSphereUser on the other
+	// create paths -- whatever is recorded here is what CNS keeps.
+	username, err := m.virtualCenter.ConfiguredOrActiveUser(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log,
+			"failed to determine the vCenter user to re-register volume %q with: %v", volumeID, err)
+	}
+
 	containerCluster := cnsvsphere.GetContainerCluster(m.clusterId,
-		m.virtualCenter.Config.Username,
+		username,
 		m.clusterFlavor, m.clusterDistribution)
 	containerClusterArray := []cnstypes.CnsContainerCluster{containerCluster}
 
