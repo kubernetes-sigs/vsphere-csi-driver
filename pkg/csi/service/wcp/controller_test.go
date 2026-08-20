@@ -1561,6 +1561,7 @@ type fakeCOOverrides struct {
 	err                error
 	fssOverrides       map[string]bool
 	nodeNameToHostMoID map[string]string
+	linkedCloneUUIDErr error
 }
 
 func (f *fakeCOOverrides) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
@@ -1580,6 +1581,14 @@ func (f *fakeCOOverrides) IsFSSEnabled(ctx context.Context, featureName string) 
 		return enabled
 	}
 	return f.COCommonInterface.IsFSSEnabled(ctx, featureName)
+}
+
+func (f *fakeCOOverrides) GetLinkedCloneVolumeSnapshotSourceUUID(ctx context.Context, pvcName string,
+	pvcNamespace string) (string, error) {
+	if f.linkedCloneUUIDErr != nil {
+		return "", f.linkedCloneUUIDErr
+	}
+	return f.COCommonInterface.GetLinkedCloneVolumeSnapshotSourceUUID(ctx, pvcName, pvcNamespace)
 }
 
 // TestGetAccessibleClustersForSnapshot verifies which vSphere clusters are handed to CNS as
@@ -1878,6 +1887,153 @@ func TestLinkedCloneOnHostExclusiveDatastoreRequiresHostLocalPolicy(t *testing.T
 			t.Fatalf("the guard must not fire when supports_host_local_storage is disabled: %v", err)
 		}
 	})
+}
+
+// TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails verifies that CreateVolume does not
+// leak the CNS volume it just created when a later step - resolving the linked clone's source
+// VolumeSnapshot UID from the requesting PVC, so it can be labeled on the resulting PV - fails.
+//
+// This happens in practice when the requesting PVC is deleted between volume creation and this
+// lookup (e.g. a caller rapidly deleting/recreating a PVC under the same name to audit a snapshot
+// repeatedly). Before this fix, CreateVolume returned an Internal error without deleting the
+// already-created volume: no PV was ever created in Kubernetes, so nothing ever asked the driver to
+// clean it up, permanently orphaning the underlying FCD.
+func TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcVolID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: srcVolID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+		SourceVolumeId: srcVolID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// The cleanup path under test calls the package-level operationStore, which getControllerTest
+	// never initializes since no other existing test exercises it. Give it a fake instance here.
+	fakeOpStore, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalOperationStore := operationStore
+	operationStore = fakeOpStore
+	t.Cleanup(func() { operationStore = originalOperationStore })
+
+	// A real, PBM-resolvable storage policy is required for CreateBlockVolumeUtil to actually
+	// succeed in creating the linked-clone volume below - the failure under test happens in the
+	// step *after* volume creation, so creation itself must succeed.
+	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileID, err := pc.ProfileIDByName(ctx, "vSAN Default Storage Policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalMultiCluster := IsMultipleClustersPerVsphereZoneFSSEnabled
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		IsMultipleClustersPerVsphereZoneFSSEnabled = originalMultiCluster
+	})
+	IsMultipleClustersPerVsphereZoneFSSEnabled = true
+	commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+		COCommonInterface:  originalCO,
+		clusters:           []string{"domain-c8"},
+		fssOverrides:       map[string]bool{common.LinkedCloneSupport: true},
+		linkedCloneUUIDErr: common.ErrNotFound,
+	}
+
+	linkedCloneVolName := testVolumeName + "-" + uuid.New().String()
+	linkedCloneReq := &csi.CreateVolumeRequest{
+		Name: linkedCloneVolName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributePvcName:             "audit-pvc",
+			common.AttributePvcNamespace:        "default",
+			common.AttributeIsLinkedCloneKey:    "true",
+			common.AttributeStoragePolicyID:     profileID,
+			common.AttributeStorageTopologyType: "zonal",
+		},
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Preferred: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+			},
+			Requisite: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+			},
+		},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapID},
+			},
+		},
+	}
+
+	_, _, err = ct.controller.createBlockVolume(ctx, linkedCloneReq, true, clusterComputeResourceMoIds)
+	if err == nil {
+		t.Fatal("expected CreateVolume to fail when the linked clone source UUID lookup fails")
+	}
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("unable to convert the error: %+v into a grpc status error type", err)
+	}
+	if statusErr.Code() != codes.Internal {
+		t.Fatalf("expected %s, got %s: %v", codes.Internal, statusErr.Code(), err)
+	}
+	if !strings.Contains(err.Error(), "failed to get linked clone name") {
+		t.Fatalf("expected the linked-clone-name lookup failure to be reported, got: %v", err)
+	}
+
+	// The volume CreateBlockVolumeUtil created before the failed lookup must not be leaked.
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &cnstypes.CnsQueryFilter{
+		Names: []string{linkedCloneVolName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 0 {
+		t.Fatalf("expected the volume created for %q to be cleaned up after the linked-clone-name "+
+			"lookup failure, but it still exists: %+v", linkedCloneVolName, queryResult.Volumes)
+	}
 }
 
 // TestRestoreFromHostLocalSnapshotPinsPlacementToSourceHost covers the placement constraints a
