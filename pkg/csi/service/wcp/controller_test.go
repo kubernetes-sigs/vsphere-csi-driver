@@ -2010,7 +2010,8 @@ func TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails(t *testing.T) 
 
 	_, _, err = ct.controller.createBlockVolume(ctx, linkedCloneReq, true, clusterComputeResourceMoIds)
 	if err == nil {
-		t.Fatal("expected CreateVolume to fail when the linked clone source UUID lookup fails")
+		t.Fatal("expected createBlockVolume to fail when the linked clone source UUID lookup " +
+			"returns NotFound")
 	}
 	statusErr, ok := status.FromError(err)
 	if !ok {
@@ -2033,6 +2034,153 @@ func TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails(t *testing.T) 
 	if len(queryResult.Volumes) != 0 {
 		t.Fatalf("expected the volume created for %q to be cleaned up after the linked-clone-name "+
 			"lookup failure, but it still exists: %+v", linkedCloneVolName, queryResult.Volumes)
+	}
+}
+
+// TestCreateVolumeKeepsVolumeWhenLinkedCloneUUIDLookupFailsTransiently is the counterpart to
+// TestCreateVolumeCleansUpVolumeWhenLinkedCloneUUIDLookupFails: for a NON-NotFound (retryable)
+// error the volume must be LEFT IN PLACE.
+//
+// Only a NotFound error is terminal - it means the PVC is gone, so csi-provisioner will never
+// retry and the volume can never be reclaimed. Any other error (API server 5xx, throttling,
+// timeout) may well be transient with the PVC still present, and csi-provisioner will retry;
+// deleting the volume there would throw away a volume the idempotency feature would otherwise
+// reuse, and turn a self-healing retry into a destroy/recreate cycle - or, if the delete itself
+// fails after the CnsVolumeOperationRequest was already removed, into a permanent orphan with no
+// record anywhere. This matches the convention stated elsewhere in createBlockVolume: "do not
+// delete volume created as idempotency feature will ensure we retry with the same volume".
+func TestCreateVolumeKeepsVolumeWhenLinkedCloneUUIDLookupFailsTransiently(t *testing.T) {
+	ct := getControllerTest(t)
+
+	capabilities := []*csi.VolumeCapability{
+		{
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+	respCreate, err := ct.controller.CreateVolume(ctx, &csi.CreateVolumeRequest{
+		Name: testVolumeName + "-" + uuid.New().String(),
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters:         map[string]string{},
+		VolumeCapabilities: capabilities,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcVolID := respCreate.Volume.VolumeId
+	defer func() {
+		if _, err := ct.controller.DeleteVolume(ctx, &csi.DeleteVolumeRequest{VolumeId: srcVolID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	respCreateSnapshot, err := ct.controller.CreateSnapshot(ctx, &csi.CreateSnapshotRequest{
+		SourceVolumeId: srcVolID,
+		Name:           "snapshot-" + uuid.New().String(),
+		Parameters: map[string]string{
+			common.VolumeSnapshotNamespaceKey: "default",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapID := respCreateSnapshot.Snapshot.SnapshotId
+	defer func() {
+		if _, err := ct.controller.DeleteSnapshot(ctx, &csi.DeleteSnapshotRequest{SnapshotId: snapID}); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	fakeOpStore, err := unittestcommon.InitFakeVolumeOperationRequestInterface()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalOperationStore := operationStore
+	operationStore = fakeOpStore
+	t.Cleanup(func() { operationStore = originalOperationStore })
+
+	pc, err := pbm.NewClient(ctx, ct.vcenter.Client.Client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileID, err := pc.ProfileIDByName(ctx, "vSAN Default Storage Policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalMultiCluster := IsMultipleClustersPerVsphereZoneFSSEnabled
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		IsMultipleClustersPerVsphereZoneFSSEnabled = originalMultiCluster
+	})
+	IsMultipleClustersPerVsphereZoneFSSEnabled = true
+	// A retryable error, deliberately NOT common.ErrNotFound.
+	transientErr := fmt.Errorf("the server was unable to return a response in the time allotted")
+	commonco.ContainerOrchestratorUtility = &fakeCOOverrides{
+		COCommonInterface:  originalCO,
+		clusters:           []string{"domain-c8"},
+		fssOverrides:       map[string]bool{common.LinkedCloneSupport: true},
+		linkedCloneUUIDErr: transientErr,
+	}
+
+	linkedCloneVolName := testVolumeName + "-" + uuid.New().String()
+	linkedCloneReq := &csi.CreateVolumeRequest{
+		Name: linkedCloneVolName,
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1 * common.GbInBytes,
+		},
+		Parameters: map[string]string{
+			common.AttributePvcName:             "audit-pvc",
+			common.AttributePvcNamespace:        "default",
+			common.AttributeIsLinkedCloneKey:    "true",
+			common.AttributeStoragePolicyID:     profileID,
+			common.AttributeStorageTopologyType: "zonal",
+		},
+		VolumeCapabilities: capabilities,
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Preferred: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+			},
+			Requisite: []*csi.Topology{
+				{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}},
+			},
+		},
+		VolumeContentSource: &csi.VolumeContentSource{
+			Type: &csi.VolumeContentSource_Snapshot{
+				Snapshot: &csi.VolumeContentSource_SnapshotSource{SnapshotId: snapID},
+			},
+		},
+	}
+
+	_, _, err = ct.controller.createBlockVolume(ctx, linkedCloneReq, true, clusterComputeResourceMoIds)
+	if err == nil {
+		t.Fatal("expected createBlockVolume to fail when the linked clone source UUID lookup " +
+			"fails with a retryable error")
+	}
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("expected %s, got %s: %v", codes.Internal, status.Code(err), err)
+	}
+
+	// The volume must survive so the provisioner's retry can reuse it via the idempotency record.
+	queryResult, err := ct.vcenter.CnsClient.QueryVolume(ctx, &cnstypes.CnsQueryFilter{
+		Names: []string{linkedCloneVolName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queryResult.Volumes) != 1 {
+		t.Fatalf("expected the volume created for %q to be retained after a retryable "+
+			"linked-clone-name lookup failure, but found %d matching volume(s)",
+			linkedCloneVolName, len(queryResult.Volumes))
+	}
+	// Clean up the intentionally-retained volume.
+	if _, err := common.DeleteVolumeUtil(ctx, ct.controller.manager.VolumeManager,
+		queryResult.Volumes[0].VolumeId.Id, true); err != nil {
+		t.Fatal(err)
 	}
 }
 

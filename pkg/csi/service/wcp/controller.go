@@ -19,6 +19,7 @@ package wcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -1267,19 +1268,28 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 		volumeSnapshotUID, err := commonco.ContainerOrchestratorUtility.GetLinkedCloneVolumeSnapshotSourceUUID(ctx,
 			pvcName, pvcNamespace)
 		if err != nil {
-			// The provisioned volume cannot be labeled as a linked clone, so it would be
-			// unreachable by the linked-clone-exists safety check on snapshot deletion. Clean it up.
-			log.Errorf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
-				"Cleaning up volume %q. Error: %+v", pvcName, pvcNamespace, volumeInfo.VolumeID.Id, err)
-			deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
-			if deleteOpReqError != nil {
-				log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
-					"out. Error received: %+v", deleteOpReqError)
-			} else {
-				if _, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
-					volumeInfo.VolumeID.Id, true); deleteVolumeError != nil {
-					log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
-						"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+			// Only a NotFound error is terminal: the PVC is already gone from etcd, so
+			// csi-provisioner will never retry this claim and no PV will ever be created for the
+			// volume above. Nothing downstream can reclaim it (full sync only labels such volumes
+			// pv_missing), and it would stay a live linked clone that blocks deletion of its source
+			// snapshot, so delete it here.
+			//
+			// For any other error the PVC may still exist and the request is retryable. Leave the
+			// volume and the CnsVolumeOperationRequest in place so the idempotency feature retries
+			// with the same volume, per the convention used elsewhere in this function.
+			if errors.Is(err, common.ErrNotFound) {
+				log.Errorf("linked clone PVC %s/%s no longer exists; cleaning up volume %q. Error: %+v",
+					pvcNamespace, pvcName, volumeInfo.VolumeID.Id, err)
+				deleteOpReqError := operationStore.DeleteRequestDetails(ctx, req.Name)
+				if deleteOpReqError != nil {
+					log.Warnf("failed to cleanup CnsVolumeOperationRequest instance before erroring "+
+						"out. Error received: %+v", deleteOpReqError)
+				} else {
+					if _, deleteVolumeError := common.DeleteVolumeUtil(ctx, c.manager.VolumeManager,
+						volumeInfo.VolumeID.Id, true); deleteVolumeError != nil {
+						log.Warnf("failed to delete volume: %q while cleaning up after CreateVolume failure. "+
+							"Error: %+v", volumeInfo.VolumeID.Id, deleteVolumeError)
+					}
 				}
 			}
 			msg := fmt.Sprintf("failed to get linked clone name: %s on namespace: %s source volumesnapshot. "+
