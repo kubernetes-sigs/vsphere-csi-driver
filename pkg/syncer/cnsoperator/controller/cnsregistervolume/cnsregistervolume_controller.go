@@ -298,6 +298,35 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		setInstanceError(ctx, r, instance, err.Error())
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	// If a StorageClassName is specified, verify up front that its storage policy is assigned
+	// to this instance's namespace, before any CNS volume is created or modified. Without this,
+	// a namespace could get a volume registered with a storage policy it isn't entitled to.
+	if instance.Spec.StorageClassName != "" {
+		policyID, err := getStoragePolicyIDForStorageClass(ctx, r.k8sclient, instance.Spec.StorageClassName)
+		if err != nil {
+			log.Error(err.Error())
+			setInstanceError(ctx, r, instance, err.Error())
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		assigned, err := isStoragePolicyAssignedToNamespace(ctx, r.k8sclient, r.client, policyID,
+			instance.Spec.StorageClassName, instance.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to verify StorageClass %q is assigned to namespace %q: %+v",
+				instance.Spec.StorageClassName, instance.Namespace, err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		if !assigned {
+			msg := fmt.Sprintf("StorageClass %q's storage policy is not assigned to namespace %q",
+				instance.Spec.StorageClassName, instance.Namespace)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
+
 	// Verify if CnsRegisterVolume request is for block volume registration
 	// Currently file volume registration is not supported.
 	ok := isBlockVolumeRegisterRequest(ctx, instance)
@@ -555,18 +584,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Use cached K8s client for registration operations.
 	k8sclient := r.k8sclient
 
-	// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
-	storageClassName, err := getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
-		volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
-			volume.StoragePolicyId, request.Namespace)
-		log.Error(msg)
-		setInstanceError(ctx, r, instance, msg)
-		return reconcile.Result{RequeueAfter: timeout}, nil
+	var storageClassName string
+	if instance.Spec.StorageClassName != "" {
+		// Already resolved and verified as assigned to this namespace before the CNS volume was
+		// created; no need to re-derive or re-validate it here.
+		storageClassName = instance.Spec.StorageClassName
+	} else {
+		// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
+		storageClassName, err = getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
+			volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
+				volume.StoragePolicyId, request.Namespace)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s",
+			volume.StoragePolicyId, storageClassName, request.Namespace)
 	}
-	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s",
-		volume.StoragePolicyId, storageClassName, request.Namespace)
 
 	sc, err := k8sclient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
 	if err != nil {
