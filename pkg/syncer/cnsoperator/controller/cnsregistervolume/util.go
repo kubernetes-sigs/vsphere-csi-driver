@@ -390,6 +390,33 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	return createSpec
 }
 
+// constructPolicyOnlyCreateSpec creates a CNS CreateVolume spec used solely to
+// stamp a storage policy onto an already-registered CNS volume that currently
+// has none. It reuses the same backing volume ID and container-cluster metadata
+// as the original registration, but under a distinct Name: CreateVolume's
+// idempotency cache (see defaultManager.createVolumeWithImprovedIdempotency) is
+// keyed by Name, and the original registration call already stored a success
+// record under createSpec.Name in this same Reconcile — reusing that Name here
+// would make CNS return the cached result without ever applying the policy.
+//
+// TODO(storage-policy-backfill): this re-invokes CreateVolume with BackingDiskId set to an
+// already-registered volume, expecting CNS to return CnsAlreadyRegisteredFault (treated as
+// success by Manager.MonitorCreateVolumeTask). Whether CNS actually applies Profile in that
+// path, versus silently ignoring it, is unconfirmed — pending answer from the CNS/FCD team on
+// whether this is the correct mechanism or whether a dedicated policy-association API exists.
+func constructPolicyOnlyCreateSpec(createSpec *cnstypes.CnsVolumeCreateSpec,
+	volumeID string, storagePolicyID string) *cnstypes.CnsVolumeCreateSpec {
+	return &cnstypes.CnsVolumeCreateSpec{
+		Name:                 createSpec.Name + "-policy-update",
+		VolumeType:           createSpec.VolumeType,
+		Metadata:             createSpec.Metadata,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{BackingDiskId: volumeID},
+		Profile: []vimtypes.BaseVirtualMachineProfileSpec{
+			&vimtypes.VirtualMachineDefinedProfileSpec{ProfileId: storagePolicyID},
+		},
+	}
+}
+
 // getK8sStorageClassNameWithImmediateBindingModeForPolicy gets the storage class name in K8S mapping the vsphere
 // storagepolicy id. The policy must also be assigned to the passed namespace.
 func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context, k8sClient clientset.Interface,

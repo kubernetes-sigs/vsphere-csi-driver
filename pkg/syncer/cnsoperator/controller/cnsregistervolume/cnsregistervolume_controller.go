@@ -536,7 +536,41 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		// permanent failure and not requeue.
 		return reconcile.Result{}, nil
 	}
-	// Verify if storage policy is empty.
+	// Verify if storage policy is empty. If the volume has no storage policy of its
+	// own but the CnsRegisterVolume spec supplies one, apply it to the volume in CNS
+	// instead of failing registration outright.
+	//
+	// TODO(storage-policy-backfill): unconfirmed with the CNS/FCD team whether re-invoking
+	// CreateVolume on an already-registered volume (BackingDiskId set, no VolumeId) actually
+	// applies the supplied Profile before CNS returns CnsAlreadyRegisteredFault, or whether
+	// Profile is silently ignored on that path. Do not rely on this backfill working until
+	// that's confirmed — see the CNS/FCD team thread on this.
+	if volume.StoragePolicyId == "" && instance.Spec.StoragePolicyId != "" {
+		log.Infof("Volume: %s doesn't have storage policy associated with it; applying "+
+			"supplied storage policy: %s", volumeID, instance.Spec.StoragePolicyId)
+		policySpec := constructPolicyOnlyCreateSpec(createSpec, volumeID, instance.Spec.StoragePolicyId)
+		if _, _, err = r.volumeManager.CreateVolume(ctx, policySpec, nil); err != nil {
+			msg := fmt.Sprintf("failed to apply supplied storage policy: %s to volume: %s with error: %+v",
+				instance.Spec.StoragePolicyId, volumeID, err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			if cleanupErr := r.cleanupCNSVolume(ctx, instance, volumeID); cleanupErr != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, cleanupErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		volume, err = common.QueryVolumeByID(ctx, r.volumeManager, volumeID, &querySelection)
+		if err != nil {
+			msg := fmt.Sprintf("failed to re-query CNS volume: %s after applying storage policy with error: %+v",
+				volumeID, err)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			if cleanupErr := r.cleanupCNSVolume(ctx, instance, volumeID); cleanupErr != nil {
+				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, cleanupErr)
+			}
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
 	if volume.StoragePolicyId == "" {
 		log.Errorf("Volume: %s doesn't have storage policy associated with it", volumeID)
 		setInstanceError(ctx, r, instance, "Volume in the spec doesn't have storage policy associated with it")

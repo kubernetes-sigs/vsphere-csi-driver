@@ -75,6 +75,13 @@ type mockVolumeManager struct {
 	unregisterVolume func(ctx context.Context, volumeID string,
 		unregisterDisk bool) (string, error)
 	unprotectVolumeFromVMDeletionFunc func(ctx context.Context, volumeID string) error
+	// queryVolumeAsyncFunc overrides QueryVolumeAsync when set. Reconcile's storage-policy
+	// lookup goes through common.QueryVolumeByID -> utils.QueryVolumeUtil, which always calls
+	// QueryVolumeAsync first (falling back to QueryVolume only on ErrNotSupported) — so this,
+	// not gomonkey on common.QueryVolumeByID, is the reliable interception point for controlling
+	// the CnsVolume returned to Reconcile in tests.
+	queryVolumeAsyncFunc func(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
+		querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error)
 }
 
 func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
@@ -244,6 +251,9 @@ func (m *mockVolumeManager) BatchAttachVolumes(ctx context.Context,
 
 func (m *mockVolumeManager) QueryVolumeAsync(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
 	querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	if m.queryVolumeAsyncFunc != nil {
+		return m.queryVolumeAsyncFunc(ctx, queryFilter, querySelection)
+	}
 	return &cnstypes.CnsQueryResult{
 		Volumes: []cnstypes.CnsVolume{
 			{
@@ -936,6 +946,243 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			"UnregisterVolume must be called for DiskURLPath when topology validation fails")
 		Expect(unregDiskArg).To(BeTrue(),
 			"unregDisk must be true so the FCD is demoted back to a plain VMDK")
+	})
+
+	// When the volume being registered has no storage policy of its own but the CR spec
+	// supplies one, the controller should apply the supplied policy to the CNS volume
+	// (via a second CreateVolume call carrying Profile) instead of failing registration.
+	It("volume has no storage policy + spec supplies one: should apply policy and proceed", func() {
+		storageClassName := "test-sc"
+		suppliedPolicyID := "supplied-policy-id"
+		diskURLCR := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "disk-url-policy-test",
+				Namespace: "test-ns",
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:         "test-pvc",
+				DiskURLPath:     "https://vc/test.vmdk",
+				AccessMode:      "ReadWriteOnce",
+				StoragePolicyId: suppliedPolicyID,
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(diskURLCR).
+			Build()
+
+		var createVolumeCalls []*cnstypes.CnsVolumeCreateSpec
+		var queryCount int
+		diskURLMgr := &mockVolumeManager{
+			createVolumeFunc: func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+				ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+				createVolumeCalls = append(createVolumeCalls, spec)
+				return &cnsvolume.CnsVolumeInfo{
+					VolumeID: cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+				}, "", nil
+			},
+			// Reconcile's storage-policy lookup resolves through QueryVolumeAsync (see the
+			// mockVolumeManager.queryVolumeAsyncFunc doc comment); simulate the volume having no
+			// policy on the first query and the supplied policy on the re-query after backfill.
+			queryVolumeAsyncFunc: func(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+				queryCount++
+				policyID := ""
+				if queryCount > 1 {
+					policyID = suppliedPolicyID
+				}
+				return &cnstypes.CnsQueryResult{
+					Volumes: []cnstypes.CnsVolume{
+						{
+							VolumeId:        cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+							DatastoreUrl:    "dummy-ds-url",
+							StoragePolicyId: policyID,
+							BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+								CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+
+		pvc := &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: "test-ns"},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName: &storageClassName,
+			},
+		}
+		sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: storageClassName}}
+		k8sclientFake := k8sfake.NewClientset(pvc, sc)
+
+		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			client:        fakeClient,
+			scheme:        scheme,
+			volumeManager: diskURLMgr,
+			k8sclient:     k8sclientFake,
+		}
+
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
+			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+		})
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a"}, false, nil
+		})
+		patches.ApplyFunc(isDatastoreAccessibleToCluster, func(ctx context.Context,
+			vc *cnsvsphere.VirtualCenter, clusterID, ds string) bool {
+			return true
+		})
+		patches.ApplyFunc(isDatastoreAccessibleToAZClusters,
+			func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				azToClusters map[string][]string, ds string) bool {
+				return true
+			})
+		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
+			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}
+		})
+
+		var seenPolicyID string
+		patches.ApplyFunc(getK8sStorageClassNameWithImmediateBindingModeForPolicy,
+			func(ctx context.Context, k8sClient kubernetes.Interface, c ctrlclient.Client,
+				storagePolicyID, namespace string, isPodVMOnStretchSupervisor bool) (string, error) {
+				seenPolicyID = storagePolicyID
+				return storageClassName, nil
+			})
+		patches.ApplyFunc(clearKeepAfterDeleteVmIfNonRemovable,
+			func(ctx context.Context, c ctrlclient.Client, vm cnsvolume.Manager,
+				pvc *corev1.PersistentVolumeClaim, namespace, volumeID string) (*corev1.PersistentVolumeClaim, error) {
+				return pvc, nil
+			})
+		topologyMgr = &mockTopologyService{}
+		patches.ApplyFunc(validatePVCTopologyCompatibility,
+			func(ctx context.Context, k8sclient kubernetes.Interface, pvc *corev1.PersistentVolumeClaim,
+				datastoreURL string, topoMgr commoncotypes.ControllerTopologyService,
+				vc *cnsvsphere.VirtualCenter, datastoreAccessibleTopology []map[string]string, isHostLocal bool) error {
+				// Stop the reconcile here; this test only cares about the storage policy backfill.
+				return fmt.Errorf("stop-here: topology check not under test")
+			})
+		var errMsgs []string
+		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			errMsgs = append(errMsgs, msg)
+		})
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: "disk-url-policy-test", Namespace: "test-ns"},
+		}
+		_, err := diskURLReconciler.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(createVolumeCalls).To(HaveLen(2),
+			"CreateVolume should be called once to register the disk and once more to apply the supplied policy")
+		secondSpec := createVolumeCalls[1]
+		Expect(secondSpec.Profile).To(HaveLen(1))
+		profileSpec, ok := secondSpec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec)
+		Expect(ok).To(BeTrue(), "Profile entry should be a VirtualMachineDefinedProfileSpec")
+		Expect(profileSpec.ProfileId).To(Equal(suppliedPolicyID))
+
+		Expect(seenPolicyID).To(Equal(suppliedPolicyID),
+			"registration should proceed using the newly-applied policy")
+		for _, m := range errMsgs {
+			Expect(m).NotTo(ContainSubstring("doesn't have storage policy associated with it"))
+		}
+	})
+
+	// Unchanged behavior: when the volume has no storage policy and the spec doesn't supply
+	// one either, registration must still fail and clean up exactly as before.
+	It("volume has no storage policy + spec supplies none: should fail as before and cleanup", func() {
+		diskURLCR := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "disk-url-no-policy-test",
+				Namespace: "test-ns",
+			},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:     "test-pvc",
+				DiskURLPath: "https://vc/test.vmdk",
+				AccessMode:  "ReadWriteOnce",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(diskURLCR).
+			Build()
+
+		var createVolumeCallCount int
+		var unregCalled bool
+		var unregDiskArg bool
+		diskURLMgr := &mockVolumeManager{
+			createVolumeFunc: func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+				ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+				createVolumeCallCount++
+				return &cnsvolume.CnsVolumeInfo{
+					VolumeID: cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+				}, "", nil
+			},
+			unregisterVolume: func(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+				unregCalled = true
+				unregDiskArg = unregDisk
+				return "", nil
+			},
+			// See mockVolumeManager.queryVolumeAsyncFunc doc comment: this is the interception
+			// point Reconcile's storage-policy lookup actually resolves through.
+			queryVolumeAsyncFunc: func(ctx context.Context, queryFilter cnstypes.CnsQueryFilter,
+				querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+				return &cnstypes.CnsQueryResult{
+					Volumes: []cnstypes.CnsVolume{
+						{
+							VolumeId:     cnstypes.CnsVolumeId{Id: "fcd-from-diskurl"},
+							DatastoreUrl: "dummy-ds-url",
+							// StoragePolicyId intentionally left empty.
+							BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+								CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+							},
+						},
+					},
+				}, nil
+			},
+		}
+		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			client:        fakeClient,
+			scheme:        scheme,
+			volumeManager: diskURLMgr,
+		}
+
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
+			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+		})
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a"}, false, nil
+		})
+		patches.ApplyFunc(isDatastoreAccessibleToAZClusters,
+			func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				azToClusters map[string][]string, ds string) bool {
+				return true
+			})
+		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
+			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}
+		})
+		var errMsgs []string
+		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+			errMsgs = append(errMsgs, msg)
+		})
+
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: "disk-url-no-policy-test", Namespace: "test-ns"},
+		}
+		_, err := diskURLReconciler.Reconcile(ctx, req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(createVolumeCallCount).To(Equal(1),
+			"CreateVolume must not be called a second time when no policy is supplied in the spec")
+		Expect(unregCalled).To(BeTrue())
+		Expect(unregDiskArg).To(BeTrue())
+		Expect(errMsgs).To(ContainElement("Volume in the spec doesn't have storage policy associated with it"))
 	})
 })
 
