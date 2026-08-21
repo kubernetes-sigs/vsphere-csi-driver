@@ -618,11 +618,11 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 			host string,
 			isTKGSHAEnabled bool,
-		) *cnstypes.CnsVolumeCreateSpec {
+		) (*cnstypes.CnsVolumeCreateSpec, error) {
 			return &cnstypes.CnsVolumeCreateSpec{
 				Name:       "fake-volume",
 				VolumeType: "BLOCK",
-			}
+			}, nil
 		})
 
 		patches.ApplyFunc(
@@ -800,8 +800,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
 			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
-			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}
+			host string, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
 			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
@@ -902,8 +902,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
 			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-			host string, isTKGSHAEnabled bool) *cnstypes.CnsVolumeCreateSpec {
-			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}
+			host string, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(getK8sStorageClassNameWithImmediateBindingModeForPolicy,
 			func(ctx context.Context, k8sClient kubernetes.Interface, c ctrlclient.Client,
@@ -1909,7 +1909,8 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 	origCapability := isVSphereDPLPModernAppEnabled
 	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = true
-	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
 	if assert.NotNil(t, spec.VolumeId, "VolumeId should be set") {
 		assert.Equal(t, volumeID, spec.VolumeId.Id, "VolumeId.Id should be VolumeID")
 	}
@@ -1952,7 +1953,8 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 	origCapability := isVSphereDPLPModernAppEnabled
 	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = false
-	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
 	assert.Nil(t, spec.VolumeId, "VolumeId should not be set on the legacy VolumeID-only path")
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
@@ -1985,7 +1987,8 @@ func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
 	assert.Equal(t, volumeID, backing.BackingDiskId, "BackingDiskId should be VolumeID")
@@ -2016,11 +2019,153 @@ func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	spec := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
 	assert.Empty(t, backing.BackingDiskId, "BackingDiskId should be empty")
 	assert.Equal(t, diskURL, backing.BackingDiskUrlPath, "BackingDiskUrlPath should be DiskURLPath")
+}
+
+// TestConstructCreateSpecForInstanceWithoutStorageClassName verifies that Profile is left unset
+// when Spec.StorageClassName is not specified.
+func TestConstructCreateSpecForInstanceWithoutStorageClassName(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    "pvc-1",
+			VolumeID:   "fcd-uuid",
+			AccessMode: corev1.ReadWriteOnce,
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		k8sclient:  k8sfake.NewClientset(),
+	}
+
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
+	assert.Nil(t, spec.Profile, "Profile should not be set when StorageClassName is empty")
+}
+
+// TestConstructCreateSpecForInstanceWithStorageClassName verifies that Profile is populated with
+// the storage policy ID from the referenced StorageClass's storagePolicyID parameter.
+func TestConstructCreateSpecForInstanceWithStorageClassName(t *testing.T) {
+	scName := "test-sc"
+	policyID := "test-policy-id"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:          "pvc-1",
+			VolumeID:         "fcd-uuid",
+			AccessMode:       corev1.ReadWriteOnce,
+			StorageClassName: scName,
+		},
+	}
+	sc := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: scName},
+		Parameters: map[string]string{"storagePolicyID": policyID},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		k8sclient:  k8sfake.NewClientset(sc),
+	}
+
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.NoError(t, err)
+	if assert.Len(t, spec.Profile, 1, "Profile should contain a single entry") {
+		profile, ok := spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec)
+		assert.True(t, ok, "Profile entry should be *VirtualMachineDefinedProfileSpec")
+		assert.Equal(t, policyID, profile.ProfileId, "ProfileId should be the StorageClass's storagePolicyID")
+	}
+}
+
+// TestConstructCreateSpecForInstanceWithMissingStorageClass verifies that an error is returned when
+// the referenced StorageClass does not exist.
+func TestConstructCreateSpecForInstanceWithMissingStorageClass(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:          "pvc-1",
+			VolumeID:         "fcd-uuid",
+			AccessMode:       corev1.ReadWriteOnce,
+			StorageClassName: "does-not-exist",
+		},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		k8sclient:  k8sfake.NewClientset(),
+	}
+
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.Error(t, err)
+	assert.Nil(t, spec)
+}
+
+// TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam verifies that an error is
+// returned when the referenced StorageClass has no storagePolicyID parameter.
+func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *testing.T) {
+	scName := "test-sc-no-policy"
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "test-ns",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:          "pvc-1",
+			VolumeID:         "fcd-uuid",
+			AccessMode:       corev1.ReadWriteOnce,
+			StorageClassName: scName,
+		},
+	}
+	sc := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: scName},
+	}
+
+	cfg := &config.Config{
+		VirtualCenter: map[string]*config.VirtualCenterConfig{
+			"test-host": {User: "test-user"},
+		},
+	}
+	cfg.Global.ClusterID = "test-cluster"
+	r := &ReconcileCnsRegisterVolume{
+		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		k8sclient:  k8sfake.NewClientset(sc),
+	}
+
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	assert.Error(t, err)
+	assert.Nil(t, spec)
 }
 
 func TestIsBlockVolumeRegisterRequestWithSharedBlockVolume(t *testing.T) {
@@ -4387,8 +4532,8 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 		return newFakeVCWithClient(), nil
 	})
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) *cnstypes.CnsVolumeCreateSpec {
-		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 	})
 	patches.ApplyFunc(common.QueryVolumeByID, func(_ context.Context, _ cnsvolume.Manager,
 		volumeID string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {

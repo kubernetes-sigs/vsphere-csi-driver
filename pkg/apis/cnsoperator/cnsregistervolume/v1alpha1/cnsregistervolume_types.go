@@ -65,6 +65,13 @@ type CnsRegisterVolumeSpec struct {
 	// SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo,
 	// LocalPMemBackingInfo, or empty string.
 	BackingType string `json:"backingType,omitempty"`
+
+	// StorageClassName is the name of the Kubernetes StorageClass whose associated
+	// vSphere storage policy should be assigned to the volume being registered.
+	// This is optional. If set, the storage policy is applied unconditionally,
+	// regardless of whether the volume already has a storage policy associated
+	// with it in CNS.
+	StorageClassName string `json:"storageClassName,omitempty"`
 }
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
