@@ -364,6 +364,11 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 			ContainerCluster: containerCluster,
 		},
 	}
+	if instance.Spec.StoragePolicyId != "" {
+		createSpec.Profile = []vimtypes.BaseVirtualMachineProfileSpec{
+			&vimtypes.VirtualMachineDefinedProfileSpec{ProfileId: instance.Spec.StoragePolicyId},
+		}
+	}
 	if instance.Spec.VolumeID != "" && instance.Spec.DiskURLPath != "" &&
 		isVSphereDPLPModernAppEnabled {
 		// Both fields supplied and VSphereDPLPModernApp WCP capability is active:
