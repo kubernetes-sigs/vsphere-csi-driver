@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/vmware/govmomi/cns"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/sts"
@@ -293,17 +292,16 @@ func GetLabelsMapFromKeyValue(labels []types.KeyValue) map[string]string {
 func CompareKubernetesMetadata(ctx context.Context, k8sMetaData *cnstypes.CnsKubernetesEntityMetadata,
 	cnsMetaData *cnstypes.CnsKubernetesEntityMetadata) bool {
 	log := logger.GetLogger(ctx)
-	log.Debugf("CompareKubernetesMetadata called with k8spvMetaData: %+v\n and cnsMetaData: %+v\n",
-		spew.Sdump(k8sMetaData), spew.Sdump(cnsMetaData))
+	log.Debugw("CompareKubernetesMetadata called", "k8sMetaData", k8sMetaData, "cnsMetaData", cnsMetaData)
 	if (k8sMetaData.EntityName != cnsMetaData.EntityName) || (k8sMetaData.Delete != cnsMetaData.Delete) ||
 		(k8sMetaData.Namespace != cnsMetaData.Namespace) {
 		return false
 	}
-	labelsMatch := reflect.DeepEqual(GetLabelsMapFromKeyValue(k8sMetaData.Labels),
-		GetLabelsMapFromKeyValue(cnsMetaData.Labels))
-	log.Debugf("CompareKubernetesMetadata - labelsMatch returned: %v for k8spvMetaData: %+v\n and cnsMetaData: %+v\n",
-		labelsMatch, spew.Sdump(GetLabelsMapFromKeyValue(k8sMetaData.Labels)),
-		spew.Sdump(GetLabelsMapFromKeyValue(cnsMetaData.Labels)))
+	k8sLabels := GetLabelsMapFromKeyValue(k8sMetaData.Labels)
+	cnsLabels := GetLabelsMapFromKeyValue(cnsMetaData.Labels)
+	labelsMatch := reflect.DeepEqual(k8sLabels, cnsLabels)
+	log.Debugw("CompareKubernetesMetadata labels comparison", "labelsMatch", labelsMatch,
+		"k8sLabels", k8sLabels, "cnsLabels", cnsLabels)
 	return labelsMatch
 }
 
