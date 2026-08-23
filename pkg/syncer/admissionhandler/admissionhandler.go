@@ -66,6 +66,18 @@ var (
 	featureIsVACPolicyMutabilityEnabled    bool
 )
 
+// initWorkloadFSSFlag sets the given flag from the current state of the given Workload (Supervisor)
+// capability, and starts a late-enablement watcher (which will restart the container) when the
+// capability is not yet active.
+func initWorkloadFSSFlag(ctx context.Context, containerOrchestratorUtility commonco.COCommonInterface,
+	capability string, flag *bool) {
+	*flag = containerOrchestratorUtility.IsFSSEnabled(ctx, capability)
+	if !*flag {
+		go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			capability, "", "")
+	}
+}
+
 // watchConfigChange watches on the webhook configuration directory for changes
 // like cert, key etc. This is required for certificate rotation.
 func watchConfigChange(enableWebhookClientCertVerification bool) {
@@ -148,18 +160,14 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 		featureGateTKGSHaEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA)
 		featureGateBlockVolumeSnapshotEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 		featureGateByokEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.BYOKEncryption)
-		featureIsSharedDiskEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		featureFileVolumesWithVmServiceEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.FileVolumesWithVmService)
-		featureIsLinkedCloneSupportEnabled = containerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupport)
-		if !featureIsLinkedCloneSupportEnabled {
-			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
-				common.LinkedCloneSupport, "", "")
-		}
-		if !featureIsSharedDiskEnabled {
-			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
-				common.SharedDiskFss, "", "")
-		}
+		initWorkloadFSSFlag(ctx, containerOrchestratorUtility, common.LinkedCloneSupport,
+			&featureIsLinkedCloneSupportEnabled)
+		initWorkloadFSSFlag(ctx, containerOrchestratorUtility, common.SharedDiskFss,
+			&featureIsSharedDiskEnabled)
+		initWorkloadFSSFlag(ctx, containerOrchestratorUtility, common.VMPVCStoragePolicyMutability,
+			&featureIsVACPolicyMutabilityEnabled)
 		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification,
 			containerOrchestratorUtility); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
