@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
+	cnsstoragepolicyquotasv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -2166,6 +2167,298 @@ func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *t
 	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
 	assert.Error(t, err)
 	assert.Nil(t, spec)
+}
+
+// TestIsStoragePolicyAssignedToNamespaceViaResourceQuota covers the non-stretched-supervisor path,
+// where namespace assignment is expressed via a ResourceQuota entry named
+// "<storage-class-name>.storageclass.storage.k8s.io/requests.storage".
+func TestIsStoragePolicyAssignedToNamespaceViaResourceQuota(t *testing.T) {
+	scName := "sc-with-quota"
+	namespace := "test-ns"
+
+	quota := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace + "-storagequota", Namespace: namespace},
+		Spec: corev1.ResourceQuotaSpec{
+			Hard: corev1.ResourceList{
+				corev1.ResourceName(scName + scResourceNameSuffix): resource.MustParse("5Gi"),
+			},
+		},
+	}
+
+	t.Run("assigned when a matching ResourceQuota entry exists", func(t *testing.T) {
+		k8sclient := k8sfake.NewClientset(quota)
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), k8sclient, nil,
+			"policy-1", scName, namespace, false)
+		assert.NoError(t, err)
+		assert.True(t, assigned)
+	})
+
+	t.Run("not assigned when no ResourceQuota matches the storage class", func(t *testing.T) {
+		k8sclient := k8sfake.NewClientset(quota)
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), k8sclient, nil,
+			"policy-1", "other-sc", namespace, false)
+		assert.NoError(t, err)
+		assert.False(t, assigned)
+	})
+
+	t.Run("not assigned when the storage class name is empty", func(t *testing.T) {
+		k8sclient := k8sfake.NewClientset(quota)
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), k8sclient, nil,
+			"policy-1", "", namespace, false)
+		assert.NoError(t, err)
+		assert.False(t, assigned)
+	})
+}
+
+// TestIsStoragePolicyAssignedToNamespaceViaStoragePolicyQuotaCR covers the Pod VM on stretched
+// supervisor path, where namespace assignment is expressed via a StoragePolicyQuota CR whose
+// SCLevelQuotaStatuses names the storage class.
+func TestIsStoragePolicyAssignedToNamespaceViaStoragePolicyQuotaCR(t *testing.T) {
+	namespace := "test-ns"
+	scName := "sc-with-spq"
+	storagePolicyID := "policy-1"
+
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = cnsstoragepolicyquotasv1alpha3.AddToScheme(scheme)
+
+	spq := &cnsstoragepolicyquotasv1alpha3.StoragePolicyQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: "spq-1", Namespace: namespace},
+		Spec:       cnsstoragepolicyquotasv1alpha3.StoragePolicyQuotaSpec{StoragePolicyId: storagePolicyID},
+		Status: cnsstoragepolicyquotasv1alpha3.StoragePolicyQuotaStatus{
+			SCLevelQuotaStatuses: []cnsstoragepolicyquotasv1alpha3.SCLevelQuotaStatus{
+				{StorageClassName: scName},
+			},
+		},
+	}
+
+	t.Run("assigned when a matching StoragePolicyQuota CR names the storage class", func(t *testing.T) {
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spq).Build()
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), nil, fakeClient,
+			storagePolicyID, scName, namespace, true)
+		assert.NoError(t, err)
+		assert.True(t, assigned)
+	})
+
+	t.Run("not assigned when the StoragePolicyQuota CR is for a different policy", func(t *testing.T) {
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(spq).Build()
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), nil, fakeClient,
+			"other-policy", scName, namespace, true)
+		assert.NoError(t, err)
+		assert.False(t, assigned)
+	})
+
+	t.Run("not assigned when no StoragePolicyQuota CR exists in the namespace", func(t *testing.T) {
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+		assigned, err := isStoragePolicyAssignedToNamespace(context.TODO(), nil, fakeClient,
+			storagePolicyID, scName, namespace, true)
+		assert.NoError(t, err)
+		assert.False(t, assigned)
+	})
+}
+
+// TestReconcileRejectsUnassignedStorageClassPolicy verifies that when Spec.StorageClassName's storage
+// policy is not assigned to the instance's namespace, Reconcile fails fast — before ever contacting
+// vCenter or constructing a CNS create spec — rather than discovering the mismatch only after a CNS
+// volume has already been created with the unauthorized policy.
+func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	scheme.AddKnownTypes(schema.GroupVersion{Group: "cnsoperator.vmware.com", Version: "v1alpha1"},
+		&cnsregistervolumev1alpha1.CnsRegisterVolume{}, &cnsregistervolumev1alpha1.CnsRegisterVolumeList{})
+
+	crv := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-volume", Namespace: "test-ns"},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:          "test-pvc",
+			VolumeID:         "dummy-volume-id",
+			AccessMode:       "ReadWriteOnce",
+			StorageClassName: "unauthorized-sc",
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crv).Build()
+
+	sc := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "unauthorized-sc"},
+		Parameters: map[string]string{"storagePolicyID": "policy-x"},
+	}
+	// No ResourceQuota exists in the namespace granting access to "unauthorized-sc".
+	k8sclientFake := k8sfake.NewClientset(sc)
+
+	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
+
+	origStretch := syncer.IsPodVMOnStretchSupervisorFSSEnabled
+	syncer.IsPodVMOnStretchSupervisorFSSEnabled = false
+	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
+
+	r := &ReconcileCnsRegisterVolume{
+		client:     fakeClient,
+		scheme:     scheme,
+		k8sclient:  k8sclientFake,
+		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{}},
+	}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	vcCalled := false
+	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(_ context.Context,
+		_ *config.ConfigurationInfo, _ bool) (*cnsvsphere.VirtualCenter, error) {
+		vcCalled = true
+		return newFakeVCWithClient(), nil
+	})
+
+	createSpecCalled := false
+	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		createSpecCalled = true
+		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
+	})
+
+	setErrCalled := false
+	var capturedMsg string
+	patches.ApplyFunc(setInstanceError, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		setErrCalled = true
+		capturedMsg = msg
+	})
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
+	result, err := r.Reconcile(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: time.Second}, result)
+	assert.True(t, setErrCalled,
+		"setInstanceError should be called when the StorageClass's policy isn't assigned to the namespace")
+	assert.Contains(t, capturedMsg, "unauthorized-sc")
+	assert.False(t, vcCalled, "Reconcile should reject before ever contacting vCenter")
+	assert.False(t, createSpecCalled, "Reconcile should reject before constructing the CNS create spec")
+}
+
+// TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery verifies that once Spec.StorageClassName
+// has been validated up front (see TestReconcileRejectsUnassignedStorageClassPolicy), Reconcile reuses it
+// directly for the resulting PV's storage class rather than re-deriving/re-validating it via
+// getK8sStorageClassNameWithImmediateBindingModeForPolicy after the CNS volume is created.
+func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing.T) {
+	backOffDuration = make(map[types.NamespacedName]time.Duration)
+
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	scheme.AddKnownTypes(schema.GroupVersion{Group: "cnsoperator.vmware.com", Version: "v1alpha1"},
+		&cnsregistervolumev1alpha1.CnsRegisterVolume{}, &cnsregistervolumev1alpha1.CnsRegisterVolumeList{})
+
+	scName := "authorized-sc"
+	crv := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-volume", Namespace: "test-ns"},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:          "test-pvc",
+			VolumeID:         "dummy-volume-id",
+			AccessMode:       "ReadWriteOnce",
+			StorageClassName: scName,
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crv).Build()
+
+	sc := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: scName},
+		Parameters: map[string]string{"storagePolicyID": "policy-1"},
+	}
+	// ResourceQuota grants the namespace access to scName, so the early guard passes.
+	quota := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-ns-storagequota", Namespace: "test-ns"},
+		Spec: corev1.ResourceQuotaSpec{
+			Hard: corev1.ResourceList{
+				corev1.ResourceName(scName + scResourceNameSuffix): resource.MustParse("5Gi"),
+			},
+		},
+	}
+	k8sclientFake := k8sfake.NewClientset(sc, quota)
+
+	commonco.ContainerOrchestratorUtility = &mockCOCommon{}
+
+	origStretch := syncer.IsPodVMOnStretchSupervisorFSSEnabled
+	syncer.IsPodVMOnStretchSupervisorFSSEnabled = false
+	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
+
+	r := &ReconcileCnsRegisterVolume{
+		client:    fakeClient,
+		scheme:    scheme,
+		k8sclient: k8sclientFake,
+		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+			VirtualCenter: map[string]*config.VirtualCenterConfig{"vc": {User: "test-user"}},
+		}},
+		volumeManager: &mockVolumeManager{
+			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
+				_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+				return &cnsvolume.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: "dummy-volume-id"}}, "", nil
+			},
+		},
+	}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(_ context.Context,
+		_ *config.ConfigurationInfo, _ bool) (*cnsvsphere.VirtualCenter, error) {
+		return newFakeVCWithClient(), nil
+	})
+	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
+	})
+	patches.ApplyFunc(common.QueryVolumeByID, func(_ context.Context, _ cnsvolume.Manager,
+		volumeID string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return &cnstypes.CnsVolume{
+			VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
+			DatastoreUrl:    "dummy-ds-url",
+			StoragePolicyId: "policy-1",
+			BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+				CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+			},
+		}, nil
+	})
+	patches.ApplyFunc(isDatastoreAccessibleToCluster, func(_ context.Context,
+		_ *cnsvsphere.VirtualCenter, _ string, _ string) bool {
+		return true
+	})
+
+	lateDiscoveryCalled := false
+	patches.ApplyFunc(getK8sStorageClassNameWithImmediateBindingModeForPolicy,
+		func(_ context.Context, _ kubernetes.Interface, _ ctrlclient.Client,
+			_, _ string, _ bool) (string, error) {
+			lateDiscoveryCalled = true
+			return "should-not-be-used", nil
+		})
+
+	// Stop the reconcile right after the StorageClass has been resolved and fetched (line 607),
+	// so a successful call here proves storageClassName resolved to scName without error.
+	reachedPVCCheck := false
+	patches.ApplyFunc(checkExistingPVCDataSourceRef, func(_ context.Context, _ kubernetes.Interface,
+		_ string, _ string) (*corev1.PersistentVolumeClaim, error) {
+		reachedPVCCheck = true
+		return nil, fmt.Errorf("stop reconcile here for the test")
+	})
+
+	setErrCalled := false
+	var capturedMsg string
+	patches.ApplyFunc(setInstanceError, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		setErrCalled = true
+		capturedMsg = msg
+	})
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "test-volume", Namespace: "test-ns"}}
+	_, err := r.Reconcile(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.False(t, lateDiscoveryCalled,
+		"the late storage-class discovery must be skipped when StorageClassName was explicitly specified")
+	assert.True(t, reachedPVCCheck,
+		"reconcile should fetch the specified StorageClass successfully and proceed past it")
+	assert.True(t, setErrCalled)
+	assert.Contains(t, capturedMsg, "stop reconcile here for the test")
 }
 
 func TestIsBlockVolumeRegisterRequestWithSharedBlockVolume(t *testing.T) {
