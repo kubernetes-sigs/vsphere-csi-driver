@@ -850,6 +850,19 @@ func createStorageClass(client clientset.Interface, scParameters map[string]stri
 		}
 
 		if storageclass != nil && err == nil {
+			if storageclass.AllowVolumeExpansion == nil || *storageclass.AllowVolumeExpansion != allowVolumeExpansion {
+				// A StorageClass with this name already exists but with a different
+				// allowVolumeExpansion setting than requested here, most likely left
+				// behind by another test sharing this well-known name. Reusing it as-is
+				// would silently apply the wrong setting, so patch it to what this
+				// caller actually asked for instead of deleting/recreating it (which
+				// would momentarily remove a StorageClass other concurrent tests may
+				// be relying on).
+				storageclass.AllowVolumeExpansion = &allowVolumeExpansion
+				storageclass, err = adminClient.StorageV1().StorageClasses().Update(ctx, storageclass, metav1.UpdateOptions{})
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+					fmt.Sprintf("Failed to update allowVolumeExpansion on storage class %s: %v", scName, err))
+			}
 			isStorageClassPresent = true
 		}
 	}
