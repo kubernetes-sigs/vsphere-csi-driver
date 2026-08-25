@@ -202,9 +202,10 @@ func hasVmEncryptionRule(policyContent []cnsvsphere.SpbmPolicyContent) bool {
 //
 // Two passes are performed:
 //  1. Direct: looks for vmwarevmcrypt@ENCRYPTION capability in the vmwarevmcrypt namespace.
-//  2. Indirect: if a rule with namespace com.vmware.storageprofile.dataservice is found,
-//     its CapID is used to fetch the referenced policy content, which is then re-checked
-//     for VM encryption.
+//  2. Indirect: collects the policy IDs referenced by any com.vmware.storageprofile.dataservice
+//     rule and resolves them all in a single batched lookup, which is then re-checked for VM
+//     encryption. Batching avoids one vCenter round trip per reference, and means a single
+//     unresolvable reference can't shadow another reference that would have answered the check.
 //
 // retrieveContent abstracts the PbmRetrieveContent call so the function is testable
 // without a live vCenter connection.
@@ -218,26 +219,34 @@ func checkVmEncryption(ctx context.Context,
 		return true, nil
 	}
 
-	// Indirect check: follow any data-service reference and repeat the lookup.
+	// Collect the distinct data-service-referenced policy IDs.
+	seen := make(map[string]struct{})
+	refIDs := make([]string, 0)
 	for _, policy := range policyContent {
 		for _, subProfile := range policy.Profiles {
 			for _, rule := range subProfile.Rules {
 				if rule.Ns != dataserviceNs || rule.CapID == "" {
 					continue
 				}
-				log.Infof("Checking referenced data service policy %q for VM encryption", rule.CapID)
-				refContent, err := retrieveContent(ctx, []string{rule.CapID})
-				if err != nil {
-					return false, fmt.Errorf(
-						"failed to retrieve referenced policy %q: %w", rule.CapID, err)
+				if _, ok := seen[rule.CapID]; ok {
+					continue
 				}
-				if hasVmEncryptionRule(refContent) {
-					return true, nil
-				}
+				seen[rule.CapID] = struct{}{}
+				refIDs = append(refIDs, rule.CapID)
 			}
 		}
 	}
-	return false, nil
+	if len(refIDs) == 0 {
+		return false, nil
+	}
+
+	// Indirect check: resolve all referenced policies in one batched call and repeat the lookup.
+	log.Infof("Checking referenced data service policies %v for VM encryption", refIDs)
+	refContent, err := retrieveContent(ctx, refIDs)
+	if err != nil {
+		return false, fmt.Errorf("failed to retrieve referenced policies %v: %w", refIDs, err)
+	}
+	return hasVmEncryptionRule(refContent), nil
 }
 
 // extractIopsLimit searches the policy content for a vSAN IOPS limit rule and returns

@@ -2059,6 +2059,71 @@ func TestCheckVmEncryption(t *testing.T) {
 			expected:  false,
 			expectErr: false,
 		},
+		{
+			name: "multiple dataservice references are resolved in a single batched call",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: dataserviceNs, CapID: "ref-policy-1", Value: "true"},
+								{Ns: dataserviceNs, CapID: "ref-policy-2", Value: "true"},
+								// Duplicate reference should not be requested twice.
+								{Ns: dataserviceNs, CapID: "ref-policy-1", Value: "true"},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, ids []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				assert.Equal(t, []string{"ref-policy-1", "ref-policy-2"}, ids)
+				// Only the second referenced policy carries VM encryption; a single batched
+				// call must still surface it instead of stopping at the first reference.
+				return vmEncryptContent, nil
+			},
+			expected:  true,
+			expectErr: false,
+		},
+		{
+			name: "duplicate dataservice reference across policies and profiles is deduped",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy-1",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: dataserviceNs, CapID: "ref-policy-1", Value: "true"},
+							},
+						},
+						{
+							// Same reference repeated in a different subProfile of the same policy.
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: dataserviceNs, CapID: "ref-policy-1", Value: "true"},
+							},
+						},
+					},
+				},
+				{
+					ID: "test-policy-2",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							// Same reference repeated in a different policy entry.
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{Ns: dataserviceNs, CapID: "ref-policy-1", Value: "true"},
+							},
+						},
+					},
+				},
+			},
+			retrieveContent: func(_ context.Context, ids []string) ([]cnsvsphere.SpbmPolicyContent, error) {
+				// The dedup map must span all policies/subProfiles, not just one Rules slice.
+				assert.Equal(t, []string{"ref-policy-1"}, ids)
+				return vmEncryptContent, nil
+			},
+			expected:  true,
+			expectErr: false,
+		},
 	}
 
 	for _, tt := range tests {
