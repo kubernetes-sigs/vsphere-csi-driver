@@ -1715,7 +1715,17 @@ func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes
 		// started (e.g. syncer restart), in which case pvMissingLabeledMap
 		// would not know about it yet. Detect that from the live query so we
 		// don't keep re-deriving an update spec for it every cycle.
-		if isPVEntityLabeled(vol, prometheus.PrometheusPVMissingLabelKey, prometheus.PrometheusPVMissingLabelValue) {
+		//
+		// This deliberately requires pv_missing to be the *only* label on the
+		// PV entity. A volume carrying pv_missing alongside other labels is
+		// still in a state that needs reconciling: those labels describe a
+		// K8s PV that no longer exists (e.g. a stale pv_retained from when
+		// the PV was still present-but-unconsumed, or CnsRegisterVolume
+		// provenance labels), and buildPVMissingUpdateSpec below is what
+		// strips them. Skipping on a mere pv_missing match would leave such
+		// volumes stale forever, since nothing else revisits an orphan.
+		if isPVEntityLabeledExclusively(vol, prometheus.PrometheusPVMissingLabelKey,
+			prometheus.PrometheusPVMissingLabelValue) {
 			pvMissingLabeledMap[vc][vol.VolumeId.Id] = true
 			continue
 		}
@@ -1736,28 +1746,43 @@ func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes
 	return updateSpecArray, len(updateSpecArray), nil
 }
 
-// isPVEntityLabeled reports whether the volume's PV-type CNS entity
-// metadata, scoped to the current cluster, already carries the given label.
-func isPVEntityLabeled(vol cnstypes.CnsVolume, labelKey, labelValue string) bool {
+// isPVEntityLabeledExclusively reports whether every PV-type CNS entity
+// metadata on the volume, scoped to the current cluster, already carries the
+// given label and nothing else.
+//
+// It returns false if any such entity carries additional labels beyond the
+// given one (that entity still needs its stale labels stripped), and false if
+// the volume has no in-cluster PV-type entity at all (a synthetic entity
+// still needs to be created to host the label).
+func isPVEntityLabeledExclusively(vol cnstypes.CnsVolume, labelKey, labelValue string) bool {
+	foundInClusterPV := false
 	for _, em := range vol.Metadata.EntityMetadata {
 		k8sEm, ok := em.(*cnstypes.CnsKubernetesEntityMetadata)
 		if !ok || k8sEm.ClusterID != clusterIDforVolumeMetadata ||
 			k8sEm.EntityType != string(cnstypes.CnsKubernetesEntityTypePV) {
 			continue
 		}
-		if cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)[labelKey] == labelValue {
-			return true
+		foundInClusterPV = true
+		labels := cnsvsphere.GetLabelsMapFromKeyValue(k8sEm.Labels)
+		if len(labels) != 1 || labels[labelKey] != labelValue {
+			return false
 		}
 	}
-	return false
+	return foundInClusterPV
 }
 
-// buildPVMissingUpdateSpec returns an UpdateSpec that sets pv_missing=true on
-// the CNS volume's PV-type CnsKubernetesEntityMetadata, preserving any
-// pre-existing labels on those entries.
+// buildPVMissingUpdateSpec returns an UpdateSpec that sets pv_missing=true as
+// the sole label on the CNS volume's PV-type CnsKubernetesEntityMetadata.
 //
 // If the volume has one or more in-cluster PV-type entities, each is reissued
-// with the pv_missing label appended.
+// with its label set reduced to just pv_missing=true. Pre-existing labels are
+// intentionally dropped rather than merged: the volume's K8s PV object is gone,
+// so any other label on the entity (a stale pv_retained from when the PV was
+// present-but-unconsumed, CnsRegisterVolume/VKSRegisterVolume provenance
+// labels, user labels mirrored from the PV) describes an object that no longer
+// exists and can never be reconciled again. The entity's EntityName — the
+// last-known PV name, which VI Admins rely on to identify the orphan — is
+// preserved.
 //
 // If no in-cluster PV-type entity is present (legacy volumes, or volumes
 // whose CNS metadata never carried a PV entity), a synthetic PV-type entity

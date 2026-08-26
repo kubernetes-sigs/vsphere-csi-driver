@@ -2503,6 +2503,100 @@ func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
 		"volume found already labeled via live CNS metadata should be recorded in pvMissingLabeledMap")
 }
 
+// TestGetMissingPVVolumeUpdateSpecs_StripsStalePVRetained covers the lifecycle
+// where a Retain-policy PV is first labeled pv_retained=true while it still
+// exists but is unconsumed (Released), and is then force-deleted so the volume
+// becomes a true orphan. Once the PV is gone, pv_retained is stale and the
+// volume must end up carrying pv_missing=true alone.
+func TestGetMissingPVVolumeUpdateSpecs_StripsStalePVRetained(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+				Labels: []types.KeyValue{
+					{Key: "pv_retained", Value: "true"},
+				},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	// Pre-seed grace tracker so we skip straight to the labeling decision.
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, _, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Len(t, specs, 1)
+
+	labels := map[string]string{}
+	for _, baseEm := range specs[0].Metadata.EntityMetadata {
+		em := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		for _, kv := range em.Labels {
+			labels[kv.Key] = kv.Value
+		}
+	}
+	assert.Equal(t, "true", labels["pv_missing"], "pv_missing label must be set")
+	assert.NotContains(t, labels, "pv_retained",
+		"stale pv_retained must be stripped once the PV no longer exists")
+	assert.Len(t, labels, 1, "orphan volume must carry pv_missing alone")
+}
+
+// TestGetMissingPVVolumeUpdateSpecs_ReconcilesCoexistingLabels covers the
+// already-broken state observed in the field: a volume that full sync labeled
+// pv_missing=true under the older merge behavior, leaving an earlier
+// pv_retained=true alongside it. Such a volume must not be treated as "already
+// labeled, nothing to do" — it needs one more update to strip the stale label,
+// otherwise both labels show up in the vCenter UI forever.
+func TestGetMissingPVVolumeUpdateSpecs_ReconcilesCoexistingLabels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	vc := "test-vc"
+	clusterID := "test-cluster"
+	ms := pvMissingTestSetup(t, vc, clusterID)
+
+	vol := makeCNSVolume("vol-1", "pv-orphan", clusterID,
+		&cnstypes.CnsKubernetesEntityMetadata{
+			CnsEntityMetadata: cnstypes.CnsEntityMetadata{
+				EntityName: "pv-orphan",
+				ClusterID:  clusterID,
+				Labels: []types.KeyValue{
+					{Key: "pv_retained", Value: "true"},
+					{Key: "pv_missing", Value: "true"},
+				},
+			},
+			EntityType: string(cnstypes.CnsKubernetesEntityTypePV),
+		})
+	cc := cnstypes.CnsContainerCluster{ClusterId: clusterID}
+
+	// Pre-seed grace tracker so we skip straight to the labeling decision.
+	cnsDeletionMap[vc]["vol-1"] = true
+
+	specs, count, err := getMissingPVVolumeUpdateSpecs(ctx, []cnstypes.CnsVolume{vol},
+		map[string]string{}, ms, false, cc, vc)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count,
+		"a volume with pv_missing plus stale labels must still be reconciled")
+	assert.Len(t, specs, 1)
+
+	labels := map[string]string{}
+	for _, baseEm := range specs[0].Metadata.EntityMetadata {
+		em := baseEm.(*cnstypes.CnsKubernetesEntityMetadata)
+		for _, kv := range em.Labels {
+			labels[kv.Key] = kv.Value
+		}
+	}
+	assert.Equal(t, "true", labels["pv_missing"], "pv_missing label must remain set")
+	assert.Len(t, labels, 1, "stale pv_retained must be stripped, leaving pv_missing alone")
+}
+
 // TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled verifies that
 // once pvMissingLabeledMap records a volume as labeled, subsequent calls
 // short-circuit and never re-issue an update spec for it — even if the CNS
