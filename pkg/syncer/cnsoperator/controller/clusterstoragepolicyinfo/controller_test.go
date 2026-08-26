@@ -1358,6 +1358,7 @@ func TestCheckVsanEncryption(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
+									Ns:     vsanNs,
 									PropID: "dataAtRestEncryption",
 									Value:  "true",
 								},
@@ -1367,6 +1368,26 @@ func TestCheckVsanEncryption(t *testing.T) {
 				},
 			},
 			expected: true,
+		},
+		{
+			name: "policy with dataAtRestEncryption PropID in wrong namespace",
+			policyContent: []cnsvsphere.SpbmPolicyContent{
+				{
+					ID: "test-policy",
+					Profiles: []cnsvsphere.SpbmPolicySubProfile{
+						{
+							Rules: []cnsvsphere.SpbmPolicyRule{
+								{
+									Ns:     "someOtherNamespace",
+									PropID: "dataAtRestEncryption",
+									Value:  "true",
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
 		},
 		{
 			name: "policy without dataAtRestEncryption capability",
@@ -1409,6 +1430,7 @@ func TestCheckVsanEncryption(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
+									Ns:     vsanNs,
 									PropID: "dataAtRestEncryption",
 									Value:  "true",
 								},
@@ -1457,6 +1479,7 @@ func TestAnalyzeEncryptionCapabilities(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
+									Ns:     vsanNs,
 									PropID: "dataAtRestEncryption",
 									Value:  "true",
 								},
@@ -1518,6 +1541,7 @@ func TestAnalyzeEncryptionCapabilities(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
+									Ns:     vsanNs,
 									PropID: "dataAtRestEncryption",
 									Value:  "true",
 								},
@@ -1581,7 +1605,7 @@ func TestExtractIopsLimit(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
-									Ns:     vsanIopsLimitNs,
+									Ns:     vsanNs,
 									PropID: vsanIopsLimitPropID,
 									Value:  "100",
 								},
@@ -1602,7 +1626,7 @@ func TestExtractIopsLimit(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
-									Ns:     vsanIopsLimitNs,
+									Ns:     vsanNs,
 									PropID: vsanIopsLimitPropID,
 									Value:  "not-a-number",
 								},
@@ -1623,7 +1647,7 @@ func TestExtractIopsLimit(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
-									Ns:     vsanIopsLimitNs,
+									Ns:     vsanNs,
 									CapID:  "someOtherCap",
 									PropID: "someOtherProp",
 									Value:  "100",
@@ -1709,7 +1733,7 @@ func TestGetStorageTopologyTypeFromPolicy(t *testing.T) {
 		{
 			name: "policy without topology capability",
 			policyContent: policyWithRule(cnsvsphere.SpbmPolicyRule{
-				Ns:     vsanIopsLimitNs,
+				Ns:     vsanNs,
 				PropID: vsanIopsLimitPropID,
 				Value:  "100",
 			}),
@@ -1721,7 +1745,7 @@ func TestGetStorageTopologyTypeFromPolicy(t *testing.T) {
 				{
 					ID: "test-policy",
 					Profiles: []cnsvsphere.SpbmPolicySubProfile{
-						{Rules: []cnsvsphere.SpbmPolicyRule{{Ns: vsanIopsLimitNs, PropID: vsanIopsLimitPropID, Value: "100"}}},
+						{Rules: []cnsvsphere.SpbmPolicyRule{{Ns: vsanNs, PropID: vsanIopsLimitPropID, Value: "100"}}},
 						{Rules: []cnsvsphere.SpbmPolicyRule{topologyRule(pbmTopologyValueZonal)}},
 					},
 				},
@@ -1761,7 +1785,7 @@ func TestPopulatePerformanceCapabilities(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
-									Ns:     vsanIopsLimitNs,
+									Ns:     vsanNs,
 									PropID: vsanIopsLimitPropID,
 									Value:  "500",
 								},
@@ -1782,7 +1806,7 @@ func TestPopulatePerformanceCapabilities(t *testing.T) {
 						{
 							Rules: []cnsvsphere.SpbmPolicyRule{
 								{
-									Ns:     vsanIopsLimitNs,
+									Ns:     vsanNs,
 									PropID: vsanIopsLimitPropID,
 									Value:  "not-a-number",
 								},
