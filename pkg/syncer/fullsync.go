@@ -1003,7 +1003,9 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			log.Errorf("FullSync for VC %s: failed to parse cnsvolumeinfo object: %v, err: %v", vc, cnsvolumeinfo, err)
 			continue
 		}
-		if cnsvolumeinfo.Spec.VCenterServer == vc {
+		// Use case-insensitive comparison: VCenterServer values persisted before
+		// vCenter host normalization was introduced may retain their original casing.
+		if strings.EqualFold(cnsvolumeinfo.Spec.VCenterServer, vc) {
 			if _, exists := currentK8sPVMap[cnsvolumeinfo.Spec.VolumeID]; !exists {
 				// If a PV is not present in the cluster for two full sync cycles, delete its VolumeInfo CR.
 				if _, existsInCrDeletionMap := volumeInfoCrDeletionMap[vc][cnsvolumeinfo.Spec.VolumeID]; existsInCrDeletionMap {

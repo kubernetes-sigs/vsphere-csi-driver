@@ -182,10 +182,10 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	vcThumbprint := cfg.Global.Thumbprint
 
 	vcConfig := &VirtualCenterConfig{
-		Host:                        host,
+		Host:                        strings.ToLower(host),
 		Port:                        port,
 		CAFile:                      vcCAFile,
-		Thumbprint:                  vcThumbprint,
+		Thumbprint:                  strings.ToUpper(vcThumbprint),
 		Username:                    cfg.VirtualCenter[host].User,
 		Password:                    cfg.VirtualCenter[host].Password,
 		Insecure:                    cfg.VirtualCenter[host].InsecureFlag,
@@ -235,10 +235,13 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		}
 
 		vcConfig := &VirtualCenterConfig{
-			Host:                        vCenterIP,
+			// vCenter FQDN/IP is a protocol-compliant case-insensitive identifier
+			// (used as a map key and in equality checks throughout the driver),
+			// so it is normalized to lowercase at this single entry point.
+			Host:                        strings.ToLower(vCenterIP),
 			Port:                        port,
 			CAFile:                      cfg.VirtualCenter[vCenterIP].CAFile,
-			Thumbprint:                  cfg.VirtualCenter[vCenterIP].Thumbprint,
+			Thumbprint:                  strings.ToUpper(cfg.VirtualCenter[vCenterIP].Thumbprint),
 			Username:                    cfg.VirtualCenter[vCenterIP].User,
 			Password:                    cfg.VirtualCenter[vCenterIP].Password,
 			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
@@ -253,7 +256,9 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			vcConfig.CAFile = cfg.Global.CAFile
 		}
 		if vcConfig.Thumbprint == "" {
-			vcConfig.Thumbprint = cfg.Global.Thumbprint
+			// Thumbprints are compared uppercase (govmomi's soap.ThumbprintSHA1/256
+			// always generate uppercase hex), so normalize this fallback too.
+			vcConfig.Thumbprint = strings.ToUpper(cfg.Global.Thumbprint)
 		}
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
