@@ -59,6 +59,8 @@ type CnsFileAccessConfigStatus struct {
 // CnsFileAccessConfig is the Schema for the CnsFileAccessConfig API
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.done"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type CnsFileAccessConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
