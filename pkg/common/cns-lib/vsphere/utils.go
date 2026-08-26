@@ -167,14 +167,19 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		return nil, err
 	}
 	host := vCenterIPs[0]
-	port, err := strconv.Atoi(cfg.VirtualCenter[host].VCenterPort)
+	vcConfigEntry, ok := cfg.VirtualCenter.Get(host)
+	if !ok {
+		return nil, fmt.Errorf("vCenter configuration not found for host %s", host)
+	}
+
+	port, err := strconv.Atoi(vcConfigEntry.VCenterPort)
 	if err != nil {
 		return nil, err
 	}
 
 	var targetvSANClustersForFile []string
-	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareClusters) != "" {
-		targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareClusters, ",")
+	if strings.TrimSpace(vcConfigEntry.TargetvSANFileShareClusters) != "" {
+		targetvSANClustersForFile = strings.Split(vcConfigEntry.TargetvSANFileShareClusters, ",")
 	}
 
 	vcCAFile := cfg.Global.CAFile
@@ -184,17 +189,17 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 		Host:                        strings.ToLower(host),
 		Port:                        port,
 		CAFile:                      vcCAFile,
-		Thumbprint:                  strings.ToUpper(vcThumbprint),
-		Username:                    cfg.VirtualCenter[host].User,
-		Password:                    cfg.VirtualCenter[host].Password,
-		Insecure:                    cfg.VirtualCenter[host].InsecureFlag,
+		Thumbprint:                  vcThumbprint,
+		Username:                    vcConfigEntry.User,
+		Password:                    vcConfigEntry.Password,
+		Insecure:                    vcConfigEntry.InsecureFlag,
 		TargetvSANFileShareClusters: targetvSANClustersForFile,
 		QueryLimit:                  cfg.Global.QueryLimit,
 		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
-		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
-		FileVolumeActivated:         cfg.VirtualCenter[host].FileVolumeActivated,
-		VCSessionManagerURL:         cfg.VirtualCenter[host].VCSessionManagerURL,
-		VCSessionManagerToken:       cfg.VirtualCenter[host].VCSessionManagerToken,
+		MigrationDataStoreURL:       vcConfigEntry.MigrationDataStoreURL,
+		FileVolumeActivated:         vcConfigEntry.FileVolumeActivated,
+		VCSessionManagerURL:         vcConfigEntry.VCSessionManagerURL,
+		VCSessionManagerToken:       vcConfigEntry.VCSessionManagerToken,
 	}
 
 	if vcConfig.VCSessionManagerURL != "" {
@@ -202,8 +207,8 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
-	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
-		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
+	if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
+		vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
 			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 		}
@@ -223,14 +228,19 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		return nil, err
 	}
 	for _, vCenterIP := range vCenterIPs {
-		port, err := strconv.Atoi(cfg.VirtualCenter[vCenterIP].VCenterPort)
+		vcConfigEntry, ok := cfg.VirtualCenter.Get(vCenterIP)
+		if !ok {
+			return nil, fmt.Errorf("vCenter configuration not found for host %s", vCenterIP)
+		}
+
+		port, err := strconv.Atoi(vcConfigEntry.VCenterPort)
 		if err != nil {
 			return nil, err
 		}
 
 		var targetvSANClustersForFile []string
-		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters) != "" {
-			targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters, ",")
+		if strings.TrimSpace(vcConfigEntry.TargetvSANFileShareClusters) != "" {
+			targetvSANClustersForFile = strings.Split(vcConfigEntry.TargetvSANFileShareClusters, ",")
 		}
 
 		vcConfig := &VirtualCenterConfig{
@@ -239,17 +249,17 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			// so it is normalized to lowercase at this single entry point.
 			Host:                        strings.ToLower(vCenterIP),
 			Port:                        port,
-			CAFile:                      cfg.VirtualCenter[vCenterIP].CAFile,
-			Thumbprint:                  strings.ToUpper(cfg.VirtualCenter[vCenterIP].Thumbprint),
-			Username:                    cfg.VirtualCenter[vCenterIP].User,
-			Password:                    cfg.VirtualCenter[vCenterIP].Password,
-			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
+			CAFile:                      vcConfigEntry.CAFile,
+			Thumbprint:                  strings.ToUpper(vcConfigEntry.Thumbprint),
+			Username:                    vcConfigEntry.User,
+			Password:                    vcConfigEntry.Password,
+			Insecure:                    vcConfigEntry.InsecureFlag,
 			TargetvSANFileShareClusters: targetvSANClustersForFile,
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
-			FileVolumeActivated:         cfg.VirtualCenter[vCenterIP].FileVolumeActivated,
-			VCSessionManagerURL:         cfg.VirtualCenter[vCenterIP].VCSessionManagerURL,
-			VCSessionManagerToken:       cfg.VirtualCenter[vCenterIP].VCSessionManagerToken,
+			FileVolumeActivated:         vcConfigEntry.FileVolumeActivated,
+			VCSessionManagerURL:         vcConfigEntry.VCSessionManagerURL,
+			VCSessionManagerToken:       vcConfigEntry.VCSessionManagerToken,
 		}
 		if vcConfig.CAFile == "" {
 			vcConfig.CAFile = cfg.Global.CAFile
@@ -260,8 +270,8 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			vcConfig.Thumbprint = strings.ToUpper(cfg.Global.Thumbprint)
 		}
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
-		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
-			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
+		if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
+			vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
 			for idx := range vcConfig.DatacenterPaths {
 				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 			}

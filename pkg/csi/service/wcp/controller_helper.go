@@ -494,11 +494,12 @@ func getHostMoRefsForHostLocalVolume(ctx context.Context,
 		if !ok || hostname == "" {
 			continue
 		}
-		if _, dup := seen[hostname]; dup {
+		normalizedHostname := strings.ToLower(hostname)
+		if _, dup := seen[normalizedHostname]; dup {
 			continue
 		}
-		seen[hostname] = struct{}{}
-		hostMoID, found := nodeNameToID[hostname]
+		seen[normalizedHostname] = struct{}{}
+		hostMoID, found := nodeNameToID[normalizedHostname]
 		if !found {
 			return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to resolve ESX host MoID for node %q while provisioning host-local volume", hostname)

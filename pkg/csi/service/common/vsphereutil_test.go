@@ -16,6 +16,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
@@ -419,9 +420,8 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 				CnsConfig:     &config.Config{},
 			}
 			manager.CnsConfig.Global.ClusterID = "test-cluster"
-			manager.CnsConfig.VirtualCenter = map[string]*config.VirtualCenterConfig{
-				"test-vc": {User: "test-user"},
-			}
+			manager.CnsConfig.VirtualCenter = commontypes.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+			manager.CnsConfig.VirtualCenter.Set("test-vc", &config.VirtualCenterConfig{User: "test-user"})
 
 			// Create test datastore info objects
 			firstDatastoreInfo := &vsphere.DatastoreInfo{
@@ -526,9 +526,8 @@ func TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts(t *testing.
 		CnsConfig:     &config.Config{},
 	}
 	manager.CnsConfig.Global.ClusterID = "test-cluster"
-	manager.CnsConfig.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		"test-vc": {User: "test-user"},
-	}
+	manager.CnsConfig.VirtualCenter = commontypes.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+	manager.CnsConfig.VirtualCenter.Set("test-vc", &config.VirtualCenterConfig{User: "test-user"})
 
 	hostLocalDatastoreInfo := &vsphere.DatastoreInfo{
 		Datastore: &vsphere.Datastore{Datastore: object.NewDatastore(nil, datastoreMoRef)},

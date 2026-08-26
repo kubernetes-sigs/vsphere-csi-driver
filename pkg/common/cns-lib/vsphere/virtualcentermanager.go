@@ -19,6 +19,7 @@ package vsphere
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/vmware/govmomi/cns"
@@ -90,7 +91,8 @@ type defaultVirtualCenterManager struct {
 
 func (m *defaultVirtualCenterManager) GetVirtualCenter(ctx context.Context, host string) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
-	if vc, exists := m.virtualCenters.Load(host); exists {
+	normalizedHost := strings.ToLower(host)
+	if vc, exists := m.virtualCenters.Load(normalizedHost); exists {
 		return vc.(*VirtualCenter), nil
 	}
 	log.Errorf("Couldn't find VC %s in registry", host)
@@ -144,7 +146,7 @@ func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(ctx context.Contex
 		log.Warnf("failed to disconnect VC %s, couldn't unregister", host)
 	}
 	vc.DisconnectCns(ctx)
-	m.virtualCenters.Delete(host)
+	m.virtualCenters.Delete(strings.ToLower(host))
 	log.Infof("Successfully unregistered VC %s", host)
 	return nil
 }

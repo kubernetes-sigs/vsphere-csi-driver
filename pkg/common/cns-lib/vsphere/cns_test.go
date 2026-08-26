@@ -28,6 +28,7 @@ import (
 	pbmsim "github.com/vmware/govmomi/pbm/simulator"
 	"github.com/vmware/govmomi/simulator"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // We should get expected failure when username is not a fully qualified domain name
@@ -77,14 +78,14 @@ func TestConnectCnsWithInvalidUser(t *testing.T) {
 		os.Remove("test_vsphere.conf")
 	}()
 
-	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
+	cfg.VirtualCenter = types.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+	cfg.VirtualCenter.Set(s.URL.Hostname(), &config.VirtualCenterConfig{
 		User:         cfg.Global.User,
 		Password:     cfg.Global.Password,
 		VCenterPort:  cfg.Global.VCenterPort,
 		InsecureFlag: cfg.Global.InsecureFlag,
 		Datacenters:  cfg.Global.Datacenters,
-	}
+	})
 
 	// CNS based CSI requires a valid cluster name.
 	cfg.Global.ClusterID = "test-cluster"

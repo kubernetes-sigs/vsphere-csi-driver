@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
@@ -28,6 +29,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -282,7 +284,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 	log := logger.GetLogger(ctx)
 	var vms []*vsphere.VirtualMachine
 	var err error
-	reconnectedHosts := make(map[string]bool)
+	reconnectedHosts := types.NewCaseInsensitiveMap[bool]()
 
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
@@ -318,13 +320,13 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 		nodeUUID := nodeUUIDInf.(string)
 		vm := vmInf.(*vsphere.VirtualMachine)
 
-		if reconnectedHosts[vm.VirtualCenterHost] {
+		if reconnectedHosts.Exists(vm.VirtualCenterHost) {
 			log.Debugf("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)
 			err = vm.Renew(ctx, false)
 		} else {
 			log.Debugf("Renewing VM %v with new connection: nodeUUID %s", vm, nodeUUID)
 			err = vm.Renew(ctx, true)
-			reconnectedHosts[vm.VirtualCenterHost] = true
+			reconnectedHosts.Set(vm.VirtualCenterHost, true)
 		}
 
 		if err != nil {
@@ -348,7 +350,7 @@ func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]
 	log := logger.GetLogger(ctx)
 	var vms []*vsphere.VirtualMachine
 	var err error
-	reconnectedHosts := make(map[string]bool)
+	reconnectedHosts := types.NewCaseInsensitiveMap[bool]()
 
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
@@ -383,17 +385,17 @@ func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]
 
 		nodeUUID := nodeUUIDInf.(string)
 		vm := vmInf.(*vsphere.VirtualMachine)
-		if vm.VirtualCenterHost != vcHost {
+		if !strings.EqualFold(vm.VirtualCenterHost, vcHost) {
 			return true
 		}
 
-		if reconnectedHosts[vm.VirtualCenterHost] {
+		if reconnectedHosts.Exists(vm.VirtualCenterHost) {
 			log.Debugf("Renewing VM %v, no new connection needed: nodeUUID %s", vm, nodeUUID)
 			err = vm.Renew(ctx, false)
 		} else {
 			log.Debugf("Renewing VM %v with new connection: nodeUUID %s", vm, nodeUUID)
 			err = vm.Renew(ctx, true)
-			reconnectedHosts[vm.VirtualCenterHost] = true
+			reconnectedHosts.Set(vm.VirtualCenterHost, true)
 		}
 
 		if err != nil {

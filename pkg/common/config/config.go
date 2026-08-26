@@ -32,6 +32,7 @@ import (
 	"gopkg.in/gcfg.v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -212,7 +213,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
 	// Init.
 	if cfg.VirtualCenter == nil {
-		cfg.VirtualCenter = make(map[string]*VirtualCenterConfig)
+		cfg.VirtualCenter = types.NewCaseInsensitiveMap[*VirtualCenterConfig]()
 	}
 
 	// Globals.
@@ -311,23 +312,23 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 			if errDatacenters != nil {
 				datacenters = cfg.Global.Datacenters
 			}
-			cfg.VirtualCenter[vcenter] = &VirtualCenterConfig{
+			cfg.VirtualCenter.Set(vcenter, &VirtualCenterConfig{
 				User:         username,
 				Password:     password,
 				VCenterPort:  port,
 				InsecureFlag: insecureFlag,
 				Datacenters:  datacenters,
-			}
+			})
 		}
 	}
-	if cfg.Global.VCenterIP != "" && cfg.VirtualCenter[cfg.Global.VCenterIP] == nil {
-		cfg.VirtualCenter[cfg.Global.VCenterIP] = &VirtualCenterConfig{
+	if cfg.Global.VCenterIP != "" && !cfg.VirtualCenter.Exists(cfg.Global.VCenterIP) {
+		cfg.VirtualCenter.Set(cfg.Global.VCenterIP, &VirtualCenterConfig{
 			User:         cfg.Global.User,
 			Password:     cfg.Global.Password,
 			VCenterPort:  cfg.Global.VCenterPort,
 			InsecureFlag: cfg.Global.InsecureFlag,
 			Datacenters:  cfg.Global.Datacenters,
-		}
+		})
 	}
 	err := validateConfig(ctx, cfg)
 	if err != nil {
@@ -534,6 +535,10 @@ func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 		log.Errorf("error while reading config file: %+v", err)
 		return nil, err
 	}
+	// gcfg assigns VirtualCenter section names as map keys via reflection,
+	// bypassing CaseInsensitiveMap.Set, so keys read from the file are not
+	// yet lowercased.
+	cfg.VirtualCenter.Normalize()
 	// Env Vars should override config file entries if present.
 	if err := FromEnv(ctx, cfg); err != nil {
 		return nil, err
@@ -621,6 +626,10 @@ func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
 		return nil, err
 	}
+	// gcfg assigns VirtualCenter section names as map keys via reflection,
+	// bypassing CaseInsensitiveMap.Set, so keys read from the file are not
+	// yet lowercased.
+	cfg.VirtualCenter.Normalize()
 	// Env Vars should override config file entries if present.
 	if err := FromEnvToGC(ctx, cfg); err != nil {
 		return nil, err

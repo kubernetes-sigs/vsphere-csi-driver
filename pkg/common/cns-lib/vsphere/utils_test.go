@@ -10,6 +10,7 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // vCenter host and thumbprint are protocol-compliant case-insensitive identifiers, so
@@ -25,15 +26,14 @@ func TestGetVirtualCenterConfigsNormalizesHostAndThumbprint(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Global.QueryLimit = 100
 	cfg.Global.ListVolumeThreshold = 100
-	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		mixedCaseHost: {
-			User:         "administrator@vsphere.local",
-			Password:     "password",
-			VCenterPort:  "443",
-			InsecureFlag: true,
-			Thumbprint:   mixedCaseThumbprint,
-		},
-	}
+	cfg.VirtualCenter = commontypes.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+	cfg.VirtualCenter.Set(mixedCaseHost, &config.VirtualCenterConfig{
+		User:         "administrator@vsphere.local",
+		Password:     "password",
+		VCenterPort:  "443",
+		InsecureFlag: true,
+		Thumbprint:   mixedCaseThumbprint,
+	})
 
 	vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
 	if err != nil {
@@ -58,14 +58,13 @@ func TestGetVirtualCenterConfigsNormalizesGlobalThumbprintFallback(t *testing.T)
 	cfg.Global.QueryLimit = 100
 	cfg.Global.ListVolumeThreshold = 100
 	cfg.Global.Thumbprint = "aa:bb:cc:dd:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd:ee:ff"
-	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		"vc.example.com": {
-			User:         "administrator@vsphere.local",
-			Password:     "password",
-			VCenterPort:  "443",
-			InsecureFlag: true,
-		},
-	}
+	cfg.VirtualCenter = commontypes.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+	cfg.VirtualCenter.Set("vc.example.com", &config.VirtualCenterConfig{
+		User:         "administrator@vsphere.local",
+		Password:     "password",
+		VCenterPort:  "443",
+		InsecureFlag: true,
+	})
 
 	vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
 	if err != nil {

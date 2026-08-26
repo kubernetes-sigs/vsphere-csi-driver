@@ -773,7 +773,7 @@ func ReadVCConfigs(ctx context.Context, vc *VirtualCenter) error {
 		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err=%v", err)
 	}
 	for _, newvcconfig := range newVcenterConfigs {
-		if newvcconfig.Host == vc.Config.Host {
+		if strings.EqualFold(newvcconfig.Host, vc.Config.Host) {
 			newvcconfig.ReloadVCConfigForNewClient = true
 			vc.Config = newvcconfig
 			log.Infof("Successfully set latest VC config for vcenter: %q", vc.Config.Host)
@@ -1104,7 +1104,8 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	vCenterInstancesLock.Lock()
 	defer vCenterInstancesLock.Unlock()
 
-	_, found := vCenterInstances[vcconfig.Host]
+	hostKey := strings.ToLower(vcconfig.Host)
+	_, found := vCenterInstances[hostKey]
 	if !found || reinitialize {
 		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
 		// Initialize the virtual center manager.
@@ -1132,10 +1133,10 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 				vcconfig.Host, err)
 			return nil, err
 		}
-		vCenterInstances[vcconfig.Host] = vcInstance
+		vCenterInstances[hostKey] = vcInstance
 		log.Infof("vCenterInstance for vCenter: %q initialized", vcconfig.Host)
 	}
-	return vCenterInstances[vcconfig.Host], nil
+	return vCenterInstances[hostKey], nil
 }
 
 // UnregisterAllVirtualCenters helps unregister and logout all registered vCenter instances
@@ -1161,7 +1162,8 @@ func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string,
 	vCenterInstancesLock.RLock()
 	defer vCenterInstancesLock.RUnlock()
 
-	vc, found := vCenterInstances[vcHost]
+	hostKey := strings.ToLower(vcHost)
+	vc, found := vCenterInstances[hostKey]
 	if !found || vc == nil {
 		return nil, logger.LogNewErrorf(log, "failed to get VirtualCenter instance for host %q.", vcHost)
 	}

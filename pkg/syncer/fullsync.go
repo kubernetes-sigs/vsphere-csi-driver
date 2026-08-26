@@ -460,7 +460,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			len(cnsBlockVolumeMap))
 		validateAndCorrectVolumeInfoSnapshotDetails(ctx, cnsBlockVolumeMap)
 	}
-	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vc]
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vc)
 	if !vcHostObjFound {
 		log.Errorf("FullSync for VC %s: Failed to get VC host object.", vc)
 		return errors.New("failed to get VC host object")
@@ -1004,8 +1004,6 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			log.Errorf("FullSync for VC %s: failed to parse cnsvolumeinfo object: %v, err: %v", vc, cnsvolumeinfo, err)
 			continue
 		}
-		// Use case-insensitive comparison: VCenterServer values persisted before
-		// vCenter host normalization was introduced may retain their original casing.
 		if strings.EqualFold(cnsvolumeinfo.Spec.VCenterServer, vc) {
 			if _, exists := currentK8sPVMap[cnsvolumeinfo.Spec.VolumeID]; !exists {
 				// If a PV is not present in the cluster for two full sync cycles, delete its VolumeInfo CR.

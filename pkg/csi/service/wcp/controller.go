@@ -555,7 +555,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 	if newVCConfig != nil {
 		newVCConfig.ReloadVCConfigForNewClient = true
 		var vcenter *cnsvsphere.VirtualCenter
-		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
+		if !strings.EqualFold(c.manager.VcenterConfig.Host, newVCConfig.Host) ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
 			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
 

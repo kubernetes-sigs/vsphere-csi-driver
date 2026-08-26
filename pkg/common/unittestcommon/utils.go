@@ -48,6 +48,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -834,15 +835,15 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 		log.Fatal(err)
 	}
 
-	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
+	cfg.VirtualCenter = types.NewCaseInsensitiveMap[*config.VirtualCenterConfig]()
+	cfg.VirtualCenter.Set(s.URL.Hostname(), &config.VirtualCenterConfig{
 		User:                cfg.Global.User,
 		Password:            cfg.Global.Password,
 		VCenterPort:         cfg.Global.VCenterPort,
 		InsecureFlag:        cfg.Global.InsecureFlag,
 		Datacenters:         cfg.Global.Datacenters,
 		FileVolumeActivated: true, // Set FileVolumeActivated to true to test Workload_Domain_Isolation support
-	}
+	})
 
 	// set up the default global maximum of number of snapshots if unset
 	if cfg.Snapshot.GlobalMaxSnapshotsPerBlockVolume == 0 {

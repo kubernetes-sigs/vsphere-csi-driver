@@ -18,6 +18,7 @@ package config
 
 import (
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // Config is used to read and store information from the cloud configuration file
@@ -27,8 +28,8 @@ type Config struct {
 	// The string can uniquely represent each Net Permissions config
 	NetPermissions map[string]*NetPermissionConfig
 
-	// Virtual Center configurations
-	VirtualCenter map[string]*VirtualCenterConfig
+	// Virtual Center configurations (case-insensitive FQDN handling)
+	VirtualCenter types.CaseInsensitiveMap[*VirtualCenterConfig]
 
 	TopologyCategory map[string]*TopologyCategoryInfo
 

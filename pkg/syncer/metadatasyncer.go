@@ -534,7 +534,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			return logger.LogNewErrorf(log, "error while connecting cns. err=%v", err)
 		}
 		vCenter.Config.ReloadVCConfigForNewClient = true
-		metadataSyncer.host = vCenter.Config.Host
+		metadataSyncer.host = strings.ToLower(vCenter.Config.Host)
 
 		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
 		pvMissingLabeledMap[metadataSyncer.host] = make(map[string]bool)
@@ -2085,11 +2085,12 @@ func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 	log.Infof("Topology labels %+v belong to %q VC", nodeTopoObj.Status.TopologyLabels,
 		nodeVM.VirtualCenterHost)
 	// Update MetadataSyncer.topologyVCMap with topology label and associated VC host.
+	hostKey := strings.ToLower(nodeVM.VirtualCenterHost)
 	for _, label := range nodeTopoObj.Status.TopologyLabels {
 		if _, exists := MetadataSyncer.topologyVCMap[label.Value]; !exists {
-			MetadataSyncer.topologyVCMap[label.Value] = map[string]struct{}{nodeVM.VirtualCenterHost: {}}
+			MetadataSyncer.topologyVCMap[label.Value] = map[string]struct{}{hostKey: {}}
 		} else {
-			MetadataSyncer.topologyVCMap[label.Value][nodeVM.VirtualCenterHost] = struct{}{}
+			MetadataSyncer.topologyVCMap[label.Value][hostKey] = struct{}{}
 		}
 	}
 }
@@ -2620,8 +2621,9 @@ func removeLabelsFromTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopol
 	}
 	log.Infof("Removing VC %q mapping for TopologyLabels %+v.", nodeVM.VirtualCenterHost,
 		nodeTopoObj.Status.TopologyLabels)
+	hostKey := strings.ToLower(nodeVM.VirtualCenterHost)
 	for _, label := range nodeTopoObj.Status.TopologyLabels {
-		delete(MetadataSyncer.topologyVCMap[label.Value], nodeVM.VirtualCenterHost)
+		delete(MetadataSyncer.topologyVCMap[label.Value], hostKey)
 	}
 }
 
@@ -2813,7 +2815,7 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 		if newVCConfig != nil {
 			var vcenter *cnsvsphere.VirtualCenter
 			newVCConfig.ReloadVCConfigForNewClient = true
-			vcConfig := metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host]
+			vcConfig, _ := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(metadataSyncer.host)
 			configChanged := true
 			if vcConfig != nil {
 				configChanged = vcConfigChanged(metadataSyncer.host, vcConfig, newVCConfig, reconnectToVCFromNewConfig)
@@ -3534,7 +3536,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		}
 	}
 
-	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 	if !vcHostObjFound {
 		log.Errorf("PVCUpdated: failed to find VC host for given volume: %q.", volumeHandle)
 		return
@@ -3616,7 +3618,7 @@ func csiPVCDeleted(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 		return
 	}
 
-	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 	if !vcHostObjFound {
 		log.Errorf("PVCDeleted: failed to find VC host for given volume: %q.", volumeHandle)
 		return
@@ -3758,7 +3760,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		volumeOperationsLock[vcHost].Lock()
 		defer volumeOperationsLock[vcHost].Unlock()
 
-		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 		if !vcHostObjFound {
 			log.Errorf("PVUpdated: failed to find VC host for given volume: %q.", volumeHandle)
 			return
@@ -3809,7 +3811,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 			return
 		}
 
-		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 		if !vcHostObjFound {
 			log.Errorf("PVUpdated: failed to find VC host for given volume: %q.", volumeHandle)
 			return
@@ -3940,7 +3942,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		volumeOperationsLock[vcHost].Lock()
 		defer volumeOperationsLock[vcHost].Unlock()
 
-		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 		if !vcHostObjFound {
 			log.Errorf("PVDeleted: failed to find VC host for given file volume: %q.", pv.Name)
 			return
@@ -4190,7 +4192,7 @@ func csiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSync
 				"Error occoured: %+v", volumeHandle, err)
 			return
 		}
-		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+		vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 		if !vcHostObjFound {
 			log.Errorf("csiUpdatePod: failed to find VC host for given volume: %q.", volumeHandle)
 			return

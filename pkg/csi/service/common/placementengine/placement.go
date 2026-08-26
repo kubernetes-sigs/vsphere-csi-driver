@@ -3,6 +3,7 @@ package placementengine
 import (
 	"context"
 	"reflect"
+	"strings"
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -224,7 +225,7 @@ func getExpandedTopologySegments(ctx context.Context, requestedSegments map[stri
 			}
 			if vcHost == "" {
 				vcHost = nodeVM.VirtualCenterHost
-			} else if vcHost != nodeVM.VirtualCenterHost {
+			} else if !strings.EqualFold(vcHost, nodeVM.VirtualCenterHost) {
 				return nil, logger.LogNewErrorf(log,
 					"found NodeVM %q belonging to different vCenter: %q. Expected vCenter: %q",
 					nodeVM.Name(), nodeVM.VirtualCenterHost, vcHost)

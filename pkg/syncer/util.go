@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -563,7 +564,7 @@ func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[s
 				"failed to get VC host and volume manager. Error %+v.", err)
 		}
 
-		if vcHost != "" && vcHost != vc {
+		if vcHost != "" && !strings.EqualFold(vcHost, vc) {
 			return "", logger.LogNewErrorf(log,
 				"Found topology segments from 2 different VCs %s and %s."+
 					"Error %+v.", vcHost, vc, err)
@@ -674,7 +675,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 			continue
 		}
 
-		if vCenter == vc {
+		if strings.EqualFold(vCenter, vc) {
 			k8svolumes = append(k8svolumes, pv)
 		}
 	}
@@ -691,7 +692,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 					continue
 				}
 
-				if vCenter == vc {
+				if strings.EqualFold(vCenter, vc) {
 					k8svolumes = append(k8svolumes, volume)
 				}
 			}
@@ -758,7 +759,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	vcHost string, metadataList []cnstypes.BaseCnsEntityMetadata, volumeHandle string) error {
 	log := logger.GetLogger(ctx)
 
-	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter.Get(vcHost)
 	if !vcHostObjFound {
 		return logger.LogNewErrorf(log,
 			"Failed to find VC host for given volume: %q.", volumeHandle)
