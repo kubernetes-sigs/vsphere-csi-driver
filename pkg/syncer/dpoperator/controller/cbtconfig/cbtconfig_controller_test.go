@@ -42,7 +42,9 @@ import (
 
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
@@ -471,5 +473,54 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, reconcile.Result{}, res, "per-volume set failure is best-effort; no requeue expected")
 		eventuallyEqual(t, vm.setCallsCopy, []string{"vol-1"},
 			"background goroutine should still attempt the per-volume Set even on failure")
+	})
+}
+
+// installFakeCOForTest points commonco.ContainerOrchestratorUtility at a fresh fake CO for the
+// duration of the test, restoring the original value via t.Cleanup, and returns the concrete
+// fake so the test can drive its DPO-related test hooks (SetDPOServiceInstalled,
+// WaitForLateInstallationOfDPOServiceCall).
+func installFakeCOForTest(t *testing.T) *unittestcommon.FakeK8SOrchestrator {
+	t.Helper()
+	co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	require.NoError(t, err)
+	fakeCO := co.(*unittestcommon.FakeK8SOrchestrator)
+
+	orig := commonco.ContainerOrchestratorUtility
+	commonco.ContainerOrchestratorUtility = fakeCO
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = orig })
+	return fakeCO
+}
+
+func TestAdd(t *testing.T) {
+	t.Run("non-Workload flavor is a no-op", func(t *testing.T) {
+		// Guest never registers CBTConfig; Add must return before touching commonco, mgr, or
+		// configInfo, so passing nil for the latter two is safe here.
+		err := Add(nil, cnstypes.CnsClusterFlavorGuest, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("IsDPOServiceInstalled error is propagated", func(t *testing.T) {
+		fakeCO := installFakeCOForTest(t)
+		fakeCO.SetDPOServiceInstalled(false, errors.New("apiserver unreachable"))
+
+		err := Add(nil, cnstypes.CnsClusterFlavorWorkload, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to check Data Protection Operator service installation")
+	})
+
+	t.Run("DPO not installed defers initialization without failing Add", func(t *testing.T) {
+		fakeCO := installFakeCOForTest(t)
+		fakeCO.SetDPOServiceInstalled(false, nil)
+
+		err := Add(nil, cnstypes.CnsClusterFlavorWorkload, nil)
+		require.NoError(t, err)
+
+		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		require.True(t, fakeCO.WaitForLateInstallationOfDPOServiceCall(waitCtx),
+			"Add should start HandleLateInstallationOfDPOService in the background instead of "+
+				"failing outright, so sibling DP operator controllers (e.g. "+
+				"SnapshotMetadataService) still get registered")
 	})
 }
