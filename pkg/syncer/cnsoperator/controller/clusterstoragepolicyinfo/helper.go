@@ -174,7 +174,7 @@ func checkVsanEncryption(policyContent []cnsvsphere.SpbmPolicyContent) bool {
 	for _, policy := range policyContent {
 		for _, subProfile := range policy.Profiles {
 			for _, rule := range subProfile.Rules {
-				if rule.PropID == vsanEncryptionPropID {
+				if rule.Ns == vsanNs && rule.PropID == vsanEncryptionPropID {
 					return true
 				}
 			}
@@ -256,7 +256,7 @@ func extractIopsLimit(policyContent []cnsvsphere.SpbmPolicyContent) (*int64, err
 	for _, policy := range policyContent {
 		for _, subProfile := range policy.Profiles {
 			for _, rule := range subProfile.Rules {
-				if rule.Ns == vsanIopsLimitNs && rule.PropID == vsanIopsLimitPropID {
+				if rule.Ns == vsanNs && rule.PropID == vsanIopsLimitPropID {
 					iops, err := strconv.ParseInt(rule.Value, 10, 64)
 					if err != nil {
 						return nil, fmt.Errorf("failed to parse IOPS limit value %q: %w", rule.Value, err)

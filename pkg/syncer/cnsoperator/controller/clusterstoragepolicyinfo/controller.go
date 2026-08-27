@@ -82,7 +82,7 @@ const (
 	workerThreadsEnvVar     = "WORKER_THREADS_CLUSTER_STORAGE_POLICY_INFO"
 	defaultMaxWorkerThreads = 4
 	vsanEncryptionPropID    = "dataAtRestEncryption"
-	vsanIopsLimitNs         = "VSAN"
+	vsanNs                  = "VSAN"
 	vsanIopsLimitPropID     = "iopsLimit"
 	vmEncryptionNs          = "vmwarevmcrypt"
 	vmEncryptionCapID       = "vmwarevmcrypt@ENCRYPTION"
