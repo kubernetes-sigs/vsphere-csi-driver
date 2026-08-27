@@ -19,6 +19,7 @@ package cnsunregistervolume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	snapshotclient "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
@@ -200,7 +201,8 @@ func getPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	if err != nil {
 		log.Warnf("Failed to list pods in namespace %q for PVC %q. Error: %q",
 			pvcNamespace, pvcName, err.Error())
-		return nil, false, errors.New("failed to list pods")
+		return nil, false, fmt.Errorf("failed to list pods in namespace %q for PVC %q: %w",
+			pvcNamespace, pvcName, err)
 	}
 
 	var pods []string
@@ -229,7 +231,8 @@ func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string
 	if err != nil {
 		log.Warnf("Failed to create snapshot client for PVC %q in namespace %q. Error: %q",
 			pvcName, pvcNamespace, err.Error())
-		return nil, false, errors.New("failed to create snapshot client")
+		return nil, false, fmt.Errorf("failed to create snapshot client for PVC %q in namespace %q: %w",
+			pvcName, pvcNamespace, err)
 	}
 
 	// TODO: check if we can use informer cache
@@ -237,7 +240,8 @@ func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string
 	if err != nil {
 		log.Warnf("Failed to list VolumeSnapshots in namespace %q for PVC %q. Error: %q",
 			pvcNamespace, pvcName, err.Error())
-		return nil, false, errors.New("failed to list VolumeSnapshots")
+		return nil, false, fmt.Errorf("failed to list VolumeSnapshots in namespace %q for PVC %q: %w",
+			pvcNamespace, pvcName, err)
 	}
 
 	var snapshots []string
@@ -275,7 +279,8 @@ func getGuestClustersForPVC(ctx context.Context, pvcName, pvcNamespace string,
 
 		log.Warnf("Failed to get CnsVolumeMetadata %q in namespace %q. Error: %q",
 			pvcName, pvcNamespace, err.Error())
-		return nil, false, errors.New("failed to get CnsVolumeMetadata")
+		return nil, false, fmt.Errorf("failed to get CnsVolumeMetadata %q in namespace %q: %w",
+			pvcName, pvcNamespace, err)
 	}
 
 	var gcs []string
@@ -292,15 +297,22 @@ func getGuestClustersForPVC(ctx context.Context, pvcName, pvcNamespace string,
 // getVMsForPVC returns a list of virtual machines that are using the specified PVC.
 func getVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	cfg rest.Config) ([]string, bool, error) {
+	log := logger.GetLogger(ctx)
 	c, err := k8s.NewClientForGroup(ctx, &cfg, vmoperatortypes.GroupName)
 	if err != nil {
-		return nil, false, errors.New("failed to create client for virtual machine group")
+		log.Warnf("Failed to create client for virtual machine group for PVC %q in namespace %q. Error: %q",
+			pvcName, pvcNamespace, err.Error())
+		return nil, false, fmt.Errorf("failed to create client for virtual machine group for PVC %q in namespace %q: %w",
+			pvcName, pvcNamespace, err)
 	}
 
 	// TODO: check if we can use informer cache
 	list, err := utils.ListVirtualMachines(ctx, c, pvcNamespace)
 	if err != nil {
-		return nil, false, errors.New("failed to list virtual machines")
+		log.Warnf("Failed to list virtual machines in namespace %q for PVC %q. Error: %q",
+			pvcNamespace, pvcName, err.Error())
+		return nil, false, fmt.Errorf("failed to list virtual machines in namespace %q for PVC %q: %w",
+			pvcNamespace, pvcName, err)
 	}
 
 	var vms []string
