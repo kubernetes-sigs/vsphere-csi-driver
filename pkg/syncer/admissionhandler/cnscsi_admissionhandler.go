@@ -402,14 +402,14 @@ func (h *CSISupervisorMutationWebhook) mutateNewCnsFileAccessConfig(ctx context.
 	// Obtain VM's UID
 	vmUID, err := getVmUID(ctx, newCnsFileAccessConfig.Spec.VMName, newCnsFileAccessConfig.Namespace)
 	if err != nil {
-		log.Errorf("faield to get VM UID for VM %s. Err: %s", newCnsFileAccessConfig.Spec.VMName, err)
+		log.Errorf("failed to get VM UID for VM %s. Err: %s", newCnsFileAccessConfig.Spec.VMName, err)
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
 	// Obtain PVC's UID
 	pvcUID, err := getPVCUID(ctx, newCnsFileAccessConfig.Spec.PvcName, newCnsFileAccessConfig.Namespace)
 	if err != nil {
-		log.Errorf("faield to get PVC UID for PVC %s. Err: %s", newCnsFileAccessConfig.Spec.PvcName, err)
+		log.Errorf("failed to get PVC UID for PVC %s. Err: %s", newCnsFileAccessConfig.Spec.PvcName, err)
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
