@@ -420,8 +420,8 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 						metadataSyncer.configInfo.Cfg.Global.SupervisorID)
 				}
 				for _, updateSpec := range updateMetadataSpecArray {
-					log.Debugf("Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
-						updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+					log.Debugw("Calling UpdateVolumeMetadata", "volumeId", updateSpec.VolumeId.Id,
+						"updateSpec", updateSpec)
 					if err := volManager.UpdateVolumeMetadata(ctx, &updateSpec); err != nil {
 						log.Warnf("FullSync for VC %s: UpdateVolumeMetadata failed while replacing clusterID "+
 							"with supervisorID. Error: %+v", vc, err)
@@ -473,8 +473,9 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		log.Errorf("FullSync for VC %s: fullSyncGetEntityMetadata failed with err %+v", vc, err)
 		return err
 	}
-	log.Debugf("FullSync for VC %s: pvToCnsEntityMetadataMap %+v \n pvToK8sEntityMetadataMap: %+v \n",
-		vc, spew.Sdump(volumeToCnsEntityMetadataMap), spew.Sdump(volumeToK8sEntityMetadataMap))
+	log.Debugw("FullSync: entity metadata maps built", "vc", vc,
+		"pvToCnsEntityMetadataMap", volumeToCnsEntityMetadataMap,
+		"pvToK8sEntityMetadataMap", volumeToK8sEntityMetadataMap)
 	log.Debugf("FullSync for VC %s: volumes where clusterDistribution is set: %+v", vc, volumeClusterDistributionMap)
 
 	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
@@ -1167,8 +1168,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 			continue
 		}
 		if pv, existsInK8s := currentK8sPVMap[volumeID]; existsInK8s {
-			log.Debugf("FullSync for VC %s: Calling CreateVolume for volume id: %q with createSpec %+v",
-				vc, volumeID, spew.Sdump(createSpec))
+			log.Debugw("FullSync: Calling CreateVolume", "vc", vc, "volumeId", volumeID, "createSpec", createSpec)
 			_, _, err := volManager.CreateVolume(ctx, &createSpec, nil)
 			if err != nil {
 				log.Warnf("FullSync for VC %s: Failed to create volume with the spec: %+v. "+
@@ -1207,8 +1207,8 @@ func fullSyncUpdateVolumes(ctx context.Context, updateSpecArray []cnstypes.CnsVo
 	defer wg.Done()
 	log := logger.GetLogger(ctx)
 	for _, updateSpec := range updateSpecArray {
-		log.Debugf("FullSync for VC %s: Calling UpdateVolumeMetadata for volume %s with updateSpec: %+v",
-			vc, updateSpec.VolumeId.Id, spew.Sdump(updateSpec))
+		log.Debugw("FullSync: Calling UpdateVolumeMetadata", "vc", vc, "volumeId", updateSpec.VolumeId.Id,
+			"updateSpec", updateSpec)
 		if err := volManager.UpdateVolumeMetadata(ctx, &updateSpec); err != nil {
 			log.Warnf("FullSync for VC %s: UpdateVolumeMetadata failed with err %v", vc, err)
 		}
@@ -1247,7 +1247,7 @@ func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCM
 			}
 		}
 	}
-	log.Debugf("FullSync for VC %s: buildMetadataList=%+v \n", vc, spew.Sdump(metadataList))
+	log.Debugw("FullSync: buildMetadataList", "vc", vc, "metadataList", metadataList)
 	return metadataList
 }
 
@@ -1608,7 +1608,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 					}
 				}
 				for _, updateSpecNew := range append(bucketByType(deleteEntities), bucketByType(addEntities)...) {
-					log.Debugf("FullSync for VC %s: updateSpec %+v is added to updateSpecArray\n", vc, spew.Sdump(updateSpecNew))
+					log.Debugw("FullSync: updateSpec added to updateSpecArray", "vc", vc, "updateSpec", updateSpecNew)
 					updateSpecArray = append(updateSpecArray, updateSpecNew)
 				}
 			} else {
@@ -2052,8 +2052,8 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume,
 func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataList []cnstypes.BaseCnsEntityMetadata,
 	cnsMetadataList []cnstypes.BaseCnsEntityMetadata, volumeClusterDistributionSet bool, vc string) bool {
 	log := logger.GetLogger(ctx)
-	log.Debugf("FullSync for VC %s: isUpdateRequired called with k8sMetadataList: %+v \n", vc, spew.Sdump(k8sMetadataList))
-	log.Debugf("FullSync for VC %s: isUpdateRequired called with cnsMetadataList: %+v \n", vc, spew.Sdump(cnsMetadataList))
+	log.Debugw("FullSync: isUpdateRequired called", "vc", vc, "k8sMetadataList", k8sMetadataList,
+		"cnsMetadataList", cnsMetadataList)
 	if vCenterVersion != cns.ReleaseVSAN67u3 && vCenterVersion != cns.ReleaseVSAN70 &&
 		vCenterVersion != cns.ReleaseVSAN70u1 {
 		// Update is required if cluster distribution is not set on volume on
@@ -2075,7 +2075,7 @@ func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataLis
 			key := metadata.EntityType + ":" + metadata.EntityName + ":" + metadata.Namespace
 			cnsEntityTypeMetadataMap[key] = metadata
 		}
-		log.Debugf("cnsEntityTypeMetadataMap :%+v", spew.Sdump(cnsEntityTypeMetadataMap))
+		log.Debugw("cnsEntityTypeMetadataMap built", "cnsEntityTypeMetadataMap", cnsEntityTypeMetadataMap)
 		for _, k8sMetadata := range k8sMetadataList {
 			metadata := k8sMetadata.(*cnstypes.CnsKubernetesEntityMetadata)
 			key := metadata.EntityType + ":" + metadata.EntityName + ":" + metadata.Namespace
