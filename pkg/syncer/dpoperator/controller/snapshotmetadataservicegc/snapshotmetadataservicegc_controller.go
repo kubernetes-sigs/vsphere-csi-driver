@@ -64,7 +64,7 @@ const (
 	// leaf certificate that secures the guest cluster's own csi-snapshot-metadata
 	// sidecar. Its ca.crt field is the CA that must be published in the guest
 	// SnapshotMetadataService CR's spec.caCert.
-	targetSecretName = "vmware-system-csi-snapshot-metadata-service-cert-gc"
+	targetSecretName = "csi-snapshot-metadata-service-cert-gc"
 
 	// targetNamespace is the namespace of targetSecretName in the guest cluster.
 	targetNamespace = "vmware-system-csi"
