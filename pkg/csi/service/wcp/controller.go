@@ -739,7 +739,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes is not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", req)
 			}
 		case common.AttributeHostLocalPolicy:
 			isHostLocalRequest = strings.EqualFold(req.Parameters[paramName], "true")
@@ -1886,7 +1886,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes is not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", req)
 			}
 		}
 	}
@@ -2006,7 +2006,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// Fail the request since we do not support this configuration.
 
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"support for topology requirement with hostname labels is not yet implemented ")
+				"support for topology requirement with hostname labels is not yet implemented")
 		} else {
 			// no label present in the topologyRequirement meaning
 			// it's non-host local volume provisioning on a non-stretched/single-zone supervisor cluster.
@@ -2886,7 +2886,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				c.manager.CnsConfig.Global.SupervisorID, querySelection)
 			if err != nil {
 				log.Errorf("Error while querying volumes from CNS %v", err)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while querying volumes from CNS")
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+					"Error while querying volumes from CNS: %v", err)
 			}
 
 			cnsVolumeIDs = nil
@@ -2897,7 +2898,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx, clusterMoIds)
 			if err != nil {
 				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+					"failed to get VM MoID to Host MoID map: %v", err)
 			}
 		}
 
@@ -2934,7 +2936,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		response, err := getVolumeIDToVMMap(ctx, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+				"Error while generating ListVolume response: %v", err)
 		}
 
 		// Correctly set response nextToken value for the paginated response

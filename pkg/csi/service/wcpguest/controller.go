@@ -969,7 +969,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				// Feature is disabled on the cluster
 				return nil, csifault.CSIInternalFault,
-					status.Error(codes.InvalidArgument, "File volume not supported.")
+					status.Error(codes.InvalidArgument,
+						"File volume is not supported because the File Volume feature is disabled on this cluster")
 			}
 			return controllerPublishForFileVolume(ctx, req, c)
 		}
@@ -1437,7 +1438,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 				return controllerUnpublishForFileVolume(ctx, req, c)
 			}
 			// Feature is disabled on the cluster
-			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument, "File volume not supported.")
+			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
+				"File volume is not supported because the File Volume feature is disabled on this cluster")
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
 		return controllerUnpublishForBlockVolume(ctx, req, c)
