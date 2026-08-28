@@ -6,9 +6,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 )
 
 func TestFilterSuspendedDatastoresWhenDatastoreIsSuspended(t *testing.T) {
@@ -160,4 +163,114 @@ func TestIsInvalidLoginError(t *testing.T) {
 		// Verify
 		assert.False(tt, result)
 	})
+}
+
+// TestGetVirtualCenterConfigDatacenterPathNormalization verifies that datacenter entries
+// in the config are normalised correctly:
+//   - Inventory paths (starting with "/") are preserved as-is.
+//   - Bare MoRef values (e.g. "datacenter-3") are preserved as-is.
+//   - Entries with the "Datacenter:" type prefix are stripped to a bare MoRef value,
+//     enabling users to copy the identifier verbatim from the vSphere API response while
+//     still producing a value that is resilient to datacenter renames.
+//   - Leading/trailing whitespace is trimmed before prefix stripping.
+func TestGetVirtualCenterConfigDatacenterPathNormalization(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		datacenters string
+		want        []string
+	}{
+		{
+			name:        "inventory path is preserved",
+			datacenters: "/DC1",
+			want:        []string{"/DC1"},
+		},
+		{
+			name:        "bare MoRef value is preserved",
+			datacenters: "datacenter-3",
+			want:        []string{"datacenter-3"},
+		},
+		{
+			name:        "Datacenter: prefix is stripped to bare MoRef",
+			datacenters: "Datacenter:datacenter-3",
+			want:        []string{"datacenter-3"},
+		},
+		{
+			name:        "whitespace is trimmed before prefix stripping",
+			datacenters: "  Datacenter:datacenter-3  ",
+			want:        []string{"datacenter-3"},
+		},
+		{
+			name:        "multiple mixed entries are each normalised",
+			datacenters: "/DC1, Datacenter:datacenter-3, datacenter-5",
+			want:        []string{"/DC1", "datacenter-3", "datacenter-5"},
+		},
+		{
+			name:        "empty datacenters field produces nil DatacenterPaths",
+			datacenters: "",
+			want:        nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				VirtualCenter: map[string]*config.VirtualCenterConfig{
+					"test-vc": {
+						VCenterPort: "443",
+						Datacenters: tc.datacenters,
+					},
+				},
+			}
+			vcConfig, err := GetVirtualCenterConfig(ctx, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, vcConfig.DatacenterPaths)
+		})
+	}
+}
+
+// TestGetVirtualCenterConfigsDatacenterPathNormalization is the same coverage for
+// GetVirtualCenterConfigs (the multi-VC variant).
+func TestGetVirtualCenterConfigsDatacenterPathNormalization(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		datacenters string
+		want        []string
+	}{
+		{
+			name:        "inventory path is preserved",
+			datacenters: "/DC1",
+			want:        []string{"/DC1"},
+		},
+		{
+			name:        "Datacenter: prefix is stripped to bare MoRef",
+			datacenters: "Datacenter:datacenter-3",
+			want:        []string{"datacenter-3"},
+		},
+		{
+			name:        "multiple mixed entries are each normalised",
+			datacenters: "Datacenter:datacenter-3, /DC2",
+			want:        []string{"datacenter-3", "/DC2"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{
+				VirtualCenter: map[string]*config.VirtualCenterConfig{
+					"test-vc": {
+						VCenterPort: "443",
+						Datacenters: tc.datacenters,
+					},
+				},
+			}
+			vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+			require.NoError(t, err)
+			require.Len(t, vcConfigs, 1)
+			assert.Equal(t, tc.want, vcConfigs[0].DatacenterPaths)
+		})
+	}
 }
