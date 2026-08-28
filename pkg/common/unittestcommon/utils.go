@@ -82,8 +82,10 @@ func GetFakeContainerOrchestratorInterface(orchestratorType int) (commonco.COCom
 		}
 
 		fakeCO := &FakeK8SOrchestrator{
-			featureStatesLock: &sync.RWMutex{},
-			featureStates:     defaultFSS,
+			featureStatesLock:    &sync.RWMutex{},
+			featureStates:        defaultFSS,
+			dpoServiceInstalled:  true,
+			dpoLateInstallCalled: make(chan struct{}),
 		}
 		return fakeCO, nil
 	}
@@ -332,10 +334,34 @@ func (c *FakeK8SOrchestrator) HandleLateEnablementOfCapability(
 }
 
 func (c *FakeK8SOrchestrator) IsDPOServiceInstalled(ctx context.Context) (bool, error) {
-	return true, nil
+	if c.dpoServiceInstalledErr != nil {
+		return false, c.dpoServiceInstalledErr
+	}
+	return c.dpoServiceInstalled, nil
 }
 
 func (c *FakeK8SOrchestrator) HandleLateInstallationOfDPOService(ctx context.Context) {
+	if c.dpoLateInstallCalled != nil {
+		c.dpoLateInstallCalledOnce.Do(func() { close(c.dpoLateInstallCalled) })
+	}
+}
+
+// SetDPOServiceInstalled configures the value (and optional error) IsDPOServiceInstalled
+// returns. Tests should call this before exercising code that calls IsDPOServiceInstalled.
+func (c *FakeK8SOrchestrator) SetDPOServiceInstalled(installed bool, err error) {
+	c.dpoServiceInstalled = installed
+	c.dpoServiceInstalledErr = err
+}
+
+// WaitForLateInstallationOfDPOServiceCall blocks until HandleLateInstallationOfDPOService has
+// been invoked, or ctx is done, returning whether the call was observed.
+func (c *FakeK8SOrchestrator) WaitForLateInstallationOfDPOServiceCall(ctx context.Context) bool {
+	select {
+	case <-c.dpoLateInstallCalled:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // GetNodeTopologyLabels fetches the topology information of a node from the CSINodeTopology CR.

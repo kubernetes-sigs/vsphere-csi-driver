@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
@@ -72,6 +73,18 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 
 	if clusterFlavor != cnstypes.CnsClusterFlavorWorkload {
 		log.Debug("Not initializing the CBTConfig Controller as its a non-WCP CSI deployment")
+		return nil
+	}
+
+	// Check if CBTConfig CRD is installed and available before proceeding further.
+	installed, err := commonco.ContainerOrchestratorUtility.IsDPOServiceInstalled(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check Data Protection Operator service installation: %w", err)
+	}
+	if !installed {
+		log.Info("Data Protection Operator service is not yet installed; deferring CBTConfig " +
+			"Controller initialization")
+		go commonco.ContainerOrchestratorUtility.HandleLateInstallationOfDPOService(ctx)
 		return nil
 	}
 

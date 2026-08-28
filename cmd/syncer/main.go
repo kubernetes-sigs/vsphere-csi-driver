@@ -433,19 +433,6 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 						cleanupSessions(ctx, r)
 					}
 				}()
-				if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-					// The CSI_Backup_API feature relies on the Data Protection Operator service for CbtConfig CRD definition.
-					installed, err := commonco.ContainerOrchestratorUtility.IsDPOServiceInstalled(ctx)
-					if err != nil {
-						log.Errorf("Error checking Data Protection Operator service installation. Error: %+v", err)
-						utils.LogoutAllvCenterSessions(ctx)
-						os.Exit(1)
-					}
-					if !installed {
-						commonco.ContainerOrchestratorUtility.HandleLateInstallationOfDPOService(ctx)
-						return
-					}
-				}
 				if err := startDpOperator(ctx, configInfo, clusterFlavor); err != nil {
 					log.Errorf("Error initializing Data Protection(DP) operator. Error: %+v", err)
 					utils.LogoutAllvCenterSessions(ctx)

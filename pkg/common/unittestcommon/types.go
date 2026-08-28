@@ -55,6 +55,17 @@ type FakeK8SOrchestrator struct {
 	// NodeNameToHostMoID is the node name -> ESXi host MoID map returned by
 	// GetNodeNameToHostMoIDMap in tests. Nil returns an empty map.
 	NodeNameToHostMoID map[string]string
+	// dpoServiceInstalled / dpoServiceInstalledErr control IsDPOServiceInstalled's return value.
+	// dpoServiceInstalled defaults to true (see GetFakeContainerOrchestratorInterface) to
+	// preserve historical behavior for callers that don't configure it; use
+	// SetDPOServiceInstalled to override in a specific test.
+	dpoServiceInstalled    bool
+	dpoServiceInstalledErr error
+	// dpoLateInstallCalledOnce/dpoLateInstallCalled track HandleLateInstallationOfDPOService
+	// invocations so tests can synchronize on the call instead of racing/sleeping; see
+	// WaitForLateInstallationOfDPOServiceCall.
+	dpoLateInstallCalledOnce sync.Once
+	dpoLateInstallCalled     chan struct{}
 }
 
 // volumeMigration holds mocked migrated volume information
