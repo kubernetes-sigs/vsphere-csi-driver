@@ -217,6 +217,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--reconcile-sync=5m"
           imagePullPolicy: "IfNotPresent"
           resources:
             requests:
@@ -756,6 +757,7 @@ data:
   "host-local-storage-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
+  "list-volumes": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
