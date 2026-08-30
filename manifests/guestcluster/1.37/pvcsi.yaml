@@ -205,6 +205,7 @@ spec:
             - "--leader-election-lease-duration=120s"
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
+            - "--reconcile-sync=5m"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
@@ -698,6 +699,7 @@ data:
   "vks-register-volume": "false"
   "linked-clone-support": "true"
   "VM_PVC_STORAGE_POLICY_MUTABILITY": "false" # paired with the supports_VM_PVC_storage_policy_mutability supervisor capability; effective only when that capability is also enabled
+  "list-volumes": "false"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
