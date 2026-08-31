@@ -4222,7 +4222,8 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 	err := m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
 		log.Errorf("connecting to CNS failed with err: %v", err)
-		return ExtractFaultTypeFromErr(ctx, err), fmt.Errorf("connecting to CNS failed: %w", err)
+		return ExtractFaultTypeFromErr(ctx, err), fmt.Errorf(
+			"connecting to CNS failed: %w. Check vCenter connectivity and credentials in the vSphere config secret", err)
 	}
 
 	targetVolumeType := "FCD"

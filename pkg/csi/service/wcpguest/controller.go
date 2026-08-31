@@ -970,7 +970,9 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 				// Feature is disabled on the cluster
 				return nil, csifault.CSIInternalFault,
 					status.Error(codes.InvalidArgument,
-						"File volume is not supported because the File Volume feature is disabled on this cluster")
+						"File volume is not supported because the File Volume feature is disabled on this cluster. "+
+							"Check the File Volume feature state in the CSI feature-states ConfigMap and enable it "+
+							"if file volumes are required")
 			}
 			return controllerPublishForFileVolume(ctx, req, c)
 		}

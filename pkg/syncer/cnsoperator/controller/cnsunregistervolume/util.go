@@ -201,7 +201,8 @@ func getPodsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	if err != nil {
 		log.Warnf("Failed to list pods in namespace %q for PVC %q. Error: %q",
 			pvcNamespace, pvcName, err.Error())
-		return nil, false, fmt.Errorf("failed to list pods in namespace %q for PVC %q: %w",
+		return nil, false, fmt.Errorf("failed to list pods in namespace %q for PVC %q: %w. "+
+			"Verify API server connectivity and RBAC permissions to list pods in this namespace",
 			pvcNamespace, pvcName, err)
 	}
 
@@ -231,7 +232,8 @@ func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string
 	if err != nil {
 		log.Warnf("Failed to create snapshot client for PVC %q in namespace %q. Error: %q",
 			pvcName, pvcNamespace, err.Error())
-		return nil, false, fmt.Errorf("failed to create snapshot client for PVC %q in namespace %q: %w",
+		return nil, false, fmt.Errorf("failed to create snapshot client for PVC %q in namespace %q: %w. "+
+			"Verify the VolumeSnapshot CRDs/API group are installed and reachable",
 			pvcName, pvcNamespace, err)
 	}
 
@@ -240,7 +242,8 @@ func getSnapshotsForPVC(ctx context.Context, pvcName string, pvcNamespace string
 	if err != nil {
 		log.Warnf("Failed to list VolumeSnapshots in namespace %q for PVC %q. Error: %q",
 			pvcNamespace, pvcName, err.Error())
-		return nil, false, fmt.Errorf("failed to list VolumeSnapshots in namespace %q for PVC %q: %w",
+		return nil, false, fmt.Errorf("failed to list VolumeSnapshots in namespace %q for PVC %q: %w. "+
+			"Verify API server connectivity and RBAC permissions to list VolumeSnapshots",
 			pvcNamespace, pvcName, err)
 	}
 
@@ -279,7 +282,8 @@ func getGuestClustersForPVC(ctx context.Context, pvcName, pvcNamespace string,
 
 		log.Warnf("Failed to get CnsVolumeMetadata %q in namespace %q. Error: %q",
 			pvcName, pvcNamespace, err.Error())
-		return nil, false, fmt.Errorf("failed to get CnsVolumeMetadata %q in namespace %q: %w",
+		return nil, false, fmt.Errorf("failed to get CnsVolumeMetadata %q in namespace %q: %w. "+
+			"Verify the CNS operator CRDs are installed and the API server is reachable",
 			pvcName, pvcNamespace, err)
 	}
 
@@ -302,7 +306,8 @@ func getVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	if err != nil {
 		log.Warnf("Failed to create client for virtual machine group for PVC %q in namespace %q. Error: %q",
 			pvcName, pvcNamespace, err.Error())
-		return nil, false, fmt.Errorf("failed to create client for virtual machine group for PVC %q in namespace %q: %w",
+		return nil, false, fmt.Errorf("failed to create client for virtual machine group for PVC %q in namespace %q: %w. "+
+			"Verify the VM Operator CRDs/API group are installed and reachable",
 			pvcName, pvcNamespace, err)
 	}
 
@@ -311,7 +316,8 @@ func getVMsForPVC(ctx context.Context, pvcName string, pvcNamespace string,
 	if err != nil {
 		log.Warnf("Failed to list virtual machines in namespace %q for PVC %q. Error: %q",
 			pvcNamespace, pvcName, err.Error())
-		return nil, false, fmt.Errorf("failed to list virtual machines in namespace %q for PVC %q: %w",
+		return nil, false, fmt.Errorf("failed to list virtual machines in namespace %q for PVC %q: %w. "+
+			"Verify API server connectivity and RBAC permissions to list VirtualMachines",
 			pvcNamespace, pvcName, err)
 	}
 

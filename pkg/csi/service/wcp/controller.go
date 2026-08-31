@@ -2887,7 +2887,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			if err != nil {
 				log.Errorf("Error while querying volumes from CNS %v", err)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
-					"Error while querying volumes from CNS: %v", err)
+					"Error while querying volumes from CNS: %v. Check vCenter connectivity and "+
+						"credentials in the CSI config secret, and verify the CNS service is reachable.", err)
 			}
 
 			cnsVolumeIDs = nil
@@ -2899,7 +2900,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			if err != nil {
 				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
 				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
-					"failed to get VM MoID to Host MoID map: %v", err)
+					"failed to get VM MoID to Host MoID map: %v. Verify vCenter connectivity and that "+
+						"the ClusterComputeResource MoIDs in the config are correct.", err)
 			}
 		}
 
@@ -2937,7 +2939,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
 			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
-				"Error while generating ListVolume response: %v", err)
+				"Error while generating ListVolume response: %v. Retry after vCenter connectivity is "+
+					"restored; if the error persists, check CNS query logs for the affected volume IDs.", err)
 		}
 
 		// Correctly set response nextToken value for the paginated response
