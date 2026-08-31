@@ -177,6 +177,12 @@ const (
 	// Nfsv4ExportPathAnnotationKey specifies the NFSv4.1 export path annotation key on PVC
 	Nfsv4ExportPathAnnotationKey = "csi.vsphere.exportpath.nfs41"
 
+	// FileStoreLabelKey is the label key set by the FVS controller on a FileVolume CR to identify the
+	// backing vSAN file store. The same key is returned in the CreateVolume response VolumeContext so
+	// external-provisioner can publish it as a label on the PVC. Users are not allowed to set this
+	// label themselves on a dynamically provisioned PVC; that is enforced by a supervisor webhook.
+	FileStoreLabelKey = "fvs.vcf.broadcom.com/file-store"
+
 	// Nfsv4AccessPoint is the access point of file volume.
 	Nfsv4AccessPoint = "Nfsv4AccessPoint"
 

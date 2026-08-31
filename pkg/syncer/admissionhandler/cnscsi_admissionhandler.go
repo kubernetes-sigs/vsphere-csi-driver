@@ -233,6 +233,12 @@ func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request
 		if !resp.Allowed {
 			return
 		}
+		if featureIsVsanFileVolumeServiceEnabled {
+			resp = validatePVCLabelForFileStore(ctx, req)
+			if !resp.Allowed {
+				return
+			}
+		}
 		if featureGateBlockVolumeSnapshotEnabled {
 			admissionResp := validatePVC(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
