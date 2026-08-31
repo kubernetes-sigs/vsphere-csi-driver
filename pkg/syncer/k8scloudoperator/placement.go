@@ -302,7 +302,9 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 
 	volumeInfoList, allPVCList, err := GetVolumesOnStoragePool(ctx, client, storagePoolName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get the list of volumes to be migrated")
+		return nil, fmt.Errorf("failed to get the list of volumes to be migrated from StoragePool %s: %w. "+
+			"Verify API server connectivity and that the CNS-CSI volumes/PVCs referencing this "+
+			"StoragePool are in a consistent state", storagePoolName, err)
 	}
 	if len(volumeInfoList) == 0 {
 		log.Infof("No volume present in storagePool %v to migrate. ", storagePoolName)

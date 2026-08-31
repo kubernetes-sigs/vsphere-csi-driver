@@ -127,15 +127,18 @@ func CheckAPI(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	items := strings.Split(versionToCheck, ".")
 	if len(items) < 2 {
-		return fmt.Errorf("invalid API Version format")
+		return fmt.Errorf("invalid API Version format %q: expected a dotted version string "+
+			"such as major.minor.patch. Check the vCenter version reported in the CSI config secret", versionToCheck)
 	}
 	major, err := strconv.Atoi(items[0])
 	if err != nil {
-		return fmt.Errorf("invalid Major Version value")
+		return fmt.Errorf("invalid Major Version value %q in API version %q: %v. Check the vCenter "+
+			"version reported by the vCenter About info", items[0], versionToCheck, err)
 	}
 	minor, err := strconv.Atoi(items[1])
 	if err != nil {
-		return fmt.Errorf("invalid Minor Version value")
+		return fmt.Errorf("invalid Minor Version value %q in API version %q: %v. Check the vCenter "+
+			"version reported by the vCenter About info", items[1], versionToCheck, err)
 	}
 
 	if major < minSupportedVCenterMajor || (major == minSupportedVCenterMajor && minor < minSupportedVCenterMinor) {
@@ -147,7 +150,8 @@ func CheckAPI(ctx context.Context,
 		if len(items) >= 3 {
 			patch, err := strconv.Atoi(items[2])
 			if err != nil {
-				return fmt.Errorf("invalid patch version value")
+				return fmt.Errorf("invalid patch version value %q in API version %q: %v. Check the vCenter "+
+					"version reported by the vCenter About info", items[2], versionToCheck, err)
 			}
 			if patch < minSupportedVCenterPatch {
 				return fmt.Errorf("the minimum supported vCenter is %d.%d.%d",

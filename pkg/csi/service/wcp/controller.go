@@ -2868,8 +2868,10 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			startingIdx, err = strconv.Atoi(req.StartingToken)
 			if err != nil {
 				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
-				return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
-					"startingToken not a valid integer")
+				return nil, csifault.CSIInvalidArgumentFault, status.Errorf(codes.InvalidArgument,
+					"startingToken %q is not a valid integer: %v. Ensure the ListVolumes request uses the "+
+						"unmodified starting_token value returned by a previous ListVolumes response.",
+					req.StartingToken, err)
 			}
 		}
 
