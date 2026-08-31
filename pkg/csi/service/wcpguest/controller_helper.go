@@ -549,7 +549,7 @@ func patchSupervisorPVCAnnotation(ctx context.Context, client clientset.Interfac
 			supervisorNamespace, supervisorPVCName, patchErr)
 	}
 	log.Infof("Successfully patched guest-cluster annotation on supervisor PVC %s/%s with patch %s",
-		supervisorNamespace, supervisorPVCName)
+		supervisorNamespace, supervisorPVCName, string(patchBytes))
 	return nil
 }
 

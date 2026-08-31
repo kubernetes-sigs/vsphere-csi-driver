@@ -1262,7 +1262,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 		log.Errorf("syncStorageQuotaReserved: failed to fetch storage policy quota instances, Error: %+v", err)
 		return
 	}
-	log.Debugf("syncStorageQuotaReserved: Retrieved StoragePolicyQuota instances for syncing", "Count: %d",
+	log.Debugf("syncStorageQuotaReserved: Retrieved StoragePolicyQuota instances for syncing, Count: %d",
 		len(spqList.Items))
 	namespaces := make(map[string]string)
 	// create namespace map to be able to calculate reserved namespace wise
