@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -17,8 +19,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
 
 const createVolumeTaskTimeout = 3 * time.Second
@@ -68,6 +73,45 @@ func performSlowTask(ch chan TaskResult, delay time.Duration) {
 		TaskInfo: &vim25types.TaskInfo{State: vim25types.TaskInfoStateSuccess},
 		Err:      nil,
 	}
+}
+
+// TestWaitForResultOrTimeoutWrapsContextError guards the wrapping that
+// isClientSideFailure depends on. Without the %w verb the timeout error is an
+// opaque string and errors.Is cannot classify it, so MonitorCreateVolumeTask
+// would fall through and mark the operation failed.
+func TestWaitForResultOrTimeoutWrapsContextError(t *testing.T) {
+	taskMoRef := vim25types.ManagedObjectReference{Type: "Task", Value: clientSideFailureTaskID}
+
+	t.Run("deadline exceeded is wrapped", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Millisecond)
+		defer cancel()
+		_, err := waitForResultOrTimeout(ctx, taskMoRef, make(chan TaskResult))
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, context.DeadlineExceeded),
+			"timeout error must wrap context.DeadlineExceeded, got %v", err)
+		assert.True(t, isClientSideFailure(err))
+		// The human-readable part is still expected by operators reading logs.
+		assert.Contains(t, err.Error(), "before response from CNS")
+		assert.Contains(t, err.Error(), "time out for task",
+			"an elapsed deadline should be reported as a timeout")
+	})
+
+	t.Run("cancellation is wrapped", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.TODO())
+		cancel()
+		_, err := waitForResultOrTimeout(ctx, taskMoRef, make(chan TaskResult))
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, context.Canceled),
+			"cancellation error must wrap context.Canceled, got %v", err)
+		assert.True(t, isClientSideFailure(err))
+		assert.Contains(t, err.Error(), "before response from CNS")
+		// A cancelled call must not be logged as a timeout. Telling the two apart
+		// in the logs is what distinguishes the sidecar's --timeout elapsing from
+		// a vCenter session/ListView reset aborting the call.
+		assert.Contains(t, err.Error(), "cancelled while waiting for task")
+		assert.NotContains(t, err.Error(), "time out for task",
+			"cancellation must not be reported as a timeout")
+	})
 }
 
 // Test CnsFault with NotSupported fault cause detection
@@ -972,4 +1016,216 @@ func TestDefaultVslmHooksDisconnectedVC(t *testing.T) {
 	assert.Error(t, err)
 	_, err = defaultRetrieveSnapshotDetailsHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{})
 	assert.Error(t, err)
+}
+
+const clientSideFailureTaskID = "task-4242"
+
+// stubListView satisfies ListViewIf so MonitorCreateVolumeTask can be driven
+// without a real vCenter. addTaskErr, if set, is returned by AddTask; otherwise
+// AddTask succeeds and nothing is ever pushed to the channel, which lets the
+// caller's context expire or be cancelled while the task is still "running" on
+// CNS -- exactly the situation this fix is about.
+type stubListView struct {
+	addTaskErr error
+}
+
+func (s *stubListView) AddTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference,
+	ch chan TaskResult) error {
+	return s.addTaskErr
+}
+func (s *stubListView) RemoveTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference) error {
+	return nil
+}
+func (s *stubListView) ResetVirtualCenter(ctx context.Context, virtualCenter *cnsvsphere.VirtualCenter) {
+}
+func (s *stubListView) MarkTaskForDeletion(ctx context.Context,
+	taskMoRef vim25types.ManagedObjectReference) error {
+	return nil
+}
+func (s *stubListView) IsListViewReady() bool                   { return true }
+func (s *stubListView) SetListViewNotReady(ctx context.Context) {}
+
+// pendingDetails returns operation details in the state the CR is left in after
+// invokeCNSCreateVolume succeeds: InProgress, carrying the CNS TaskID.
+func pendingDetails() *cnsvolumeoperationrequest.VolumeOperationRequestDetails {
+	return cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		"pvc-test", "", "", 0, nil, metav1.Now(), clientSideFailureTaskID,
+		"vc.example.com", "", taskInvocationStatusInProgress, "", "")
+}
+
+// newManagerWithStubListView builds a defaultManager wired to a stub listView so
+// waitOnTask does not attempt to dial vCenter. Config is populated because
+// MonitorCreateVolumeTask dereferences virtualCenter.Config.Host on its
+// ManagedObjectNotFound path regardless of multivCenterTopologyDeployment. The
+// tests below do not reach that path, but a nil Config would turn any future
+// test that does into a panic instead of a failure.
+func newManagerWithStubListView(lv ListViewIf) *defaultManager {
+	return &defaultManager{
+		virtualCenter: &cnsvsphere.VirtualCenter{
+			Config: &cnsvsphere.VirtualCenterConfig{Host: "vc.example.com"},
+		},
+		listViewIf: lv,
+	}
+}
+
+// newTaskRef builds an object.Task for the fixed test TaskID. The stub listView
+// never dials vCenter, so the client only needs to be non-nil.
+func newTaskRef() *object.Task {
+	return object.NewTask(&vim25.Client{},
+		vim25types.ManagedObjectReference{Type: "Task", Value: clientSideFailureTaskID})
+}
+
+func TestIsClientSideFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "context deadline exceeded",
+			err:  context.DeadlineExceeded,
+			want: true,
+		},
+		{
+			name: "context canceled",
+			err:  context.Canceled,
+			want: true,
+		},
+		{
+			// The shape produced by waitForResultOrTimeout.
+			name: "wrapped deadline exceeded",
+			err:  fmt.Errorf("time out for task task-1 before response from CNS: %w", context.DeadlineExceeded),
+			want: true,
+		},
+		{
+			// The shape produced when a vCenter session/ListView collapse aborts an
+			// in-flight SOAP call: `Post "https://vc/sdk": context canceled`.
+			name: "wrapped canceled from soap call",
+			err:  fmt.Errorf("Post \"https://vc.example.com:443/sdk\": %w", context.Canceled),
+			want: true,
+		},
+		{
+			name: "doubly wrapped canceled",
+			err:  fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", context.Canceled)),
+			want: true,
+		},
+		{
+			name: "unrelated error is not client side",
+			err:  errors.New("CNS returned CnsVolumeNotFoundFault"),
+			want: false,
+		},
+		{
+			name: "listview addition error is not client side",
+			err:  fmt.Errorf("%w. task: task-1", ErrListViewTaskAddition),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isClientSideFailure(tt.err))
+		})
+	}
+}
+
+// TestMonitorCreateVolumeTaskPreservesPendingOnClientSideFailure is the
+// regression test for the orphaned-volume bug. When our own context dies while
+// a CNS CreateVolume task is still running, the operation details must be left
+// InProgress with the TaskID intact. If they are overwritten with Error, the
+// TaskID is dropped, IsTaskPending returns false on the next attempt, and the
+// driver issues a second CNS CreateVolume -- producing a duplicate FCD whose
+// first copy is orphaned on the datastore with nothing referencing it.
+func TestMonitorCreateVolumeTaskPreservesPendingOnClientSideFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		makeCtx func() (context.Context, context.CancelFunc)
+	}{
+		{
+			name: "caller timeout elapses",
+			makeCtx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(logger.NewContextWithLogger(context.TODO()), 10*time.Millisecond)
+			},
+		},
+		{
+			name: "caller context cancelled mid-flight",
+			makeCtx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(logger.NewContextWithLogger(context.TODO()))
+				cancel()
+				return ctx, func() {}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := tt.makeCtx()
+			defer cancel()
+
+			m := newManagerWithStubListView(&stubListView{})
+			details := pendingDetails()
+			info, _, err := m.MonitorCreateVolumeTask(ctx, &details, newTaskRef(), "pvc-test", "cluster-1")
+
+			// The caller still sees an error, so the sidecar retries.
+			assert.Error(t, err)
+			assert.Nil(t, info)
+
+			// The critical assertion: the task reference survives, so the retry
+			// resumes this task instead of creating a second volume.
+			assert.Equal(t, taskInvocationStatusInProgress, details.OperationDetails.TaskStatus,
+				"client-side failure must not mark the operation as failed")
+			assert.Equal(t, clientSideFailureTaskID, details.OperationDetails.TaskID,
+				"TaskID must be preserved so the next attempt can resume the CNS task")
+			assert.True(t, IsTaskPending(details),
+				"IsTaskPending must report pending so the retry resumes rather than re-creates")
+		})
+	}
+}
+
+// TestMonitorCreateVolumeTaskMarksErrorOnNonClientSideFailure pins the
+// unchanged behaviour: a failure that is genuinely about the task, rather than
+// about our ability to observe it, must still be recorded as an error so the
+// next attempt starts a fresh CNS CreateVolume.
+func TestMonitorCreateVolumeTaskMarksErrorOnNonClientSideFailure(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.TODO())
+
+	// A non-context AddTask failure reaches MonitorCreateVolumeTask as a plain
+	// error, which must not be treated as client side. ErrListViewTaskAddition is
+	// deliberately excluded here because waitOnTask returns early for it.
+	m := newManagerWithStubListView(&stubListView{
+		addTaskErr: soap.WrapVimFault(&vim25types.RuntimeFault{}),
+	})
+	details := pendingDetails()
+
+	info, _, err := m.MonitorCreateVolumeTask(ctx, &details, newTaskRef(), "pvc-test", "cluster-1")
+
+	assert.Error(t, err)
+	assert.Nil(t, info)
+	assert.Equal(t, taskInvocationStatusError, details.OperationDetails.TaskStatus,
+		"a genuine task failure must still be recorded as an error")
+	assert.False(t, IsTaskPending(details),
+		"a genuine task failure must not be reported as pending")
+}
+
+// TestMonitorCreateVolumeTaskClientSideFailureWithoutTaskID covers the guard's
+// second condition. With no TaskID there is nothing for a retry to resume, so
+// preserving InProgress would strand the operation; it must fall through to the
+// error path.
+func TestMonitorCreateVolumeTaskClientSideFailureWithoutTaskID(t *testing.T) {
+	ctx, cancel := context.WithCancel(logger.NewContextWithLogger(context.TODO()))
+	cancel()
+
+	m := newManagerWithStubListView(&stubListView{})
+	details := cnsvolumeoperationrequest.CreateVolumeOperationRequestDetails(
+		"pvc-test", "", "", 0, nil, metav1.Now(), "", // empty TaskID
+		"vc.example.com", "", taskInvocationStatusInProgress, "", "")
+
+	_, _, err := m.MonitorCreateVolumeTask(ctx, &details, newTaskRef(), "pvc-test", "cluster-1")
+
+	assert.Error(t, err)
+	assert.Equal(t, taskInvocationStatusError, details.OperationDetails.TaskStatus,
+		"without a TaskID there is nothing to resume, so the operation must be marked failed")
 }

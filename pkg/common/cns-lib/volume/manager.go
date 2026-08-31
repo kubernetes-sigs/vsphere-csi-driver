@@ -482,6 +482,26 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 			return nil, ExtractFaultTypeFromErr(ctx, err), err
 		}
 
+		// A client-side failure means we stopped observing the task, not that the
+		// task failed. Leave the persisted details as InProgress with the existing
+		// TaskID so the next attempt resumes this task via IsTaskPending instead of
+		// issuing a fresh CNS CreateVolume. Overwriting with Error here drops the
+		// TaskID, and since the CNS task usually goes on to complete, that produces
+		// a second volume and leaves the first orphaned with no PV referencing it
+		// and no delete ever issued for it.
+		//
+		// Staying pending is the correct state for "CreateVolume has not succeeded
+		// yet": it keeps a Kubernetes object referencing the volume for as long as
+		// the volume may exist. A task that has genuinely disappeared from vCenter
+		// is caught by the IsManagedObjectNotFound branch above, which asks CNS by
+		// name whether the volume exists and then adopts it or fails.
+		if isClientSideFailure(err) && (*volumeOperationDetails).OperationDetails.TaskID != "" {
+			log.Errorf("stopped monitoring CreateVolume task %s for volume %q: %v. The task may still be "+
+				"running on CNS, so the operation is left pending for the next attempt to resume.",
+				task.Reference().Value, volNameFromInputSpec, err)
+			return nil, ExtractFaultTypeFromErr(ctx, err), err
+		}
+
 		// WaitForResult can fail for many reasons, including:
 		// - CNS restarted and marked "InProgress" tasks as "Failed".
 		// - Any failures from CNS.
@@ -867,6 +887,20 @@ func IsTaskPending(volumeOperationDetails *cnsvolumeoperationrequest.VolumeOpera
 	return false
 }
 
+// isClientSideFailure reports whether err means "we stopped observing the CNS
+// task" rather than "the CNS task failed".
+//
+// Our operation context is cancelled or expires for reasons entirely local to
+// the driver: the sidecar's --timeout elapsing, or the shared vCenter
+// session/ListView collapsing and aborting in-flight SOAP calls. None of these
+// say anything about the task CNS is running, which typically continues and
+// completes. Treating them as failures discards the task reference, so the next
+// attempt creates a second volume and the first one is orphaned on the
+// datastore with nothing referencing it.
+func isClientSideFailure(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 func (m *defaultManager) waitOnTask(csiOpContext context.Context,
 	taskMoRef vim25types.ManagedObjectReference) (*vim25types.TaskInfo, error) {
 	log := logger.GetLogger(csiOpContext)
@@ -910,7 +944,19 @@ func waitForResultOrTimeout(csiOpContext context.Context, taskMoRef vim25types.M
 	var err error
 	select {
 	case <-csiOpContext.Done():
-		err = fmt.Errorf("time out for task %v before response from CNS", taskMoRef)
+		// Distinguish the two ways our context ends, since they have different
+		// causes: the caller's timeout elapsing versus the call being cancelled
+		// (for example when a vCenter session/ListView reset aborts it). Both are
+		// wrapped so callers can classify them via errors.Is; see
+		// isClientSideFailure. Either way the CNS task is unaffected and may still
+		// be running, so this must not be reported as a task failure.
+		ctxErr := csiOpContext.Err()
+		if errors.Is(ctxErr, context.Canceled) {
+			err = fmt.Errorf("cancelled while waiting for task %v before response from CNS: %w",
+				taskMoRef, ctxErr)
+		} else {
+			err = fmt.Errorf("time out for task %v before response from CNS: %w", taskMoRef, ctxErr)
+		}
 		taskInfo = nil
 	case result := <-ch:
 		err = result.Err
