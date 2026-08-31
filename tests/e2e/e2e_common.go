@@ -69,6 +69,7 @@ const (
 	diskSizeLarge                              = "100Gi"
 	diskSizeInMb                               = int64(2048)
 	diskSizeInMinMb                            = int64(200)
+	e2eTestPassword                            = "E2E-test-password!23"
 	e2evSphereCSIDriverName                    = "csi.vsphere.vmware.com"
 	ensureAccessibilityMModeType               = "ensureObjectAccessibility"
 	envClusterFlavor                           = "CLUSTER_FLAVOR"
@@ -404,20 +405,13 @@ var (
 	envTestbedInfoJsonPath = "TESTBEDINFO_JSON"
 )
 
-// Config secret testuser credentials.
-// Passwords are sourced from the environment so no clear-text credential is
-// checked into source; the literal values below are only used as the
-// fallback default when the corresponding env var is not set.
+// Config secret testuser credentials
 var (
-	configSecretTestUser1Password = GetStringEnvVarOrDefault("CONFIG_SECRET_TEST_USER1_PASSWORD", "VMware!23")
-	configSecretTestUser2Password = GetStringEnvVarOrDefault("CONFIG_SECRET_TEST_USER2_PASSWORD", "VMware!234")
+	configSecretTestUser1Password = "VMware!23"
+	configSecretTestUser2Password = "VMware!234"
 	configSecretTestUser1         = "testuser1"
 	configSecretTestUser2         = "testuser2"
 )
-
-// e2eTestPassword is used as a placeholder password for negative/API test cases.
-// Sourced from the environment so no clear-text credential is checked into source.
-var e2eTestPassword = GetStringEnvVarOrDefault("E2E_TEST_PASSWORD", "E2E-test-password!23")
 
 // Nimbus generated passwords
 var (
