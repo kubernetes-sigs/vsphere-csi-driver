@@ -217,7 +217,10 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 
 	// Globals.
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
-		cfg.Global.VCenterIP = v
+		// vCenter FQDN/IP is a protocol-compliant case-insensitive identifier that is
+		// later used as an exact-match map key against VirtualCenterConfig.Host, which
+		// is normalized to lowercase, so normalize this copy the same way.
+		cfg.Global.VCenterIP = strings.ToLower(v)
 	}
 	if v := os.Getenv("VSPHERE_PORT"); v != "" {
 		cfg.Global.VCenterPort = v
@@ -422,7 +425,9 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
 		if setCfgGlobalvCenter && cfg.Global.VCenterIP == "" {
-			cfg.Global.VCenterIP = vcServer
+			// Normalize to lowercase to match VirtualCenterConfig.Host, which downstream
+			// code looks up by exact-match against this value.
+			cfg.Global.VCenterIP = strings.ToLower(vcServer)
 		}
 		// Print out the config.
 		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)

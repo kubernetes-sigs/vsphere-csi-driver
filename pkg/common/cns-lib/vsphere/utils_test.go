@@ -9,7 +9,74 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 )
+
+// vCenter host and thumbprint are protocol-compliant case-insensitive identifiers, so
+// GetVirtualCenterConfigs must normalize them (host -> lowercase, thumbprint -> uppercase)
+// regardless of the casing an operator used in vsphere.conf, to avoid case-mismatch failures
+// in the map lookups and equality checks performed downstream on VirtualCenterConfig.Host.
+func TestGetVirtualCenterConfigsNormalizesHostAndThumbprint(t *testing.T) {
+	ctx := context.Background()
+
+	mixedCaseHost := "VC.Example.COM"
+	mixedCaseThumbprint := "aa:bb:cc:dd:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd:ee:ff"
+
+	cfg := &config.Config{}
+	cfg.Global.QueryLimit = 100
+	cfg.Global.ListVolumeThreshold = 100
+	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
+		mixedCaseHost: {
+			User:         "administrator@vsphere.local",
+			Password:     "password",
+			VCenterPort:  "443",
+			InsecureFlag: true,
+			Thumbprint:   mixedCaseThumbprint,
+		},
+	}
+
+	vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vcConfigs) != 1 {
+		t.Fatalf("expected 1 VirtualCenterConfig, got %d", len(vcConfigs))
+	}
+
+	assert.Equal(t, "vc.example.com", vcConfigs[0].Host,
+		"vCenter host should be normalized to lowercase")
+	assert.Equal(t, "AA:BB:CC:DD:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF", vcConfigs[0].Thumbprint,
+		"thumbprint should be normalized to uppercase to match govmomi's SHA1/SHA256 format")
+}
+
+// The Global.Thumbprint fallback path must be normalized the same way as the
+// per-VirtualCenter thumbprint.
+func TestGetVirtualCenterConfigsNormalizesGlobalThumbprintFallback(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &config.Config{}
+	cfg.Global.QueryLimit = 100
+	cfg.Global.ListVolumeThreshold = 100
+	cfg.Global.Thumbprint = "aa:bb:cc:dd:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd:ee:ff"
+	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
+		"vc.example.com": {
+			User:         "administrator@vsphere.local",
+			Password:     "password",
+			VCenterPort:  "443",
+			InsecureFlag: true,
+		},
+	}
+
+	vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vcConfigs) != 1 {
+		t.Fatalf("expected 1 VirtualCenterConfig, got %d", len(vcConfigs))
+	}
+
+	assert.Equal(t, "AA:BB:CC:DD:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF", vcConfigs[0].Thumbprint)
+}
 
 func TestFilterSuspendedDatastoresWhenDatastoreIsSuspended(t *testing.T) {
 
