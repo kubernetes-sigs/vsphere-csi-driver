@@ -9,6 +9,7 @@ reviewers:
 - akankshapanse
 - kolluria
 - skogta
+- vdkotkar
 
 approvers:
 - divyenpatel
@@ -16,10 +17,9 @@ approvers:
 - chethanv28
 - deepakkinni
 - akankshapanse
-- gohilankit
-- RaunakShah
 - kolluria
 - skogta
+- vdkotkar
 
 emeritus_approvers:
 - codenrhoden
@@ -30,3 +30,5 @@ emeritus_approvers:
 - adikul30
 - shalini-b
 - SandeepPissay
+- gohilankit
+- RaunakShah
