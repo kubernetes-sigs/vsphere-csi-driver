@@ -39,6 +39,7 @@ import (
 	storagepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
 	storagequotaperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
 	vksregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/vksregistervolume/v1alpha1"
+	vksstoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/vksstoragepolicyinfo/v1alpha1"
 )
 
 // GroupName represents the group for cns operator apis
@@ -96,6 +97,15 @@ var (
 	StoragePolicyInfoSingular = "storagepolicyinfo"
 	// StoragePolicyInfoPlural is plural of StoragePolicyInfo
 	StoragePolicyInfoPlural = "storagepolicyinfos"
+	// VKSStoragePolicyInfoKind is the Kind of VKSStoragePolicyInfo, which mirrors the
+	// Supervisor's StoragePolicyInfo into guest clusters as a Cluster-scoped resource.
+	VKSStoragePolicyInfoKind = "VKSStoragePolicyInfo"
+	// VKSStoragePolicyInfoListKind is the ListKind counterpart of VKSStoragePolicyInfoKind.
+	VKSStoragePolicyInfoListKind = "VKSStoragePolicyInfoList"
+	// VKSStoragePolicyInfoSingular is Singular of VKSStoragePolicyInfo
+	VKSStoragePolicyInfoSingular = "vksstoragepolicyinfo"
+	// VKSStoragePolicyInfoPlural is plural of VKSStoragePolicyInfo
+	VKSStoragePolicyInfoPlural = "vksstoragepolicyinfos"
 	// VKSRegisterVolumePlural is plural of VKSRegisterVolume
 	VKSRegisterVolumePlural = "vksregistervolumes"
 )
@@ -226,6 +236,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&vksregistervolumev1alpha1.VKSRegisterVolume{},
 		&vksregistervolumev1alpha1.VKSRegisterVolumeList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&vksstoragepolicyinfov1alpha1.VKSStoragePolicyInfo{},
+		&vksstoragepolicyinfov1alpha1.VKSStoragePolicyInfoList{},
 	)
 
 	scheme.AddKnownTypes(

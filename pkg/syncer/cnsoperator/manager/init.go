@@ -28,7 +28,6 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -385,17 +384,17 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 				return err
 			}
 
-			// Create StoragePolicyInfo CRD in the guest cluster as Cluster-scoped.
-			// StoragePolicyInfo is Namespaced on the Supervisor (one per tenant namespace),
-			// but a guest cluster is provisioned inside a single Supervisor namespace and is
-			// therefore single-tenant, so the guest gets one Cluster-scoped StoragePolicyInfo
-			// per policy. The same manifest is reused with its scope overridden here.
-			err = k8s.CreateCustomResourceDefinitionFromManifestWithScope(ctx,
-				cnsoperatorconfig.EmbedStoragePolicyInfoCRFile,
-				cnsoperatorconfig.EmbedStoragePolicyInfoCRFileName,
-				apiextensionsv1.ClusterScoped)
+			// Create VKSStoragePolicyInfo CRD in the guest cluster. It mirrors the Supervisor's
+			// namespaced StoragePolicyInfo, but Cluster-scoped: a guest cluster is provisioned
+			// inside a single Supervisor namespace and is therefore single-tenant, so it only
+			// ever needs one object per policy. It has its own Kind (rather than reusing the
+			// Kind StoragePolicyInfo) so the differing scope doesn't masquerade under an
+			// identical Kind name across the two clusters.
+			err = k8s.CreateCustomResourceDefinitionFromManifest(ctx,
+				cnsoperatorconfig.EmbedVKSStoragePolicyInfoCRFile,
+				cnsoperatorconfig.EmbedVKSStoragePolicyInfoCRFileName)
 			if err != nil {
-				crdName := cnsoperatorv1alpha1.StoragePolicyInfoPlural +
+				crdName := cnsoperatorv1alpha1.VKSStoragePolicyInfoPlural +
 					"." + cnsoperatorv1alpha1.SchemeGroupVersion.Group
 				log.Errorf("failed to create %q CRD. Err: %+v", crdName, err)
 				return err
