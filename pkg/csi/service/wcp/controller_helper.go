@@ -295,36 +295,6 @@ func newClientTransportCredentials() (credentials.TransportCredentials, error) {
 	}), nil
 }
 
-// GetsvMotionPlanFromK8sCloudOperatorService gets storage vMotion plan from
-// K8sCloudOperator gRPC service.
-func GetsvMotionPlanFromK8sCloudOperatorService(ctx context.Context,
-	storagePoolName string, maintenanceMode string) (map[string]string, error) {
-	log := logger.GetLogger(ctx)
-	conn, err := getK8sCloudOperatorClientConnection(ctx)
-	if err != nil {
-		log.Errorf("Failed to establish the connection to k8s cloud operator service "+
-			"when getting svMotion plan for SP: %s. Error: %+v", storagePoolName, err)
-		return nil, err
-	}
-	defer conn.Close()
-	// Create a client stub for k8s cloud operator gRPC service.
-	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
-
-	res, err := client.GetStorageVMotionPlan(ctx,
-		&k8scloudoperator.StorageVMotionRequest{
-			StoragePoolName: storagePoolName,
-			MaintenanceMode: maintenanceMode,
-		})
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get storage vMotion plan from the k8s cloud operator service. Error: %+v", err)
-		log.Error(msg)
-		return nil, err
-	}
-
-	log.Infof("Got storage vMotion plan: %v from K8sCloudOperator gRPC service", res.SvMotionPlan)
-	return res.SvMotionPlan, nil
-}
-
 // getHostMOIDFromK8sCloudOperatorService gets the host-moid from
 // K8sCloudOperator gRPC service.
 func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string) (string, error) {
