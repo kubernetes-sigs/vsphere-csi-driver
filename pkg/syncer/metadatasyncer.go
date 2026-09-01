@@ -408,6 +408,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")
 		}
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VSphereDPLPModernApp) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.VSphereDPLPModernApp, "", "")
+		}
 		IsVsanFileVolumeServiceEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.VsanFileVolumeService)
 		if !IsVsanFileVolumeServiceEnabled {

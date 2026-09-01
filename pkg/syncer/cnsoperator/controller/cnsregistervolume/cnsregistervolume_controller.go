@@ -93,8 +93,9 @@ var (
 	isMultipleClustersPerVsphereZoneEnabled bool
 	isSharedDiskEnabled                     bool
 	// isVSphereDPLPModernAppEnabled caches the VSphereDPLPModernApp
-	// WCP capability at controller startup. Set once in Add(); late enablement triggers
-	// a pod restart which re-evaluates this value.
+	// WCP capability at controller startup. Set once in Add(). The syncer's
+	// InitMetadataSyncer starts the late-enablement watcher for this capability, which
+	// exits the container on enablement so this value gets re-evaluated on restart.
 	isVSphereDPLPModernAppEnabled bool
 )
 
