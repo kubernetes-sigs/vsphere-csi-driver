@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -31,6 +32,7 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/osutils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
 )
 
 const (
@@ -216,6 +218,16 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 			"NodePublishVolume failed: An operation with the given Volume ID %s already exists", volumeID)
 	}
 	defer driver.volumeLocks.Release(volumeID)
+
+	// Guest-local NFS driver volumes (see pkg/csi/service/wcpguest.createGuestNFSVolume) are
+	// mounted directly by the vendored nfsdriver package's own NodeServer, which reads the
+	// mount source from VolumeContext rather than PublishContext. No Supervisor or CNS
+	// involvement at any point for these.
+	if nfsdriver.IsGuestVolumeID(volumeID) {
+		req.VolumeId = strings.TrimPrefix(volumeID, nfsdriver.VolumeIDPrefix)
+		return nfsdriver.GetOrCreateDriver().NodeServer().NodePublishVolume(ctx, req)
+	}
+
 	caps := []*csi.VolumeCapability{volCap}
 	if err := common.IsValidVolumeCapabilities(ctx, caps); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
@@ -269,6 +281,12 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 			"NodeUnpublishVolume failed: An operation with the given Volume ID %s already exists", volID)
 	}
 	defer driver.volumeLocks.Release(volID)
+
+	if nfsdriver.IsGuestVolumeID(volID) {
+		req.VolumeId = strings.TrimPrefix(volID, nfsdriver.VolumeIDPrefix)
+		return nfsdriver.GetOrCreateDriver().NodeServer().NodeUnpublishVolume(ctx, req)
+	}
+
 	if err := driver.osUtils.CleanupPublishPath(ctx, target, volID); err != nil {
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"NodeUnpublishVolume failed: %v\nUnmounting arguments: %s\n", err, target)
