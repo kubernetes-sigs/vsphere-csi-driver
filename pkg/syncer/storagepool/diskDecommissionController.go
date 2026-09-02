@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcp"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
@@ -218,7 +217,19 @@ func (w *DiskDecommController) DecommissionDisk(ctx context.Context, storagePool
 			return
 		}
 
-		svMotionPlan, err := wcp.GetsvMotionPlanFromK8sCloudOperatorService(ctx, storagePoolName, maintenanceMode)
+		// DiskDecommController runs inside vsphere-syncer,
+		// so the mTLS hop authenticates the process to itself and adds nothing.
+		// Hence, calling GetSVMotionPlan directly rather than over the
+		// K8sCloudOperator gRPC service.
+		k8sClient, err := k8s.NewClient(ctx)
+		if err != nil {
+			msg := fmt.Sprintf("Creating Kubernetes client failed. Err: %v", err)
+			if err := updateDrainStatus(ctx, storagePoolName, drainFailStatus, msg); err != nil {
+				log.Errorf("Failed to update drain status to %v. Error: %v", drainFailStatus, err)
+			}
+			return
+		}
+		svMotionPlan, err := k8scloudoperator.GetSVMotionPlan(ctx, k8sClient, storagePoolName, maintenanceMode)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to decommission disk. Error: %+v", err)
 			err := updateDrainStatus(ctx, storagePoolName, drainFailStatus, msg)
