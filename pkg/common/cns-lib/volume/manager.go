@@ -1722,6 +1722,9 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		// In such a case, send back success as the volume is already deleted.
 		if IsNotFoundFault(ctx, faultType) {
 			log.Infof("DeleteVolume: VolumeID %q, not found, thus returning success", volumeID)
+			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
+				nil, volumeOperationDetails.OperationDetails.TaskInvocationTimestamp,
+				task.Reference().Value, "", taskInfo.ActivationId, taskInvocationStatusSuccess, "", "")
 			return "", nil
 		}
 
