@@ -43,6 +43,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
@@ -248,7 +249,7 @@ var (
 	// managerInstance is a Manager singleton.
 	managerInstance *defaultManager
 	// managerInstanceMap hold volume manager for vCenter servers
-	managerInstanceMap = make(map[string]*defaultManager)
+	managerInstanceMap = make(map[commontypes.FQDN]*defaultManager)
 	// managerInstanceLock is used for mitigating race condition during
 	// read/write on manager instance.
 	managerInstanceLock sync.Mutex
@@ -431,7 +432,7 @@ func (m *defaultManager) MonitorCreateVolumeTask(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	log.Debugf("Invoked MonitorCreateVolumeTask for task: %v", task.Reference())
 	if m.multivCenterTopologyDeployment {
-		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host.String()
 	}
 
 	taskInfo, err = m.waitOnTask(ctx, task.Reference())
@@ -607,7 +608,7 @@ func (m *defaultManager) createVolumeWithImprovedIdempotency(ctx context.Context
 	}
 	var vCenterServerForVolumeOperationCR string
 	if m.multivCenterTopologyDeployment {
-		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host.String()
 	}
 
 	// Determine if CNS CreateVolume needs to be invoked.
@@ -767,7 +768,7 @@ func (m *defaultManager) createVolumeWithTransaction(ctx context.Context, spec *
 	}
 	var vCenterServerForVolumeOperationCR string
 	if m.multivCenterTopologyDeployment {
-		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host
+		vCenterServerForVolumeOperationCR = m.virtualCenter.Config.Host.String()
 	}
 
 	volumeOperationDetails, finalErr = m.operationStore.GetRequestDetails(ctx, volNameFromInputSpec)
@@ -3828,8 +3829,8 @@ func (m *defaultManager) ClearVolumeControlFlags(ctx context.Context, volumeID s
 }
 
 // GetAllManagerInstances returns all Manager instances
-func GetAllManagerInstances(ctx context.Context) map[string]*defaultManager {
-	newManagerInstanceMap := make(map[string]*defaultManager)
+func GetAllManagerInstances(ctx context.Context) map[commontypes.FQDN]*defaultManager {
+	newManagerInstanceMap := make(map[commontypes.FQDN]*defaultManager)
 	if len(managerInstanceMap) != 0 {
 		newManagerInstanceMap = managerInstanceMap
 	} else if managerInstance != nil {

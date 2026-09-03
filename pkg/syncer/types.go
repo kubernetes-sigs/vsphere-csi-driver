@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -80,7 +81,7 @@ var (
 	// initiative design). A separate map is maintained for each VC.
 	// The historical name is preserved to minimize churn in the syncer code
 	// and tests.
-	cnsDeletionMap map[string]map[string]bool
+	cnsDeletionMap map[commontypes.FQDN]map[string]bool
 
 	// pvMissingLabeledMap tracks, per VC, the CNS volume IDs that full sync
 	// has already labeled pv_missing=true. Once a volume is recorded here,
@@ -89,24 +90,24 @@ var (
 	// PV-missing across many cycles is only ever labeled once. Cleared when
 	// the volume's PV reappears in K8s (see cleanupCnsMaps), so it is
 	// re-evaluated and re-labeled if it goes missing again later.
-	pvMissingLabeledMap map[string]map[string]bool
+	pvMissingLabeledMap map[commontypes.FQDN]map[string]bool
 
 	// cnsCreationMap tracks volumes that exist in K8s but not in CNS
 	// If a volume exists in this map across two fullsync cycles,
 	// the volume is created in CNS
 	// A separate map is maintained for each VC.
-	cnsCreationMap map[string]map[string]bool
+	cnsCreationMap map[commontypes.FQDN]map[string]bool
 
 	// Metadata syncer and full sync share a global lock
 	// to mitigate race conditions related to
 	// static provisioning of volumes
 	// There is a separate lock for each VC.
-	volumeOperationsLock map[string]*sync.Mutex
+	volumeOperationsLock map[commontypes.FQDN]*sync.Mutex
 
 	// volumeInfoCrDeletionMap tracks CRs for volumes that exist in
 	// the cluster but the corresponding PV for that volume does not exist.
 	// A separate map is maintained for each VC.
-	volumeInfoCrDeletionMap map[string]map[string]bool
+	volumeInfoCrDeletionMap map[commontypes.FQDN]map[string]bool
 )
 
 type (
@@ -137,7 +138,7 @@ type metadataSyncInformer struct {
 	fileVolumeClient client.Client
 	// map of VC Host to Volume Manager
 	// Use this for Vanilla flavor Multi vCenter Topology feature
-	volumeManagers     map[string]volumes.Manager
+	volumeManagers     map[commontypes.FQDN]volumes.Manager
 	configInfo         *config.ConfigurationInfo
 	k8sInformerManager *k8s.InformerManager
 	// topologyVCMap maintains a cache of topology tags to the vCenter IP/FQDN which holds the tag.
@@ -146,9 +147,9 @@ type metadataSyncInformer struct {
 	//            zone2: {VC2: struct{}{}}}
 	// The vCenter IP/FQDN under each tag are maintained as a map of string with nil values to improve
 	// retrieval and deletion performance.
-	topologyVCMap map[string]map[string]struct{}
+	topologyVCMap map[string]map[commontypes.FQDN]struct{}
 	clusterFlavor cnstypes.CnsClusterFlavor
-	host          string
+	host          commontypes.FQDN
 	// Snapshot clients cached after first initialization so the event-handler path
 	// (pvcsiSnapshotDeleted) and full sync do not construct fresh HTTP clients per call.
 	// Access them via getCachedSnapshotClients, which lazily creates and caches them under

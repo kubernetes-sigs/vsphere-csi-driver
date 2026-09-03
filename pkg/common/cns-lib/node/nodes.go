@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -178,7 +179,8 @@ func (nodes *Nodes) GetAllNodes(ctx context.Context) (
 }
 
 // GetAllNodesByVC returns VirtualMachine objects for all registered nodes for a particular VC.
-func (nodes *Nodes) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error) {
+func (nodes *Nodes) GetAllNodesByVC(ctx context.Context,
+	vcHost commontypes.FQDN) ([]*cnsvsphere.VirtualMachine, error) {
 	return nodes.cnsNodeManager.GetAllNodesByVC(ctx, vcHost)
 }
 

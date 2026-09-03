@@ -30,6 +30,7 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // --- helpers for GetHostLocalAccessibleZones --------------------------------------------
@@ -67,7 +68,7 @@ func setupHostLocalSim(t *testing.T, numClusters int) (
 		t.Fatalf("failed to create govmomi client: %v", err)
 	}
 	vc = &cnsvsphere.VirtualCenter{
-		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("127.0.0.1")},
 		Client:      c,
 		ClientMutex: &sync.Mutex{},
 	}

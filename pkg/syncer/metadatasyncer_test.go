@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -2454,10 +2455,10 @@ func TestCsiPVDeleted_BlockVolume_ImprovedVolumeVisibility(t *testing.T) {
 	volumeInfoService = nil
 	IsPodVMOnStretchSupervisorFSSEnabled = false
 
-	const vcHost = "test-vc-host"
+	vcHost := commontypes.NewFQDN("test-vc-host")
 
 	setup := func(t *testing.T, fssEnabled bool) (*metadataSyncInformer, *recordingVolumeManager) {
-		volumeOperationsLock = map[string]*sync.Mutex{vcHost: {}}
+		volumeOperationsLock = map[commontypes.FQDN]*sync.Mutex{vcHost: {}}
 
 		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
 		assert.NoError(t, err)
@@ -2571,14 +2572,14 @@ func TestVCConfigChanged(t *testing.T) {
 	}
 	baseNew := func() *cnsvsphere.VirtualCenterConfig {
 		return &cnsvsphere.VirtualCenterConfig{
-			Host:                  "vc.tld",
+			Host:                  commontypes.NewFQDN("vc.tld"),
 			Username:              baseOld.User,
 			Password:              baseOld.Password,
 			VCSessionManagerURL:   baseOld.VCSessionManagerURL,
 			VCSessionManagerToken: baseOld.VCSessionManagerToken,
 		}
 	}
-	const currentHost = "vc.tld"
+	currentHost := commontypes.NewFQDN("vc.tld")
 
 	testCases := []struct {
 		name           string
@@ -2599,7 +2600,7 @@ func TestVCConfigChanged(t *testing.T) {
 		},
 		{
 			name:      "host changed",
-			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.Host = "other-vc.tld" },
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.Host = commontypes.NewFQDN("other-vc.tld") },
 			want:      true,
 		},
 		{

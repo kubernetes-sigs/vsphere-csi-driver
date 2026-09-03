@@ -51,6 +51,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -169,7 +170,7 @@ func testFullSyncAtScale(t *testing.T, pvCount int) {
 			},
 		}
 		patches := gomonkey.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterHost,
-			func(ctx context.Context, vcHost string, reconnect bool) (*cnsvsphere.VirtualCenter, error) {
+			func(ctx context.Context, vcHost commontypes.FQDN, reconnect bool) (*cnsvsphere.VirtualCenter, error) {
 				return mockVC, nil
 			})
 		defer patches.Reset()
@@ -189,7 +190,8 @@ func testFullSyncAtScale(t *testing.T, pvCount int) {
 			pvcByName[pvc.Name] = pvc
 		}
 		patches.ApplyFunc(buildPVCMapPodMap,
-			func(_ context.Context, pvList []*v1.PersistentVolume, _ *metadataSyncInformer, _ string) (pvcMap, podMap, error) {
+			func(_ context.Context, pvList []*v1.PersistentVolume, _ *metadataSyncInformer,
+				_ commontypes.FQDN) (pvcMap, podMap, error) {
 				pvcMapResult := make(pvcMap, len(pvList))
 				for _, pv := range pvList {
 					if pv.Spec.ClaimRef != nil {
@@ -203,7 +205,7 @@ func testFullSyncAtScale(t *testing.T, pvCount int) {
 
 		t.Logf("Running CsiFullSync with %d PVs...", pvCount)
 		startSync := time.Now()
-		syncErr = CsiFullSync(ctx, metadataSyncer, "test-vcenter")
+		syncErr = CsiFullSync(ctx, metadataSyncer, commontypes.NewFQDN("test-vcenter"))
 		syncTime = time.Since(startSync)
 
 		queryCount = mockVolMgr.queryCallCount
@@ -504,13 +506,13 @@ func setupMetadataSyncerForFullSync(
 	// Create mock config
 	cfg := &cnsconfig.ConfigurationInfo{
 		Cfg: &cnsconfig.Config{
-			VirtualCenter: map[string]*cnsconfig.VirtualCenterConfig{
-				"test-vcenter": {},
+			VirtualCenter: map[commontypes.FQDN]*cnsconfig.VirtualCenterConfig{
+				commontypes.NewFQDN("test-vcenter"): {},
 			},
 		},
 	}
 	// Set Global.VCenterIP and ClusterID
-	cfg.Cfg.Global.VCenterIP = "test-vcenter"
+	cfg.Cfg.Global.VCenterIP = commontypes.NewFQDN("test-vcenter")
 	cfg.Cfg.Global.ClusterID = "test-cluster-id"
 
 	// Create fake informer manager with listers
@@ -518,18 +520,18 @@ func setupMetadataSyncerForFullSync(
 	informerManager.Listen()
 
 	// Initialize volumeManagers map for multi-vCenter support
-	volumeManagers := make(map[string]volumes.Manager)
-	volumeManagers["test-vcenter"] = mockVolMgr
+	volumeManagers := make(map[commontypes.FQDN]volumes.Manager)
+	volumeManagers[commontypes.NewFQDN("test-vcenter")] = mockVolMgr
 
 	// Initialize package-level maps normally set up by InitMetadataSyncer.
-	volumeOperationsLock = make(map[string]*sync.Mutex)
-	volumeOperationsLock["test-vcenter"] = &sync.Mutex{}
-	cnsDeletionMap = make(map[string]map[string]bool)
-	cnsDeletionMap["test-vcenter"] = make(map[string]bool)
-	pvMissingLabeledMap = make(map[string]map[string]bool)
-	pvMissingLabeledMap["test-vcenter"] = make(map[string]bool)
-	cnsCreationMap = make(map[string]map[string]bool)
-	cnsCreationMap["test-vcenter"] = make(map[string]bool)
+	volumeOperationsLock = make(map[commontypes.FQDN]*sync.Mutex)
+	volumeOperationsLock[commontypes.NewFQDN("test-vcenter")] = &sync.Mutex{}
+	cnsDeletionMap = make(map[commontypes.FQDN]map[string]bool)
+	cnsDeletionMap[commontypes.NewFQDN("test-vcenter")] = make(map[string]bool)
+	pvMissingLabeledMap = make(map[commontypes.FQDN]map[string]bool)
+	pvMissingLabeledMap[commontypes.NewFQDN("test-vcenter")] = make(map[string]bool)
+	cnsCreationMap = make(map[commontypes.FQDN]map[string]bool)
+	cnsCreationMap[commontypes.NewFQDN("test-vcenter")] = make(map[string]bool)
 
 	ms := &metadataSyncInformer{
 		clusterFlavor:      cnstypes.CnsClusterFlavorVanilla,
@@ -537,7 +539,7 @@ func setupMetadataSyncerForFullSync(
 		volumeManager:      mockVolMgr,
 		volumeManagers:     volumeManagers,
 		configInfo:         cfg,
-		host:               "test-vcenter",
+		host:               commontypes.NewFQDN("test-vcenter"),
 		k8sInformerManager: informerManager,
 		pvLister:           informerManager.GetPVLister(),
 		pvcLister:          informerManager.GetPVCLister(),
@@ -1567,7 +1569,7 @@ func TestSetChangeIDAnnotationOnSupervisorSnapshots(t *testing.T) {
 	defer patchSnapshotClient.Reset()
 
 	// Call should handle error gracefully
-	setChangeIDAnnotationOnSupervisorSnapshots(ctx, mockMetadataSyncer, "test-vc")
+	setChangeIDAnnotationOnSupervisorSnapshots(ctx, mockMetadataSyncer, commontypes.NewFQDN("test-vc"))
 	// If we get here without panicking, test passes
 }
 
@@ -2310,10 +2312,10 @@ func TestReconcileKeepAfterDeleteVmFlags(t *testing.T) {
 // carrying a mockCOCommonForFullSync so the function's PVC-namespace cache
 // lookup returns false (i.e. "no cached PVC"), matching the production code
 // path we want to exercise.
-func pvMissingTestSetup(t *testing.T, vc, clusterID string) *metadataSyncInformer {
+func pvMissingTestSetup(t *testing.T, vc commontypes.FQDN, clusterID string) *metadataSyncInformer {
 	t.Helper()
-	cnsDeletionMap = map[string]map[string]bool{vc: {}}
-	pvMissingLabeledMap = map[string]map[string]bool{vc: {}}
+	cnsDeletionMap = map[commontypes.FQDN]map[string]bool{vc: {}}
+	pvMissingLabeledMap = map[commontypes.FQDN]map[string]bool{vc: {}}
 	clusterIDforVolumeMetadata = clusterID
 	return &metadataSyncInformer{
 		coCommonInterface: &mockCOCommonForFullSync{},
@@ -2358,7 +2360,7 @@ func hasPVMissingTrueLabel(spec cnstypes.CnsVolumeMetadataUpdateSpec) bool {
 func TestGetMissingPVVolumeUpdateSpecs_GracePeriod(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2397,7 +2399,7 @@ func TestGetMissingPVVolumeUpdateSpecs_GracePeriod(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_PVExists(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2431,7 +2433,7 @@ func TestGetMissingPVVolumeUpdateSpecs_PVExists(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_StripsExistingLabels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2474,7 +2476,7 @@ func TestGetMissingPVVolumeUpdateSpecs_StripsExistingLabels(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2511,7 +2513,7 @@ func TestGetMissingPVVolumeUpdateSpecs_AlreadyLabeled(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_StripsStalePVRetained(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2558,7 +2560,7 @@ func TestGetMissingPVVolumeUpdateSpecs_StripsStalePVRetained(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_ReconcilesCoexistingLabels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2606,7 +2608,7 @@ func TestGetMissingPVVolumeUpdateSpecs_ReconcilesCoexistingLabels(t *testing.T) 
 func TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2640,7 +2642,7 @@ func TestGetMissingPVVolumeUpdateSpecs_SkipsOnceLocallyLabeled(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_SynthesizesPVEntity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 
@@ -2676,7 +2678,7 @@ func TestGetMissingPVVolumeUpdateSpecs_SynthesizesPVEntity(t *testing.T) {
 func TestGetMissingPVVolumeUpdateSpecs_ForeignClusterIgnored(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	vc := "test-vc"
+	vc := commontypes.NewFQDN("test-vc")
 	clusterID := "test-cluster"
 	ms := pvMissingTestSetup(t, vc, clusterID)
 

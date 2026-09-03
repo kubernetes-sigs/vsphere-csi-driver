@@ -18,13 +18,14 @@ import (
 	_ "github.com/vmware/govmomi/vapi/simulator"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 const (
@@ -72,7 +73,7 @@ func configFromCustomizedSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool)
 
 	cfg.Global.InsecureFlag = insecureAllowed
 
-	cfg.Global.VCenterIP = s.URL.Hostname()
+	cfg.Global.VCenterIP = commontypes.NewFQDN(s.URL.Hostname())
 	cfg.Global.VCenterPort = s.URL.Port()
 	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
 	cfg.Global.Password, _ = s.URL.User.Password()
@@ -89,13 +90,14 @@ func configFromCustomizedSimWithTLS(tlsConfig *tls.Config, insecureAllowed bool)
 		log.Fatal(err)
 	}
 
-	cfg.VirtualCenter = make(map[string]*cnsconfig.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &cnsconfig.VirtualCenterConfig{
-		User:         cfg.Global.User,
-		Password:     cfg.Global.Password,
-		VCenterPort:  cfg.Global.VCenterPort,
-		InsecureFlag: cfg.Global.InsecureFlag,
-		Datacenters:  cfg.Global.Datacenters,
+	cfg.VirtualCenter = map[commontypes.FQDN]*cnsconfig.VirtualCenterConfig{
+		commontypes.NewFQDN(s.URL.Hostname()): {
+			User:         cfg.Global.User,
+			Password:     cfg.Global.Password,
+			VCenterPort:  cfg.Global.VCenterPort,
+			InsecureFlag: cfg.Global.InsecureFlag,
+			Datacenters:  cfg.Global.Datacenters,
+		},
 	}
 
 	return cfg, func() {
@@ -814,7 +816,7 @@ func TestGetVirtualMachine(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		vmKey          types.NamespacedName
+		vmKey          k8stypes.NamespacedName
 		vm             *vmoperatortypes.VirtualMachine
 		expectError    bool
 		clientError    error
@@ -823,7 +825,7 @@ func TestGetVirtualMachine(t *testing.T) {
 	}{
 		{
 			name: "Successfully get VM",
-			vmKey: types.NamespacedName{
+			vmKey: k8stypes.NamespacedName{
 				Name:      "test-vm",
 				Namespace: "test-namespace",
 			},
@@ -850,7 +852,7 @@ func TestGetVirtualMachine(t *testing.T) {
 		},
 		{
 			name: "Error when VM does not exist",
-			vmKey: types.NamespacedName{
+			vmKey: k8stypes.NamespacedName{
 				Name:      "non-existent-vm",
 				Namespace: "test-namespace",
 			},
@@ -876,7 +878,7 @@ func TestGetVirtualMachine(t *testing.T) {
 		},
 		{
 			name: "Error when client returns error",
-			vmKey: types.NamespacedName{
+			vmKey: k8stypes.NamespacedName{
 				Name:      "test-vm",
 				Namespace: "test-namespace",
 			},
@@ -906,7 +908,7 @@ func TestGetVirtualMachine(t *testing.T) {
 		},
 		{
 			name: "Successfully get VM with different namespace",
-			vmKey: types.NamespacedName{
+			vmKey: k8stypes.NamespacedName{
 				Name:      "test-vm",
 				Namespace: "namespace-2",
 			},
@@ -998,7 +1000,7 @@ func TestGetVirtualMachineAPIVersion(t *testing.T) {
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
 
-	vmKey := types.NamespacedName{
+	vmKey := k8stypes.NamespacedName{
 		Name:      "test-vm",
 		Namespace: "test-namespace",
 	}

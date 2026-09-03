@@ -621,7 +621,7 @@ func eliminateNodesWithPvcOfSiblingReplica(ctx context.Context, client kubernete
 		}
 
 		for i, host := range candidateHosts {
-			if host == hostName {
+			if strings.EqualFold(host, hostName) {
 				candidateHosts = filterHost(candidateHosts, i)
 				break
 			}
@@ -852,7 +852,7 @@ func isStoragePoolInDiskDecommission(ctx context.Context, sp v1alpha1.StoragePoo
 func isStoragePoolAccessibleByNodes(ctx context.Context, sp v1alpha1.StoragePool, hostNames []string) bool {
 	for _, host := range hostNames { // filter by node candidate list.
 		for _, node := range sp.Status.AccessibleNodes {
-			if node == host {
+			if strings.EqualFold(node, host) {
 				return true
 			}
 		}

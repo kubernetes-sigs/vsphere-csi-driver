@@ -19,6 +19,7 @@ import (
 	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // restClientTo builds a rest.Client that talks to the given base URL, so a test
@@ -60,7 +61,7 @@ func connectedVC(t *testing.T, ctx context.Context, host string, port int) *Virt
 	t.Helper()
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host: host, Port: port, Insecure: true,
+			Host: types.NewFQDN(host), Port: port, Insecure: true,
 			Username: "user", Password: "pass", // simulator.DefaultLogin
 		},
 		ClientMutex: &sync.Mutex{},

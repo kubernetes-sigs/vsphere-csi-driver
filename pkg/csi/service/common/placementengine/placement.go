@@ -10,6 +10,7 @@ import (
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -223,8 +224,8 @@ func getExpandedTopologySegments(ctx context.Context, requestedSegments map[stri
 					"failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
 			}
 			if vcHost == "" {
-				vcHost = nodeVM.VirtualCenterHost
-			} else if vcHost != nodeVM.VirtualCenterHost {
+				vcHost = nodeVM.VirtualCenterHost.String()
+			} else if !nodeVM.VirtualCenterHost.Equal(vcHost) {
 				return nil, logger.LogNewErrorf(log,
 					"found NodeVM %q belonging to different vCenter: %q. Expected vCenter: %q",
 					nodeVM.Name(), nodeVM.VirtualCenterHost, vcHost)
@@ -380,7 +381,7 @@ func GetTopologyInfoFromNodes(ctx context.Context, reqParams interface{}) (
 		// Finally, filter the accessible topologies with topology domains where datastore is preferred.
 		var preferredAccessibleTopology []map[string]string
 		for _, segments := range combinedAccessibleTopology {
-			PreferredDSURLs := common.GetPreferredDatastoresInSegments(ctx, segments, params.VCHost)
+			PreferredDSURLs := common.GetPreferredDatastoresInSegments(ctx, segments, commontypes.NewFQDN(params.VCHost))
 			if len(PreferredDSURLs) != 0 {
 				if _, ok := PreferredDSURLs[params.DatastoreURL]; ok {
 					preferredAccessibleTopology = append(preferredAccessibleTopology, segments)

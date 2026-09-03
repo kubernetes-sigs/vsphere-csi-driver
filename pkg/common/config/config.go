@@ -32,6 +32,7 @@ import (
 	"gopkg.in/gcfg.v1"
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -212,15 +213,12 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
 	// Init.
 	if cfg.VirtualCenter == nil {
-		cfg.VirtualCenter = make(map[string]*VirtualCenterConfig)
+		cfg.VirtualCenter = make(map[types.FQDN]*VirtualCenterConfig)
 	}
 
 	// Globals.
 	if v := os.Getenv("VSPHERE_VCENTER"); v != "" {
-		// vCenter FQDN/IP is a protocol-compliant case-insensitive identifier that is
-		// later used as an exact-match map key against VirtualCenterConfig.Host, which
-		// is normalized to lowercase, so normalize this copy the same way.
-		cfg.Global.VCenterIP = strings.ToLower(v)
+		cfg.Global.VCenterIP = types.NewFQDN(v)
 	}
 	if v := os.Getenv("VSPHERE_PORT"); v != "" {
 		cfg.Global.VCenterPort = v
@@ -311,7 +309,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 			if errDatacenters != nil {
 				datacenters = cfg.Global.Datacenters
 			}
-			cfg.VirtualCenter[vcenter] = &VirtualCenterConfig{
+			cfg.VirtualCenter[types.NewFQDN(vcenter)] = &VirtualCenterConfig{
 				User:         username,
 				Password:     password,
 				VCenterPort:  port,
@@ -320,7 +318,7 @@ func FromEnv(ctx context.Context, cfg *Config) error {
 			}
 		}
 	}
-	if cfg.Global.VCenterIP != "" && cfg.VirtualCenter[cfg.Global.VCenterIP] == nil {
+	if _, exists := cfg.VirtualCenter[cfg.Global.VCenterIP]; !cfg.Global.VCenterIP.IsEmpty() && !exists {
 		cfg.VirtualCenter[cfg.Global.VCenterIP] = &VirtualCenterConfig{
 			User:         cfg.Global.User,
 			Password:     cfg.Global.Password,
@@ -384,7 +382,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 	}
 	for vcServer, vcConfig := range cfg.VirtualCenter {
 		log.Debugf("Initializing vc server %s", vcServer)
-		if vcServer == "" {
+		if vcServer.IsEmpty() {
 			log.Error(ErrInvalidVCenterIP)
 			return ErrInvalidVCenterIP
 		}
@@ -424,10 +422,8 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 		if !insecure {
 			vcConfig.InsecureFlag = cfg.Global.InsecureFlag
 		}
-		if setCfgGlobalvCenter && cfg.Global.VCenterIP == "" {
-			// Normalize to lowercase to match VirtualCenterConfig.Host, which downstream
-			// code looks up by exact-match against this value.
-			cfg.Global.VCenterIP = strings.ToLower(vcServer)
+		if setCfgGlobalvCenter && cfg.Global.VCenterIP.IsEmpty() {
+			cfg.Global.VCenterIP = vcServer
 		}
 		// Print out the config.
 		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)
@@ -534,11 +530,31 @@ func ReadConfig(ctx context.Context, config io.Reader) (*Config, error) {
 		log.Errorf("error while reading config file: %+v", err)
 		return nil, err
 	}
+	if err := buildVirtualCenterMap(ctx, cfg); err != nil {
+		return nil, err
+	}
 	// Env Vars should override config file entries if present.
 	if err := FromEnv(ctx, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// buildVirtualCenterMap builds the FQDN-keyed cfg.VirtualCenter from the raw,
+// gcfg-populated cfg.VirtualCenterRaw, which is section-name-keyed and may
+// carry any casing the operator used in the config file.
+func buildVirtualCenterMap(ctx context.Context, cfg *Config) error {
+	log := logger.GetLogger(ctx)
+	cfg.VirtualCenter = make(map[types.FQDN]*VirtualCenterConfig, len(cfg.VirtualCenterRaw))
+	for host, vcConfig := range cfg.VirtualCenterRaw {
+		fqdn := types.NewFQDN(host)
+		if _, exists := cfg.VirtualCenter[fqdn]; exists {
+			return logger.LogNewErrorf(log,
+				"duplicate vCenter entry %q in config after normalizing case", host)
+		}
+		cfg.VirtualCenter[fqdn] = vcConfig
+	}
+	return nil
 }
 
 // GetCnsconfig returns Config from specified config file path.
@@ -619,6 +635,9 @@ func ReadGCConfig(ctx context.Context, config io.Reader) (*Config, error) {
 	}
 	cfg := &Config{}
 	if err := gcfg.FatalOnly(gcfg.ReadInto(cfg, config)); err != nil {
+		return nil, err
+	}
+	if err := buildVirtualCenterMap(ctx, cfg); err != nil {
 		return nil, err
 	}
 	// Env Vars should override config file entries if present.

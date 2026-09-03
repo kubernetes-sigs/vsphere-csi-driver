@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -90,7 +91,7 @@ var (
 					Type:  "Datacenter",
 					Value: dcMoref,
 				}),
-			VirtualCenterHost: host,
+			VirtualCenterHost: commontypes.NewFQDN(host),
 		}, nil
 	}
 	getVMByUUIDFromVCenter = func(ctx context.Context, dc *cnsvsphere.Datacenter,
@@ -1008,7 +1009,8 @@ func (r *ReconcileCnsNodeVMAttachment) updateErrorOnInstanceToDisallowAttach(ctx
 func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error) {
 	var err error
 	vcdcMap := make(map[string][]string)
-	for key, value := range cfg.VirtualCenter {
+	for host, value := range cfg.VirtualCenter {
+		key := host.String()
 		dcList := strings.Split(value.Datacenters, ",")
 		for _, dc := range dcList {
 			dcMoID := strings.TrimSpace(dc)

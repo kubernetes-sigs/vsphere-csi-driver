@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -75,7 +76,7 @@ var onceForAuthorizationService sync.Once
 // authManagerIntance is instance of authManager and implements interface for
 // AuthorizationService.
 var authManagerInstance *AuthManager
-var authManagerInstances = make(map[string]*AuthManager)
+var authManagerInstances = make(map[commontypes.FQDN]*AuthManager)
 
 // GetAuthorizationService returns the singleton AuthorizationService.
 func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) (AuthorizationService, error) {
@@ -96,7 +97,8 @@ func GetAuthorizationService(ctx context.Context, vc *cnsvsphere.VirtualCenter) 
 }
 
 // GetAuthorizationServices returns the AuthManager instances for supplied vCenter servers
-func GetAuthorizationServices(ctx context.Context, vcs []*cnsvsphere.VirtualCenter) (map[string]*AuthManager, error) {
+func GetAuthorizationServices(ctx context.Context,
+	vcs []*cnsvsphere.VirtualCenter) (map[commontypes.FQDN]*AuthManager, error) {
 	log := logger.GetLogger(ctx)
 	onceForAuthorizationService.Do(func() {
 		log.Info("Initializing authorization service...")

@@ -48,6 +48,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -799,7 +800,7 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 	model.Service.RegisterSDK(pbmsim.New())
 
 	cfg.Global.InsecureFlag = insecureAllowed
-	cfg.Global.VCenterIP = s.URL.Hostname()
+	cfg.Global.VCenterIP = types.NewFQDN(s.URL.Hostname())
 	cfg.Global.VCenterPort = s.URL.Port()
 	cfg.Global.User = s.URL.User.Username() + "@vsphere.local"
 	cfg.Global.Password, _ = s.URL.User.Password()
@@ -834,8 +835,8 @@ func configFromVCSimWithTLS(tlsConfig *tls.Config, vcsimParams VcsimParams, inse
 		log.Fatal(err)
 	}
 
-	cfg.VirtualCenter = make(map[string]*config.VirtualCenterConfig)
-	cfg.VirtualCenter[s.URL.Hostname()] = &config.VirtualCenterConfig{
+	cfg.VirtualCenter = make(map[types.FQDN]*config.VirtualCenterConfig)
+	cfg.VirtualCenter[types.NewFQDN(s.URL.Hostname())] = &config.VirtualCenterConfig{
 		User:                cfg.Global.User,
 		Password:            cfg.Global.Password,
 		VCenterPort:         cfg.Global.VCenterPort,

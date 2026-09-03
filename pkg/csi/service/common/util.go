@@ -43,6 +43,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -114,7 +115,7 @@ func GetVCenters(ctx context.Context, managers *Managers) ([]*cnsvsphere.Virtual
 // Before returning VirtualCenter objects, vcenter connection is established if
 // session doesn't exist.
 func GetVCenterFromVCHost(ctx context.Context, vCenterManager cnsvsphere.VirtualCenterManager,
-	vCenterHost string) (*cnsvsphere.VirtualCenter, error) {
+	vCenterHost commontypes.FQDN) (*cnsvsphere.VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	vcenter, err := vCenterManager.GetVirtualCenter(ctx, vCenterHost)
 	if err != nil {

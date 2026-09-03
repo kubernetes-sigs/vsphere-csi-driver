@@ -47,6 +47,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -177,7 +178,8 @@ func (f *FakeNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.Virtua
 	return f.cnsNodeManager.GetAllNodes(ctx)
 }
 
-func (f *FakeNodeManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error) {
+func (f *FakeNodeManager) GetAllNodesByVC(ctx context.Context,
+	vcHost commontypes.FQDN) ([]*cnsvsphere.VirtualMachine, error) {
 	// This function is required only for multi VC env.
 	return nil, nil
 }
@@ -255,9 +257,9 @@ func getControllerTest(t *testing.T) *controllerTest {
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 		managers := &common.Managers{
-			VcenterConfigs: make(map[string]*cnsvsphere.VirtualCenterConfig),
+			VcenterConfigs: make(map[commontypes.FQDN]*cnsvsphere.VirtualCenterConfig),
 			CnsConfig:      config,
-			VolumeManagers: make(map[string]cnsvolume.Manager),
+			VolumeManagers: make(map[commontypes.FQDN]cnsvolume.Manager),
 			VcenterManager: cnsvsphere.GetVirtualCenterManager(ctx),
 		}
 		managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
@@ -291,7 +293,7 @@ func getControllerTest(t *testing.T) *controllerTest {
 			managers:     managers,
 			nodeMgr:      nodeManager,
 			authMgr:      &fakeAuthMgr,
-			authMgrs:     make(map[string]*common.AuthManager),
+			authMgrs:     make(map[commontypes.FQDN]*common.AuthManager),
 			topologyCalc: &MockTopologyCalculator{shouldSkip: true}, // Skip topology calculation in tests
 		}
 		c.authMgrs[vcenterconfig.Host], _ =

@@ -293,7 +293,8 @@ func getDatacenterFromConfig(cfg *cnsconfig.Config) (map[string]string, error) {
 func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, error) {
 	var err error
 	vcdcMap := make(map[string][]string)
-	for key, value := range cfg.VirtualCenter {
+	for host, value := range cfg.VirtualCenter {
+		key := host.String()
 		dcList := strings.Split(value.Datacenters, ",")
 		for _, dc := range dcList {
 			dcMoID := strings.TrimSpace(dc)
@@ -494,11 +495,12 @@ func getHostMoRefsForHostLocalVolume(ctx context.Context,
 		if !ok || hostname == "" {
 			continue
 		}
-		if _, dup := seen[hostname]; dup {
+		normalizedHostname := strings.ToLower(hostname)
+		if _, dup := seen[normalizedHostname]; dup {
 			continue
 		}
-		seen[hostname] = struct{}{}
-		hostMoID, found := nodeNameToID[hostname]
+		seen[normalizedHostname] = struct{}{}
+		hostMoID, found := nodeNameToID[normalizedHostname]
 		if !found {
 			return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to resolve ESX host MoID for node %q while provisioning host-local volume", hostname)

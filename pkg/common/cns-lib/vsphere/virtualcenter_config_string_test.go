@@ -20,11 +20,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 func TestVirtualCenterConfigStringRedactsSensitiveFields(t *testing.T) {
 	cfg := &VirtualCenterConfig{
-		Host:                  "vc.example.com",
+		Host:                  types.NewFQDN("vc.example.com"),
 		Username:              "administrator@vsphere.local",
 		Password:              "S3cretPassw0rd!",
 		VCSessionManagerToken: "top-secret-token",
@@ -40,7 +42,7 @@ func TestVirtualCenterConfigStringRedactsSensitiveFields(t *testing.T) {
 		if strings.Contains(out, cfg.VCSessionManagerToken) {
 			t.Errorf("expected VCSessionManagerToken to be redacted, got: %s", out)
 		}
-		if !strings.Contains(out, cfg.Host) {
+		if !strings.Contains(out, cfg.Host.String()) {
 			t.Errorf("expected non-sensitive Host field to be preserved, got: %s", out)
 		}
 	}
@@ -49,7 +51,7 @@ func TestVirtualCenterConfigStringRedactsSensitiveFields(t *testing.T) {
 func TestVirtualCenterStringRedactsSensitiveFields(t *testing.T) {
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host:     "vc.example.com",
+			Host:     types.NewFQDN("vc.example.com"),
 			Username: "administrator@vsphere.local",
 			Password: "S3cretPassw0rd!",
 		},

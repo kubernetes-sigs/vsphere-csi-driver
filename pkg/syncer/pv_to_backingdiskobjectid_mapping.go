@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -32,7 +33,7 @@ import (
 
 // TODO: refactor pv to backingdiskobjectid and volume health code to reduce duplicated code
 func csiGetPVtoBackingDiskObjectIdMapping(ctx context.Context, k8sclient clientset.Interface,
-	metadataSyncer *metadataSyncInformer, vc string) {
+	metadataSyncer *metadataSyncInformer, vc commontypes.FQDN) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("csiGetPVtoBackingDiskObjectIdMapping for %s: start", vc)
 	// Call CNS QueryAll to get container volumes by cluster ID.

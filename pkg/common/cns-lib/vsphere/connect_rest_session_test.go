@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
@@ -82,7 +84,7 @@ func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 	t.Run("session-manager auth: skips the redundant rest session check", func(t *testing.T) {
 		vc := &VirtualCenter{
 			Config: &VirtualCenterConfig{
-				Host: server.URL.Hostname(), Port: port, Insecure: true,
+				Host: commontypes.NewFQDN(server.URL.Hostname()), Port: port, Insecure: true,
 				VCSessionManagerURL:   sessionManagerFor(t, ctx, server.URL),
 				VCSessionManagerToken: "a-token",
 			},
@@ -104,7 +106,7 @@ func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 	t.Run("credential auth: repairs the rest session without touching the soap session", func(t *testing.T) {
 		vc := &VirtualCenter{
 			Config: &VirtualCenterConfig{
-				Host: server.URL.Hostname(), Port: port, Insecure: true,
+				Host: commontypes.NewFQDN(server.URL.Hostname()), Port: port, Insecure: true,
 				Username: "user", Password: "pass", // simulator.DefaultLogin
 			},
 			ClientMutex: &sync.Mutex{},
@@ -147,7 +149,7 @@ func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 	t.Run("credential auth: a rest login that keeps failing leaves the soap session up", func(t *testing.T) {
 		vc := &VirtualCenter{
 			Config: &VirtualCenterConfig{
-				Host: server.URL.Hostname(), Port: port, Insecure: true,
+				Host: commontypes.NewFQDN(server.URL.Hostname()), Port: port, Insecure: true,
 				Username: "user", Password: "pass", // simulator.DefaultLogin
 			},
 			ClientMutex: &sync.Mutex{},
@@ -230,7 +232,7 @@ func TestConnectRecreatesClientsAfterSessionExpiry(t *testing.T) {
 	ctx := context.Background()
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host: server.URL.Hostname(), Port: port, Insecure: true,
+			Host: commontypes.NewFQDN(server.URL.Hostname()), Port: port, Insecure: true,
 			Username: "user", Password: "pass", // simulator.DefaultLogin
 		},
 		ClientMutex: &sync.Mutex{},

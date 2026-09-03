@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -815,7 +816,7 @@ func DeleteVolumeUtil(ctx context.Context, volManager cnsvolume.Manager, volumeI
 // ExpandVolumeUtil is the helper function to extend CNS volume for given
 // volumeId.
 func ExpandVolumeUtil(ctx context.Context, vCenterManager vsphere.VirtualCenterManager,
-	vCenterHost string, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
+	vCenterHost commontypes.FQDN, volumeManager cnsvolume.Manager, volumeID string, capacityInMb int64,
 	extraParams interface{}) (string, error) {
 	var err error
 	log := logger.GetLogger(ctx)

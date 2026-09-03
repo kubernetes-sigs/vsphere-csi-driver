@@ -41,6 +41,7 @@ import (
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -158,13 +159,13 @@ func TestSyncerWorkflows(t *testing.T) {
 
 	// Initialize metadata syncer object.
 	metadataSyncer = &metadataSyncInformer{
-		volumeManagers: make(map[string]cnsvolumes.Manager),
+		volumeManagers: make(map[commontypes.FQDN]cnsvolumes.Manager),
 	}
 	metadataSyncer.configInfo = configInfo
 	metadataSyncer.volumeManager = volumeManager
 	metadataSyncer.volumeManagers[virtualCenter.Config.Host] = volumeManager
 	metadataSyncer.host = virtualCenter.Config.Host
-	volumeOperationsLock = make(map[string]*sync.Mutex)
+	volumeOperationsLock = make(map[commontypes.FQDN]*sync.Mutex)
 	volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
 
 	// Create the kubernetes client from config or env.
@@ -626,7 +627,7 @@ func runTestFullSyncWorkflows(t *testing.T) {
 			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: gbInMb},
 		},
 	}
-	cnsCreationMap = make(map[string]map[string]bool)
+	cnsCreationMap = make(map[commontypes.FQDN]map[string]bool)
 	cnsCreationMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 
 	volumeInfo, _, err := volumeManager.CreateVolume(ctx, &createSpec, nil)
@@ -654,9 +655,9 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	if len(queryResult.Volumes) != 1 && queryResult.Volumes[0].VolumeId.Id != volumeInfo.VolumeID.Id {
 		t.Fatalf("failed to find the newly created volume with ID: %s", volumeInfo.VolumeID.Id)
 	}
-	cnsDeletionMap = make(map[string]map[string]bool)
+	cnsDeletionMap = make(map[commontypes.FQDN]map[string]bool)
 	cnsDeletionMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
-	pvMissingLabeledMap = make(map[string]map[string]bool)
+	pvMissingLabeledMap = make(map[commontypes.FQDN]map[string]bool)
 	pvMissingLabeledMap[csiConfig.Global.VCenterIP] = make(map[string]bool)
 	// PV does not exist in K8S, but volume exists in CNS cache.
 	// Per the cns-health-initiative design, fullsync no longer unregisters
@@ -987,17 +988,17 @@ func TestGetVCForTopologySegments(t *testing.T) {
 
 	tests := []struct {
 		name                      string
-		topologyVCMap             map[string]map[string]struct{}
+		topologyVCMap             map[string]map[commontypes.FQDN]struct{}
 		requestedTopologySegments map[string][]string
 		expectedVC                string
 		expectingErr              bool
 	}{
 		{
 			name: "Higher-level topology label present in more than one VC",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
-				"zone-1":   {"10.100.100.0": {}},
-				"zone-2":   {"10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}, commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}},
+				"zone-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-1"},
@@ -1008,10 +1009,10 @@ func TestGetVCForTopologySegments(t *testing.T) {
 		},
 		{
 			name: "Invalid topology label given as input",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
-				"zone-1":   {"10.100.100.0": {}},
-				"zone-2":   {"10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}, commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}},
+				"zone-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-1"},
@@ -1022,10 +1023,10 @@ func TestGetVCForTopologySegments(t *testing.T) {
 		},
 		{
 			name: "Topology label belongs to more than one VC",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}, "10.100.100.1": {}},
-				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
-				"zone-2":   {"10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}, commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}, commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-1"},
@@ -1036,10 +1037,10 @@ func TestGetVCForTopologySegments(t *testing.T) {
 		},
 		{
 			name: "Leaf-level topology label present in more than one VC",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}},
-				"region-2": {"10.100.100.1": {}},
-				"zone-1":   {"10.100.100.0": {}, "10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}},
+				"region-2": {commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}, commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-2"},
@@ -1050,13 +1051,13 @@ func TestGetVCForTopologySegments(t *testing.T) {
 		},
 		{
 			name: "Topology labels distinct across VCs",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}},
-				"region-2": {"10.100.100.1": {}},
-				"zone-1":   {"10.100.100.0": {}},
-				"zone-2":   {"10.100.100.1": {}},
-				"city-1":   {"10.100.100.0": {}},
-				"city-2":   {"10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}},
+				"region-2": {commontypes.NewFQDN("10.100.100.1"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}},
+				"zone-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
+				"city-1":   {commontypes.NewFQDN("10.100.100.0"): {}},
+				"city-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-2"},
@@ -1068,11 +1069,11 @@ func TestGetVCForTopologySegments(t *testing.T) {
 		},
 		{
 			name: "Multiple values for same topology key",
-			topologyVCMap: map[string]map[string]struct{}{
-				"region-1": {"10.100.100.0": {}},
-				"region-2": {"10.100.100.0": {}},
-				"zone-1":   {"10.100.100.0": {}},
-				"zone-2":   {"10.100.100.1": {}},
+			topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+				"region-1": {commontypes.NewFQDN("10.100.100.0"): {}},
+				"region-2": {commontypes.NewFQDN("10.100.100.0"): {}},
+				"zone-1":   {commontypes.NewFQDN("10.100.100.0"): {}},
+				"zone-2":   {commontypes.NewFQDN("10.100.100.1"): {}},
 			},
 			requestedTopologySegments: map[string][]string{
 				"topology.csi.vmware.com/region": {"region-1", "region-2"},

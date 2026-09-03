@@ -26,6 +26,7 @@ import (
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
@@ -36,7 +37,7 @@ import (
 // clusterstoragepolicyinfo) continues to own attribute syncing, InfraStoragePolicyInfo creation,
 // and owner-reference management once a CR exists; this function only guarantees the CR's presence.
 func clusterStoragePolicyInfoFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer,
-	vc string, vcenter *cnsvsphere.VirtualCenter) {
+	vc commontypes.FQDN, vcenter *cnsvsphere.VirtualCenter) {
 	log := logger.GetLogger(ctx)
 
 	if !metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.SupportsExposingStoragePolicyAttributes) {

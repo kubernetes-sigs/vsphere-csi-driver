@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -466,7 +467,7 @@ func SyncerInitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, er
 // the metadataSyncer's host and volumeManager fields.
 func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	metadataSyncer *metadataSyncInformer,
-	volumeID string) (string, volumes.Manager, error) {
+	volumeID string) (commontypes.FQDN, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Getting VC from in-memory map for volume %s", volumeID)
 
@@ -474,7 +475,7 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	// volumeManagers map is not populated
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		if metadataSyncer.volumeManager == nil {
-			return "", nil, logger.LogNewErrorf(log,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 				"volume manager not initialized for WORKLOAD cluster")
 		}
 		return metadataSyncer.host, metadataSyncer.volumeManager, nil
@@ -484,7 +485,7 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
 		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
 		if !volMgrFound {
-			return "", nil, logger.LogNewErrorf(log,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 				"could not get volume manager for the vCenter: %q", vCenter)
 		}
 		log.Debugf("Identified VC %s for single VC setup for volume %s", vCenter, volumeID)
@@ -493,15 +494,16 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 	}
 
 	if volumeInfoService != nil {
-		vCenter, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeID)
+		vCenterStr, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeID)
 		if err != nil {
 			log.Errorf("failed to get vCenter for the volumeID: %q with err=%+v", volumeID, err)
-			return "", nil, logger.LogNewErrorf(log,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 				"failed to get vCenter for the volumeID: %q with err=%+v", volumeID, err)
 		}
+		vCenter := commontypes.NewFQDN(vCenterStr)
 		volumeManager, volumeManagerfound := metadataSyncer.volumeManagers[vCenter]
 		if !volumeManagerfound {
-			return "", nil, logger.LogNewErrorf(log,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 				"could not get volume manager for the vCenter: %q", vCenter)
 		}
 
@@ -509,7 +511,7 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 		return vCenter, volumeManager, nil
 	}
 
-	return "", nil, logger.LogNewErrorf(log,
+	return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 		"failed to get VC host and volume manager. VolumeInfoService is not initialized.")
 }
 
@@ -546,12 +548,12 @@ func getTopologySegmentsFromNodeAffinityRules(ctx context.Context,
 // the right VC for the given volume. If overlapping topology segments are found in nodeAffinity rules,
 // error is returned.
 func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[string][]string,
-	volumeName string) (string, error) {
+	volumeName string) (commontypes.FQDN, error) {
 	log := logger.GetLogger(ctx)
-	var vcHost string
+	var vcHost commontypes.FQDN
 
 	if len(topologySegments) == 0 {
-		return "", logger.LogNewErrorf(log,
+		return commontypes.FQDN{}, logger.LogNewErrorf(log,
 			"Invalid volume %s as it does not have node affinity rules", volumeName)
 	}
 
@@ -559,16 +561,16 @@ func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[s
 
 		vc, err := getVCForTopologySegments(ctx, topology)
 		if err != nil {
-			return "", logger.LogNewErrorf(log,
+			return commontypes.FQDN{}, logger.LogNewErrorf(log,
 				"failed to get VC host and volume manager. Error %+v.", err)
 		}
 
-		if vcHost != "" && vcHost != vc {
-			return "", logger.LogNewErrorf(log,
+		if !vcHost.IsEmpty() && !vcHost.Equal(vc) {
+			return commontypes.FQDN{}, logger.LogNewErrorf(log,
 				"Found topology segments from 2 different VCs %s and %s."+
 					"Error %+v.", vcHost, vc, err)
 		}
-		vcHost = vc
+		vcHost = commontypes.NewFQDN(vc)
 	}
 
 	log.Debugf("Identified VC %s from topology segments for volume %s", vcHost, volumeName)
@@ -577,7 +579,7 @@ func getVcHostFromTopologySegments(ctx context.Context, topologySegments []map[s
 }
 
 // Given a VC, this method returns the volume manager for it to invoke CNS APIs.
-func getVolManagerForVcHost(ctx context.Context, vc string,
+func getVolManagerForVcHost(ctx context.Context, vc commontypes.FQDN,
 	metadataSyncer *metadataSyncInformer) (volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
@@ -604,7 +606,7 @@ func getVolManagerForVcHost(ctx context.Context, vc string,
 // getVcHostAndVolumeManagerFromPvNodeAffinity returns VC host and the corresponding
 // volume manager that can access the given volume on VC based on the nodeAffinity rules.
 func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.PersistentVolume,
-	metadataSyncer *metadataSyncInformer) (string, volumes.Manager, error) {
+	metadataSyncer *metadataSyncInformer) (commontypes.FQDN, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("Getting VC from topology segments for volume %s", pv.Name)
@@ -612,12 +614,12 @@ func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.Per
 	topologySegments := getTopologySegmentsFromNodeAffinityRules(ctx, pv)
 	vcHost, err := getVcHostFromTopologySegments(ctx, topologySegments, pv.Name)
 	if err != nil {
-		return "", nil, err
+		return commontypes.FQDN{}, nil, err
 	}
 
 	volManager, err := getVolManagerForVcHost(ctx, vcHost, metadataSyncer)
 	if err != nil {
-		return "", nil, err
+		return commontypes.FQDN{}, nil, err
 	}
 
 	return vcHost, volManager, nil
@@ -630,7 +632,7 @@ func getVcHostAndVolumeManagerFromPvNodeAffinity(ctx context.Context, pv *v1.Per
 // For all K8s volumes, the corresponding VC is looked up from the in-memory map.
 // In case this info is not available, it is obtained from PV's nodeAffinity rules.
 func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *metadataSyncInformer,
-	vc string) ([]*v1.PersistentVolume, error) {
+	vc commontypes.FQDN) ([]*v1.PersistentVolume, error) {
 
 	log := logger.GetLogger(ctx)
 	k8svolumes := make([]*v1.PersistentVolume, 0)
@@ -674,7 +676,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 			continue
 		}
 
-		if vCenter == vc {
+		if vc.Equal(vCenter) {
 			k8svolumes = append(k8svolumes, pv)
 		}
 	}
@@ -713,12 +715,12 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 // it means that the volume does not need to be re-created.
 func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
 	metadataSyncer *metadataSyncInformer, volumeType string, metadataList []cnstypes.BaseCnsEntityMetadata,
-	volumeHandle string) (string, volumes.Manager, error) {
+	volumeHandle string) (commontypes.FQDN, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
 	vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
 	if err != nil {
-		return "", nil, logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
+		return commontypes.FQDN{}, nil, logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
 	}
 
 	for _, vcconfig := range vcconfigs {
@@ -733,7 +735,7 @@ func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
 		}
 		log.Debugf("Failed to create volume %q on VC %s", volumeHandle, vcconfig.Host)
 	}
-	return "", nil, logger.LogNewErrorf(log,
+	return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
 		"Failed to create volume %s on any of the VCs", volumeHandle)
 }
 
@@ -755,7 +757,7 @@ func generateEventOnPv(ctx context.Context, pv *v1.PersistentVolume,
 
 func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	metadataSyncer *metadataSyncInformer, cnsVolumeMgr volumes.Manager, volumeType string,
-	vcHost string, metadataList []cnstypes.BaseCnsEntityMetadata, volumeHandle string) error {
+	vcHost commontypes.FQDN, metadataList []cnstypes.BaseCnsEntityMetadata, volumeHandle string) error {
 	log := logger.GetLogger(ctx)
 
 	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
@@ -801,7 +803,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 			pv.Spec.CSI.VolumeHandle)
 		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 			// Create CNSVolumeInfo CR for the volume ID.
-			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost)
+			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost.String())
 			if err != nil {
 				log.Errorf("Failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
 					pv.Spec.CSI.VolumeHandle, vcHost, err)

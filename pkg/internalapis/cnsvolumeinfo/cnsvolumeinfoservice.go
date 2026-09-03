@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	cnsvolumeinfoconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/config"
@@ -166,11 +167,10 @@ func (volumeInfo *volumeInfo) GetvCenterForVolumeID(ctx context.Context, volumeI
 		return "", logger.LogNewErrorf(log, "failed to parse cnsvolumeinfo object: %v, err: %v", info, err)
 	}
 	log.Infof("Volume ID %q is associated with VC %q", volumeID, cnsvolumeinfo.Spec.VCenterServer)
-	// Normalize to lowercase: this value is used as an exact-match key against
-	// VirtualCenterConfig.Host-keyed maps (e.g. VolumeManagers), which are always
-	// lowercase. CRs persisted before host normalization was introduced may still
-	// carry their original casing.
-	return strings.ToLower(cnsvolumeinfo.Spec.VCenterServer), nil
+	// Normalize: this value is used as an exact-match key against FQDN-keyed
+	// maps (e.g. VolumeManagers). CRs persisted before host normalization was
+	// introduced may still carry their original casing.
+	return commontypes.NewFQDN(cnsvolumeinfo.Spec.VCenterServer).String(), nil
 }
 
 // CreateVolumeInfo creates VolumeInfo CR to persist VolumeID to vCenter mapping

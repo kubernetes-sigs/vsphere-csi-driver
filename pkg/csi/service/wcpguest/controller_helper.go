@@ -333,7 +333,7 @@ func getWorkerNodeHostValues(ctx context.Context, guestClient clientset.Interfac
 		}
 		workerNodeCount++
 		if val, ok := node.Labels[common.GuestClusterTopologyLabelHost]; ok && val != "" {
-			workerHostValues[val] = true
+			workerHostValues[strings.ToLower(val)] = true
 		}
 	}
 	return workerHostValues, workerNodeCount, nil
@@ -382,7 +382,7 @@ func filterOutControlPlaneOnlyTopologySegments(ctx context.Context, guestClient 
 	filtered := make([]*csi.Topology, 0, len(segments))
 	for _, topology := range segments {
 		host, hasHostKey := topology.Segments[common.GuestClusterTopologyLabelHost]
-		if hasHostKey && host != "" && !workerHostValues[host] {
+		if hasHostKey && host != "" && !workerHostValues[strings.ToLower(host)] {
 			log.Infof("filterOutControlPlaneOnlyTopologySegments: dropping topology segment %+v because "+
 				"host %q has no worker nodes (control plane VMs only)", topology.Segments, host)
 			continue

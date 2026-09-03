@@ -19,6 +19,7 @@ import (
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // writeSessionTestConfig points config.GetConfig at a throwaway file, which
@@ -88,7 +89,7 @@ func newSharedSessionVC(t *testing.T) *VirtualCenter {
 
 	return &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host:                  vcsim.URL.Hostname(),
+			Host:                  commontypes.NewFQDN(vcsim.URL.Hostname()),
 			Port:                  port,
 			Insecure:              true,
 			VCSessionManagerURL:   sessionManager.URL,

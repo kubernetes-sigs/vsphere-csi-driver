@@ -27,6 +27,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
 
@@ -79,7 +80,8 @@ func (s *stubNodeManager) GetAllNodes(ctx context.Context) ([]*cnsvsphere.Virtua
 	return nil, nil
 }
 
-func (s *stubNodeManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error) {
+func (s *stubNodeManager) GetAllNodesByVC(ctx context.Context,
+	vcHost commontypes.FQDN) ([]*cnsvsphere.VirtualMachine, error) {
 	return nil, nil
 }
 

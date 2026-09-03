@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
@@ -49,7 +51,7 @@ func newConnectedVC(t *testing.T, ctx context.Context) *VirtualCenter {
 
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host: server.URL.Hostname(), Port: port, Insecure: true,
+			Host: commontypes.NewFQDN(server.URL.Hostname()), Port: port, Insecure: true,
 			Username: "user", Password: "pass", // simulator.DefaultLogin
 		},
 		ClientMutex: &sync.Mutex{},

@@ -23,6 +23,7 @@ import (
 
 	"github.com/vmware/govmomi/cns"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -37,7 +38,7 @@ var (
 // VirtualCenterManager provides functionality to manage virtual centers.
 type VirtualCenterManager interface {
 	// GetVirtualCenter returns the VirtualCenter instance given the host.
-	GetVirtualCenter(ctx context.Context, host string) (*VirtualCenter, error)
+	GetVirtualCenter(ctx context.Context, host commontypes.FQDN) (*VirtualCenter, error)
 	// GetAllVirtualCenters returns all VirtualCenter instances. If virtual
 	// centers are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
@@ -47,20 +48,20 @@ type VirtualCenterManager interface {
 	RegisterVirtualCenter(ctx context.Context, config *VirtualCenterConfig) (*VirtualCenter, error)
 	// UnregisterVirtualCenter disconnects and unregisters the virtual center
 	// given it's host.
-	UnregisterVirtualCenter(ctx context.Context, host string) error
+	UnregisterVirtualCenter(ctx context.Context, host commontypes.FQDN) error
 	// UnregisterAllVirtualCenters disconnects and unregisters all virtual centers.
 	UnregisterAllVirtualCenters(ctx context.Context) error
 	// IsvSANFileServicesSupported checks if vSAN file services is supported or not.
-	IsvSANFileServicesSupported(ctx context.Context, host string) (bool, error)
+	IsvSANFileServicesSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 	// IsOnlineExtendVolumeSupported checks if online extend volume is supported
 	// or not on the vCenter Host.
-	IsOnlineExtendVolumeSupported(ctx context.Context, host string) (bool, error)
+	IsOnlineExtendVolumeSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 	// IsCnsSnapshotSupported checks if cns volume snapshot is supported
 	// or not on the vCenter Host.
-	IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error)
+	IsCnsSnapshotSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 	// IsCnsTransactionSupported checks if cns transaction is supported
 	// or not on the vCenter Host.
-	IsCnsTransactionSupported(ctx context.Context, host string) (bool, error)
+	IsCnsTransactionSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 }
 
 var (
@@ -88,7 +89,8 @@ type defaultVirtualCenterManager struct {
 	virtualCenters sync.Map
 }
 
-func (m *defaultVirtualCenterManager) GetVirtualCenter(ctx context.Context, host string) (*VirtualCenter, error) {
+func (m *defaultVirtualCenterManager) GetVirtualCenter(ctx context.Context,
+	host commontypes.FQDN) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	if vc, exists := m.virtualCenters.Load(host); exists {
 		return vc.(*VirtualCenter), nil
@@ -127,7 +129,7 @@ func (m *defaultVirtualCenterManager) RegisterVirtualCenter(ctx context.Context,
 	return vc, nil
 }
 
-func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(ctx context.Context, host string) error {
+func (m *defaultVirtualCenterManager) UnregisterVirtualCenter(ctx context.Context, host commontypes.FQDN) error {
 	log := logger.GetLogger(ctx)
 	vc, err := m.GetVirtualCenter(ctx, host)
 	if err != nil {
@@ -153,8 +155,8 @@ func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Co
 	var err error
 	log := logger.GetLogger(ctx)
 	m.virtualCenters.Range(func(hostInf, _ interface{}) bool {
-		if err = m.UnregisterVirtualCenter(ctx, hostInf.(string)); err != nil {
-			log.Warnf("failed to unregister vCenter: %q, err: %+v", hostInf.(string), err)
+		if err = m.UnregisterVirtualCenter(ctx, hostInf.(commontypes.FQDN)); err != nil {
+			log.Warnf("failed to unregister vCenter: %q, err: %+v", hostInf.(commontypes.FQDN), err)
 		}
 		return true
 	})
@@ -162,7 +164,8 @@ func (m *defaultVirtualCenterManager) UnregisterAllVirtualCenters(ctx context.Co
 }
 
 // IsvSANFileServicesSupported checks if vSAN file services is supported or not.
-func (m *defaultVirtualCenterManager) IsvSANFileServicesSupported(ctx context.Context, host string) (bool, error) {
+func (m *defaultVirtualCenterManager) IsvSANFileServicesSupported(ctx context.Context,
+	host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
 	is67u3Release, err := isVsan67u3Release(ctx, m, host)
 	if err != nil {
@@ -173,7 +176,8 @@ func (m *defaultVirtualCenterManager) IsvSANFileServicesSupported(ctx context.Co
 }
 
 // IsOnlineExtendVolumeSupported checks if online extend volume is supported or not.
-func (m *defaultVirtualCenterManager) IsOnlineExtendVolumeSupported(ctx context.Context, host string) (bool, error) {
+func (m *defaultVirtualCenterManager) IsOnlineExtendVolumeSupported(ctx context.Context,
+	host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	// Get VC instance.
@@ -192,7 +196,8 @@ func (m *defaultVirtualCenterManager) IsOnlineExtendVolumeSupported(ctx context.
 }
 
 // IsCnsSnapshotSupported checks if cns snapshot is supported or not.
-func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context, host string) (bool, error) {
+func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context,
+	host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	// Get VC instance.
@@ -215,7 +220,8 @@ func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context
 }
 
 // IsCnsTransactionSupported checks if cns transaction is supported or not.
-func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Context, host string) (bool, error) {
+func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Context,
+	host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
 
 	// Get VC instance.

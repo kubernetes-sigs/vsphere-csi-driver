@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
+
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/simulator"
 )
@@ -51,7 +53,7 @@ func TestGetTagManagerRestClientReadRace(t *testing.T) {
 
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host:     server.URL.Hostname(),
+			Host:     commontypes.NewFQDN(server.URL.Hostname()),
 			Port:     port,
 			Insecure: true,
 			Username: "user", // simulator.DefaultLogin
