@@ -31,7 +31,12 @@ import (
 
 // osExit is invoked when node registration fails on CSINode add or update.
 // Tests replace this to assert exit behavior without terminating the process.
-var osExit = os.Exit
+var (
+	osExit              = os.Exit
+	getNodeManager      = GetManager
+	newKubernetesClient = k8s.NewClient
+	newInformerManager  = k8s.NewInformer
+)
 
 // Nodes comprises cns node manager and kubernetes informer.
 type Nodes struct {
@@ -39,24 +44,39 @@ type Nodes struct {
 	informMgr      *k8s.InformerManager
 }
 
-// Initialize helps initialize node manager and node informer manager.
+// Initialize initializes the node manager and starts the CSINode informer.
 func (nodes *Nodes) Initialize(ctx context.Context) error {
-	nodes.cnsNodeManager = GetManager(ctx)
-	k8sclient, err := k8s.NewClient(ctx)
+	if err := nodes.Prepare(ctx); err != nil {
+		return err
+	}
+	nodes.Start()
+	return nil
+}
+
+// Prepare initializes the node manager and CSINode informer without starting
+// the informer. This allows callers to finish initializing dependencies needed
+// by CSINode event handlers before existing CSINodes are processed.
+func (nodes *Nodes) Prepare(ctx context.Context) error {
+	nodes.cnsNodeManager = getNodeManager(ctx)
+	k8sclient, err := newKubernetesClient(ctx)
 	if err != nil {
 		log := logger.GetLogger(ctx)
 		log.Errorf("Creating Kubernetes client failed. Err: %v", err)
 		return err
 	}
 	nodes.cnsNodeManager.SetKubernetesClient(k8sclient)
-	nodes.informMgr = k8s.NewInformer(ctx, k8sclient)
+	nodes.informMgr = newInformerManager(ctx, k8sclient)
 	err = nodes.informMgr.AddCSINodeListener(ctx, nodes.csiNodeAdd,
 		nodes.csiNodeUpdate, nodes.csiNodeDelete)
 	if err != nil {
 		return fmt.Errorf("failed to listen on CSINodes. Error: %v", err)
 	}
-	nodes.informMgr.Listen()
 	return nil
+}
+
+// Start starts the prepared CSINode informer.
+func (nodes *Nodes) Start() {
+	nodes.informMgr.Listen()
 }
 
 func (nodes *Nodes) csiNodeAdd(obj interface{}) {
