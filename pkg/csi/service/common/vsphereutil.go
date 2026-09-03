@@ -1152,7 +1152,7 @@ func getDatastoreInfoObjList(ctx context.Context, vc *vsphere.VirtualCenter,
 		return datastoreInfos, nil
 	} else {
 		return nil, logger.LogNewErrorf(log,
-			"Unable to find datastore for datastore URL %s in VC %+v", datastoreURL, vc)
+			"Unable to find datastore for datastore URL %s in VC %s", datastoreURL, vc.Config.Host)
 	}
 }
 

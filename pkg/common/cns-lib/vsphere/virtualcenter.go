@@ -27,6 +27,7 @@ import (
 	neturl "net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,9 +148,9 @@ type VirtualCenterConfig struct {
 	// Host represents the virtual center host address.
 	Host string
 	// Username represents the virtual center username.
-	Username string
+	Username string `sensitive:"true"`
 	// Password represents the virtual center password in clear text.
-	Password string
+	Password string `sensitive:"true"`
 	// Specifies the path to a CA certificate in PEM format. This has no effect
 	// if Insecure is enabled. Optional; if not configured, the system's CA
 	// certificates will be used.
@@ -189,7 +190,30 @@ type VirtualCenterConfig struct {
 	VCSessionManagerURL string
 	// VCSessionManagerToken is the token that should be passed to authenticate against the session manager
 	// If empty, the Pod service account will be used
-	VCSessionManagerToken string
+	VCSessionManagerToken string `sensitive:"true"`
+}
+
+// String returns a string representation of VirtualCenterConfig with sensitive fields redacted.
+func (vcc *VirtualCenterConfig) String() string {
+	if vcc == nil {
+		return "<nil>"
+	}
+	val := reflect.ValueOf(*vcc)
+	typ := val.Type()
+
+	var fields []string
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		value := val.Field(i)
+
+		if field.Tag.Get("sensitive") == "true" {
+			fields = append(fields, fmt.Sprintf("%s:%s", field.Name, strings.Repeat("*", value.Len())))
+		} else {
+			fields = append(fields, fmt.Sprintf("%s:%v", field.Name, value.Interface()))
+		}
+	}
+
+	return fmt.Sprintf("{%s}", strings.Join(fields, " "))
 }
 
 // NewClient creates a new govmomi Client instance.
