@@ -23,20 +23,22 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 var (
 	ctx           context.Context
 	cancel        context.CancelFunc
-	idealVCConfig map[string]*VirtualCenterConfig
+	idealVCConfig map[types.FQDN]*VirtualCenterConfig
 )
 
 func init() {
 	// Create context
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
-	idealVCConfig = map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	idealVCConfig = map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			User:         "Administrator@vsphere.local",
 			Password:     "Password",
 			VCenterPort:  "443",
@@ -162,8 +164,8 @@ func TestValidateConfigWithInvalidClusterId(t *testing.T) {
 }
 
 func TestValidateConfigWithInvalidUsername(t *testing.T) {
-	vcConfigInvalidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigInvalidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			User:         "Administrator",
 			Password:     "Password",
 			VCenterPort:  "443",
@@ -182,8 +184,8 @@ func TestValidateConfigWithInvalidUsername(t *testing.T) {
 }
 
 func TestValidateConfigWithValidUsername1(t *testing.T) {
-	vcConfigValidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigValidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			User:         "Administrator@vsphere.local",
 			Password:     "Password",
 			VCenterPort:  "443",
@@ -202,8 +204,8 @@ func TestValidateConfigWithValidUsername1(t *testing.T) {
 }
 
 func TestValidateConfigWithSessionManager(t *testing.T) {
-	vcConfigValidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigValidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			VCenterPort:         "443",
 			Datacenters:         "dc1",
 			InsecureFlag:        true,
@@ -221,8 +223,8 @@ func TestValidateConfigWithSessionManager(t *testing.T) {
 }
 
 func TestValidateConfigWithSessionManagerAndToken(t *testing.T) {
-	vcConfigValidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigValidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			VCenterPort:           "443",
 			Datacenters:           "dc1",
 			InsecureFlag:          true,
@@ -247,8 +249,8 @@ func TestValidateConfigWithSessionManagerAndToken(t *testing.T) {
 // VCSessionManagerToken at all, so a token with no URL configured has nowhere
 // to be sent and must not silently pass validation.
 func TestValidateConfigWithSessionManagerTokenButNoURL(t *testing.T) {
-	vcConfigTokenOnly := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigTokenOnly := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			VCenterPort:           "443",
 			Datacenters:           "dc1",
 			InsecureFlag:          true,
@@ -267,8 +269,8 @@ func TestValidateConfigWithSessionManagerTokenButNoURL(t *testing.T) {
 }
 
 func TestValidateConfigWithValidUsername2(t *testing.T) {
-	vcConfigValidUsername := map[string]*VirtualCenterConfig{
-		"1.1.1.1": {
+	vcConfigValidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
 			User:         "vsphere.local\\Administrator",
 			Password:     "Password",
 			VCenterPort:  "443",

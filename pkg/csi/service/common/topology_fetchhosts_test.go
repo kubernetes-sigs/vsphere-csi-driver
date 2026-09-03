@@ -28,6 +28,7 @@ import (
 	vim25types "github.com/vmware/govmomi/vim25/types"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // buildVirtualCenter constructs a minimal cnsvsphere.VirtualCenter backed by
@@ -35,7 +36,7 @@ import (
 // calls against the vcsim server.
 func buildVirtualCenter(client *govmomi.Client) *cnsvsphere.VirtualCenter {
 	return &cnsvsphere.VirtualCenter{
-		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("127.0.0.1")},
 		Client:      client,
 		ClientMutex: &sync.Mutex{},
 	}

@@ -28,6 +28,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -71,7 +72,7 @@ type Manager interface {
 	// GetAllNodesByVC refreshes and returns VirtualMachine for all registered
 	// nodes in the given VC. If nodes are added or removed concurrently, they
 	// may or may not be reflected in the result of a call to this method.
-	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*vsphere.VirtualMachine, error)
+	GetAllNodesByVC(ctx context.Context, vcHost types.FQDN) ([]*vsphere.VirtualMachine, error)
 	// UnregisterNode unregisters a registered node given its name.
 	UnregisterNode(ctx context.Context, nodeName string) error
 	// UnregisterAllNodes unregisters all registered nodes with the node manager.
@@ -282,7 +283,7 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 	log := logger.GetLogger(ctx)
 	var vms []*vsphere.VirtualMachine
 	var err error
-	reconnectedHosts := make(map[string]bool)
+	reconnectedHosts := make(map[types.FQDN]bool)
 
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {
@@ -344,11 +345,12 @@ func (m *defaultManager) GetAllNodes(ctx context.Context) ([]*vsphere.VirtualMac
 }
 
 // GetAllNodesByVC refreshes and returns VirtualMachine for all registered nodes in the given vcHost.
-func (m *defaultManager) GetAllNodesByVC(ctx context.Context, vcHost string) ([]*vsphere.VirtualMachine, error) {
+func (m *defaultManager) GetAllNodesByVC(ctx context.Context,
+	vcHost types.FQDN) ([]*vsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 	var vms []*vsphere.VirtualMachine
 	var err error
-	reconnectedHosts := make(map[string]bool)
+	reconnectedHosts := make(map[types.FQDN]bool)
 
 	m.nodeNameToUUID.Range(func(nodeName, nodeUUID interface{}) bool {
 		if nodeName != nil && nodeUUID != nil && nodeUUID.(string) == "" {

@@ -59,6 +59,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -1469,7 +1470,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 				// Create CNSVolumeInfo CR for the volume ID.
 				capacity := resource.NewQuantity(volSizeBytes, resource.BinarySI)
 				err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeInfo.VolumeID.Id, pvcNamespace,
-					storagePolicyID, scName, vc.Config.Host, capacity, isLinkedCloneRequest)
+					storagePolicyID, scName, vc.Config.Host.String(), capacity, isLinkedCloneRequest)
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to store volumeID %q pvcNamespace %q StoragePolicyID %q StorageClassName %q "+
@@ -2460,7 +2461,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			vCenterHost = key
 			dcMorefValue = value
 		}
-		vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
+		vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, commontypes.NewFQDN(vCenterHost))
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
@@ -2614,7 +2615,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 					vCenterHost = key
 					dcMorefValue = value
 				}
-				vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
+				vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, commontypes.NewFQDN(vCenterHost))
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",
@@ -2682,7 +2683,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 							vCenterHost = key
 							dcMorefValue = value
 						}
-						vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, vCenterHost)
+						vc, err := c.manager.VcenterManager.GetVirtualCenter(ctx, commontypes.NewFQDN(vCenterHost))
 						if err != nil {
 							return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 								"cannot get virtual center %s from virtualcentermanager while attaching disk with error %+v",

@@ -34,6 +34,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
@@ -167,22 +168,24 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 		return nil, fmt.Errorf("failed to get vCenters from Managers, err: %v", err)
 	}
 
-	vmRefsPervCenter := make(map[string][]types.ManagedObjectReference)
-	vmMoListPervCenter := make(map[string][]mo.VirtualMachine)
+	vmRefsPervCenter := make(map[commontypes.FQDN][]types.ManagedObjectReference)
+	vmMoListPervCenter := make(map[commontypes.FQDN][]mo.VirtualMachine)
 	properties := []string{"runtime.host", "config.hardware", "config.uuid"}
 
 	for _, nodeVM := range allnodeVMs {
-		vmRefsPervCenter[nodeVM.VirtualCenterHost] = append(vmRefsPervCenter[nodeVM.VirtualCenterHost], nodeVM.Reference())
+		hostKey := nodeVM.VirtualCenterHost
+		vmRefsPervCenter[hostKey] = append(vmRefsPervCenter[hostKey], nodeVM.Reference())
 	}
 	log.Debugf("vmRefsPervCenter: %+v to collect properties", vmRefsPervCenter)
 	for _, vc := range vCenters {
 		pc := property.DefaultCollector(vc.Client.Client)
 		// Obtain host MoID and virtual disk ID
 		var vmMoList []mo.VirtualMachine
-		if len(vmRefsPervCenter[vc.Config.Host]) == 0 {
+		hostKey := vc.Config.Host
+		if len(vmRefsPervCenter[hostKey]) == 0 {
 			continue
 		}
-		err = pc.Retrieve(ctx, vmRefsPervCenter[vc.Config.Host], properties, &vmMoList)
+		err = pc.Retrieve(ctx, vmRefsPervCenter[hostKey], properties, &vmMoList)
 		if err != nil {
 			log.Errorf("failed to get VM managed objects from VM objects, err: %v", err)
 			return volumeIDNodeUUIDMap, err
@@ -223,21 +226,21 @@ func getBlockVolumeIDToNodeUUIDMap(ctx context.Context, c *controller,
 // If multi-vcenter-csi-topology feature is enabled and volumeInfoService is instantiated volume manager is returned for
 // the vCenter IP mapped to the requested VolumeID. vCenter for the requested volume is obtained from volumeInfoService.
 func getVCenterAndVolumeManagerForVolumeID(ctx context.Context, controller *controller, volumeId string,
-	volumeInfoService cnsvolumeinfo.VolumeInfoService) (string, cnsvolume.Manager, error) {
+	volumeInfoService cnsvolumeinfo.VolumeInfoService) (commontypes.FQDN, cnsvolume.Manager, error) {
 	log := logger.GetLogger(ctx)
 	var (
 		volumeManager      cnsvolume.Manager
 		volumeManagerfound bool
-		vCenter            string
-		err                error
+		vCenter            commontypes.FQDN
 	)
 	if len(controller.managers.VcenterConfigs) > 1 {
 		// Multi vCenter Deployment
-		vCenter, err = volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
+		vCenterStr, err := volumeInfoService.GetvCenterForVolumeID(ctx, volumeId)
 		if err != nil {
-			return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to get vCenter for the volumeID: %q with err=%+v", volumeId, err)
 		}
+		vCenter = commontypes.NewFQDN(vCenterStr)
 		if volumeManager, volumeManagerfound = controller.managers.VolumeManagers[vCenter]; !volumeManagerfound {
 			return vCenter, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"could not get volume manager for the vCenter: %q", vCenter)
@@ -246,14 +249,14 @@ func getVCenterAndVolumeManagerForVolumeID(ctx context.Context, controller *cont
 		// Single vCenter Deployment
 		vCenterConfig, vCenterFound := controller.managers.VcenterConfigs[controller.managers.CnsConfig.Global.VCenterIP]
 		if !vCenterFound {
-			return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"could not get vCenter config for the vCenter: %q",
 				controller.managers.CnsConfig.Global.VCenterIP)
 		}
 		vCenter = vCenterConfig.Host
 		if volumeManager, volumeManagerfound =
 			controller.managers.VolumeManagers[vCenter]; !volumeManagerfound {
-			return "", nil, logger.LogNewErrorCodef(log, codes.Internal,
+			return commontypes.FQDN{}, nil, logger.LogNewErrorCodef(log, codes.Internal,
 				"could not get volume manager for the vCenter: %q", vCenter)
 		}
 	}
@@ -268,7 +271,7 @@ func getVCenterManagerForVCenter(ctx context.Context, controller *controller) vs
 
 // GetVolumeManagerFromVCHost retreives the volume manager associated with
 // vCenterHost under managers. Error out if the vCenterHost does not exist.
-func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, vCenterHost string) (
+func GetVolumeManagerFromVCHost(ctx context.Context, managers *common.Managers, vCenterHost commontypes.FQDN) (
 	cnsvolume.Manager, error) {
 	log := logger.GetLogger(ctx)
 	volumeMgr, exists := managers.VolumeManagers[vCenterHost]

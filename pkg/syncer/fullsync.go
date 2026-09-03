@@ -52,6 +52,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -80,7 +81,7 @@ var queryVolumeByIDFn = common.QueryVolumeByID
 
 // CsiFullSync reconciles volume metadata on a vanilla k8s cluster with volume
 // metadata on CNS.
-func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) error {
+func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc commontypes.FQDN) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("FullSync for VC %s: start", vc)
 	fullSyncStartTime := time.Now()
@@ -525,7 +526,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 		log.Errorf("FullSync for VC %s: failed to compute pv_missing update specs with err %+v", vc, err)
 		return err
 	}
-	prometheus.CnsVolumePVMissingGaugeVec.WithLabelValues(vc).Set(float64(missingPVCount))
+	prometheus.CnsVolumePVMissingGaugeVec.WithLabelValues(vc.String()).Set(float64(missingPVCount))
 	if len(missingPVUpdateSpecs) > 0 {
 		log.Infof("FullSync for VC %s: applying pv_missing label to %d volume(s)",
 			vc, len(missingPVUpdateSpecs))
@@ -543,7 +544,7 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc s
 			log.Errorf("FullSync for VC %s: failed to compute pv_retained update specs with err %+v", vc, err)
 			return err
 		}
-		prometheus.CnsVolumePVRetainedGaugeVec.WithLabelValues(vc).Set(float64(retainedPVCount))
+		prometheus.CnsVolumePVRetainedGaugeVec.WithLabelValues(vc.String()).Set(float64(retainedPVCount))
 		if len(retainedPVUpdateSpecs) > 0 {
 			log.Infof("FullSync for VC %s: applying pv_retained label to %d volume(s)",
 				vc, len(retainedPVUpdateSpecs))
@@ -850,7 +851,7 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 // starts. So the k8sPVMap has stale values. This means that the volumeInfo CR which
 // may have got created during the full sync, might be added to the deletion map.
 // This entry will be removed from the deletion map in the next full sync cycle.
-func cleanUpVolumeInfoCrDeletionMap(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
+func cleanUpVolumeInfoCrDeletionMap(ctx context.Context, metadataSyncer *metadataSyncInformer, vc commontypes.FQDN) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("Cleaning up VolumeInfo CRs.")
 
@@ -883,7 +884,7 @@ func cleanUpVolumeInfoCrDeletionMap(ctx context.Context, metadataSyncer *metadat
 
 // volumeInfoCRFullSync creates VolumeInfo CR if it does not already exist for a volume.
 // It also deletes VolumeInfo CR if its corresponding PV does not exist.
-func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
+func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc commontypes.FQDN) {
 	log := logger.GetLogger(ctx)
 
 	log.Debugf("Starting volumeInfo CR full sync.")
@@ -950,7 +951,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 		// Create VolumeInfo CR if not found.
 		if !crExists {
 			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
-				err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
+				err := volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc.String())
 				if err != nil {
 					log.Errorf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
 						"Error: %+v", vc, volumeID, err)
@@ -979,7 +980,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 					pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
 					if pvc.Spec.StorageClassName != nil {
 						err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
-							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc,
+							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc.String(),
 							&pvcCapacity, isLinkedCloneVolume)
 						if err != nil {
 							log.Warnf("FullSync for VC %s: failed to create VolumeInfo CR for volume %s."+
@@ -1004,9 +1005,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			log.Errorf("FullSync for VC %s: failed to parse cnsvolumeinfo object: %v, err: %v", vc, cnsvolumeinfo, err)
 			continue
 		}
-		// Use case-insensitive comparison: VCenterServer values persisted before
-		// vCenter host normalization was introduced may retain their original casing.
-		if strings.EqualFold(cnsvolumeinfo.Spec.VCenterServer, vc) {
+		if vc.EqualString(cnsvolumeinfo.Spec.VCenterServer) {
 			if _, exists := currentK8sPVMap[cnsvolumeinfo.Spec.VolumeID]; !exists {
 				// If a PV is not present in the cluster for two full sync cycles, delete its VolumeInfo CR.
 				if _, existsInCrDeletionMap := volumeInfoCrDeletionMap[vc][cnsvolumeinfo.Spec.VolumeID]; existsInCrDeletionMap {
@@ -1123,7 +1122,7 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 // If the volume is successfully created, it is removed from `cnsCreationMap`.
 func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVolumeCreateSpec,
 	metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup, migrationFeatureStateForFullSync bool,
-	volManager volumes.Manager, vc string) {
+	volManager volumes.Manager, vc commontypes.FQDN) {
 	log := logger.GetLogger(ctx)
 	defer wg.Done()
 	currentK8sPVMap := make(map[string]*v1.PersistentVolume)
@@ -1185,7 +1184,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 
 			if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
 				// Create CNSVolumeInfo CR for the volume ID.
-				err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc)
+				err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vc.String())
 				if err != nil {
 					log.Errorf("FullSync for VC %s: failed to store volumeID %q in CNSVolumeInfo CR. Error: %+v",
 						vc, volumeID, err)
@@ -1205,7 +1204,7 @@ func fullSyncCreateVolumes(ctx context.Context, createSpecArray []cnstypes.CnsVo
 // createSpec.
 func fullSyncUpdateVolumes(ctx context.Context, updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec,
 	metadataSyncer *metadataSyncInformer, wg *sync.WaitGroup, volManager volumes.Manager,
-	vc string) {
+	vc commontypes.FQDN) {
 	defer wg.Done()
 	log := logger.GetLogger(ctx)
 	for _, updateSpec := range updateSpecArray {
@@ -1220,7 +1219,7 @@ func fullSyncUpdateVolumes(ctx context.Context, updateSpecArray []cnstypes.CnsVo
 // buildCnsMetadataList build metadata list for given PV.
 // Metadata list may include PV metadata, PVC metadata and POD metadata.
 func buildCnsMetadataList(ctx context.Context, pv *v1.PersistentVolume, pvToPVCMap pvcMap,
-	pvcToPodMap podMap, clusterID string, vc string) []cnstypes.BaseCnsEntityMetadata {
+	pvcToPodMap podMap, clusterID string, vc commontypes.FQDN) []cnstypes.BaseCnsEntityMetadata {
 	log := logger.GetLogger(ctx)
 	var metadataList []cnstypes.BaseCnsEntityMetadata
 	// Get pv metadata.
@@ -1332,7 +1331,7 @@ func preserveHealthLabelsOnK8sPVMetadata(k8sMetadataList []cnstypes.BaseCnsEntit
 func fullSyncConstructVolumeMaps(ctx context.Context, pvList []*v1.PersistentVolume,
 	cnsVolumeList []cnstypes.CnsVolume, pvToPVCMap pvcMap, pvcToPodMap podMap,
 	metadataSyncer *metadataSyncInformer, migrationFeatureStateForFullSync bool,
-	volManager volumes.Manager, vc string) (
+	volManager volumes.Manager, vc commontypes.FQDN) (
 	map[string][]cnstypes.BaseCnsEntityMetadata, map[string][]cnstypes.BaseCnsEntityMetadata,
 	map[string]bool, error) {
 	log := logger.GetLogger(ctx)
@@ -1420,7 +1419,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 	volumeToCnsEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata,
 	volumeToK8sEntityMetadataMap map[string][]cnstypes.BaseCnsEntityMetadata,
 	volumeClusterDistributionMap map[string]bool, containerCluster cnstypes.CnsContainerCluster,
-	migrationFeatureStateForFullSync bool, vc string) (
+	migrationFeatureStateForFullSync bool, vc commontypes.FQDN) (
 	[]cnstypes.CnsVolumeCreateSpec, []cnstypes.CnsVolumeMetadataUpdateSpec) {
 	log := logger.GetLogger(ctx)
 	var createSpecArray []cnstypes.CnsVolumeCreateSpec
@@ -1651,7 +1650,7 @@ func fullSyncGetVolumeSpecs(ctx context.Context, vCenterVersion string, pvList [
 func getMissingPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume,
 	k8sPVMap map[string]string, metadataSyncer *metadataSyncInformer,
 	migrationFeatureStateForFullSync bool, containerCluster cnstypes.CnsContainerCluster,
-	vc string) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
+	vc commontypes.FQDN) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
 	log := logger.GetLogger(ctx)
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 
@@ -1796,7 +1795,7 @@ func isPVEntityLabeledExclusively(vol cnstypes.CnsVolume, labelKey, labelValue s
 // Returns (spec, false) if there is nothing to update (every PV entity is
 // already labeled, or no candidate entity could be synthesized).
 func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
-	containerCluster cnstypes.CnsContainerCluster, vc string) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
+	containerCluster cnstypes.CnsContainerCluster, vc commontypes.FQDN) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
 	log := logger.GetLogger(ctx)
 	var entityMetadata []cnstypes.BaseCnsEntityMetadata
 	foundInClusterPV := false
@@ -1891,7 +1890,7 @@ func buildPVMissingUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 // pv_retained gauge for this VC.
 func getRetainedPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstypes.CnsVolume,
 	k8sPVs []*v1.PersistentVolume, containerCluster cnstypes.CnsContainerCluster,
-	vc string) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
+	vc commontypes.FQDN) ([]cnstypes.CnsVolumeMetadataUpdateSpec, int, error) {
 	log := logger.GetLogger(ctx)
 	var updateSpecArray []cnstypes.CnsVolumeMetadataUpdateSpec
 
@@ -1942,7 +1941,7 @@ func getRetainedPVVolumeUpdateSpecs(ctx context.Context, cnsVolumeList []cnstype
 // Returns (spec, false) if there is nothing to update (every PV entity is
 // already labeled, or no candidate entity could be synthesized).
 func buildPVRetainedUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
-	containerCluster cnstypes.CnsContainerCluster, vc string) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
+	containerCluster cnstypes.CnsContainerCluster, vc commontypes.FQDN) (cnstypes.CnsVolumeMetadataUpdateSpec, bool) {
 	log := logger.GetLogger(ctx)
 	var entityMetadata []cnstypes.BaseCnsEntityMetadata
 	foundInClusterPV := false
@@ -2010,7 +2009,7 @@ func buildPVRetainedUpdateSpec(ctx context.Context, vol cnstypes.CnsVolume,
 // pvcToPodMap maps PVC to the array of PODs using the PVC, key is
 // "pod.Namespace/pvc.Name".
 func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume,
-	metadataSyncer *metadataSyncInformer, vc string) (pvcMap, podMap, error) {
+	metadataSyncer *metadataSyncInformer, vc commontypes.FQDN) (pvcMap, podMap, error) {
 	log := logger.GetLogger(ctx)
 	pvToPVCMap := make(pvcMap)
 	pvcToPodMap := make(podMap)
@@ -2052,7 +2051,7 @@ func buildPVCMapPodMap(ctx context.Context, pvList []*v1.PersistentVolume,
 // list from CNS and returns true if update operation is required. Otherwise,
 // returns false.
 func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataList []cnstypes.BaseCnsEntityMetadata,
-	cnsMetadataList []cnstypes.BaseCnsEntityMetadata, volumeClusterDistributionSet bool, vc string) bool {
+	cnsMetadataList []cnstypes.BaseCnsEntityMetadata, volumeClusterDistributionSet bool, vc commontypes.FQDN) bool {
 	log := logger.GetLogger(ctx)
 	log.Debugw("FullSync: isUpdateRequired called", "vc", vc, "k8sMetadataList", k8sMetadataList,
 		"cnsMetadataList", cnsMetadataList)
@@ -2111,7 +2110,7 @@ func isUpdateRequired(ctx context.Context, vCenterVersion string, k8sMetadataLis
 // The map names are retained for historical/test compatibility; their meaning
 // for cnsDeletionMap has shifted from "to be deleted" to "missing PV, awaiting
 // label".
-func cleanupCnsMaps(k8sPVs map[string]string, vc string) {
+func cleanupCnsMaps(k8sPVs map[string]string, vc commontypes.FQDN) {
 	// Cleanup cnsCreationMap.
 	cnsCreationMapForVc := cnsCreationMap[vc]
 	for volID := range cnsCreationMapForVc {
@@ -2917,7 +2916,8 @@ func annotateSnapshotsFromCNSResults(
 // 4. Queries CNS sequentially, one volume at a time (CNS does not parallelize requests)
 // 5. For each CNS query result, immediately annotates matching VolumeSnapshots
 // This ensures supervisor snapshots have complete metadata that can be mirrored to guest cluster snapshots.
-func setChangeIDAnnotationOnSupervisorSnapshots(ctx context.Context, metadataSyncer *metadataSyncInformer, vc string) {
+func setChangeIDAnnotationOnSupervisorSnapshots(ctx context.Context, metadataSyncer *metadataSyncInformer,
+	vc commontypes.FQDN) {
 	log := logger.GetLogger(ctx)
 	log.Debugf("setChangeIDAnnotationOnSupervisorSnapshots: Start for VC: %s", vc)
 

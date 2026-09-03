@@ -48,6 +48,7 @@ import (
 	"github.com/vmware/govmomi/vslm"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
@@ -126,7 +127,7 @@ var (
 	// VCenter instance. It is a singleton.
 	vCenterInstance *VirtualCenter
 	// Map of VCenter Hostname and vCenter instances
-	vCenterInstances = make(map[string]*VirtualCenter)
+	vCenterInstances = make(map[commontypes.FQDN]*VirtualCenter)
 
 	// Has the vCenter instance been initialized?
 	vCenterInitialized bool
@@ -146,7 +147,7 @@ type VirtualCenterConfig struct {
 	// Scheme represents the connection scheme. (Ex: https)
 	Scheme string
 	// Host represents the virtual center host address.
-	Host string
+	Host commontypes.FQDN
 	// Username represents the virtual center username.
 	Username string `sensitive:"true"`
 	// Password represents the virtual center password in clear text.
@@ -223,7 +224,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		vc.Config.Scheme = DefaultScheme
 	}
 
-	url, err := soap.ParseURL(net.JoinHostPort(vc.Config.Host, strconv.Itoa(vc.Config.Port)))
+	url, err := soap.ParseURL(net.JoinHostPort(vc.Config.Host.String(), strconv.Itoa(vc.Config.Port)))
 	if err != nil {
 		log.Errorf("failed to parse URL %s with err: %v", url, err)
 		return nil, nil, err
@@ -252,7 +253,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	// every 10 minutes.
 	vimClient.RoundTripper = session.KeepAlive(vimClient.RoundTripper, 10*time.Minute)
 	err = vimClient.UseServiceVersion("vsan")
-	if err != nil && vc.Config.Host != "127.0.0.1" {
+	if err != nil && !vc.Config.Host.EqualString("127.0.0.1") {
 		// Skipping error for simulator connection for unit tests.
 		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
 		return nil, nil, err
@@ -1104,7 +1105,8 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	vCenterInstancesLock.Lock()
 	defer vCenterInstancesLock.Unlock()
 
-	_, found := vCenterInstances[vcconfig.Host]
+	hostKey := vcconfig.Host
+	_, found := vCenterInstances[hostKey]
 	if !found || reinitialize {
 		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
 		// Initialize the virtual center manager.
@@ -1132,10 +1134,10 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 				vcconfig.Host, err)
 			return nil, err
 		}
-		vCenterInstances[vcconfig.Host] = vcInstance
+		vCenterInstances[hostKey] = vcInstance
 		log.Infof("vCenterInstance for vCenter: %q initialized", vcconfig.Host)
 	}
-	return vCenterInstances[vcconfig.Host], nil
+	return vCenterInstances[hostKey], nil
 }
 
 // UnregisterAllVirtualCenters helps unregister and logout all registered vCenter instances
@@ -1155,7 +1157,7 @@ func UnregisterAllVirtualCenters(ctx context.Context) error {
 }
 
 // GetVirtualCenterInstanceForVCenterHost returns the vcenter object for given vCenter host.
-func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost string,
+func GetVirtualCenterInstanceForVCenterHost(ctx context.Context, vcHost commontypes.FQDN,
 	reconnect bool) (*VirtualCenter, error) {
 	log := logger.GetLogger(ctx)
 	vCenterInstancesLock.RLock()

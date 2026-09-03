@@ -44,6 +44,7 @@ import (
 
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -424,9 +425,9 @@ func GetNetworkProvider(ctx context.Context) (string, error) {
 }
 
 // GetVCDatacenterFromConfig returns datacenter registered for each vCenter
-func GetVCDatacentersFromConfig(cfg *config.Config) ([]string, string, error) {
+func GetVCDatacentersFromConfig(cfg *config.Config) ([]string, commontypes.FQDN, error) {
 	dcList := make([]string, 0)
-	vcHost := ""
+	var vcHost commontypes.FQDN
 	if len(cfg.VirtualCenter) > 1 {
 		return dcList, vcHost, fmt.Errorf("invalid configuration. Expected only 1 VC but found %d", len(cfg.VirtualCenter))
 	}

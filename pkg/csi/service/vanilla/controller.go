@@ -45,6 +45,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -65,7 +66,7 @@ type NodeManagerInterface interface {
 	GetNodeNameByUUID(ctx context.Context, nodeUUID string) (string, error)
 	GetNodeVMByUuid(ctx context.Context, nodeUuid string) (*cnsvsphere.VirtualMachine, error)
 	GetAllNodes(ctx context.Context) ([]*cnsvsphere.VirtualMachine, error)
-	GetAllNodesByVC(ctx context.Context, vcHost string) ([]*cnsvsphere.VirtualMachine, error)
+	GetAllNodesByVC(ctx context.Context, vcHost commontypes.FQDN) ([]*cnsvsphere.VirtualMachine, error)
 }
 
 // TopologyCalculatorInterface handles post-creation topology calculation for vanilla controller.
@@ -80,8 +81,8 @@ type TopologyCalculationParams struct {
 	NodeManager         NodeManagerInterface
 	VolumeInfo          *cnsvolume.CnsVolumeInfo
 	VCenter             *cnsvsphere.VirtualCenter
-	TopologySegmentsMap map[string][]map[string]string
-	VCHost              string
+	TopologySegmentsMap map[commontypes.FQDN][]map[string]string
+	VCHost              commontypes.FQDN
 }
 
 // defaultTopologyCalculator is the default implementation of TopologyCalculatorInterface
@@ -141,7 +142,7 @@ type controller struct {
 	// Deprecated
 	// To be removed after multi vCenter support is added
 	authMgr     common.AuthorizationService
-	authMgrs    map[string]*common.AuthManager
+	authMgrs    map[commontypes.FQDN]*common.AuthManager
 	topologyMgr commoncotypes.ControllerTopologyService
 	csi.UnimplementedControllerServer
 	csi.UnimplementedSnapshotMetadataServer
@@ -208,8 +209,8 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		CnsConfig:      config,
 		VcenterManager: vcManager,
 	}
-	c.managers.VcenterConfigs = make(map[string]*cnsvsphere.VirtualCenterConfig)
-	c.managers.VolumeManagers = make(map[string]cnsvolume.Manager)
+	c.managers.VcenterConfigs = make(map[commontypes.FQDN]*cnsvsphere.VirtualCenterConfig)
+	c.managers.VolumeManagers = make(map[commontypes.FQDN]cnsvolume.Manager)
 	// Get VirtualCenterManager instance and validate version.
 	vcenterconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, config)
 	if err != nil {
@@ -449,8 +450,8 @@ func (c *controller) filterDatastores(ctx context.Context, sharedDatastores []*c
 	vcHost string) ([]*cnsvsphere.DatastoreInfo, error) {
 	log := logger.GetLogger(ctx)
 	var dsMap map[string]*cnsvsphere.DatastoreInfo
-	if c.authMgrs[vcHost] != nil {
-		dsMap = c.authMgrs[vcHost].GetDatastoreMapForBlockVolumes(ctx)
+	if authMgr := c.authMgrs[commontypes.NewFQDN(vcHost)]; authMgr != nil {
+		dsMap = authMgr.GetDatastoreMapForBlockVolumes(ctx)
 	}
 	if len(dsMap) == 0 {
 		return nil, logger.LogNewError(log,
@@ -502,7 +503,8 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 				// Get vCenter.
 				// Need to extract fault from err returned by GetVirtualCenter.
 				// Currently, just return "csi.fault.Internal".
-				vCenter, err := common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, c.managers.CnsConfig.Global.VCenterIP)
+				vCenter, err := common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager,
+					c.managers.CnsConfig.Global.VCenterIP.String())
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get vCenter. err: %+v", err)
@@ -540,7 +542,8 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 						"failed to find datastoreURL for datastore name: %q", scParams.Datastore)
 				}
 			} else if c.managers.VcenterConfigs[c.managers.CnsConfig.Global.VCenterIP].MigrationDataStoreURL != "" {
-				scParams.DatastoreURL = c.managers.VcenterConfigs[c.managers.CnsConfig.Global.VCenterIP].MigrationDataStoreURL
+				scParams.DatastoreURL =
+					c.managers.VcenterConfigs[c.managers.CnsConfig.Global.VCenterIP].MigrationDataStoreURL
 			}
 		}
 	}
@@ -623,7 +626,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		volumeInfo               *cnsvolume.CnsVolumeInfo
 		faultType                string
 		vcenter                  *cnsvsphere.VirtualCenter
-		vcHost                   string
+		vcHost                   commontypes.FQDN
 		volumeMgr                cnsvolume.Manager
 	)
 	// Get operation store.
@@ -659,11 +662,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 			// Get vCenter instance.
 			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
-				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+				vcHost = commontypes.NewFQDN(volumeOperationDetails.OperationDetails.VCenterServer)
 			} else {
 				vcHost = c.managers.CnsConfig.Global.VCenterIP
 			}
-			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
@@ -684,11 +687,11 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 
 			// Get vCenter instance.
 			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
-				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+				vcHost = commontypes.NewFQDN(volumeOperationDetails.OperationDetails.VCenterServer)
 			} else {
 				vcHost = c.managers.CnsConfig.Global.VCenterIP
 			}
-			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to fetch vCenter instance %q. Error: %+v", vcHost, err)
@@ -742,7 +745,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 	// Get accessibility requirements.
 	topologyRequirement = req.GetAccessibilityRequirements()
 
-	vcTopologySegmentsMap := make(map[string][]map[string]string)
+	vcTopologySegmentsMap := make(map[commontypes.FQDN][]map[string]string)
 	if multivCenterTopologyDeployment {
 		if topologyRequirement == nil {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCode(log, codes.InvalidArgument,
@@ -759,8 +762,9 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		if topologyRequirement != nil {
 			// Get accessibility requirements.
 			for _, topology := range topologyRequirement.Preferred {
-				vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP] = append(
-					vcTopologySegmentsMap[c.managers.CnsConfig.Global.VCenterIP],
+				vcIP := c.managers.CnsConfig.Global.VCenterIP
+				vcTopologySegmentsMap[vcIP] = append(
+					vcTopologySegmentsMap[vcIP],
 					topology.GetSegments())
 			}
 			log.Debugf("Topology accessibility requirements per VC are %+v", vcTopologySegmentsMap)
@@ -784,7 +788,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			var topologySegmentsList []map[string]string
 			for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
 				// Get VC instance.
-				vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+				vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
@@ -835,7 +839,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 					continue
 				}
 				// Filter datastores based on user access.
-				sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
+				sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost.String())
 				if err != nil {
 					if err == errAllDSFilteredOut {
 						errMsg := fmt.Sprintf("authorization service filtered out all the compatible "+
@@ -902,7 +906,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 		} else {
 			// Get VC instance.
 			vcHost = c.managers.CnsConfig.Global.VCenterIP
-			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
@@ -937,7 +941,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 			}
 
 			// Filter datastores which in datastoreMap from sharedDatastores.
-			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost)
+			sharedDatastores, err = c.filterDatastores(ctx, sharedDatastores, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create volume. Error: %+v", err)
@@ -1060,7 +1064,7 @@ func (c *controller) createBlockVolumeWithPlacementEngineForMultiVC(ctx context.
 	}
 	if len(c.managers.VcenterConfigs) > 1 {
 		// Create CNSVolumeInfo CR for the volume ID.
-		err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost)
+		err = volumeInfoService.CreateVolumeInfo(ctx, volumeInfo.VolumeID.Id, vcHost.String())
 		if err != nil {
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 				"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
@@ -1106,7 +1110,7 @@ func calculateAccessibleTopologiesForDatastore(ctx context.Context, vcenter *cns
 
 	datastoreAccessibleTopology, err = placementengine.GetTopologyInfoFromNodes(ctx,
 		placementengine.VanillaRetrieveTopologyInfoParams{
-			VCHost:                    vcenter.Config.Host,
+			VCHost:                    vcenter.Config.Host.String(),
 			NodeNames:                 accessibleNodeNames,
 			DatastoreURL:              datastoreURL,
 			RequestedTopologySegments: topologySegments,
@@ -1146,7 +1150,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		faultType                string
 		volumeID                 string
 		vcenter                  *cnsvsphere.VirtualCenter
-		vcHost                   string
+		vcHost                   commontypes.FQDN
 	)
 	// Get operation store
 	var operationStore cnsvolumeoperationrequest.VolumeOperationRequest
@@ -1186,11 +1190,11 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 		} else if cnsvolume.IsTaskPending(volumeOperationDetails) {
 			volTaskAlreadyRegistered = true
 			if volumeOperationDetails.OperationDetails.VCenterServer != "" {
-				vcHost = volumeOperationDetails.OperationDetails.VCenterServer
+				vcHost = commontypes.NewFQDN(volumeOperationDetails.OperationDetails.VCenterServer)
 			} else {
 				vcHost = c.managers.CnsConfig.Global.VCenterIP
 			}
-			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to fetch vCenter instance %q. Error: %+v", vcHost, err)
@@ -1248,7 +1252,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 					"accessibility requirements cannot be nil for a multi-VC environment")
 			}
 		}
-		vcTopologySegmentsMap := make(map[string][]map[string]string)
+		vcTopologySegmentsMap := make(map[commontypes.FQDN][]map[string]string)
 		if topologyRequirement != nil {
 			// Get accessibility requirements.
 			vcTopologySegmentsMap, err = common.GetAccessibilityRequirementsByVC(ctx, topologyRequirement)
@@ -1269,7 +1273,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			var topologySegmentsList []map[string]string
 			for vcHost, topologySegmentsList = range vcTopologySegmentsMap {
 				// Get VC instance.
-				vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+				vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 				if err != nil {
 					return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 						"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
@@ -1389,7 +1393,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 				// In case task was successful from previous run but the CR was not created.
 				if len(c.managers.VcenterConfigs) > 1 {
 					// Create CNSVolumeInfo CR for the volume ID in case of multi VC deployment.
-					err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vcHost)
+					err = volumeInfoService.CreateVolumeInfo(ctx, volumeID, vcHost.String())
 					if err != nil {
 						return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 							"failed to store volumeID %q for vCenter %q in CNSVolumeInfo CR. Error: %+v",
@@ -1423,7 +1427,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 
 			// Get VC instance.
-			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost)
+			vcenter, err = common.GetVCenterFromVCHost(ctx, c.managers.VcenterManager, vcHost.String())
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get vCenter instance for host %q. Error: %+v", vcHost, err)
@@ -1557,7 +1561,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			err            error
 			volumePath     string
 			volumeManager  cnsvolume.Manager
-			vCenterHost    string
+			vCenterHost    commontypes.FQDN
 			vCenterManager cnsvsphere.VirtualCenterManager
 		)
 
@@ -1928,7 +1932,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
 		var (
-			vCenterHost    string
+			vCenterHost    commontypes.FQDN
 			vCenterManager cnsvsphere.VirtualCenterManager
 			volumeManager  cnsvolume.Manager
 			err            error
@@ -2371,7 +2375,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	var (
-		vCenterHost                              string
+		vCenterHost                              commontypes.FQDN
 		vCenterManager                           cnsvsphere.VirtualCenterManager
 		volumeManager                            cnsvolume.Manager
 		err                                      error
@@ -2531,7 +2535,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	var (
-		vCenterHost    string
+		vCenterHost    commontypes.FQDN
 		vCenterManager cnsvsphere.VirtualCenterManager
 		volumeManager  cnsvolume.Manager
 		err            error
@@ -2607,7 +2611,7 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 		var (
 			vCenterManager cnsvsphere.VirtualCenterManager
 			volManager     cnsvolume.Manager
-			vCenterHost    string
+			vCenterHost    commontypes.FQDN
 			snapshots      []*csi.Snapshot
 			nextToken      string
 			err            error
@@ -2723,7 +2727,7 @@ func getSnapshotsAndSourceVolumeDetails(ctx context.Context, vCenterManager cnsv
 	)
 	log := logger.GetLogger(ctx)
 	// Check for snapshot support
-	isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, vcHost)
+	isCnsSnapshotSupported, err := vCenterManager.IsCnsSnapshotSupported(ctx, commontypes.NewFQDN(vcHost))
 	if err != nil {
 		return nil, nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to check if cns snapshot is supported on VC %s due to error: %v", vcHost, err)
@@ -2805,7 +2809,7 @@ func queryAllVolumeSnapshotsForMultiVC(ctx context.Context, c *controller, token
 		for vcHost, volManager := range c.managers.VolumeManagers {
 			// fetch snapshots and associated source volume details
 			perVCSnapQueryEntries, volumeDetails, err := getSnapshotsAndSourceVolumeDetails(ctx, vCenterManager,
-				volManager, vcHost)
+				volManager, vcHost.String())
 			if err != nil {
 				log.Errorf("failed to retrieve snapshots/source volume info for vCenter %s, err: %+v", vcHost, err)
 				return nil, "", err

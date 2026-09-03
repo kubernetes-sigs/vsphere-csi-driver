@@ -25,6 +25,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 var (
@@ -65,10 +66,10 @@ type Manager struct {
 // participating vCenter server.
 type Managers struct {
 	// map of VC Host to *VirtualCenterConfig
-	VcenterConfigs map[string]*cnsvsphere.VirtualCenterConfig
+	VcenterConfigs map[commontypes.FQDN]*cnsvsphere.VirtualCenterConfig
 	CnsConfig      *config.Config
 	// map of VC Host to Volume Manager
-	VolumeManagers map[string]cnsvolume.Manager
+	VolumeManagers map[commontypes.FQDN]cnsvolume.Manager
 	VcenterManager cnsvsphere.VirtualCenterManager
 }
 

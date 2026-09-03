@@ -16,6 +16,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
@@ -380,7 +381,7 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 			getVCenterInternal = func(_ context.Context, _ *Manager) (*vsphere.VirtualCenter, error) {
 				return &vsphere.VirtualCenter{
 					Config: &vsphere.VirtualCenterConfig{
-						Host: "test-vc",
+						Host: commontypes.NewFQDN("test-vc"),
 						// Deliberately different from the CnsConfig user below, so
 						// the VSphereUser assertion shows which of the two the
 						// create spec is built from. In a real deployment both come
@@ -419,8 +420,8 @@ func TestCreateBlockVolumeFromSnapshotTargetDatastore(t *testing.T) {
 				CnsConfig:     &config.Config{},
 			}
 			manager.CnsConfig.Global.ClusterID = "test-cluster"
-			manager.CnsConfig.VirtualCenter = map[string]*config.VirtualCenterConfig{
-				"test-vc": {User: "test-user"},
+			manager.CnsConfig.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("test-vc"): {User: "test-user"},
 			}
 
 			// Create test datastore info objects
@@ -488,7 +489,7 @@ func TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts(t *testing.
 	getVCenterInternal = func(_ context.Context, _ *Manager) (*vsphere.VirtualCenter, error) {
 		return &vsphere.VirtualCenter{
 			Config: &vsphere.VirtualCenterConfig{
-				Host: "test-vc",
+				Host: commontypes.NewFQDN("test-vc"),
 				// GetVirtualCenterConfig populates Username from
 				// cfg.VirtualCenter[host].User, so a real VC for this host would
 				// carry one. Without it CreateBlockVolumeUtil's
@@ -526,8 +527,8 @@ func TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts(t *testing.
 		CnsConfig:     &config.Config{},
 	}
 	manager.CnsConfig.Global.ClusterID = "test-cluster"
-	manager.CnsConfig.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		"test-vc": {User: "test-user"},
+	manager.CnsConfig.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+		commontypes.NewFQDN("test-vc"): {User: "test-user"},
 	}
 
 	hostLocalDatastoreInfo := &vsphere.DatastoreInfo{

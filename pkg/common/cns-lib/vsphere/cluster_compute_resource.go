@@ -22,6 +22,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -30,7 +31,7 @@ type ClusterComputeResource struct {
 	// ClusterComputeResource represents a vSphere cluster.
 	*object.ClusterComputeResource
 	// VirtualCenterHost denotes the virtual center host address.
-	VirtualCenterHost string
+	VirtualCenterHost commontypes.FQDN
 }
 
 // GetHosts returns all hosts under the ClusterComputeResource.

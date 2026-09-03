@@ -44,6 +44,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -316,7 +317,7 @@ func (volumeMigration *volumeMigration) GetVolumePath(ctx context.Context, volum
 	log.Infof("Could not retrieve mapping of volume path and VolumeID in the cache for VolumeID: %q. "+
 		"volume may not be registered", volumeID)
 	volumeIds := []cnstypes.CnsVolumeId{{Id: volumeID}}
-	var host string
+	var host commontypes.FQDN
 	if volumeMigration.cnsConfig == nil || len(volumeMigration.cnsConfig.VirtualCenter) == 0 {
 		return "", logger.LogNewError(log, "could not find vcenter config")
 	}
@@ -468,7 +469,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context,
 	datastoreName := datastorePathSplit[len(datastorePathSplit)-1]
 	var datacenters string
 	var user string
-	var host string
+	var host commontypes.FQDN
 	if volumeMigration.cnsConfig == nil || len(volumeMigration.cnsConfig.VirtualCenter) == 0 {
 		return "", false, logger.LogNewError(log, "could not find vcenter config")
 	}
@@ -534,7 +535,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context,
 		// Check vCenter API Version
 		// Format:
 		// https://<vc_ip>/folder/<vm_vmdk_path>?dcPath=<datacenter-path>&dsName=<datastoreName>
-		backingDiskURLPath := "https://" + host + "/folder/" +
+		backingDiskURLPath := "https://" + host.String() + "/folder/" +
 			vmdkPath + "?dcPath=" + url.PathEscape(datacenter) + "&dsName=" + url.PathEscape(datastoreName)
 		bUseVslmAPIs, err := common.UseVslmAPIs(ctx, vCenter.Client.ServiceContent.About)
 		if err != nil {
