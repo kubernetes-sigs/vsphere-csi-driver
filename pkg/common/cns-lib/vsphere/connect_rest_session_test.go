@@ -50,14 +50,14 @@ func brokenRestClient(t *testing.T) *rest.Client {
 // so they are the same vCenter session object; checking the REST session
 // again is a redundant network call connect() should skip.
 //
-// Proven here by swapping in a RestClient that fails any call it makes, then
-// looking at whether connect() replaced it. A connect() that consulted the rest
-// session sees a broken one and re-logins, installing a fresh client; a
-// connect() that skipped the check leaves the broken client in place. Note the
-// check being exercised is "did it look", not "did it error" -- an unreadable
-// rest session is deliberately not fatal to connect() (see the error branch it
-// takes), since failing there would tear down a SOAP session already known to
-// be healthy.
+// The session-manager case is proven by swapping in a RestClient that fails any
+// call it makes: a connect() that skipped the check leaves that broken client in
+// place, untouched. The credential cases then cover what connect() does when it
+// does look and finds the rest session unusable -- it re-logins the rest client
+// in place, and leaves the SOAP session and the clients built on it alone,
+// whether or not that rest re-login succeeds. An unusable rest session is
+// deliberately not fatal to connect(), since failing there would tear down a
+// SOAP session already known to be healthy.
 func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 	confPath := filepath.Join(t.TempDir(), "csi-vsphere.conf")
 	require.NoError(t, os.WriteFile(confPath, []byte(
@@ -101,7 +101,7 @@ func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 			"connect() should have left the rest client untouched, proving it never consulted it")
 	})
 
-	t.Run("credential auth: still checks the rest session independently", func(t *testing.T) {
+	t.Run("credential auth: repairs the rest session without touching the soap session", func(t *testing.T) {
 		vc := &VirtualCenter{
 			Config: &VirtualCenterConfig{
 				Host: server.URL.Hostname(), Port: port, Insecure: true,
@@ -111,20 +111,74 @@ func TestConnectSkipsRedundantRestSessionCheckForSessionManager(t *testing.T) {
 		}
 		require.NoError(t, vc.Connect(ctx), "initial connect should succeed")
 
+		soapClient, restClient := vc.Client, vc.RestClient
+		soapSession, err := soapClient.SessionManager.UserSession(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, soapSession)
+
+		// Drop only the rest session, leaving the SOAP session live: this is
+		// the shape of a vAPI outage, where the rest login is the only half
+		// that is unusable.
+		require.NoError(t, restClient.Logout(ctx))
+		staleRestSession, err := restClient.Session(ctx)
+		require.NoError(t, err)
+		require.Nil(t, staleRestSession, "precondition: rest session should read as gone")
+
+		require.NoError(t, vc.connect(ctx),
+			"an unusable rest session should be recovered, not returned as a connect() failure")
+
+		// The healthy SOAP session, and everything built on it, is left alone.
+		assert.Same(t, soapClient, vc.Client,
+			"connect() should not have recreated a SOAP session that was still valid")
+		newSoapSession, err := vc.Client.SessionManager.UserSession(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, newSoapSession, "the SOAP session should still be live")
+		assert.Equal(t, soapSession.Key, newSoapSession.Key,
+			"the SOAP session should be the same one, not a re-login")
+
+		// And the rest client was re-authenticated in place.
+		assert.Same(t, restClient, vc.RestClient,
+			"connect() should re-login the existing rest client rather than replacing it")
+		restSession, err := vc.RestClient.Session(ctx)
+		require.NoError(t, err)
+		assert.NotNil(t, restSession, "the rest client should hold a live session again")
+	})
+
+	t.Run("credential auth: a rest login that keeps failing leaves the soap session up", func(t *testing.T) {
+		vc := &VirtualCenter{
+			Config: &VirtualCenterConfig{
+				Host: server.URL.Hostname(), Port: port, Insecure: true,
+				Username: "user", Password: "pass", // simulator.DefaultLogin
+			},
+			ClientMutex: &sync.Mutex{},
+		}
+		require.NoError(t, vc.Connect(ctx), "initial connect should succeed")
+
+		soapClient := vc.Client
+		soapSession, err := soapClient.SessionManager.UserSession(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, soapSession)
+
+		// A rest client that fails every call, including its re-login: vAPI is
+		// down for the whole of this connect().
 		broken := brokenRestClient(t)
 		vc.RestClient = broken
 
-		err := vc.connect(ctx)
-		require.NoError(t, err,
-			"an unreadable rest session should be recovered, not returned as a connect() failure")
-		assert.NotSame(t, broken, vc.RestClient,
-			"connect() should have consulted the rest session, found it unusable, and re-logged in")
+		require.NoError(t, vc.connect(ctx),
+			"a rest client that cannot be re-logged-in should not fail connect()")
 
-		// And the replacement is actually usable, i.e. this was a real re-login
-		// rather than just a new pointer.
-		restSession, err := vc.RestClient.Session(ctx)
+		// This is the loop being avoided: repeated connect() calls during a vAPI
+		// outage must not keep logging out and rebuilding a working SOAP session.
+		for range 3 {
+			require.NoError(t, vc.connect(ctx))
+		}
+		assert.Same(t, soapClient, vc.Client,
+			"a vAPI outage should never tear down the SOAP client")
+		liveSession, err := vc.Client.SessionManager.UserSession(ctx)
 		require.NoError(t, err)
-		assert.NotNil(t, restSession, "the replacement rest client should hold a live session")
+		require.NotNil(t, liveSession, "the SOAP session should still be live")
+		assert.Equal(t, soapSession.Key, liveSession.Key,
+			"the SOAP session should be the original one, never logged out and re-created")
 	})
 }
 
