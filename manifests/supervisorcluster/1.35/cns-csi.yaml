@@ -515,9 +515,6 @@ spec:
               name: socket-dir
             - mountPath: /etc/vmware/wcp/tls/
               name: host-vmca
-            - mountPath: /etc/vmware/wcp/k8s-cloud-operator-certs
-              name: k8s-cloud-operator-client-certs
-              readOnly: true
         - name: liveness-probe
           image: localhost:5000/vmware.io/csi-livenessprobe:v2.17.0_vmware.1
           args:
@@ -757,6 +754,8 @@ metadata:
   name: vmware-system-csi-k8scloudoperator-ca-cert
   namespace: vmware-system-csi
 spec:
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
   isCA: true
   commonName: vmware-system-csi-k8scloudoperator-ca
   secretName: vmware-system-csi-k8scloudoperator-ca-secret
@@ -786,6 +785,8 @@ metadata:
   name: vmware-system-csi-k8scloudoperator-server-cert
   namespace: vmware-system-csi
 spec:
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
   dnsNames:
     - localhost
   ipAddresses:
@@ -804,6 +805,8 @@ metadata:
   name: vmware-system-csi-k8scloudoperator-client-cert
   namespace: vmware-system-csi
 spec:
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
   commonName: vmware-system-csi-k8scloudoperator-client
   issuerRef:
     kind: Issuer
