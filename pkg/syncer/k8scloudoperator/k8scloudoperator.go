@@ -405,8 +405,8 @@ func (k8sCloudOperator *k8sCloudOperator) GetHostAnnotation(ctx context.Context,
 	}
 	hostMoid, ok := node.Annotations[key]
 	if !ok {
-		log.Errorf("failed to get the node annotation for the key %s: %s", key, err)
-		return nil, err
+		return nil, logger.LogNewErrorCodef(log, codes.NotFound,
+			"annotation %q not found on node %q", key, nodeName)
 	}
 	log.Infof("Found the %s: %s annotation on Node: %s", key, hostMoid, nodeName)
 	response := &HostAnnotationResponse{

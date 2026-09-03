@@ -18,7 +18,6 @@ package wcp
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"strconv"
@@ -30,9 +29,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +40,6 @@ import (
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	spv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/storagepool/cns/v1alpha1"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/certwatcher"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
@@ -51,13 +47,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/k8scloudoperator"
 )
-
-// defaultK8sCloudOperatorClientCertDir is the directory containing the mTLS
-// identity (tls.crt, tls.key) this client presents to the K8sCloudOperator
-// gRPC service, and the CA bundle (ca.crt) used to authenticate the server.
-const defaultK8sCloudOperatorClientCertDir = k8scloudoperator.DefaultK8sCloudOperatorCertDir
 
 // validateCreateBlockReqParam is a helper function used to validate the parameter
 // name received in the CreateVolume request for block volumes on WCP CSI driver.
@@ -250,79 +240,31 @@ func validateWCPListSnapshotRequest(ctx context.Context, req *csi.ListSnapshotsR
 	return nil
 }
 
-// getK8sCloudOperatorClientConnection is a helper function that creates a
-// clientConnection to k8sCloudOperator GRPC service running on syncer container.
-func getK8sCloudOperatorClientConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	transportCreds, err := newClientTransportCredentials()
-	if err != nil {
-		return nil, fmt.Errorf("failed to set up TLS credentials for k8s cloud operator gRPC client: %w", err)
-	}
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(transportCreds))
-	port := common.GetK8sCloudOperatorServicePort(ctx)
-	k8sCloudOperatorServiceAddr := "127.0.0.1:" + strconv.Itoa(port)
-	// Connect to k8s cloud operator gRPC service.
-	conn, err := grpc.NewClient(k8sCloudOperatorServiceAddr, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-// newClientTransportCredentials builds the mTLS client
-// credentials used to authenticate this client to the K8sCloudOperator gRPC
-// service and to verify the server's identity.
-func newClientTransportCredentials() (credentials.TransportCredentials, error) {
-	certPath := defaultK8sCloudOperatorClientCertDir + "/tls.crt"
-	keyPath := defaultK8sCloudOperatorClientCertDir + "/tls.key"
-	caPath := defaultK8sCloudOperatorClientCertDir + "/ca.crt"
-
-	cert, caCertPool, err := certwatcher.LoadCertificateAndCAPool(certPath, keyPath, caPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return credentials.NewTLS(&tls.Config{
-		MinVersion: tls.VersionTLS12,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_AES_128_GCM_SHA256,
-			tls.TLS_AES_256_GCM_SHA384,
-		},
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
-	}), nil
-}
-
-// getHostMOIDFromK8sCloudOperatorService gets the host-moid from
-// K8sCloudOperator gRPC service.
-func getHostMOIDFromK8sCloudOperatorService(ctx context.Context, nodeName string) (string, error) {
+// getHostMOID returns the ESX host moid for the given node, read from the
+// Node object's host-moid annotation.
+func getHostMOID(ctx context.Context, nodeName string) (string, error) {
 	log := logger.GetLogger(ctx)
-	conn, err := getK8sCloudOperatorClientConnection(ctx)
+	// Read the Node's host-moid annotation directly rather than over the
+	// K8sCloudOperator gRPC service.
+	c, err := newK8sClient(ctx)
 	if err != nil {
-		log.Errorf("failed to establish the connection to k8s cloud operator service. Error: %+v", err)
-		return "", err
-	}
-	defer conn.Close()
-
-	// Create a client stub for gRPC service.
-	client := k8scloudoperator.NewK8SCloudOperatorClient(conn)
-
-	// Call GetHostAnnotation method on the client stub.
-	res, err := client.GetHostAnnotation(ctx,
-		&k8scloudoperator.HostAnnotationRequest{
-			HostName:      nodeName,
-			AnnotationKey: common.HostMoidAnnotationKey,
-		})
-	if err != nil {
-		msg := fmt.Sprintf("failed to get the host moid annotation from the gRPC service. Error: %+v", err)
-		log.Error(msg)
-		return "", err
+		return "", logger.LogNewErrorCode(log, codes.Internal, "failed to create kubernetes client")
 	}
 
-	log.Infof("Got host-moid: %s annotation from the K8sCloudOperator gRPC service", res.AnnotationValue)
-	return res.AnnotationValue, nil
+	node, err := c.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return "", logger.LogNewErrorCodef(log, codes.Internal,
+			"failed to get node %q. Error: %+v", nodeName, err)
+	}
+
+	hostMoid, ok := node.Annotations[common.HostMoidAnnotationKey]
+	if !ok {
+		return "", logger.LogNewErrorCodef(log, codes.NotFound,
+			"%q annotation not found on node %q", common.HostMoidAnnotationKey, nodeName)
+	}
+
+	log.Infof("Got host-moid: %s annotation on node %s", hostMoid, nodeName)
+	return hostMoid, nil
 }
 
 // getDatacenterFromConfig gets the vcenter-datacenter where WCP PodVM cluster

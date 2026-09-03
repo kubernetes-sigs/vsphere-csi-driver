@@ -1073,7 +1073,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			log.Infof("Will select datastore %s as per the provided storage pool %s", selectedDatastoreURL, storagePool)
 
-			hostMoid, err := getHostMOIDFromK8sCloudOperatorService(ctx, accessibleNodes[0])
+			hostMoid, err := getHostMOID(ctx, accessibleNodes[0])
 			if err != nil {
 				return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to get ESX Host Moid from API server. Error: %+v", err)

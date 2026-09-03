@@ -375,6 +375,9 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /csi
+            - mountPath: /etc/vmware/wcp/k8s-cloud-operator-certs
+              name: k8s-cloud-operator-client-certs
+              readOnly: true
         - name: csi-attacher
           image: localhost:5000/vmware.io/csi-attacher:v4.12.0_vmware.1
           args:
@@ -571,6 +574,9 @@ spec:
             - mountPath: /etc/vmware/wcp/webhook-certs/client-ca
               name: client-ca
               readOnly: true
+            - mountPath: /etc/vmware/wcp/k8s-cloud-operator-certs
+              name: k8s-cloud-operator-server-certs
+              readOnly: true
         - name: csi-snapshotter
           image: localhost:5000/vmware.io/csi-snapshotter:v8.2.0_vmware.1
           args:
@@ -609,6 +615,12 @@ spec:
             items:
             - key: "ca.crt"
               path: "ca.crt"
+        - name: k8s-cloud-operator-server-certs
+          secret:
+            secretName: vmware-system-csi-k8scloudoperator-server-cert
+        - name: k8s-cloud-operator-client-certs
+          secret:
+            secretName: vmware-system-csi-k8scloudoperator-client-cert
 ---
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
@@ -701,6 +713,81 @@ metadata:
   namespace: vmware-system-csi
 spec:
   selfSigned: {}
+---
+# The following resources issue the mTLS identities for the K8sCloudOperator
+# gRPC service (vsphere-syncer, port 29000): a root CA (bootstrapped off the
+# existing vmware-system-csi-selfsigned-issuer above, which is stateless and
+# can mint any number of independent CAs), and two leaf certificates signed
+# by that CA - one server identity for vsphere-syncer, one client identity
+# shared by callers within this Pod (vsphere-csi-controller). Only a
+# certificate whose CommonName matches the client identity below is
+# authorized to call any RPC on this service.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app: vsphere-csi-controller
+  name: vmware-system-csi-k8scloudoperator-ca-cert
+  namespace: vmware-system-csi
+spec:
+  duration: 4320h # 180d
+  renewBefore: 2160h # 90d
+  isCA: true
+  commonName: vmware-system-csi-k8scloudoperator-ca
+  secretName: vmware-system-csi-k8scloudoperator-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: vmware-system-csi-selfsigned-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app: vsphere-csi-controller
+  name: vmware-system-csi-k8scloudoperator-ca-issuer
+  namespace: vmware-system-csi
+spec:
+  ca:
+    secretName: vmware-system-csi-k8scloudoperator-ca-secret
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app: vsphere-csi-controller
+  name: vmware-system-csi-k8scloudoperator-server-cert
+  namespace: vmware-system-csi
+spec:
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  dnsNames:
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  commonName: vmware-system-csi-k8scloudoperator-server
+  issuerRef:
+    kind: Issuer
+    name: vmware-system-csi-k8scloudoperator-ca-issuer
+  secretName: vmware-system-csi-k8scloudoperator-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app: vsphere-csi-controller
+  name: vmware-system-csi-k8scloudoperator-client-cert
+  namespace: vmware-system-csi
+spec:
+  duration: 2160h # 90d
+  renewBefore: 360h # 15d
+  commonName: vmware-system-csi-k8scloudoperator-client
+  issuerRef:
+    kind: Issuer
+    name: vmware-system-csi-k8scloudoperator-ca-issuer
+  secretName: vmware-system-csi-k8scloudoperator-client-cert
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
