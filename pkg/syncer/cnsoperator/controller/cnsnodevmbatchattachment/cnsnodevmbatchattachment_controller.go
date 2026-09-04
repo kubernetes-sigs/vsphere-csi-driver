@@ -649,7 +649,9 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 			if res.finalizerErr != nil {
 				statusErr = res.finalizerErr
 				attachErr = errors.Join(attachErr,
-					fmt.Errorf("failure during attach of PVC %s", res.pvcName))
+					fmt.Errorf("failed to add finalizer on PVC %s after successful attach: %w. "+
+						"Verify API server connectivity and RBAC permissions to update PVC finalizers",
+						res.pvcName, res.finalizerErr))
 			}
 		}
 		// Update instance with attach result.

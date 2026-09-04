@@ -3715,7 +3715,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 					log.Errorf("PVUpdated: Failed to get VC host and volume manager for multi VC setup. "+
 						"Error occurred: %+v", err)
 					generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
-						staticVolumeProvisioningFailure, "Failed to identify VC for volume.")
+						staticVolumeProvisioningFailure,
+						fmt.Sprintf("Failed to identify VC for volume: %v. Check topology/nodeAffinity on "+
+							"the PV and vCenter connectivity for the configured VCs", err))
 					return
 				}
 			} else {
@@ -3735,7 +3737,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 						// Failed to create static PV
 						log.Errorf("PVUpdated: Failed to create static file volume %q. Error: %+v", newPv.Name, err)
 						generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
-							staticVolumeProvisioningFailure, "Failed to create volume on any of the VCs")
+							staticVolumeProvisioningFailure,
+							fmt.Sprintf("Failed to create volume on any of the VCs: %v. Check vCenter "+
+								"connectivity/credentials for all configured VCs in the config secret", err))
 						return
 					}
 					return
@@ -3750,7 +3754,9 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 				log.Errorf("PVUpdated: Failed to get VC host and volume manager for single VC setup. "+
 					"Error occoured: %+v", err)
 				generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
-					staticVolumeProvisioningFailure, "Failed to identify VC for volume")
+					staticVolumeProvisioningFailure,
+					fmt.Sprintf("Failed to identify VC for volume: %v. Check topology/nodeAffinity on "+
+						"the PV and vCenter connectivity for the configured VC", err))
 				return
 			}
 		}
@@ -3781,7 +3787,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 				// Call CreateVolume for Static Volume Provisioning.
 				err = createCnsVolume(ctx, oldPv, metadataSyncer, cnsVolumeMgr, volumeType, vcHost, metadataList, volumeHandle)
 				if err != nil {
-					errMsg := fmt.Sprintf("Failed to create volume on VC %s", vcHost)
+					errMsg := fmt.Sprintf("Failed to create volume on VC %s: %v. Check vCenter connectivity "+
+						"and credentials for VC %s in the config secret", vcHost, err, vcHost)
 					log.Errorf(errMsg)
 					generateEventOnPv(ctx, oldPv, v1.EventTypeWarning,
 						staticVolumeProvisioningFailure, errMsg)

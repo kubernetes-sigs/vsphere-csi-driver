@@ -858,7 +858,7 @@ func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, erro
 	u := unstructured.Unstructured{Object: patchMap}
 	a, err := apiMeta.Accessor(&u)
 	if err != nil {
-		return nil, fmt.Errorf("error creating accessor with  %v", err)
+		return nil, fmt.Errorf("error creating accessor with %v", err)
 	}
 	a.SetResourceVersion(resourceVersion)
 	versionBytes, err := json.Marshal(patchMap)
@@ -1794,7 +1794,7 @@ func (c *K8sOrchestrator) GetActiveClustersForNamespaceInRequestedZones(ctx cont
 		activeClusters = append(activeClusters, clusters...)
 	}
 	if len(activeClusters) == 0 {
-		return nil, logger.LogNewErrorf(log, "could not find active cluster for the namespace  %q "+
+		return nil, logger.LogNewErrorf(log, "could not find active cluster for the namespace %q "+
 			"in requested zones: %v", targetNS, requestedZones)
 	}
 	log.Infof("active clusters: %v for namespace: %q in requested zones: %v", activeClusters, targetNS, requestedZones)

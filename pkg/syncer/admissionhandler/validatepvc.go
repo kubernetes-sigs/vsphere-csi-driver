@@ -33,7 +33,8 @@ var (
 )
 
 const (
-	ExpandVolumeWithSnapshotErrorMessage   = "Expanding volume with snapshots is not allowed"
+	ExpandVolumeWithSnapshotErrorMessage = "Expanding volume with snapshots is not allowed. " +
+		"Please delete the existing snapshots before expanding the volume"
 	ExpandLinkedCloneVolumeErrorMessage    = "Expanding linked clone volume is not allowed"
 	UpdateLinkedCloneVolumeAnnErrorMessage = "Cannot update linked clone volume annotations after creation"
 	DeleteVolumeWithSnapshotErrorMessage   = "Deleting volume with snapshots is not allowed"

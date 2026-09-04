@@ -1493,7 +1493,7 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 			log.Infof("VolumeID: %q, not found, thus returning success", volumeID)
 			return "", nil
 		}
-		log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+		log.Errorf("CNS DeleteVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 		return faultType, err
 	}
 	// Get the taskInfo.
@@ -1632,7 +1632,7 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 				}
 				return "", nil
 			}
-			log.Errorf("CNS DeleteVolume failed from the  vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
+			log.Errorf("CNS DeleteVolume failed from the vCenter %q with err: %v", m.virtualCenter.Config.Host, err)
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0,
 				nil, metav1.Now(), "", "", "", taskInvocationStatusError, err.Error(), "")
 			err := m.operationStore.StoreRequestDetails(ctx, volumeOperationDetails)
@@ -3660,7 +3660,7 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 		err = globalObjectManager.SetControlFlags(ctx, vim25types.ID{Id: volumeID}, []string{
 			string(vim25types.VslmVStorageObjectControlFlagKeepAfterDeleteVm)})
 		if err != nil {
-			log.Errorf("failed to set control flag keepAfterDeleteVm  for volumeID %q with err: %v", volumeID, err)
+			log.Errorf("failed to set control flag keepAfterDeleteVm for volumeID %q with err: %v", volumeID, err)
 			return err
 		}
 		log.Infof("Successfully set keepAfterDeleteVm control flag for volumeID: %q", volumeID)
@@ -4221,7 +4221,9 @@ func (m *defaultManager) unregisterVolume(ctx context.Context, volumeID string, 
 
 	err := m.virtualCenter.ConnectCns(ctx)
 	if err != nil {
-		return ExtractFaultTypeFromErr(ctx, err), errors.New("connecting to CNS failed")
+		log.Errorf("connecting to CNS failed with err: %v", err)
+		return ExtractFaultTypeFromErr(ctx, err), fmt.Errorf(
+			"connecting to CNS failed: %w. Check vCenter connectivity and credentials in the vSphere config secret", err)
 	}
 
 	targetVolumeType := "FCD"

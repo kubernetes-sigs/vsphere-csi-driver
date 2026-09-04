@@ -119,7 +119,7 @@ func IsDiskAttached(ctx context.Context, vm *cnsvsphere.VirtualMachine, volumeID
 							if backing, ok := virtualDevice.Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
 								uuid, err := getNvmeUUID(ctx, backing.Uuid)
 								if err != nil {
-									log.Errorf("failed to convert uuid to  NvmeV13UUID for the vm: %s", vm.InventoryPath)
+									log.Errorf("failed to convert uuid to NvmeV13UUID for the vm: %s", vm.InventoryPath)
 									return "", err
 								}
 								log.Debugf("Successfully converted diskUUID %s to NvmeV13UUID %s for volume %s on vm %+v",

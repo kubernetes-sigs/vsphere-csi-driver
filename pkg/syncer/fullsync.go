@@ -1097,7 +1097,7 @@ func validateAndCorrectVolumeInfoSnapshotDetails(ctx context.Context,
 				}
 				patchBytes, err := json.Marshal(patch)
 				if err != nil {
-					log.Errorf("error while create VolumeInfo patch for volume %s. Error while marshaling: %+v. Continuing..",
+					log.Errorf("error while creating VolumeInfo patch for volume %s. Error while marshaling: %+v. Continuing..",
 						cnsvolumeinfo.Spec.VolumeID, err)
 					continue
 				}

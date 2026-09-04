@@ -266,7 +266,7 @@ func (rc *resizeReconciler) syncPVC(ctx context.Context, key string) error {
 	if updatePVC {
 		svcUpdatedPVC, err := patchPVCStatus(ctx, svcPVC, svcPvcClone, rc.supervisorClient)
 		if err != nil {
-			log.Errorf("cannot update Supervisor Cluster PVC  [%s] in namespace [%s]: [%v]",
+			log.Errorf("cannot update Supervisor Cluster PVC [%s] in namespace [%s]: [%v]",
 				svcUpdatedPVC.Name, rc.supervisorNamespace, err)
 			return err
 		}

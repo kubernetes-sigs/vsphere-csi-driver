@@ -739,7 +739,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes is not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", req)
 			}
 		case common.AttributeHostLocalPolicy:
 			isHostLocalRequest = strings.EqualFold(req.Parameters[paramName], "true")
@@ -1886,7 +1886,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes is not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", req)
 			}
 		}
 	}
@@ -2006,7 +2006,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			// Fail the request since we do not support this configuration.
 
 			return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-				"support for topology requirement with hostname labels is not yet implemented ")
+				"support for topology requirement with hostname labels is not yet implemented")
 		} else {
 			// no label present in the topologyRequirement meaning
 			// it's non-host local volume provisioning on a non-stretched/single-zone supervisor cluster.
@@ -2868,8 +2868,10 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			startingIdx, err = strconv.Atoi(req.StartingToken)
 			if err != nil {
 				log.Errorf("Unable to convert startingToken from string to int err=%v", err)
-				return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
-					"startingToken not a valid integer")
+				return nil, csifault.CSIInvalidArgumentFault, status.Errorf(codes.InvalidArgument,
+					"startingToken %q is not a valid integer: %v. Ensure the ListVolumes request uses the "+
+						"unmodified starting_token value returned by a previous ListVolumes response.",
+					req.StartingToken, err)
 			}
 		}
 
@@ -2886,7 +2888,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 				c.manager.CnsConfig.Global.SupervisorID, querySelection)
 			if err != nil {
 				log.Errorf("Error while querying volumes from CNS %v", err)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while querying volumes from CNS")
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+					"Error while querying volumes from CNS: %v. Check vCenter connectivity and "+
+						"credentials in the CSI config secret, and verify the CNS service is reachable.", err)
 			}
 
 			cnsVolumeIDs = nil
@@ -2897,7 +2901,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			vmMoidToHostMoid, volumeIDToVMMap, err = c.GetVolumeToHostMapping(ctx, clusterMoIds)
 			if err != nil {
 				log.Errorf("failed to get VM MoID to Host MoID map, err:%v", err)
-				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "failed to get VM MoID to Host MoID map")
+				return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+					"failed to get VM MoID to Host MoID map: %v. Verify vCenter connectivity and that "+
+						"the ClusterComputeResource MoIDs in the config are correct.", err)
 			}
 		}
 
@@ -2934,7 +2940,9 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 		response, err := getVolumeIDToVMMap(ctx, volumeIDs, vmMoidToHostMoid, volumeIDToVMMap)
 		if err != nil {
 			log.Errorf("Error while generating ListVolume response, err:%v", err)
-			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, "Error while generating ListVolume response")
+			return nil, csifault.CSIInternalFault, status.Errorf(codes.Internal,
+				"Error while generating ListVolume response: %v. Retry after vCenter connectivity is "+
+					"restored; if the error persists, check CNS query logs for the affected volume IDs.", err)
 		}
 
 		// Correctly set response nextToken value for the paginated response

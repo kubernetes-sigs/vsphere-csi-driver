@@ -216,7 +216,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 				request.Namespace, request.Name)
 			return reconcile.Result{}, nil
 		}
-		log.Errorf("error while fetch the virtualmachinesnapshot %s/%s. error: %v",
+		log.Errorf("error while fetching the virtualmachinesnapshot %s/%s. error: %v",
 			request.Namespace, request.Name, err)
 		// Error reading the object - return with err.
 		return reconcile.Result{}, err
@@ -262,8 +262,8 @@ func (r *ReconcileVirtualMachineSnapshot) reconcileNormal(ctx context.Context, l
 				SyncVolumeFinalizer, vmsnapshot.Namespace, vmsnapshot.Name)
 			err := r.vmSnapVMOperatorClient.Patch(ctx, vmsnapshot, vmSnapshotPatch)
 			if err != nil {
-				log.Errorf("reconcileNormal: error while add finalizer to "+
-					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Name, vmsnapshot.Name, err)
+				log.Errorf("reconcileNormal: error while adding finalizer to "+
+					"virtualmachinesnapshot %s/%s. error: %v", vmsnapshot.Namespace, vmsnapshot.Name, err)
 				return err
 			}
 			return nil
@@ -438,7 +438,7 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 	}
 	log.Info("syncVolumesAndUpdateCNSVolumeInfo: wait for syncvolume operation to be completed")
 	if err := syncgrp.Wait(); err != nil {
-		log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while sync volume "+
+		log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while syncing volume "+
 			"error: %v", err)
 		return err
 	}
@@ -525,7 +525,7 @@ func (r *ReconcileVirtualMachineSnapshot) invokeSyncVolume(ctx context.Context, 
 			syncVolumeSpecs[0])
 		syncVolumeFaultType, err := r.volumeManager.SyncVolume(ctx, syncVolumeSpecs)
 		if err != nil {
-			log.Errorf("invokeSyncVolume: error while sync volume %s "+
+			log.Errorf("invokeSyncVolume: error while syncing volume %s "+
 				"cnsfault %s. error: %v", syncVolumeSpecs[0], syncVolumeFaultType, err)
 			return err
 		}
