@@ -486,7 +486,7 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	}
 
 	fv := &fvv1alpha1.FileVolume{}
-	var exportPath, endpoint string
+	var exportPath, endpoint, fileStore string
 	err = wait.PollUntilContextTimeout(ctx, fvsWaitStep, fvsWaitMax, true, func(ctx context.Context) (bool, error) {
 		if err := c.fileVolumeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, fv); err != nil {
 			return false, err
@@ -504,12 +504,22 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 		}
 		exportPath = fv.Status.ExportPath
 		endpoint = fv.Status.Endpoint
-		return exportPath != "" && endpoint != "", nil
+		// The FVS controller labels the FileVolume CR with the backing file store name once the volume
+		// is fully provisioned. We surface it in the CreateVolume response so that external-provisioner
+		// can publish it as a label on the PVC, so treat it as part of the readiness condition.
+		fileStore = fv.Labels[common.FileStoreLabelKey]
+		if exportPath == "" || endpoint == "" || fileStore == "" {
+			log.Warnf("FileVolume %s/%s is Ready but still incomplete (exportPath set: %t, endpoint set: %t, "+
+				"%q label set: %t); continuing to wait",
+				instanceNS, fvName, exportPath != "", endpoint != "", common.FileStoreLabelKey, fileStore != "")
+			return false, nil
+		}
+		return true, nil
 	})
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
-			"timeout or error waiting for FileVolume %s/%s to become Ready with export path and endpoint: %v",
-			instanceNS, fvName, err)
+			"timeout or error waiting for FileVolume %s/%s to become Ready with export path, endpoint and "+
+				"%q label: %v", instanceNS, fvName, common.FileStoreLabelKey, err)
 	}
 
 	volumeID := fmt.Sprintf("%s%s:%s", common.FVSVolumeIDPrefix, instanceNS, fvName)
@@ -517,6 +527,7 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	attributes := map[string]string{
 		common.AttributeDiskType:            common.DiskTypeFileVolume,
 		common.Nfsv4ExportPathAnnotationKey: nfsv41Export,
+		common.FileStoreLabelKey:            fileStore,
 	}
 
 	resp := &csi.CreateVolumeResponse{
