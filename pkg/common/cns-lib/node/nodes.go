@@ -49,8 +49,7 @@ func (nodes *Nodes) Initialize(ctx context.Context) error {
 	if err := nodes.Prepare(ctx); err != nil {
 		return err
 	}
-	nodes.Start()
-	return nil
+	return nodes.Start()
 }
 
 // Prepare initializes the node manager and CSINode informer without starting
@@ -75,8 +74,12 @@ func (nodes *Nodes) Prepare(ctx context.Context) error {
 }
 
 // Start starts the prepared CSINode informer.
-func (nodes *Nodes) Start() {
+func (nodes *Nodes) Start() error {
+	if nodes.informMgr == nil {
+		return fmt.Errorf("cannot start CSINode informer before Prepare")
+	}
 	nodes.informMgr.Listen()
+	return nil
 }
 
 func (nodes *Nodes) csiNodeAdd(obj interface{}) {

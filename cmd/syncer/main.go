@@ -450,7 +450,11 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 		if nodeMgr != nil {
 			log.Info("Starting CSINode discovery after all configured vCenters are registered")
-			nodeMgr.Start()
+			if err := nodeMgr.Start(); err != nil {
+				log.Errorf("failed to start nodeManager. Error: %+v", err)
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(1)
+			}
 		}
 	}
 }

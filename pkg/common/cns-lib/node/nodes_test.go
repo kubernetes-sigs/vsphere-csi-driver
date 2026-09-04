@@ -147,11 +147,20 @@ func TestPrepareDefersCSINodeProcessingUntilStart(t *testing.T) {
 	default:
 	}
 
-	nodes.Start()
+	if err := nodes.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
 	select {
 	case <-registered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("CSINode was not processed after Start()")
+	}
+}
+
+func TestStartBeforePrepareReturnsError(t *testing.T) {
+	err := (&Nodes{}).Start()
+	if err == nil {
+		t.Fatal("expected Start() to fail before Prepare()")
 	}
 }
 
