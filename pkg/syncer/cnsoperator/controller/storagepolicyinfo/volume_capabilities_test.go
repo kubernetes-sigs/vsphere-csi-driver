@@ -263,15 +263,15 @@ func TestHostSupportsHighPerformanceLinkedClone_ESAEnabled(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// TestLinkedCloneZonesForNamespace_NilTopologyInfoReturnsError verifies that a nil
-// TopologyInfo — which only happens when InfraStoragePolicyInfo failed to resolve its own
+// TestLinkedCloneZonesForNamespace_NilTopologyReturnsError verifies that a nil
+// Topology — which only happens when InfraStoragePolicyInfo failed to resolve its own
 // topology, never as a legitimate non-zonal state — is surfaced as an error rather than
 // silently falling back to InfraSPI's (equally untrustworthy) zonal capabilities.
-func TestLinkedCloneZonesForNamespace_NilTopologyInfoReturnsError(t *testing.T) {
+func TestLinkedCloneZonesForNamespace_NilTopologyReturnsError(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "policy-lccfn-notopology"},
-		// TopologyInfo is deliberately nil.
+		// Topology is deliberately nil.
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "policy-lccfn-notopology"}}
 
@@ -299,7 +299,7 @@ func TestLinkedCloneZonesForNamespace_ZonalRecomputesFromCache(t *testing.T) {
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: namespace},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
@@ -319,8 +319,8 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesBlockAndFilesystemCapabilities
 		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
 			// Non-nil but zoneless, as syncTopologyFromInfraSPI would set for a non-zonal
-			// policy; only nil TopologyInfo (an unresolved upstream topology) is an error.
-			TopologyInfo: &spiv1alpha1.Topology{},
+			// policy; only nil Topology (an unresolved upstream topology) is an error.
+			Topology: &spiv1alpha1.Topology{},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -351,7 +351,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesHostLocalCapability(t *testing
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-hostlocal"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{},
+			Topology: &spiv1alpha1.Topology{},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -396,7 +396,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyReportsNoZonalCapabiliti
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -437,7 +437,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyFSSDisabledComputes(t *t
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy, Namespace: "consumer-ns"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: markerPolicy}}
@@ -464,7 +464,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_NonMarkerPolicyComputes(t *testing.T
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "consumer-ns"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
@@ -538,7 +538,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MixedZones(t *testing.T) {
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "consumer-ns"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal",
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal",
 				AccessibleZones: []string{"zone-a", "zone-b", "zone-c"}},
 		},
 	}
@@ -572,7 +572,7 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_ZoneNotActiveForNamespaceExcluded(t 
 	instance := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "consumer-ns"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal",
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal",
 				AccessibleZones: []string{"zone-a", "zone-b"}},
 		},
 	}
