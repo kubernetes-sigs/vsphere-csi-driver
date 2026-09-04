@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	neturl "net/url"
 	"reflect"
 	"strconv"
@@ -37,6 +38,7 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/sts"
+	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -60,7 +62,25 @@ const (
 	statusSuccess = "success"
 	// failed request
 	statusFailUnknown = "fail-unknown"
+
+	// restLoginCooldown is how long connect() waits before attempting another
+	// rest login after one was rejected as an authentication failure. This
+	// branch has no Connect()-level InvalidLogin retry loop (unlike master's
+	// maxLoginRetries/retryDelay), so the value is defined directly here: a
+	// flat 3-minute delay matching vCenter's SSO lockout window (5 attempts in
+	// 180s). The rest re-login path runs on every connect() and has no attempt
+	// limit of its own, so without a cooldown a wrong password would spend that
+	// budget within seconds on an active cluster and lock the account out.
+	restLoginCooldown = 3 * time.Minute
 )
+
+// restLoginTimeout bounds a rest re-login attempt on connect()'s repair path.
+// NewClient sets soap.Client.Timeout to 0 and the rest client shares that
+// transport, so an endpoint that accepts the connection and then never answers
+// would otherwise hang that attempt indefinitely -- while holding ClientMutex,
+// which every other caller of Connect is queued behind. A variable rather than
+// a constant so tests can shorten it.
+var restLoginTimeout = 60 * time.Second
 
 // VirtualCenter holds details of a virtual center instance.
 type VirtualCenter struct {
@@ -68,6 +88,8 @@ type VirtualCenter struct {
 	Config *VirtualCenterConfig
 	// Client represents the govmomi client instance for the connection.
 	Client *govmomi.Client
+	// RestClient represents the govmomi rest client
+	RestClient *rest.Client
 	// PbmClient represents the govmomi PBM Client instance.
 	PbmClient *pbm.Client
 	// CnsClient represents the CNS client instance.
@@ -78,6 +100,12 @@ type VirtualCenter struct {
 	VslmClient *vslm.Client
 	// ClientMutex is used for exclusive connection creation.
 	ClientMutex *sync.Mutex
+	// restLoginCooldownUntil is the time before which connect() will not
+	// attempt another rest re-login, set when one was rejected as an
+	// authentication failure. Zero means no cooldown is in effect. Read and
+	// written only from connect(), which callers reach through Connect while it
+	// holds ClientMutex, the same protection vc.Client and vc.RestClient have.
+	restLoginCooldownUntil time.Time
 }
 
 type MetricRoundTripper struct {
@@ -148,10 +176,16 @@ type VirtualCenterConfig struct {
 	ReloadVCConfigForNewClient bool
 	// FileVolumeActivated indicates whether file service has been enabled on any vSAN cluster or not
 	FileVolumeActivated bool
+	// VCSessionManagerURL is the path of a rest api capable of generating vCenter Cloned tokens
+	// to be reused by clients. When this is used, Username and Password configuration are ignored
+	VCSessionManagerURL string
+	// VCSessionManagerToken is the token that should be passed to authenticate against the session manager
+	// If empty, the Pod service account will be used
+	VCSessionManagerToken string
 }
 
 // NewClient creates a new govmomi Client instance.
-func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govmomi.Client, error) {
+func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govmomi.Client, *rest.Client, error) {
 	log := logger.GetLogger(ctx)
 	if vc.Config.Scheme == "" {
 		vc.Config.Scheme = DefaultScheme
@@ -160,14 +194,14 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	url, err := soap.ParseURL(net.JoinHostPort(vc.Config.Host, strconv.Itoa(vc.Config.Port)))
 	if err != nil {
 		log.Errorf("failed to parse URL %s with err: %v", url, err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	soapClient := soap.NewClient(url, vc.Config.Insecure)
 	if len(vc.Config.CAFile) > 0 && !vc.Config.Insecure {
 		if err := soapClient.SetRootCAs(vc.Config.CAFile); err != nil {
 			log.Errorf("failed to load CA file: %v", err)
-			return nil, err
+			return nil, nil, err
 		}
 	} else if len(vc.Config.Thumbprint) > 0 && !vc.Config.Insecure {
 		soapClient.SetThumbprint(url.Host, vc.Config.Thumbprint)
@@ -179,7 +213,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		log.Errorf("failed to create new client with err: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Invoke KeepAlive on the vimClient RoundTripper to keep the connection alive
@@ -189,7 +223,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	if err != nil && vc.Config.Host != "127.0.0.1" {
 		// Skipping error for simulator connection for unit tests.
 		log.Errorf("Failed to set vimClient service version to vsan. err: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 	vimClient.UserAgent = useragent
 	client := &govmomi.Client{
@@ -197,22 +231,24 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		SessionManager: session.NewManager(vimClient),
 	}
 
-	err = vc.login(ctx, client)
+	restClient := rest.NewClient(client.Client)
+
+	err = vc.login(ctx, client, restClient)
 	if err != nil {
 		log.Errorf("failed to login to vc. err: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	s, err := client.SessionManager.UserSession(ctx)
 	if err != nil {
 		log.Errorf("failed to get UserSession. err: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 	// Refer to this issue - https://github.com/vmware/govmomi/issues/2922
 	// When Session Manager -> UserSession can return nil user session with nil error
 	// so handling the case for nil session.
 	if s == nil {
-		return nil, errors.New("nil session obtained from session manager")
+		return nil, nil, errors.New("nil session obtained from session manager")
 	}
 	log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
 
@@ -220,46 +256,190 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
 	}
 	rt := vim25.Retry(client.RoundTripper, vim25.TemporaryNetworkError(vc.Config.RoundTripperCount))
-	client.RoundTripper = &MetricRoundTripper{"soap", rt}
-	return client, nil
+	client.RoundTripper = &MetricRoundTripper{clientName: "soap", roundTripper: rt}
+	return client, restClient, nil
+}
+
+// soapSessionID returns the value of the SOAP session cookie, which vCenter also
+// accepts as a REST session id and is how the rest client rides along on a cloned
+// session.
+//
+// soap.Client.SessionCookie returns nil when the jar holds no session cookie, so
+// it is checked rather than dereferenced. In practice a successful CloneSession
+// leaves the cookie in place, but the caller cannot prove that, and a nil
+// dereference on a login path that gets retried would crash the pod rather than
+// fail the call.
+func soapSessionID(client *govmomi.Client) (string, error) {
+	cookie := client.SessionCookie()
+	if cookie == nil {
+		return "", errors.New("no vCenter session cookie found after cloning the session")
+	}
+	if cookie.Value == "" {
+		return "", errors.New("vCenter session cookie after cloning the session is empty")
+	}
+	return cookie.Value, nil
 }
 
 // login calls SessionManager.LoginByToken if certificate and private key are
 // configured. Otherwise, calls SessionManager.Login with user and password.
-func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client) error {
+func (vc *VirtualCenter) login(ctx context.Context, client *govmomi.Client, restClient *rest.Client) error {
 	log := logger.GetLogger(ctx)
 	var err error
 
+	// If session manager is used, username and password can be discarded/ignored.
+	// After CloneSession succeeds, the only remaining step is restClient.SessionID,
+	// a local field set with no vCenter call, so there is no step left that can
+	// fail here.
+	if vc.Config.VCSessionManagerURL != "" {
+		token, err := GetSharedToken(ctx, SharedTokenOptions{
+			URL:   vc.Config.VCSessionManagerURL,
+			Token: vc.Config.VCSessionManagerToken,
+		})
+		if err != nil {
+			log.Errorf("error getting shared session token: %s", err)
+			return err
+		}
+		if err := client.SessionManager.CloneSession(ctx, token); err != nil {
+			log.Errorf("error getting cloned session token: %s", err)
+			return err
+		}
+		if err := vc.restLogin(ctx, client, restClient); err != nil {
+			log.Errorf("error deriving rest session from cloned session: %s", err)
+			return err
+		}
+		return nil
+	}
+
 	b, _ := pem.Decode([]byte(vc.Config.Username))
 	if b == nil {
-		return client.SessionManager.Login(ctx,
-			neturl.UserPassword(vc.Config.Username, vc.Config.Password))
+		if err := client.SessionManager.Login(ctx, neturl.UserPassword(vc.Config.Username, vc.Config.Password)); err != nil {
+			log.Errorf("error logging soap client: %v", err)
+			return err
+		}
+		if err := vc.restLogin(ctx, client, restClient); err != nil {
+			// Keep the SOAP session and succeed anyway: REST is only needed
+			// for tag/topology operations, which fail on their own -- and recover on
+			// their own -- if they need it and it is still down. Failing the whole
+			// login here would mean a vAPI outage blocks everything that needs only
+			// SOAP, including driver startup, since Connect() runs from
+			// controller.Init(). The next connect() call re-logins the rest client
+			// on its own, without touching this SOAP session, once vAPI is
+			// reachable again.
+			log.Warnf("error logging rest client, continuing with SOAP-only session: %v", err)
+		}
+		return nil
 	}
+
+	signer, err := vc.issueSTSSigner(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	header := soap.Header{Security: signer}
+	if err := client.SessionManager.LoginByToken(client.Client.WithHeader(ctx, header)); err != nil {
+		return err
+	}
+
+	if err := restLoginByToken(ctx, restClient, signer); err != nil {
+		// See the equivalent comment in the username/password branch above.
+		log.Warnf("error logging rest client by token, continuing with SOAP-only session: %v", err)
+	}
+	return nil
+}
+
+// issueSTSSigner loads the configured certificate/private key pair and issues a
+// SAML token from vCenter's STS for it.
+func (vc *VirtualCenter) issueSTSSigner(ctx context.Context, client *govmomi.Client) (*sts.Signer, error) {
+	log := logger.GetLogger(ctx)
 
 	cert, err := tls.X509KeyPair([]byte(vc.Config.Username), []byte(vc.Config.Password))
 	if err != nil {
 		log.Errorf("failed to load X509 key pair with err: %v", err)
-		return err
+		return nil, err
 	}
 
 	tokens, err := sts.NewClient(ctx, client.Client)
 	if err != nil {
 		log.Errorf("failed to create STS client with err: %v", err)
-		return err
+		return nil, err
 	}
 
+	// Certificate (rather than Userinfo) makes this a Holder-of-Key token,
+	// bound to this request's private key and normally usable only by the
+	// connection that negotiated it. The signer built from it is reused on a
+	// second, separate connection -- the rest client's LoginByToken -- which is
+	// a delegation: the rest client presents a token it did not itself
+	// negotiate. Delegatable is what permits a HoK token to be reused that way;
+	// govc's own login command does the identical one-token, two-logins pattern
+	// (cli/session/login.go: issueToken, loginByToken, loginRestByToken) and
+	// also sets it for the same reason.
 	req := sts.TokenRequest{
 		Certificate: &cert,
+		Delegatable: true,
 	}
 
 	signer, err := tokens.Issue(ctx, req)
 	if err != nil {
 		log.Errorf("failed to issue SAML token with err: %v", err)
-		return err
+		return nil, err
+	}
+	return signer, nil
+}
+
+func restLoginByToken(ctx context.Context, restClient *rest.Client, signer *sts.Signer) error {
+	return restClient.LoginByToken(restClient.WithSigner(ctx, signer))
+}
+
+// restLogin authenticates only the rest client, against a SOAP session that is
+// already authenticated. It is what login() uses for the rest half of a fresh
+// login, and what connect() uses to repair a rest session on a client whose
+// SOAP session is still healthy -- the rest client shares the SOAP client's
+// transport, so it can be re-authenticated on its own without disturbing the
+// SOAP session or any of the dependent clients (pbm, cns, vslm, vsan) built on
+// top of it.
+func (vc *VirtualCenter) restLogin(ctx context.Context, client *govmomi.Client, restClient *rest.Client) error {
+	// With the shared session manager the rest client does not hold a session of
+	// its own: its session id is the SOAP session's cookie, so "re-login" is just
+	// re-deriving that id from the current SOAP session.
+	if vc.Config.VCSessionManagerURL != "" {
+		sessionID, err := soapSessionID(client)
+		if err != nil {
+			return err
+		}
+		restClient.SessionID(sessionID)
+		return nil
 	}
 
-	header := soap.Header{Security: signer}
-	return client.SessionManager.LoginByToken(client.Client.WithHeader(ctx, header))
+	if b, _ := pem.Decode([]byte(vc.Config.Username)); b == nil {
+		return restClient.Login(ctx, neturl.UserPassword(vc.Config.Username, vc.Config.Password))
+	}
+
+	// Certificate auth: the token issued for the original login is not kept
+	// around, so a rest-only re-login issues a fresh one. That is an STS call
+	// against vCenter, not vAPI, so it works while vAPI is the part that is down.
+	signer, err := vc.issueSTSSigner(ctx, client)
+	if err != nil {
+		return err
+	}
+	return restLoginByToken(ctx, restClient, signer)
+}
+
+// cleanupVCClient logs out and clears the VC client to ensure a clean state.
+// This helper is used during error handling and retry logic.
+func (vc *VirtualCenter) cleanupVCClient(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+	if vc.Client != nil {
+		if err := vc.Client.Logout(ctx); err != nil {
+			log.With("err", err).Warn("Could not logout of VC session")
+		}
+	}
+	if vc.RestClient != nil {
+		// TODO: On vSphere U3, with a shared session this may return an error as logging
+		// out from Soap also logs out from rest.
+		if err := vc.RestClient.Logout(ctx); err != nil {
+			log.With("err", err).Warn("Could not logout of VC rest session")
+		}
+	}
 }
 
 // Connect establishes a new connection with vSphere with updated credentials.
@@ -299,7 +479,13 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		log.Errorf("failed to get useragent for vCenter session. error: %+v", err)
 		return err
 	}
-	if vc.Client == nil {
+
+	// Once initialised, don't nullify vc.Client or dependent clients.
+	// This function will detect the invalid session (after logout)
+	// and recreate dependent clients.
+	// Nullifying vc.Client would cause connect() to return early
+	// before dependent clients are recreated, leaving them with stale sessions.
+	if vc.Client == nil || vc.RestClient == nil {
 		if vc.Config.ReloadVCConfigForNewClient {
 			err = ReadVCConfigs(ctx, vc)
 			if err != nil {
@@ -307,13 +493,15 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			}
 		}
 		log.Infof("VirtualCenter.connect() creating new client")
-		if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
+		if vc.Client, vc.RestClient, err = vc.NewClient(ctx, useragent); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
 			if !vc.Config.Insecure {
 				log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 			}
 			return err
 		}
+
+		vc.restLoginCooldownUntil = time.Time{}
 		log.Infof("VirtualCenter.connect() successfully created new client")
 		return nil
 	}
@@ -323,10 +511,60 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 	// SessionMgr.UserSession(ctx) retrieves and returns the SessionManager's
 	// CurrentSession field. Nil is returned if the session is not
 	// authenticated or timed out.
-	if userSession, err := sessionMgr.UserSession(ctx); err != nil {
+
+	userSession, err := sessionMgr.UserSession(ctx)
+	if err != nil {
 		log.Errorf("failed to obtain user session with err: %v", err)
+		// An error here can mean the vcenter itself is down so
+		// we should return early with error
 		return err
-	} else if userSession != nil {
+	}
+
+	// When authenticated through the shared session manager, the rest client's
+	// session ID is the SOAP session's own cookie (see login()), so they are the
+	// same vCenter session object rather than two independent ones. The logout
+	// TODOs above already rely on this: on vSphere U3+ logging out of one logs
+	// out of the other. So userSession above already speaks for the rest
+	// session too, and checking it again would just be a second network call
+	// for the same answer.
+	restSessionValid := userSession != nil
+	if vc.Config.VCSessionManagerURL == "" {
+		restSession, err := vc.RestClient.Session(ctx)
+		if err != nil {
+			// Deliberately not returned. govmomi maps only HTTP 401 to
+			// (nil, nil); any other failure -- a vAPI endpoint restarting, a
+			// 503 mid-upgrade, a network blip -- comes back as an error. If
+			// that were returned, Connect would treat the whole connection as
+			// failed and call cleanupVCClient, which logs out the SOAP session
+			// that userSession above just proved healthy, and leaves both
+			// client pointers non-nil but dead for anything not going through
+			// Connect. A REST session that cannot be read is instead treated
+			// as one that needs re-establishing, which the code below does.
+			log.Errorf("failed to obtain rest user session, will re-login. err: %v", err)
+			restSessionValid = false
+		} else {
+			restSessionValid = restSession != nil
+		}
+	}
+
+	// No need to re-login
+	if userSession != nil && restSessionValid {
+		return nil
+	}
+
+	if userSession != nil {
+		// Only the rest session is unusable; the SOAP session this client holds
+		// is live. Re-authenticate the rest client in place rather than tearing
+		// the whole client down: restClient rides on the same soap.Client, so it
+		// can be re-logged-in on its own, and the SOAP session plus every
+		// dependent client (pbm, cns, vslm, vsan) built on it stay valid.
+		//
+		// Tearing down here is what made a vAPI outage a churn loop: login()
+		// deliberately succeeds with a SOAP-only session when the rest login
+		// fails, so each Connect() would log out a working SOAP session, build a
+		// new one, fail the rest login again, and leave the next Connect() to do
+		// the same -- a full re-login per call for as long as vAPI stayed down.
+		vc.repairRestSession(ctx)
 		return nil
 	}
 
@@ -339,6 +577,14 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		}
 	}
 
+	if vc.RestClient != nil {
+		// TODO: On U3 shared session this may return an error, if the Soap logout
+		// happened correctly, but can be safely ignored
+		if err := vc.RestClient.Logout(ctx); err != nil {
+			log.Infof("failed to logout current rest session. still clearing idle sessions. err: %v", err)
+		}
+	}
+
 	// If session has expired, create a new instance.
 	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
 	if vc.Config.ReloadVCConfigForNewClient {
@@ -347,13 +593,14 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			return err
 		}
 	}
-	if vc.Client, err = vc.NewClient(ctx, useragent); err != nil {
+	if vc.Client, vc.RestClient, err = vc.NewClient(ctx, useragent); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 		}
 		return err
 	}
+	vc.restLoginCooldownUntil = time.Time{}
 	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
@@ -386,7 +633,57 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 		}
 		vc.VsanClient.RoundTripper = &MetricRoundTripper{"vsan", vc.VsanClient.RoundTripper}
 	}
+
 	return nil
+}
+
+// repairRestSession re-authenticates the rest client of a VirtualCenter whose
+// SOAP session is still valid. A failure is never fatal, matching login(): a
+// vAPI outage leaves a usable SOAP-only connection, and callers that need vAPI
+// fail on their own and recover when a later connect() retries this.
+//
+// Retries are immediate for transport-shaped failures, which is what makes
+// recovery from a vAPI outage take a single round trip once it is back. An
+// authentication failure is different: it will not recover on its own, and this
+// path runs on every connect() with no attempt limit, so retrying one at full
+// speed would burn through vCenter's SSO lockout budget. Those get a cooldown.
+func (vc *VirtualCenter) repairRestSession(ctx context.Context) {
+	log := logger.GetLogger(ctx)
+
+	if remaining := time.Until(vc.restLoginCooldownUntil); remaining > 0 {
+		log.Warnf("not attempting a rest re-login for another %v: the last attempt was rejected as an "+
+			"authentication failure, and retrying it every connect() risks locking the account out",
+			remaining.Truncate(time.Second))
+		return
+	}
+
+	loginCtx, cancel := context.WithTimeout(ctx, restLoginTimeout)
+	defer cancel()
+
+	if err := vc.restLogin(loginCtx, vc.Client, vc.RestClient); err != nil {
+		if isRestAuthFailure(ctx, err) {
+			vc.restLoginCooldownUntil = time.Now().Add(restLoginCooldown)
+			log.Errorf("rest re-login was rejected as an authentication failure, "+
+				"continuing with SOAP-only session and not retrying for %v: %v", restLoginCooldown, err)
+		} else {
+			log.Warnf("failed to re-login rest client, continuing with SOAP-only session: %v", err)
+		}
+		return
+	}
+	vc.restLoginCooldownUntil = time.Time{}
+	log.Infof("re-logged in rest client without recreating the SOAP session")
+}
+
+// isRestAuthFailure reports whether err is vCenter rejecting the credentials
+// rather than a transport-level failure.
+//
+// A vAPI login rejection arrives as an HTTP 401, which govmomi returns as its
+// own status error rather than a SOAP fault, so IsInvalidLoginError alone does
+// not recognise it. IsInvalidLoginError still matters for the certificate path,
+// where the rest login is preceded by an STS token issue -- a SOAP call, which
+// faults with InvalidLogin in the usual way when the certificate is rejected.
+func isRestAuthFailure(ctx context.Context, err error) bool {
+	return rest.IsStatusError(err, http.StatusUnauthorized) || IsInvalidLoginError(ctx, err)
 }
 
 // ReadVCConfigs will ensure we are always reading the latest config
@@ -461,6 +758,63 @@ func (vc *VirtualCenter) getDatacenters(ctx context.Context, dcPaths []string) (
 	return dcs, nil
 }
 
+// GetActiveUser returns the current logged in user. It is fetched from govmomi.Session
+// to reflect the real current user being used.
+//
+// This makes a single attempt and does not establish or repair a session.
+// Every caller reaches it just after something else (GetVCenter, GetVCenters,
+// GetDatacenters, ...) has already called Connect, so there is a session by
+// then and a Connect here would only duplicate the UserSession round trip
+// below. In the narrow case where the session dies in between, the error is
+// returned and the caller's own retry -- the CSI sidecar for volume
+// operations, the periodic refresh for the auth manager -- reconnects.
+func (vc *VirtualCenter) GetActiveUser(ctx context.Context) (string, error) {
+	if vc.Client == nil || vc.Client.SessionManager == nil {
+		return "", fmt.Errorf("client or sessionmanager are nil")
+	}
+
+	userSession, err := vc.Client.SessionManager.UserSession(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error getting current user: %w", err)
+	}
+
+	// Refer to this issue - https://github.com/vmware/govmomi/issues/2922
+	// Session Manager -> UserSession can return nil user session with nil error
+	// so handling the case for nil session.
+	if userSession == nil {
+		return "", errors.New("nil session obtained from session manager")
+	}
+	return userSession.UserName, nil
+}
+
+// ConfiguredOrActiveUser returns vc.Config.Username when that value is actually
+// the username the session is authenticated as. That is a local read with no
+// vCenter round trip, and covers the common username/password case. Otherwise it
+// falls back to GetActiveUser, which asks vCenter for the live session's user.
+//
+// Two cases must not use the configured value, because in both of them it is
+// either not a username or not this session's username:
+//
+//   - Shared session manager (VCSessionManagerURL). The session is a clone of
+//     whichever user the session manager authenticated as, which has nothing to
+//     do with Username. Username is expected to be empty here, but that is not
+//     enforced: validateConfig only waives the username/password requirement
+//     when VCSessionManagerURL is set, it never clears an already-configured
+//     User. So the mode, not the emptiness of Username, is what decides.
+//   - Certificate authentication. Username holds a PEM-encoded certificate
+//     rather than a user, and Password holds its private key -- see login(),
+//     which selects that path with this same pem.Decode check. Returning the
+//     PEM block as a username would put it in CNS volume metadata.
+func (vc *VirtualCenter) ConfiguredOrActiveUser(ctx context.Context) (string, error) {
+	if vc.Config.Username == "" || vc.Config.VCSessionManagerURL != "" {
+		return vc.GetActiveUser(ctx)
+	}
+	if block, _ := pem.Decode([]byte(vc.Config.Username)); block != nil {
+		return vc.GetActiveUser(ctx)
+	}
+	return vc.Config.Username, nil
+}
+
 // GetDatacenters returns Datacenters found on the VirtualCenter. If no
 // datacenters are mentioned in the VirtualCenterConfig during registration, all
 // Datacenters for the given VirtualCenter will be returned. If DatacenterPaths
@@ -489,7 +843,16 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 		log.Errorf("failed to logout with err: %v", err)
 		return err
 	}
+
+	// We don't return an error here because logging out from Rest failing
+	// can happen on VC shared sessions
+	if vc.RestClient != nil {
+		if err := vc.RestClient.Logout(ctx); err != nil {
+			log.Infof("failed to logout rest with err: %v", err)
+		}
+	}
 	vc.Client = nil
+	vc.RestClient = nil
 	return nil
 }
 
