@@ -13,6 +13,7 @@ import (
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 )
@@ -34,7 +35,7 @@ var (
 	// preferredDatastoresMap is a map of topology domain to list of
 	// datastore URLs preferred in that domain for each VC.
 	// Ex: {"vc1": {"zone1": [DSURL1, DSURL2], "zone2": [DSURL3]}, "vc2": {"zone3": [DSURL5]} }
-	preferredDatastoresMap = make(map[string]map[string][]string)
+	preferredDatastoresMap = make(map[commontypes.FQDN]map[string][]string)
 	// preferredDatastoresMapInstanceLock guards the preferredDatastoresMap from read-write overlaps.
 	preferredDatastoresMapInstanceLock = &sync.RWMutex{}
 	// tagVCEntityMoRefMap maintains a cache of topology tags to the vCenter IP/FQDN & the MoRef of the
@@ -43,7 +44,7 @@ var (
 	//    "region-1": {"vc1": [{Type:Datacenter Value:datacenter-3}], "vc2": [{Type:Datacenter Value:datacenter-5}] },
 	//	  "zone-1": {"vc1": [{Type:ClusterComputeResource Value:domain-c12}] },
 	//	  "zone-2": {"vc2": [{Type:ClusterComputeResource Value:domain-c8] },}
-	tagVCEntityMoRefMap = make(map[string]map[string][]mo.Reference)
+	tagVCEntityMoRefMap = make(map[string]map[commontypes.FQDN][]mo.Reference)
 )
 
 // DiscoverTagEntities populates tagVCEntityMoRefMap with tagName -> VC -> associated MoRefs mapping.
@@ -104,7 +105,7 @@ func DiscoverTagEntities(ctx context.Context) error {
 					continue
 				}
 				if _, exists := tagVCEntityMoRefMap[tag.Name]; !exists {
-					tagVCEntityMoRefMap[tag.Name] = map[string][]mo.Reference{vcenterCfg.Host: objMORs}
+					tagVCEntityMoRefMap[tag.Name] = map[commontypes.FQDN][]mo.Reference{vcenterCfg.Host: objMORs}
 				} else {
 					tagVCEntityMoRefMap[tag.Name][vcenterCfg.Host] = objMORs
 				}
@@ -127,7 +128,7 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 	// Get the entity MoRefs for each tag.
 	for key, tag := range topoSegment {
 		var hostList []*cnsvsphere.HostSystem
-		entityMorefs, exists := areEntityMorefsPresentForTag(tag, vCenter.Config.Host)
+		entityMorefs, exists := areEntityMorefsPresentForTag(tag, vCenter.Config.Host.String())
 		if !exists {
 			// Refresh cache to see if the tag has been added recently.
 			log.Infof("Refresh cache to see if the tag has been added recently")
@@ -136,7 +137,7 @@ func GetHostsForSegment(ctx context.Context, topoSegment map[string]string, vCen
 				return nil, logger.LogNewErrorf(log,
 					"failed to update cache with topology information. Error: %+v", err)
 			}
-			entityMorefs, exists = areEntityMorefsPresentForTag(tag, vCenter.Config.Host)
+			entityMorefs, exists = areEntityMorefsPresentForTag(tag, vCenter.Config.Host.String())
 			if !exists {
 				return nil, logger.LogNewErrorf(log, "failed to find tag %q in VC %q.", tag, vCenter.Config.Host)
 			}
@@ -362,7 +363,7 @@ func areEntityMorefsPresentForTag(tag, vcHost string) ([]mo.Reference, bool) {
 	if !exists {
 		return nil, false
 	}
-	entityMorefs, exists := vcEntityMap[vcHost]
+	entityMorefs, exists := vcEntityMap[commontypes.NewFQDN(vcHost)]
 	if !exists {
 		return nil, false
 	}
@@ -371,14 +372,14 @@ func areEntityMorefsPresentForTag(tag, vcHost string) ([]mo.Reference, bool) {
 
 // GetAccessibilityRequirementsByVC clubs the accessibility requirements by the VC they belong to.
 func GetAccessibilityRequirementsByVC(ctx context.Context, topoReq *csi.TopologyRequirement) (
-	map[string][]map[string]string, error) {
+	map[commontypes.FQDN][]map[string]string, error) {
 	log := logger.GetLogger(ctx)
 	// NOTE: We are only checking for preferred segments as vSphere CSI driver follows strict topology.
 	if topoReq.GetPreferred() == nil {
 		return nil, logger.LogNewErrorf(log, "No preferred segments specified in the "+
 			"accessibility requirements.")
 	}
-	vcTopoSegmentsMap := make(map[string][]map[string]string)
+	vcTopoSegmentsMap := make(map[commontypes.FQDN][]map[string]string)
 	for _, topology := range topoReq.GetPreferred() {
 		segments := topology.GetSegments()
 		vcHost, err := getVCForTopologySegments(ctx, segments)
@@ -393,11 +394,12 @@ func GetAccessibilityRequirementsByVC(ctx context.Context, topoReq *csi.Topology
 
 // getVCForTopologySegments uses the tagVCEntityMoRefMap to retrieve the
 // VC instance for the given topology segments map in a multi-VC environment.
-func getVCForTopologySegments(ctx context.Context, topologySegments map[string]string) (string, error) {
+func getVCForTopologySegments(ctx context.Context,
+	topologySegments map[string]string) (commontypes.FQDN, error) {
 	log := logger.GetLogger(ctx)
 	// vcCountMap keeps a cumulative count of the occurrences of
 	// VCs across all labels in the given topology segment.
-	vcCountMap := make(map[string]int)
+	vcCountMap := make(map[commontypes.FQDN]int)
 
 	// Find the VC which contains all the labels given in the topologySegments.
 	// For example, if tagVCEntityMoRefMap looks like
@@ -416,7 +418,7 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 			// Refresh cache to see if the tag has been added recently.
 			err := DiscoverTagEntities(ctx)
 			if err != nil {
-				return "", logger.LogNewErrorf(log,
+				return commontypes.FQDN{}, logger.LogNewErrorf(log,
 					"failed to update cache with tag to VC to MoRef mapping. Error: %+v", err)
 			}
 			vcMap, exists = tagVCEntityMoRefMap[label]
@@ -426,11 +428,11 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 				vcCountMap[vc] = vcCountMap[vc] + 1
 			}
 		} else {
-			return "", logger.LogNewErrorf(log, "Topology label %q not found in tag to vCenter mapping.",
+			return commontypes.FQDN{}, logger.LogNewErrorf(log, "Topology label %q not found in tag to vCenter mapping.",
 				topologyKey+":"+label)
 		}
 	}
-	var commonVCList []string
+	var commonVCList []commontypes.FQDN
 	numTopoLabels := len(topologySegments)
 	for vc, count := range vcCountMap {
 		// Add VCs to the commonVCList if they satisfied all the labels in the topology segment.
@@ -440,14 +442,14 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string]s
 	}
 	switch {
 	case len(commonVCList) > 1:
-		return "", logger.LogNewErrorf(log, "Topology segment(s) %+v belong to more than one vCenter: %+v",
-			topologySegments, commonVCList)
+		return commontypes.FQDN{}, logger.LogNewErrorf(log,
+			"Topology segment(s) %+v belong to more than one vCenter: %+v", topologySegments, commonVCList)
 	case len(commonVCList) == 1:
 		log.Infof("Topology segment(s) %+v belong to vCenter: %q", topologySegments, commonVCList[0])
 		return commonVCList[0], nil
 	}
-	return "", logger.LogNewErrorf(log, "failed to find the vCenter associated with topology segments %+v",
-		topologySegments)
+	return commontypes.FQDN{}, logger.LogNewErrorf(log,
+		"failed to find the vCenter associated with topology segments %+v", topologySegments)
 }
 
 // RefreshPreferentialDatastoresForMultiVCenter refreshes the preferredDatastoresMap variable
@@ -462,7 +464,7 @@ func RefreshPreferentialDatastoresForMultiVCenter(ctx context.Context) error {
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to get VirtualCenterConfig from CNS config. Error: %+v", err)
 	}
-	prefDatastoresMap := make(map[string]map[string][]string)
+	prefDatastoresMap := make(map[commontypes.FQDN]map[string][]string)
 	for _, vcConfig := range vcenterconfigs {
 		// Get VC instance.
 		vcMgr := cnsvsphere.GetVirtualCenterManager(ctx)
@@ -547,12 +549,13 @@ func GetPreferredDatastoresInSegments(ctx context.Context, segments map[string]s
 
 	preferredDatastoresMapInstanceLock.Lock()
 	defer preferredDatastoresMapInstanceLock.Unlock()
-	if len(preferredDatastoresMap) == 0 || len(preferredDatastoresMap[vcHost]) == 0 {
+	vcHostFQDN := commontypes.NewFQDN(vcHost)
+	if len(preferredDatastoresMap) == 0 || len(preferredDatastoresMap[vcHostFQDN]) == 0 {
 		return allPreferredDSURLs
 	}
 	// Arrange applicable preferred datastores as a map.
 	for _, tag := range segments {
-		preferredDS, ok := preferredDatastoresMap[vcHost][tag]
+		preferredDS, ok := preferredDatastoresMap[vcHostFQDN][tag]
 		if ok {
 			log.Infof("Found preferred datastores %+v for topology domain %q in vCenter %q", preferredDS, tag, vcHost)
 			for _, val := range preferredDS {

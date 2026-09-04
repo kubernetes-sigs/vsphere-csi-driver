@@ -42,6 +42,7 @@ import (
 	cnsstoragepolicyquotasv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -360,7 +361,7 @@ func getStoragePolicyIDForStorageClass(ctx context.Context, k8sClient clientset.
 // constructCreateSpecForInstance creates CNS CreateVolume spec.
 func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-	host string, useSupervisorId bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+	host commontypes.FQDN, useSupervisorId bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 	var volumeName string
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
@@ -374,8 +375,9 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	} else {
 		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.ClusterID
 	}
+	vcConfig := r.configInfo.Cfg.VirtualCenter[host]
 	containerCluster := vsphere.GetContainerCluster(clusterIDForVolumeMetadata,
-		r.configInfo.Cfg.VirtualCenter[host].User,
+		vcConfig.User,
 		cnstypes.CnsClusterFlavorWorkload, r.configInfo.Cfg.Global.ClusterDistribution)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       volumeName,

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/find"
@@ -38,7 +39,7 @@ type Datacenter struct {
 	// Datacenter represents the govmomi Datacenter.
 	*object.Datacenter
 	// VirtualCenterHost represents the virtual center host address.
-	VirtualCenterHost string
+	VirtualCenterHost commontypes.FQDN
 }
 
 func (dc *Datacenter) String() string {

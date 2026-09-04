@@ -66,6 +66,7 @@ import (
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -487,15 +488,15 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	}
 
 	// Initialize cnsDeletionMap used by Full Sync.
-	cnsDeletionMap = make(map[string]map[string]bool)
+	cnsDeletionMap = make(map[commontypes.FQDN]map[string]bool)
 	// Initialize pvMissingLabeledMap used by Full Sync.
-	pvMissingLabeledMap = make(map[string]map[string]bool)
+	pvMissingLabeledMap = make(map[commontypes.FQDN]map[string]bool)
 	// Initialize cnsCreationMap used by Full Sync.
-	cnsCreationMap = make(map[string]map[string]bool)
+	cnsCreationMap = make(map[commontypes.FQDN]map[string]bool)
 	// Initialize volumeOperationsLock map
-	volumeOperationsLock = make(map[string]*sync.Mutex)
+	volumeOperationsLock = make(map[commontypes.FQDN]*sync.Mutex)
 	// Initialize volumeInfoCrDeletionMap used by Full Sync.
-	volumeInfoCrDeletionMap = make(map[string]map[string]bool)
+	volumeInfoCrDeletionMap = make(map[commontypes.FQDN]map[string]bool)
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		// Initialize client to supervisor cluster, if metadata syncer is being
@@ -616,7 +617,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
 		}
-		metadataSyncer.volumeManagers = make(map[string]volumes.Manager)
+		metadataSyncer.volumeManagers = make(map[commontypes.FQDN]volumes.Manager)
 		var multivCenterTopologyDeployment bool
 		if len(vcconfigs) > 1 {
 			multivCenterTopologyDeployment = true
@@ -656,7 +657,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to get kubeconfig with error: %v", err)
 		}
-		metadataSyncer.topologyVCMap = make(map[string]map[string]struct{})
+		metadataSyncer.topologyVCMap = make(map[string]map[commontypes.FQDN]struct{})
 		err = startTopologyCRInformer(ctx, k8sConfig)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to start informer on %q instances. Error: %v",
@@ -2087,7 +2088,7 @@ func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 	// Update MetadataSyncer.topologyVCMap with topology label and associated VC host.
 	for _, label := range nodeTopoObj.Status.TopologyLabels {
 		if _, exists := MetadataSyncer.topologyVCMap[label.Value]; !exists {
-			MetadataSyncer.topologyVCMap[label.Value] = map[string]struct{}{nodeVM.VirtualCenterHost: {}}
+			MetadataSyncer.topologyVCMap[label.Value] = map[commontypes.FQDN]struct{}{nodeVM.VirtualCenterHost: {}}
 		} else {
 			MetadataSyncer.topologyVCMap[label.Value][nodeVM.VirtualCenterHost] = struct{}{}
 		}
@@ -2631,7 +2632,7 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 	log := logger.GetLogger(ctx)
 	// vcCountMap keeps a cumulative count of the occurrences of
 	// VCs across all labels in the given topology segment.
-	vcCountMap := make(map[string]int)
+	vcCountMap := make(map[commontypes.FQDN]int)
 
 	// Find the VC which contains all the labels given in the topologySegments.
 	// For example, if topologyVCMap looks like
@@ -2655,7 +2656,7 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 			}
 		}
 	}
-	var commonVCList []string
+	var commonVCList []commontypes.FQDN
 	for vc, count := range vcCountMap {
 		// Add VCs to the commonVCList if they satisfied all the labels in the topology segment.
 		if count == numTopoLabels {
@@ -2668,7 +2669,7 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 			topologySegments, commonVCList)
 	case len(commonVCList) == 1:
 		log.Infof("Topology segment(s) %+v belong to VC: %q", topologySegments, commonVCList[0])
-		return commonVCList[0], nil
+		return commonVCList[0].String(), nil
 	}
 	return "", logger.LogNewErrorf(log, "failed to find the VC associated with topology segments %+v",
 		topologySegments)
@@ -2709,7 +2710,7 @@ func updateTriggerCsiFullSyncInstance(ctx context.Context,
 // this comparison can be tested without the surrounding function's much
 // larger surface (VC connection, singleton reset, and process exit on
 // unrecoverable errors).
-func vcConfigChanged(currentHost string, oldVCConfig *cnsconfig.VirtualCenterConfig,
+func vcConfigChanged(currentHost commontypes.FQDN, oldVCConfig *cnsconfig.VirtualCenterConfig,
 	newVCConfig *cnsvsphere.VirtualCenterConfig, forceReconnect bool) bool {
 	return currentHost != newVCConfig.Host ||
 		oldVCConfig.User != newVCConfig.Username ||
@@ -3464,7 +3465,7 @@ func csiPVCUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim,
 	var (
 		volumeHandle string
 		err          error
-		vcHost       string
+		vcHost       commontypes.FQDN
 		cnsVolumeMgr volumes.Manager
 	)
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && pv.Spec.VsphereVolume != nil {
@@ -3657,7 +3658,7 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 		err              error
 		containerCluster cnstypes.CnsContainerCluster
 		cnsVolumeMgr     volumes.Manager
-		vcHost           string
+		vcHost           commontypes.FQDN
 	)
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorVanilla && newPv.Spec.VsphereVolume != nil {
 		// In case if feature state switch is enabled after syncer is deployed,
@@ -3998,7 +3999,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 	} else {
 		var (
 			volumeHandle string
-			vcHost       string
+			vcHost       commontypes.FQDN
 			err          error
 			cnsVolumeMgr volumes.Manager
 		)

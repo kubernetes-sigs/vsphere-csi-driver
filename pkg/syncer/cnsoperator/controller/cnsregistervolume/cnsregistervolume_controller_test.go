@@ -61,6 +61,7 @@ import (
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
@@ -608,7 +609,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 			return &cnsvsphere.VirtualCenter{
 				Config: &cnsvsphere.VirtualCenterConfig{
-					Host: "dummy-vcenter",
+					Host: commontypes.NewFQDN("dummy-vcenter"),
 				},
 			}, nil
 		})
@@ -617,7 +618,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			ctx context.Context,
 			r *ReconcileCnsRegisterVolume,
 			instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-			host string,
+			host commontypes.FQDN,
 			isTKGSHAEnabled bool,
 		) (*cnstypes.CnsVolumeCreateSpec, error) {
 			return &cnstypes.CnsVolumeCreateSpec{
@@ -770,7 +771,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 
 		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
 			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
-			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("vc")}}, nil
 		})
 		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
 			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
@@ -801,7 +802,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
 			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-			host string, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+			host commontypes.FQDN, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
@@ -876,7 +877,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 
 		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
 			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
-			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: "vc"}}, nil
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("vc")}}, nil
 		})
 		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
 			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
@@ -903,7 +904,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			})
 		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
 			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
-			host string, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+			host commontypes.FQDN, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 			return &cnstypes.CnsVolumeCreateSpec{Name: "fake", VolumeType: "BLOCK"}, nil
 		})
 		patches.ApplyFunc(getK8sStorageClassNameWithImmediateBindingModeForPolicy,
@@ -1898,8 +1899,8 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -1910,7 +1911,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 	origCapability := isVSphereDPLPModernAppEnabled
 	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = true
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	if assert.NotNil(t, spec.VolumeId, "VolumeId should be set") {
 		assert.Equal(t, volumeID, spec.VolumeId.Id, "VolumeId.Id should be VolumeID")
@@ -1942,8 +1943,8 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -1954,7 +1955,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 	origCapability := isVSphereDPLPModernAppEnabled
 	t.Cleanup(func() { isVSphereDPLPModernAppEnabled = origCapability })
 	isVSphereDPLPModernAppEnabled = false
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	assert.Nil(t, spec.VolumeId, "VolumeId should not be set on the legacy VolumeID-only path")
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
@@ -1979,8 +1980,8 @@ func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -1988,7 +1989,7 @@ func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
@@ -2011,8 +2012,8 @@ func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -2020,7 +2021,7 @@ func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
 		configInfo: &config.ConfigurationInfo{Cfg: cfg},
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	backing, ok := spec.BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
 	assert.True(t, ok, "BackingObjectDetails should be *CnsBlockBackingDetails")
@@ -2044,8 +2045,8 @@ func TestConstructCreateSpecForInstanceWithoutStorageClassName(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -2054,7 +2055,7 @@ func TestConstructCreateSpecForInstanceWithoutStorageClassName(t *testing.T) {
 		k8sclient:  k8sfake.NewClientset(),
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	assert.Nil(t, spec.Profile, "Profile should not be set when StorageClassName is empty")
 }
@@ -2082,8 +2083,8 @@ func TestConstructCreateSpecForInstanceWithStorageClassName(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -2092,7 +2093,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassName(t *testing.T) {
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.NoError(t, err)
 	if assert.Len(t, spec.Profile, 1, "Profile should contain a single entry") {
 		profile, ok := spec.Profile[0].(*vim25types.VirtualMachineDefinedProfileSpec)
@@ -2118,8 +2119,8 @@ func TestConstructCreateSpecForInstanceWithMissingStorageClass(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -2128,7 +2129,7 @@ func TestConstructCreateSpecForInstanceWithMissingStorageClass(t *testing.T) {
 		k8sclient:  k8sfake.NewClientset(),
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.Error(t, err)
 	assert.Nil(t, spec)
 }
@@ -2154,8 +2155,8 @@ func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *t
 	}
 
 	cfg := &config.Config{
-		VirtualCenter: map[string]*config.VirtualCenterConfig{
-			"test-host": {User: "test-user"},
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("test-host"): {User: "test-user"},
 		},
 	}
 	cfg.Global.ClusterID = "test-cluster"
@@ -2164,7 +2165,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *t
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
 
-	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, "test-host", false)
+	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
 	assert.Error(t, err)
 	assert.Nil(t, spec)
 }
@@ -2312,7 +2313,7 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 
 	createSpecCalled := false
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ commontypes.FQDN, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 		createSpecCalled = true
 		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 	})
@@ -2387,7 +2388,7 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
 		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
-			VirtualCenter: map[string]*config.VirtualCenterConfig{"vc": {User: "test-user"}},
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{commontypes.NewFQDN("vc"): {User: "test-user"}},
 		}},
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
@@ -2405,7 +2406,7 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 		return newFakeVCWithClient(), nil
 	})
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ commontypes.FQDN, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 	})
 	patches.ApplyFunc(common.QueryVolumeByID, func(_ context.Context, _ cnsvolume.Manager,
@@ -4581,7 +4582,7 @@ func TestBuildNodeAffinityFromSegments(t *testing.T) {
 // can be constructed in tests (the host method itself is patched, so no network call is made).
 func newFakeVCWithClient() *cnsvsphere.VirtualCenter {
 	return &cnsvsphere.VirtualCenter{
-		Config: &cnsvsphere.VirtualCenterConfig{Host: "dummy-vcenter"},
+		Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("dummy-vcenter")},
 		Client: &govmomi.Client{Client: &vim25.Client{}},
 	}
 }
@@ -4825,7 +4826,7 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 		return newFakeVCWithClient(), nil
 	})
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
-		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ string, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+		_ *cnsregistervolumev1alpha1.CnsRegisterVolume, _ commontypes.FQDN, _ bool) (*cnstypes.CnsVolumeCreateSpec, error) {
 		return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
 	})
 	patches.ApplyFunc(common.QueryVolumeByID, func(_ context.Context, _ cnsvolume.Manager,

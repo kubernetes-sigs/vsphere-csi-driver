@@ -45,6 +45,7 @@ import (
 	v1a1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	cnsoptypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 )
@@ -152,8 +153,8 @@ func TestReconcileDetachWithVolumeIDFallback(t *testing.T) {
 		scheme: s,
 		configInfo: &config.ConfigurationInfo{
 			Cfg: &config.Config{
-				VirtualCenter: map[string]*config.VirtualCenterConfig{
-					"test-vc": {
+				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+					commontypes.NewFQDN("test-vc"): {
 						Datacenters: "dc-1",
 					},
 				},
@@ -291,8 +292,8 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 		scheme: s,
 		configInfo: &config.ConfigurationInfo{
 			Cfg: &config.Config{
-				VirtualCenter: map[string]*config.VirtualCenterConfig{
-					"test-vc": {
+				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+					commontypes.NewFQDN("test-vc"): {
 						Datacenters: "dc-1",
 					},
 				},

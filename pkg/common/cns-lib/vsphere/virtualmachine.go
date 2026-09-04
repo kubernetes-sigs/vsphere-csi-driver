@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/govmomi/vapi/tags"
 	"github.com/vmware/govmomi/vim25/mo"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
 	"github.com/vmware/govmomi/object"
@@ -46,7 +47,7 @@ type VirtualMachine struct {
 	// Datacenter represents the datacenter to which the virtual machine belongs.
 	Datacenter *Datacenter
 	// VirtualCenterHost represents the virtual machine's vCenter host.
-	VirtualCenterHost string
+	VirtualCenterHost commontypes.FQDN
 	// UUID represents the virtual machine's UUID.
 	UUID string
 }

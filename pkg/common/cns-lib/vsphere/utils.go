@@ -13,6 +13,7 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -161,40 +162,39 @@ func CreateCnsKuberenetesEntityReference(entityType string, entityName string,
 // vSphere Configuration specified in the argument.
 func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
-	var err error
-	vCenterIPs, err := GetVcenterIPs(cfg) //  make([]string, 0)
+	host, vcConfigEntry, err := getFirstVirtualCenter(cfg)
 	if err != nil {
 		return nil, err
 	}
-	host := vCenterIPs[0]
-	port, err := strconv.Atoi(cfg.VirtualCenter[host].VCenterPort)
+
+	port, err := strconv.Atoi(vcConfigEntry.VCenterPort)
 	if err != nil {
 		return nil, err
 	}
 
 	var targetvSANClustersForFile []string
-	if strings.TrimSpace(cfg.VirtualCenter[host].TargetvSANFileShareClusters) != "" {
-		targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[host].TargetvSANFileShareClusters, ",")
+	if strings.TrimSpace(vcConfigEntry.TargetvSANFileShareClusters) != "" {
+		targetvSANClustersForFile = strings.Split(vcConfigEntry.TargetvSANFileShareClusters, ",")
 	}
 
 	vcCAFile := cfg.Global.CAFile
 	vcThumbprint := cfg.Global.Thumbprint
 
 	vcConfig := &VirtualCenterConfig{
-		Host:                        strings.ToLower(host),
+		Host:                        host,
 		Port:                        port,
 		CAFile:                      vcCAFile,
-		Thumbprint:                  strings.ToUpper(vcThumbprint),
-		Username:                    cfg.VirtualCenter[host].User,
-		Password:                    cfg.VirtualCenter[host].Password,
-		Insecure:                    cfg.VirtualCenter[host].InsecureFlag,
+		Thumbprint:                  vcThumbprint,
+		Username:                    vcConfigEntry.User,
+		Password:                    vcConfigEntry.Password,
+		Insecure:                    vcConfigEntry.InsecureFlag,
 		TargetvSANFileShareClusters: targetvSANClustersForFile,
 		QueryLimit:                  cfg.Global.QueryLimit,
 		ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
-		MigrationDataStoreURL:       cfg.VirtualCenter[host].MigrationDataStoreURL,
-		FileVolumeActivated:         cfg.VirtualCenter[host].FileVolumeActivated,
-		VCSessionManagerURL:         cfg.VirtualCenter[host].VCSessionManagerURL,
-		VCSessionManagerToken:       cfg.VirtualCenter[host].VCSessionManagerToken,
+		MigrationDataStoreURL:       vcConfigEntry.MigrationDataStoreURL,
+		FileVolumeActivated:         vcConfigEntry.FileVolumeActivated,
+		VCSessionManagerURL:         vcConfigEntry.VCSessionManagerURL,
+		VCSessionManagerToken:       vcConfigEntry.VCSessionManagerToken,
 	}
 
 	if vcConfig.VCSessionManagerURL != "" {
@@ -202,8 +202,8 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 	}
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
-	if strings.TrimSpace(cfg.VirtualCenter[host].Datacenters) != "" {
-		vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[host].Datacenters, ",")
+	if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
+		vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
 		for idx := range vcConfig.DatacenterPaths {
 			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 		}
@@ -216,40 +216,35 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 // vSphere Configuration specified in the argument.
 func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
-	var err error
-	VirtualCenterConfigs := make([]*VirtualCenterConfig, 0)
-	vCenterIPs, err := GetVcenterIPs(cfg)
-	if err != nil {
-		return nil, err
+	if len(cfg.VirtualCenter) == 0 {
+		return nil, errors.New("unable get vCenter Hosts from VSphereConfig")
 	}
-	for _, vCenterIP := range vCenterIPs {
-		port, err := strconv.Atoi(cfg.VirtualCenter[vCenterIP].VCenterPort)
+	VirtualCenterConfigs := make([]*VirtualCenterConfig, 0, len(cfg.VirtualCenter))
+	for host, vcConfigEntry := range cfg.VirtualCenter {
+		port, err := strconv.Atoi(vcConfigEntry.VCenterPort)
 		if err != nil {
 			return nil, err
 		}
 
 		var targetvSANClustersForFile []string
-		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters) != "" {
-			targetvSANClustersForFile = strings.Split(cfg.VirtualCenter[vCenterIP].TargetvSANFileShareClusters, ",")
+		if strings.TrimSpace(vcConfigEntry.TargetvSANFileShareClusters) != "" {
+			targetvSANClustersForFile = strings.Split(vcConfigEntry.TargetvSANFileShareClusters, ",")
 		}
 
 		vcConfig := &VirtualCenterConfig{
-			// vCenter FQDN/IP is a protocol-compliant case-insensitive identifier
-			// (used as a map key and in equality checks throughout the driver),
-			// so it is normalized to lowercase at this single entry point.
-			Host:                        strings.ToLower(vCenterIP),
+			Host:                        host,
 			Port:                        port,
-			CAFile:                      cfg.VirtualCenter[vCenterIP].CAFile,
-			Thumbprint:                  strings.ToUpper(cfg.VirtualCenter[vCenterIP].Thumbprint),
-			Username:                    cfg.VirtualCenter[vCenterIP].User,
-			Password:                    cfg.VirtualCenter[vCenterIP].Password,
-			Insecure:                    cfg.VirtualCenter[vCenterIP].InsecureFlag,
+			CAFile:                      vcConfigEntry.CAFile,
+			Thumbprint:                  strings.ToUpper(vcConfigEntry.Thumbprint),
+			Username:                    vcConfigEntry.User,
+			Password:                    vcConfigEntry.Password,
+			Insecure:                    vcConfigEntry.InsecureFlag,
 			TargetvSANFileShareClusters: targetvSANClustersForFile,
 			QueryLimit:                  cfg.Global.QueryLimit,
 			ListVolumeThreshold:         cfg.Global.ListVolumeThreshold,
-			FileVolumeActivated:         cfg.VirtualCenter[vCenterIP].FileVolumeActivated,
-			VCSessionManagerURL:         cfg.VirtualCenter[vCenterIP].VCSessionManagerURL,
-			VCSessionManagerToken:       cfg.VirtualCenter[vCenterIP].VCSessionManagerToken,
+			FileVolumeActivated:         vcConfigEntry.FileVolumeActivated,
+			VCSessionManagerURL:         vcConfigEntry.VCSessionManagerURL,
+			VCSessionManagerToken:       vcConfigEntry.VCSessionManagerToken,
 		}
 		if vcConfig.CAFile == "" {
 			vcConfig.CAFile = cfg.Global.CAFile
@@ -260,8 +255,8 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 			vcConfig.Thumbprint = strings.ToUpper(cfg.Global.Thumbprint)
 		}
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
-		if strings.TrimSpace(cfg.VirtualCenter[vCenterIP].Datacenters) != "" {
-			vcConfig.DatacenterPaths = strings.Split(cfg.VirtualCenter[vCenterIP].Datacenters, ",")
+		if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
+			vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
 			for idx := range vcConfig.DatacenterPaths {
 				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
 			}
@@ -271,17 +266,13 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 	return VirtualCenterConfigs, nil
 }
 
-// GetVcenterIPs returns list of vCenter IPs from VSphereConfig.
-func GetVcenterIPs(cfg *config.Config) ([]string, error) {
-	var err error
-	vCenterIPs := make([]string, 0)
-	for key := range cfg.VirtualCenter {
-		vCenterIPs = append(vCenterIPs, key)
+// getFirstVirtualCenter returns an arbitrary vCenter entry from VSphereConfig.
+// Used only for single-vCenter deployments, where exactly one entry exists.
+func getFirstVirtualCenter(cfg *config.Config) (commontypes.FQDN, *config.VirtualCenterConfig, error) {
+	for host, vcConfigEntry := range cfg.VirtualCenter {
+		return host, vcConfigEntry, nil
 	}
-	if len(vCenterIPs) == 0 {
-		err = errors.New("unable get vCenter Hosts from VSphereConfig")
-	}
-	return vCenterIPs, err
+	return commontypes.FQDN{}, nil, errors.New("unable get vCenter Hosts from VSphereConfig")
 }
 
 // GetLabelsMapFromKeyValue creates a  map object from given parameter.
@@ -439,7 +430,7 @@ func GetDatastoreInfoByURL(ctx context.Context, vc *VirtualCenter,
 }
 
 // isVsan67u3Release returns true if it is vSAN 67u3 Release of vCenter.
-func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host string) (bool, error) {
+func isVsan67u3Release(ctx context.Context, m *defaultVirtualCenterManager, host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
 	log.Debug("Checking if vCenter version is of vsan 67u3 release")
 	vc, err := m.GetVirtualCenter(ctx, host)

@@ -56,6 +56,7 @@ import (
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -4171,7 +4172,7 @@ func setupLCSim(t *testing.T, numClusters, hostsPerCluster int) (
 		t.Fatalf("failed to create govmomi client: %v", err)
 	}
 	vc = &cnsvsphere.VirtualCenter{
-		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("127.0.0.1")},
 		Client:      c,
 		ClientMutex: &sync.Mutex{},
 	}
@@ -4210,7 +4211,7 @@ func setupLCSimIsolatedDatastores(t *testing.T, numClusters int) (
 		t.Fatalf("failed to create govmomi client: %v", err)
 	}
 	vc = &cnsvsphere.VirtualCenter{
-		Config:      &cnsvsphere.VirtualCenterConfig{Host: "127.0.0.1"},
+		Config:      &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("127.0.0.1")},
 		Client:      c,
 		ClientMutex: &sync.Mutex{},
 	}

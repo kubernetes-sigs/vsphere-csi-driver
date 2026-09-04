@@ -10,6 +10,7 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
 // vCenter host and thumbprint are protocol-compliant case-insensitive identifiers, so
@@ -25,8 +26,8 @@ func TestGetVirtualCenterConfigsNormalizesHostAndThumbprint(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Global.QueryLimit = 100
 	cfg.Global.ListVolumeThreshold = 100
-	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		mixedCaseHost: {
+	cfg.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+		commontypes.NewFQDN(mixedCaseHost): {
 			User:         "administrator@vsphere.local",
 			Password:     "password",
 			VCenterPort:  "443",
@@ -43,7 +44,7 @@ func TestGetVirtualCenterConfigsNormalizesHostAndThumbprint(t *testing.T) {
 		t.Fatalf("expected 1 VirtualCenterConfig, got %d", len(vcConfigs))
 	}
 
-	assert.Equal(t, "vc.example.com", vcConfigs[0].Host,
+	assert.Equal(t, commontypes.NewFQDN("vc.example.com"), vcConfigs[0].Host,
 		"vCenter host should be normalized to lowercase")
 	assert.Equal(t, "AA:BB:CC:DD:11:22:33:44:55:66:77:88:99:00:AA:BB:CC:DD:EE:FF", vcConfigs[0].Thumbprint,
 		"thumbprint should be normalized to uppercase to match govmomi's SHA1/SHA256 format")
@@ -58,8 +59,8 @@ func TestGetVirtualCenterConfigsNormalizesGlobalThumbprintFallback(t *testing.T)
 	cfg.Global.QueryLimit = 100
 	cfg.Global.ListVolumeThreshold = 100
 	cfg.Global.Thumbprint = "aa:bb:cc:dd:11:22:33:44:55:66:77:88:99:00:aa:bb:cc:dd:ee:ff"
-	cfg.VirtualCenter = map[string]*config.VirtualCenterConfig{
-		"vc.example.com": {
+	cfg.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+		commontypes.NewFQDN("vc.example.com"): {
 			User:         "administrator@vsphere.local",
 			Password:     "password",
 			VCenterPort:  "443",

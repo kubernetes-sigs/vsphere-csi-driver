@@ -130,7 +130,7 @@ func GetSharedDatastores(ctx context.Context, reqParams interface{}) (
 			// Datastore comparison by URL.
 			if common.PreferredDatastoresExist {
 				// Fetch all preferred datastore URLs for the topology segment.
-				prefDS := common.GetPreferredDatastoresInSegments(ctx, segment, params.Vcenter.Config.Host)
+				prefDS := common.GetPreferredDatastoresInSegments(ctx, segment, params.Vcenter.Config.Host.String())
 				log.Infof("Preferential datastores %v found for topology segment: %v on vCenter: %q", prefDS,
 					segment, params.Vcenter.Config.Host)
 				if len(prefDS) != 0 {
@@ -223,8 +223,8 @@ func getExpandedTopologySegments(ctx context.Context, requestedSegments map[stri
 					"failed to retrieve NodeVM %q. Error - %+v", nodeTopologyInstance.Spec.NodeID, err)
 			}
 			if vcHost == "" {
-				vcHost = nodeVM.VirtualCenterHost
-			} else if vcHost != nodeVM.VirtualCenterHost {
+				vcHost = nodeVM.VirtualCenterHost.String()
+			} else if !nodeVM.VirtualCenterHost.EqualString(vcHost) {
 				return nil, logger.LogNewErrorf(log,
 					"found NodeVM %q belonging to different vCenter: %q. Expected vCenter: %q",
 					nodeVM.Name(), nodeVM.VirtualCenterHost, vcHost)

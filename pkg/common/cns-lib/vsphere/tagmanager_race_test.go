@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
@@ -50,7 +52,7 @@ func TestGetTagManagerConcurrentAccess(t *testing.T) {
 
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host:     server.URL.Hostname(),
+			Host:     commontypes.NewFQDN(server.URL.Hostname()),
 			Port:     port,
 			Insecure: true,
 			Username: "user", // simulator.DefaultLogin
@@ -105,7 +107,7 @@ func TestGetTagManagerConnectsWhenNeverConnected(t *testing.T) {
 
 	vc := &VirtualCenter{
 		Config: &VirtualCenterConfig{
-			Host:     server.URL.Hostname(),
+			Host:     commontypes.NewFQDN(server.URL.Hostname()),
 			Port:     port,
 			Insecure: true,
 			Username: "user", // simulator.DefaultLogin
@@ -132,7 +134,7 @@ func TestGetTagManagerConnectsWhenNeverConnected(t *testing.T) {
 // must keep rejecting it before calling Connect.
 func TestGetTagManagerRejectsBrokenInnerClient(t *testing.T) {
 	vc := &VirtualCenter{
-		Config:      &VirtualCenterConfig{Host: "127.0.0.1", Port: 1},
+		Config:      &VirtualCenterConfig{Host: commontypes.NewFQDN("127.0.0.1"), Port: 1},
 		Client:      &govmomi.Client{}, // non-nil, but its own Client field is nil
 		RestClient:  &rest.Client{},
 		ClientMutex: &sync.Mutex{},
