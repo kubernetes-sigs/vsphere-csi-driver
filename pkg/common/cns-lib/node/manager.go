@@ -417,7 +417,7 @@ func (m *defaultManager) UnregisterNode(ctx context.Context, nodeName string) er
 	log := logger.GetLogger(ctx)
 	nodeUUID, found := m.nodeNameToUUID.Load(nodeName)
 	if !found {
-		log.Errorf("Node wasn't found, failed to unregister node: %q  err: %v", nodeName)
+		log.Errorf("Node wasn't found, failed to unregister node: %q", nodeName)
 		return ErrNodeNotFound
 	}
 	m.nodeNameToUUID.Delete(nodeName)
