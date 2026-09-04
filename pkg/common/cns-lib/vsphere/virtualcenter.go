@@ -282,7 +282,7 @@ func (vc *VirtualCenter) NewClient(ctx context.Context, useragent string) (*govm
 	if s == nil {
 		return nil, nil, errors.New("nil session obtained from session manager")
 	}
-	log.Infof("New session ID for '%s' = %s", s.UserName, s.Key)
+	log.Infof("New session established for '%s'", s.UserName)
 
 	if vc.Config.RoundTripperCount == 0 {
 		vc.Config.RoundTripperCount = DefaultRoundTripperCount
