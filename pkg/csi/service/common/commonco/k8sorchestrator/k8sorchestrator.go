@@ -1557,6 +1557,12 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				log.Info("CSI Windows Suppport is set to true in pvcsi fss configmap. Skipping SV FSS check")
 				return true
 			}
+			// Guest ListVolumes reads only Supervisor k8s objects, never CNS, so it doesn't
+			// need to be gated by the supervisor's CNS focused list-volumes FSS.
+			if featureName == common.ListVolumes {
+				log.Info("list-volumes is set to true in pvcsi fss configmap. Skipping SV FSS check")
+				return true
+			}
 
 			// If PVCSI FSS has associated WCP capability in supervisor cluster, then check if that WCP
 			// capability is enabled or disabled by fetching its value from capabilities CR on supervisor.

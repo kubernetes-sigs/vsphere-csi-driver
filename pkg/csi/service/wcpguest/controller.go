@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -179,6 +180,10 @@ type controller struct {
 	tanzukubernetesClusterName string
 	guestClusterDist           string
 	topologyEnabled            bool
+	// listVolumesMu serializes ListVolumes end to end.
+	listVolumesMu sync.Mutex
+	// listVolumesCache is the current pagination sequence's cache, or nil between sequences.
+	listVolumesCache *listVolumesCache
 }
 
 // New creates a CNS controller
@@ -1914,15 +1919,6 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	}, nil
 }
 
-func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
-	*csi.ListVolumesResponse, error) {
-
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", req)
-	return nil, status.Error(codes.Unimplemented, "")
-}
-
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
@@ -1977,6 +1973,16 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	// will not call ControllerModifyVolume against drivers that do not yet support it.
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutabilityFSS) {
 		localControllerCaps = append(localControllerCaps, csi.ControllerServiceCapability_RPC_MODIFY_VOLUME)
+	}
+
+	// Advertise both LIST_VOLUMES capabilities together, and only when the FSS is on, so that
+	// external-attacher never calls an RPC we don't implement. Capability negotiation happens
+	// once at startup, so toggling the FSS at runtime only takes effect after the controller
+	// pod restarts.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		localControllerCaps = append(localControllerCaps,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 	}
 
 	for _, cap := range localControllerCaps {
