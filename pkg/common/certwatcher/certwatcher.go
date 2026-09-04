@@ -31,6 +31,13 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
+// pollInterval backstops fsnotify: matches the poll interval
+// controller-runtime's own certwatcher uses (sigs.k8s.io/controller-runtime/
+// pkg/certwatcher, defaultWatchInterval) for the same reason - fsnotify
+// events can be missed or coalesced, so an unconditional periodic re-read
+// guarantees changes are eventually observed even then.
+const pollInterval = 60 * time.Second
+
 // LoadCertificateAndCAPool reads and parses the certificate,
 // private key, and CA bundle from the given paths.
 func LoadCertificateAndCAPool(certPath, keyPath, caPath string) (tls.Certificate, *x509.CertPool, error) {
@@ -128,11 +135,21 @@ func (cw *CertWatcher) Start(ctx context.Context) error {
 
 	go cw.watch(ctx)
 
-	log.Infof("Started certificate watcher for cert: %s, key: %s, ca: %s", cw.certPath, cw.keyPath, cw.caPath)
-	<-ctx.Done()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
 
-	log.Infof("Stopping certificate watcher for cert: %s", cw.certPath)
-	return cw.watcher.Close()
+	log.Infof("Started certificate watcher for cert: %s, key: %s, ca: %s", cw.certPath, cw.keyPath, cw.caPath)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("Stopping certificate watcher for cert: %s", cw.certPath)
+			return cw.watcher.Close()
+		case <-ticker.C:
+			if err := cw.reload(); err != nil {
+				log.Errorf("failed to poll certificate: %v", err)
+			}
+		}
+	}
 }
 
 func (cw *CertWatcher) watch(ctx context.Context) {
@@ -164,7 +181,7 @@ func (cw *CertWatcher) watch(ctx context.Context) {
 			if err := cw.reload(); err != nil {
 				log.Errorf("failed to reload certificate after change: %v", err)
 			} else {
-				log.Infof("Reloaded certificate from %s", cw.certPath)
+				log.Debugf("Reloaded certificate from %s", cw.certPath)
 			}
 		case err, ok := <-cw.watcher.Errors:
 			if !ok {
