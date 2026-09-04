@@ -1124,8 +1124,12 @@ func TestSetFileShareAnnotationsOnPVC_Success(t *testing.T) {
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
 	assert.NoError(t, err)
-	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
-	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+	// setFileShareAnnotationsOnPVC DeepCopy()s before mutating (pvc may be a shared informer
+	// cache object), so the caller's pvc pointer is untouched — verify via the fake client.
+	updated, getErr := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	assert.NoError(t, getErr)
+	assert.Equal(t, "192.168.1.100:/nfs/v3/path", updated.Annotations[common.Nfsv3ExportPathAnnotationKey])
+	assert.Equal(t, "192.168.1.100:/nfs/v4/path", updated.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
 
 func TestSetFileShareAnnotationsOnPVC_PVNotFound(t *testing.T) {
@@ -1220,8 +1224,10 @@ func TestSetFileShareAnnotationsOnPVC_PVCUpdateError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "update failed")
-	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
-	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+	// setFileShareAnnotationsOnPVC mutates a DeepCopy, so a failed Update leaves the
+	// caller's original pvc (a stand-in for a shared informer cache object) untouched.
+	assert.Empty(t, pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
+	assert.Empty(t, pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
 
 func TestSetFileShareAnnotationsOnPVC_OnlyNFSv4AccessPoint(t *testing.T) {
@@ -1256,8 +1262,10 @@ func TestSetFileShareAnnotationsOnPVC_OnlyNFSv4AccessPoint(t *testing.T) {
 	err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
 
 	assert.NoError(t, err)
-	assert.Empty(t, pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
-	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+	updated, getErr := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	assert.NoError(t, getErr)
+	assert.Empty(t, updated.Annotations[common.Nfsv3ExportPathAnnotationKey])
+	assert.Equal(t, "192.168.1.100:/nfs/v4/path", updated.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
 
 func TestSetFileShareAnnotationsOnPVC_EmptyAccessPoints(t *testing.T) {
@@ -1329,8 +1337,11 @@ func TestSetFileShareAnnotationsOnPVC_ExistingAnnotations(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "existing-value", pvc.Annotations["existing-annotation"])
-	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
-	assert.Empty(t, pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+	updated, getErr := k8sClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
+	assert.NoError(t, getErr)
+	assert.Equal(t, "existing-value", updated.Annotations["existing-annotation"])
+	assert.Equal(t, "192.168.1.100:/nfs/v3/path", updated.Annotations[common.Nfsv3ExportPathAnnotationKey])
+	assert.Empty(t, updated.Annotations[common.Nfsv4ExportPathAnnotationKey])
 }
 
 // fakeVolumeManager is a test-only mock of volumes.Manager. It embeds

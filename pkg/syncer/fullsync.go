@@ -819,6 +819,13 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 		return err
 	}
 	vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
+	// pvc is served from the shared PVC informer cache (a pointer into the informer's own
+	// store, not a copy) — DeepCopy before mutating so we don't corrupt it for every other
+	// reader of that cache.
+	pvc = pvc.DeepCopy()
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
+	}
 	accessPoints := make(map[string]string)
 	for _, kv := range vSANFileBackingDetails.AccessPoints {
 		if kv.Key == common.Nfsv3AccessPointKey {
