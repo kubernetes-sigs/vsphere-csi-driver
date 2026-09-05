@@ -18,18 +18,6 @@ spec:
         scopeName: PriorityClass
         values: ["system-node-critical", "system-cluster-critical"]
 ---
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: vsphere-csi-limit-range
-  namespace: {{ .PVCSINamespace }}
-spec:
-  limits:
-  - defaultRequest:
-      cpu: 10m
-      memory: 25Mi
-    type: Container
----
 kind: ServiceAccount
 apiVersion: v1
 metadata:
@@ -95,7 +83,7 @@ rules:
     verbs: [ "update", "patch" ]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshots" ]
-    verbs: [ "get", "list", "watch", "patch"]
+    verbs: [ "get", "list", "patch", "update", "watch"]
   - apiGroups: [ "snapshot.storage.k8s.io" ]
     resources: [ "volumesnapshotclasses" ]
     verbs: [ "watch", "get", "list" ]
@@ -206,7 +194,7 @@ spec:
       priorityClassName: system-node-critical # Guarantees scheduling for critical system pods
       containers:
         - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.9.0
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.12.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -218,10 +206,6 @@ spec:
             - "--leader-election-renew-deadline=60s"
             - "--leader-election-retry-period=30s"
           imagePullPolicy: "IfNotPresent"
-          resources:
-            requests:
-              cpu: 10m
-              memory: 25Mi
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -229,7 +213,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-csi-controller
-          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.7.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.8.0
           args:
             - "--supervisor-fss-name=csi-feature-states"
             - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
@@ -286,10 +270,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
-          resources:
-            requests:
-              cpu: 10m
-              memory: 30Mi
           volumeMounts:
             - mountPath: /etc/cloud/pvcsi-provider
               name: pvcsi-provider-volume
@@ -300,7 +280,7 @@ spec:
             - mountPath: /csi
               name: socket-dir
         - name: vsphere-syncer
-          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.7.0
+          image: gcr.io/cloud-provider-vsphere/csi/release/syncer:v3.8.0
           args:
             - "--leader-election"
             - "--leader-election-lease-duration=120s"
@@ -331,10 +311,6 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
-          resources:
-            requests:
-              cpu: 10m
-              memory: 30Mi
           volumeMounts:
           - mountPath: /etc/cloud/pvcsi-provider
             name: pvcsi-provider-volume
@@ -343,22 +319,18 @@ spec:
             name: pvcsi-config-volume
             readOnly: true
         - name: liveness-probe
-          image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+          image: registry.k8s.io/sig-storage/livenessprobe:v2.19.0
           args:
             - "--csi-address=$(ADDRESS)"
           imagePullPolicy: "IfNotPresent"
           env:
             - name: ADDRESS
               value: /csi/csi.sock
-          resources:
-            requests:
-              cpu: 5m
-              memory: 10Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
         - name: csi-provisioner
-          image: registry.k8s.io/sig-storage/csi-provisioner:v4.0.1
+          image: registry.k8s.io/sig-storage/csi-provisioner:v6.2.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -382,15 +354,11 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-          resources:
-            requests:
-              cpu: 10m
-              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
         - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+          image: registry.k8s.io/sig-storage/csi-resizer:v2.2.1
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -405,15 +373,11 @@ spec:
           env:
             - name: ADDRESS
               value: /csi/csi.sock
-          resources:
-            requests:
-              cpu: 10m
-              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
         - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.6.0
           args:
             - "--v=4"
             - "--timeout=300s"
@@ -428,10 +392,6 @@ spec:
           env:
             - name: ADDRESS
               value: /csi/csi.sock
-          resources:
-            requests:
-              cpu: 10m
-              memory: 25Mi
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
@@ -481,36 +441,37 @@ spec:
         kubernetes.io/os: linux
       containers:
       - name: node-driver-registrar
-        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.17.0
         imagePullPolicy: "IfNotPresent"
         args:
           - "--v=5"
           - "--csi-address=$(ADDRESS)"
           - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+          - "--http-endpoint=:9809"
+        ports:
+          - containerPort: 9809
+            name: healthz
+            protocol: TCP
         env:
           - name: ADDRESS
             value: /csi/csi.sock
           - name: DRIVER_REG_SOCK_PATH
             value: /var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
-        resources:
-          requests:
-            cpu: 10m
-            memory: 25Mi
         volumeMounts:
           - name: plugin-dir
             mountPath: /csi
           - name: registration-dir
             mountPath: /registration
         livenessProbe:
-          exec:
-            command:
-            - /csi-node-driver-registrar
-            - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
-            - --mode=kubelet-registration-probe
+          httpGet:
+            path: /healthz
+            port: healthz
           initialDelaySeconds: 30
           timeoutSeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.7.0
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver:v3.8.0
         args:
           - "--supervisor-fss-name=csi-feature-states"
           - "--supervisor-fss-namespace=$(CSI_NAMESPACE)"
@@ -539,10 +500,6 @@ spec:
           capabilities:
             add: ["SYS_ADMIN"]
           allowPrivilegeEscalation: true
-        resources:
-          requests:
-            cpu: 10m
-            memory: 30Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -556,14 +513,10 @@ spec:
         - name: sys-devices-dir
           mountPath: /sys/devices
       - name: liveness-probe
-        image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+        image: registry.k8s.io/sig-storage/livenessprobe:v2.19.0
         args:
         - --csi-address=/csi/csi.sock
         imagePullPolicy: "IfNotPresent"
-        resources:
-          requests:
-            cpu: 5m
-            memory: 10Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -628,7 +581,7 @@ spec:
         kubernetes.io/os: windows
       containers:
       - name: node-driver-registrar
-        image: registry.k8s.io/sig-storage/csi-node-driver-win-registrar:v2.13.0
+        image: registry.k8s.io/sig-storage/csi-node-driver-win-registrar:v2.17.0
         imagePullPolicy: "IfNotPresent"
         command:
           - "csi-node-driver-registrar.exe"
@@ -644,17 +597,13 @@ spec:
             value: 'C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock'
           - name: PLUGIN_REG_DIR
             value: C:\\var\\lib\\kubelet\\plugins_registry\\
-        resources:
-          requests:
-            cpu: 10m
-            memory: 25Mi
         volumeMounts:
           - name: plugin-dir
             mountPath: /csi
           - name: registration-dir
             mountPath: /registration
       - name: vsphere-csi-node
-        image: gcr.io/cloud-provider-vsphere/csi/release/driver-win:v3.7.0
+        image: gcr.io/cloud-provider-vsphere/csi/release/driver-win:v3.8.0
         command:
           - "csi.exe"
         args:
@@ -682,26 +631,18 @@ spec:
           value: DEBUG
         - name: CSI_NAMESPACE
           value: {{ .PVCSINamespace }}
-        resources:
-          requests:
-            cpu: 10m
-            memory: 30Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: 'C:\csi'
         - name: pods-mount-dir
           mountPath: 'C:\var\lib\kubelet'
       - name: liveness-probe
-        image: registry.k8s.io/sig-storage/livenessprobe-win:v2.15.0
+        image: registry.k8s.io/sig-storage/livenessprobe-win:v2.19.0
         command:
           - "livenessprobe.exe"
         args:
         - --csi-address=unix://C:\\var\\lib\\kubelet\\plugins\\csi.vsphere.vmware.com\\csi.sock
         imagePullPolicy: "IfNotPresent"
-        resources:
-          requests:
-            cpu: 5m
-            memory: 10Mi
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
@@ -749,13 +690,13 @@ data:
   "csi-windows-support": "true"
   "workload-domain-isolation": "true"
   "sv-pvc-snapshot-protection-finalizer": "true"
-  "linked-clone-support": "true"
   "vsan-file-volume-service-support": "false"
   "CSI_Backup_API": "false"
   "improved-volume-visibility": "false"
   "host-local-storage-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
+  "linked-clone-support": "true"
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
