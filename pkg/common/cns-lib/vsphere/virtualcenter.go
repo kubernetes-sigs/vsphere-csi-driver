@@ -570,20 +570,7 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 
 	log.Infof("logging out current session and clearing idle sessions")
 
-	if vc.Client != nil && vc.Client.Client != nil {
-		err = vc.Client.Logout(ctx)
-		if err != nil {
-			log.Errorf("failed to logout current session. still clearing idle sessions. err: %v", err)
-		}
-	}
-
-	if vc.RestClient != nil {
-		// TODO: On U3 shared session this may return an error, if the Soap logout
-		// happened correctly, but can be safely ignored
-		if err := vc.RestClient.Logout(ctx); err != nil {
-			log.Infof("failed to logout current rest session. still clearing idle sessions. err: %v", err)
-		}
-	}
+	vc.cleanupVCClient(ctx)
 
 	// If session has expired, create a new instance.
 	log.Infof("Creating a new client session as the existing one isn't valid or not authenticated")
