@@ -17,8 +17,8 @@ limitations under the License.
 package certwatcher
 
 import (
+	"bytes"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -31,50 +31,46 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
-// LoadCertificateAndCAPool reads and parses the certificate,
-// private key, and CA bundle from the given paths.
-func LoadCertificateAndCAPool(certPath, keyPath, caPath string) (tls.Certificate, *x509.CertPool, error) {
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("failed to load X509 key pair: %w", err)
-	}
+// pollInterval is a backstop against missed or coalesced fsnotify events -
+// for example a CA-only rotation that lands in the same Secret as, but does
+// not itself touch, files this process otherwise watches.
+const pollInterval = 30 * time.Second
 
+// LoadCACertPool reads and parses a CA bundle from the given path.
+func LoadCACertPool(caPath string) (*x509.CertPool, error) {
 	caBytes, err := os.ReadFile(caPath)
 	if err != nil {
-		return tls.Certificate{}, nil, fmt.Errorf("failed to read CA certificate file: %w", err)
+		return nil, fmt.Errorf("failed to read CA certificate file: %w", err)
 	}
 	caCertPool := x509.NewCertPool()
 	if ok := caCertPool.AppendCertsFromPEM(caBytes); !ok {
-		return tls.Certificate{}, nil, errors.New("failed to parse CA certificate: invalid PEM format")
+		return nil, errors.New("failed to parse CA certificate: invalid PEM format")
 	}
-
-	return cert, caCertPool, nil
+	return caCertPool, nil
 }
 
-// CertWatcher watches a certificate, private key, and CA bundle on disk for
-// changes and keeps an in-memory copy up to date.
-type CertWatcher struct {
+// CAWatcher watches a CA bundle file on disk for changes and keeps an
+// in-memory CertPool up to date. It is independent of, and does not rely on,
+// any other watcher for the leaf certificate this CA may have issued -
+// callers should call GetCACertPool to fetch a fresh pool on every use
+// (e.g. per TLS handshake) rather than caching its result.
+type CAWatcher struct {
 	sync.RWMutex
 
-	currentCert       *tls.Certificate
-	currentCACertPool *x509.CertPool
+	current *x509.CertPool
+	rawPEM  []byte
 
 	watcher *fsnotify.Watcher
 
-	certPath string
-	keyPath  string
-	caPath   string
+	caPath string
 }
 
-// New returns a new CertWatcher for the given certificate, key, and CA bundle
-// paths. It performs an initial read of all three files before
-// returning, so a returned error means the identity is not yet available on
-// disk.
-func New(certPath, keyPath, caPath string) (*CertWatcher, error) {
-	cw := &CertWatcher{
-		certPath: certPath,
-		keyPath:  keyPath,
-		caPath:   caPath,
+// New returns a new CAWatcher for the given CA bundle path. It performs an
+// initial read of the file before returning, so a returned error means the
+// CA bundle is not yet available on disk.
+func New(caPath string) (*CAWatcher, error) {
+	cw := &CAWatcher{
+		caPath: caPath,
 	}
 
 	if err := cw.reload(); err != nil {
@@ -87,55 +83,50 @@ func New(certPath, keyPath, caPath string) (*CertWatcher, error) {
 	}
 	cw.watcher = watcher
 
-	// The CA path is not watched directly: cert-manager only rewrites ca.crt
-	// in the same Secret update as the leaf cert/key, so re-reading it
-	// whenever cert/key change is sufficient to observe CA rotation too.
-	for _, f := range []string{certPath, keyPath} {
-		if err := cw.watcher.Add(f); err != nil {
-			cw.watcher.Close()
-			return nil, fmt.Errorf("failed to watch %q: %w", f, err)
-		}
+	if err := cw.watcher.Add(caPath); err != nil {
+		cw.watcher.Close()
+		return nil, fmt.Errorf("failed to watch %q: %w", caPath, err)
 	}
 
 	return cw, nil
 }
 
-// GetCertificate returns the currently loaded certificate.
-func (cw *CertWatcher) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	cw.RLock()
-	defer cw.RUnlock()
-	if cw.currentCert == nil {
-		return nil, errors.New("no certificate available")
-	}
-	return cw.currentCert, nil
-}
-
 // GetCACertPool returns the currently loaded CA certificate pool, used to
 // verify peer certificates in mTLS.
-func (cw *CertWatcher) GetCACertPool() (*x509.CertPool, error) {
+func (cw *CAWatcher) GetCACertPool() (*x509.CertPool, error) {
 	cw.RLock()
 	defer cw.RUnlock()
-	if cw.currentCACertPool == nil {
+	if cw.current == nil {
 		return nil, errors.New("no CA certificate pool available")
 	}
-	return cw.currentCACertPool, nil
+	return cw.current, nil
 }
 
-// Start begins reacting to filesystem events for the certificate and key
-// files and blocks until ctx is cancelled.
-func (cw *CertWatcher) Start(ctx context.Context) error {
+// Start begins reacting to filesystem events and polling for changes to the
+// CA bundle file, and blocks until ctx is cancelled.
+func (cw *CAWatcher) Start(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 
 	go cw.watch(ctx)
 
-	log.Infof("Started certificate watcher for cert: %s, key: %s, ca: %s", cw.certPath, cw.keyPath, cw.caPath)
-	<-ctx.Done()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
 
-	log.Infof("Stopping certificate watcher for cert: %s", cw.certPath)
-	return cw.watcher.Close()
+	log.Infof("Started CA certificate watcher for: %s", cw.caPath)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("Stopping CA certificate watcher for: %s", cw.caPath)
+			return cw.watcher.Close()
+		case <-ticker.C:
+			if err := cw.reload(); err != nil {
+				log.Errorf("failed to poll CA certificate: %v", err)
+			}
+		}
+	}
 }
 
-func (cw *CertWatcher) watch(ctx context.Context) {
+func (cw *CAWatcher) watch(ctx context.Context) {
 	log := logger.GetLogger(ctx)
 	for {
 		select {
@@ -157,35 +148,41 @@ func (cw *CertWatcher) watch(ctx context.Context) {
 				continue
 			}
 
-			// Kubernetes Secret volume updates are not atomic across files
-			// in the same directory; give the kubelet a brief moment to
-			// finish updating all of them before reloading.
-			time.Sleep(100 * time.Millisecond)
 			if err := cw.reload(); err != nil {
-				log.Errorf("failed to reload certificate after change: %v", err)
-			} else {
-				log.Infof("Reloaded certificate from %s", cw.certPath)
+				log.Errorf("failed to reload CA certificate after change: %v", err)
 			}
 		case err, ok := <-cw.watcher.Errors:
 			if !ok {
 				return
 			}
-			log.Errorf("certificate watcher error: %v", err)
+			log.Errorf("CA certificate watcher error: %v", err)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
-func (cw *CertWatcher) reload() error {
-	cert, caCertPool, err := LoadCertificateAndCAPool(cw.certPath, cw.keyPath, cw.caPath)
+func (cw *CAWatcher) reload() error {
+	caBytes, err := os.ReadFile(cw.caPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read CA certificate file: %w", err)
+	}
+
+	cw.RLock()
+	unchanged := bytes.Equal(cw.rawPEM, caBytes)
+	cw.RUnlock()
+	if unchanged {
+		return nil
+	}
+
+	caCertPool := x509.NewCertPool()
+	if ok := caCertPool.AppendCertsFromPEM(caBytes); !ok {
+		return errors.New("failed to parse CA certificate: invalid PEM format")
 	}
 
 	cw.Lock()
-	cw.currentCert = &cert
-	cw.currentCACertPool = caCertPool
+	cw.current = caCertPool
+	cw.rawPEM = caBytes
 	cw.Unlock()
 	return nil
 }
