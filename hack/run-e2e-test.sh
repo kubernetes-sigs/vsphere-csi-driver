@@ -27,7 +27,7 @@ go env GOFLAGS GOPROXY GOSUMDB GOPATH GOMODCACHE
 echo "=== DEBUG: go.mod pin for k8s.io/kubernetes ==="
 grep -n "k8s.io/kubernetes " tests/e2e/go.mod || true
 echo "=== DEBUG: module cache entries for k8s.io/kubernetes ==="
-ls -la "$(go env GOMODCACHE)/k8s.io/" 2>/dev/null | grep -i kubernetes || echo "(no cache entries found)"
+ls -la "$(go env GOMODCACHE)"/k8s.io/*ubernetes* 2>/dev/null || echo "(no cache entries found)"
 echo "=== DEBUG: resolved module versions (tests/e2e) ==="
 (cd tests/e2e && go list -m k8s.io/kubernetes github.com/container-storage-interface/spec) || true
 echo "=== END DEBUG ==="
