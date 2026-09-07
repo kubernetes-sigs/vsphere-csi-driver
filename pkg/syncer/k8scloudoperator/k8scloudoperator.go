@@ -40,8 +40,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/certwatcher"
+	cacertwatcher "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/certwatcher"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 
@@ -136,13 +137,23 @@ func newServerTransportCredentials(ctx context.Context) (credentials.TransportCr
 	keyPath := DefaultK8sCloudOperatorCertDir + "/tls.key"
 	caPath := DefaultK8sCloudOperatorCertDir + "/ca.crt"
 
-	cw, err := certwatcher.New(certPath, keyPath, caPath)
+	leafCW, err := certwatcher.New(certPath, keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load K8s Cloud Operator server certificate: %w", err)
 	}
 	go func() {
-		if err := cw.Start(ctx); err != nil {
-			log.Errorf("K8s Cloud Operator certificate watcher exited with error: %v", err)
+		if err := leafCW.Start(ctx); err != nil {
+			log.Errorf("K8s Cloud Operator leaf certificate watcher exited with error: %v", err)
+		}
+	}()
+
+	caCW, err := cacertwatcher.New(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load K8s Cloud Operator CA certificate: %w", err)
+	}
+	go func() {
+		if err := caCW.Start(ctx); err != nil {
+			log.Errorf("K8s Cloud Operator CA certificate watcher exited with error: %v", err)
 		}
 	}()
 
@@ -156,7 +167,7 @@ func newServerTransportCredentials(ctx context.Context) (credentials.TransportCr
 				tls.TLS_AES_256_GCM_SHA384,
 			},
 			ClientAuth:       tls.RequireAndVerifyClientCert,
-			GetCertificate:   cw.GetCertificate,
+			GetCertificate:   leafCW.GetCertificate,
 			ClientCAs:        clientCAs,
 			VerifyConnection: verifyK8sCloudOperatorClientConnection,
 			// Session resumption skips full certificate
@@ -170,13 +181,13 @@ func newServerTransportCredentials(ctx context.Context) (credentials.TransportCr
 		}
 	}
 
-	initialCACertPool, err := cw.GetCACertPool()
+	initialCACertPool, err := caCW.GetCACertPool()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load K8s Cloud Operator CA certificate: %w", err)
 	}
 	tlsConfig := baseTLSConfig(initialCACertPool)
 	tlsConfig.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
-		clientCAs, err := cw.GetCACertPool()
+		clientCAs, err := caCW.GetCACertPool()
 		if err != nil {
 			return nil, err
 		}
