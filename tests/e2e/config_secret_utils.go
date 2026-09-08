@@ -325,7 +325,7 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 	for i := 0; i < len(dataCenter); i++ {
 		clusterFolder := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath
 		clusterFolderNameResult, err := sshExec(sshClientConfig, masterIp, clusterFolder)
-		if err != nil && clusterFolderNameResult.Code != 0 {
+		if err != nil || clusterFolderNameResult.Code != 0 {
 			fssh.LogResult(clusterFolderNameResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				clusterFolder, masterIp, err)
@@ -342,7 +342,7 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 		}
 		clusterGroup := govcLoginCmd() + "govc ls " + clusterPathName
 		clusterGroupResult, err := sshExec(sshClientConfig, masterIp, clusterGroup)
-		if err != nil && clusterGroupResult.Code != 0 {
+		if err != nil || clusterGroupResult.Code != 0 {
 			fssh.LogResult(clusterGroupResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				clusterGroup, masterIp, err)
@@ -350,9 +350,14 @@ func getClusterNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 		if clusterGroupResult.Stdout != "" {
 			clusterNames = strings.Split(clusterGroupResult.Stdout, "\n")
 		}
+		if len(clusterNames) == 0 {
+			return nil, fmt.Errorf("no clusters found under %q on host: %v (stdout: %q, stderr: %q); "+
+				"verify govc is installed and in PATH on the k8s master node",
+				clusterPathName, masterIp, clusterGroupResult.Stdout, clusterGroupResult.Stderr)
+		}
 		cluster := govcLoginCmd() + "govc find " + clusterNames[0] + " -type h | sort"
 		clusterResult, err := sshExec(sshClientConfig, masterIp, cluster)
-		if err != nil && clusterResult.Code != 0 {
+		if err != nil || clusterResult.Code != 0 {
 			fssh.LogResult(clusterResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				cluster, masterIp, err)
@@ -369,7 +374,7 @@ func getEsxiHostNames(masterIp string, sshClientConfig *ssh.ClientConfig, cluste
 	for i := 0; i < len(cluster); i++ {
 		hosts := govcLoginCmd() + "govc find " + cluster[i] + " -type h"
 		hostsResult, err := sshExec(sshClientConfig, masterIp, hosts)
-		if err != nil && hostsResult.Code != 0 {
+		if err != nil || hostsResult.Code != 0 {
 			fssh.LogResult(hostsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				hosts, masterIp, err)
@@ -393,7 +398,7 @@ func getVmNames(masterIp string, sshClientConfig *ssh.ClientConfig, dataCenter [
 	for i := 0; i < len(dataCenter); i++ {
 		vms := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath + "/vm" + " " + "| grep 'k8s\\|haproxy'"
 		vMsResult, err := sshExec(sshClientConfig, masterIp, vms)
-		if err != nil && vMsResult.Code != 0 {
+		if err != nil || vMsResult.Code != 0 {
 			fssh.LogResult(vMsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				vms, masterIp, err)
@@ -418,7 +423,7 @@ func getDatastoreNames(masterIp string, sshClientConfig *ssh.ClientConfig,
 	for i := 0; i < len(dataCenter); i++ {
 		ds := govcLoginCmd() + "govc ls " + dataCenter[i].InventoryPath + "/datastore"
 		dsResult, err := sshExec(sshClientConfig, masterIp, ds)
-		if err != nil && dsResult.Code != 0 {
+		if err != nil || dsResult.Code != 0 {
 			fssh.LogResult(dsResult)
 			return nil, fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
 				ds, masterIp, err)
