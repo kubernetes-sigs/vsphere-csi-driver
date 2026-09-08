@@ -565,11 +565,29 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			}
 		}
 		log.Infof("VirtualCenter.connect() creating new client")
-		if vc.Client, vc.RestClient, err = vc.NewClient(ctx, useragent); err != nil {
+		// Assign through locals: NewClient returns (nil, nil, err) on every one
+		// of its failure paths, so assigning its results straight into
+		// vc.Client/vc.RestClient would null them out on failure and break the
+		// invariant documented above.
+		var client *govmomi.Client
+		var restClient *rest.Client
+		if client, restClient, err = vc.NewClient(ctx, useragent); err != nil {
 			log.Errorf("failed to create govmomi client with err: %v", err)
 			if !vc.Config.Insecure {
 				log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 			}
+			return err
+		}
+		vc.Client, vc.RestClient = client, restClient
+
+		// Rebuild the dependent clients here too, symmetric with the relogin
+		// branch below. Nothing today reaches this branch with a dependent
+		// client still bound to an earlier vc.Client -- Disconnect() nils them
+		// together, and a failed NewClient() above leaves vc.Client untouched
+		// -- but keeping both branches doing this rebuild means that
+		// invariant does not have to be re-verified by hand every time
+		// either one changes.
+		if err := vc.recreateDependentClients(ctx); err != nil {
 			return err
 		}
 
@@ -665,14 +683,32 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			return err
 		}
 	}
-	if vc.Client, vc.RestClient, err = vc.NewClient(ctx, useragent); err != nil {
+	// Assign through locals for the same reason as the initialisation branch
+	// above: a failed NewClient must not leave vc.Client nil.
+	var client *govmomi.Client
+	var restClient *rest.Client
+	if client, restClient, err = vc.NewClient(ctx, useragent); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 		}
 		return err
 	}
+	vc.Client, vc.RestClient = client, restClient
 	vc.restLoginCooldownUntil = time.Time{}
+
+	return vc.recreateDependentClients(ctx)
+}
+
+// recreateDependentClients rebuilds every client that was constructed on top of
+// vc.Client's vim25 client, so none of them keeps using a session that
+// vc.Client has already moved on from. Clients that were never created are left
+// nil: their ConnectXxx helpers build them on demand from the current
+// vc.Client.
+func (vc *VirtualCenter) recreateDependentClients(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	var err error
+
 	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
@@ -923,8 +959,15 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 			log.Infof("failed to logout rest with err: %v", err)
 		}
 	}
+	// Drop the dependent clients too. They are built on the vim25 client that
+	// was just logged out, so leaving them non-nil while vc.Client is nil is
+	// exactly the state that strands them on a dead session.
 	vc.Client = nil
 	vc.RestClient = nil
+	vc.PbmClient = nil
+	vc.CnsClient = nil
+	vc.VsanClient = nil
+	vc.VslmClient = nil
 	return nil
 }
 
