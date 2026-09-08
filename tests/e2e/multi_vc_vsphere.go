@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -367,9 +366,9 @@ func (vs *multiVCvSphere) verifyLabelsAreUpdatedInMultiVC(volumeID string, match
 			if matchLabels == nil {
 				return nil
 			}
-			labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+			labelsMatch := containsExpectedLabels(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
 			if guestCluster {
-				labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+				labelsMatch = containsExpectedLabels(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
 					matchLabels)
 			}
 			if labelsMatch {
