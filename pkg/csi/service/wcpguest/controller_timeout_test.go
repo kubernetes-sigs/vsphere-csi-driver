@@ -1364,7 +1364,7 @@ func TestControllerUnpublishForBlockVolumeWatchTermination(t *testing.T) {
 			guestClient:         testclient.NewClientset(),
 			supervisorNamespace: namespace,
 			vmWatcher: &cache.ListWatch{
-				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+				WatchFuncWithContext: func(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
 					return fakeWatch, nil
 				},
 			},
@@ -1459,7 +1459,7 @@ func TestControllerPublishStaleAfterPatch(t *testing.T) {
 		guestClient:         guestClient,
 		supervisorNamespace: namespace,
 		vmWatcher: &cache.ListWatch{
-			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
 				return fakeWatch, nil
 			},
 		},
