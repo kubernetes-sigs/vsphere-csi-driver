@@ -1,3 +1,6 @@
+//go:build !windows
+// +build !windows
+
 /*
 Copyright 2026 The Kubernetes Authors.
 
@@ -14,6 +17,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// This file uses gofsutil.Mount/Unmount, which are only meaningful on a POSIX controller — a
+// vSphere CSI controller (vanilla flavor) always runs on a Linux control-plane node, never on a
+// Windows node, so this restriction has no functional effect. It exists because
+// pkg/csi/service/vanilla/controller.go calls into this package unconditionally, and the driver
+// binary is also cross-compiled for GOOS=windows to serve as the Windows *node* component; see
+// controller_windows.go for the stub that keeps that build green.
 package externalnfs
 
 import (

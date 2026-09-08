@@ -24,10 +24,13 @@ limitations under the License.
 // NodeServer methods as plain Go function calls when a StorageClass's "server" parameter
 // selects this backend, entirely bypassing the Supervisor cluster. Accordingly, the upstream
 // gRPC bootstrap (server.go), the identity server (identityserver.go — this driver already has
-// its own, in pkg/csi/service/identity.go), Windows chmod support, and the fake mounter test
-// helper were dropped; everything else (controllerserver.go, nodeserver.go, utils.go, cache.go,
-// tar.go, nfs.go, chmod_unix.go, version.go) is copied over intact, aside from renaming the
-// package and DefaultDriverName (to "nfs.csi.vsphere.vmware.com").
+// its own, in pkg/csi/service/identity.go), and the fake mounter test helper were dropped;
+// everything else (controllerserver.go, nodeserver.go, utils.go, cache.go, tar.go, nfs.go,
+// chmod_unix.go, chmod_windows.go, version.go) is copied over intact, aside from renaming the
+// package and DefaultDriverName (to "nfs.csi.vsphere.vmware.com"). chmod_windows.go is kept
+// (not dropped, despite an earlier draft of this comment saying otherwise) because this driver
+// ships a Windows node binary — without it, the package fails to compile for GOOS=windows since
+// chmod() would be undefined there.
 //
 // Deviations from vendored upstream, each marked inline with a "DEVIATION FROM VENDORED
 // UPSTREAM" comment:

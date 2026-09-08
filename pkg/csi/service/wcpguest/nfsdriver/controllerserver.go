@@ -116,7 +116,8 @@ const (
 )
 
 // CreateVolume create a volume
-func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (
+	*csi.CreateVolumeResponse, error) {
 	name := req.GetName()
 	if len(name) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "CreateVolume name must be provided")
@@ -210,7 +211,8 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 }
 
 // DeleteVolume delete a volume
-func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
+	*csi.DeleteVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 	if volumeID == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume id is empty")
@@ -255,12 +257,15 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		internalVolumePath := getInternalVolumePath(cs.Driver.workingMountDir, nfsVol)
 
 		if strings.EqualFold(nfsVol.onDelete, archive) {
-			archivedInternalVolumePath := filepath.Join(getInternalMountPath(cs.Driver.workingMountDir, nfsVol), "archived-"+nfsVol.subDir)
+			archivedInternalVolumePath := filepath.Join(
+				getInternalMountPath(cs.Driver.workingMountDir, nfsVol), "archived-"+nfsVol.subDir)
 			if strings.Contains(nfsVol.subDir, "/") {
 				parentDir := filepath.Dir(archivedInternalVolumePath)
-				klog.V(2).Infof("DeleteVolume: subdirectory(%s) contains '/', make sure the parent directory(%s) exists", nfsVol.subDir, parentDir)
+				klog.V(2).Infof("DeleteVolume: subdirectory(%s) contains '/', make sure the parent directory(%s) exists",
+					nfsVol.subDir, parentDir)
 				if err = os.MkdirAll(parentDir, 0777); err != nil {
-					return nil, status.Errorf(codes.Internal, "create parent directory(%s) of %s failed with %v", parentDir, archivedInternalVolumePath, err)
+					return nil, status.Errorf(codes.Internal, "create parent directory(%s) of %s failed with %v",
+						parentDir, archivedInternalVolumePath, err)
 				}
 			}
 
@@ -269,16 +274,19 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 			if cs.Driver.removeArchivedVolumePath {
 				klog.V(2).Infof("removing archived subdirectory at %v", archivedInternalVolumePath)
 				if err = os.RemoveAll(archivedInternalVolumePath); err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to delete archived subdirectory %s: %v", archivedInternalVolumePath, err)
+					return nil, status.Errorf(codes.Internal, "failed to delete archived subdirectory %s: %v",
+						archivedInternalVolumePath, err)
 				}
 				klog.V(2).Infof("removed archived subdirectory at %v", archivedInternalVolumePath)
 			}
 			if err = os.Rename(internalVolumePath, archivedInternalVolumePath); err != nil {
-				return nil, status.Errorf(codes.Internal, "archive subdirectory(%s, %s) failed with %v", internalVolumePath, archivedInternalVolumePath, err)
+				return nil, status.Errorf(codes.Internal, "archive subdirectory(%s, %s) failed with %v",
+					internalVolumePath, archivedInternalVolumePath, err)
 			}
 			// make sure internalVolumePath does not exist with 1 minute timeout
 			if err = waitForPathNotExistWithTimeout(internalVolumePath, time.Minute); err != nil {
-				return nil, status.Errorf(codes.Internal, "DeleteVolume: internalVolumePath(%s) still exists after 1 minute", internalVolumePath)
+				return nil, status.Errorf(codes.Internal, "DeleteVolume: internalVolumePath(%s) still exists after 1 minute",
+					internalVolumePath)
 			}
 			klog.V(2).Infof("archived subdirectory %s --> %s", internalVolumePath, archivedInternalVolumePath)
 		} else {
@@ -301,19 +309,23 @@ func (cs *ControllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
-func (cs *ControllerServer) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
+func (cs *ControllerServer) ControllerPublishVolume(_ context.Context, _ *csi.ControllerPublishVolumeRequest) (
+	*csi.ControllerPublishVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (cs *ControllerServer) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
+func (cs *ControllerServer) ControllerUnpublishVolume(_ context.Context, _ *csi.ControllerUnpublishVolumeRequest) (
+	*csi.ControllerUnpublishVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (cs *ControllerServer) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+func (cs *ControllerServer) ControllerGetVolume(_ context.Context, _ *csi.ControllerGetVolumeRequest) (
+	*csi.ControllerGetVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (cs *ControllerServer) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+func (cs *ControllerServer) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (
+	*csi.ValidateVolumeCapabilitiesResponse, error) {
 	if len(req.GetVolumeId()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
@@ -329,27 +341,32 @@ func (cs *ControllerServer) ValidateVolumeCapabilities(_ context.Context, req *c
 	}, nil
 }
 
-func (cs *ControllerServer) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+func (cs *ControllerServer) ListVolumes(_ context.Context, _ *csi.ListVolumesRequest) (
+	*csi.ListVolumesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (cs *ControllerServer) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
+func (cs *ControllerServer) GetCapacity(_ context.Context, _ *csi.GetCapacityRequest) (
+	*csi.GetCapacityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (d *Driver) ControllerModifyVolume(_ context.Context, _ *csi.ControllerModifyVolumeRequest) (*csi.ControllerModifyVolumeResponse, error) {
+func (d *Driver) ControllerModifyVolume(_ context.Context, _ *csi.ControllerModifyVolumeRequest) (
+	*csi.ControllerModifyVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
 // ControllerGetCapabilities implements the default GRPC callout.
 // Default supports all capabilities
-func (cs *ControllerServer) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+func (cs *ControllerServer) ControllerGetCapabilities(_ context.Context, _ *csi.ControllerGetCapabilitiesRequest) (
+	*csi.ControllerGetCapabilitiesResponse, error) {
 	return &csi.ControllerGetCapabilitiesResponse{
 		Capabilities: cs.Driver.cscap,
 	}, nil
 }
 
-func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (
+	*csi.CreateSnapshotResponse, error) {
 	if len(req.GetName()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "CreateSnapshot name must be provided")
 	}
@@ -431,7 +448,8 @@ func (cs *ControllerServer) CreateSnapshot(ctx context.Context, req *csi.CreateS
 	}, nil
 }
 
-func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
+func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (
+	*csi.DeleteSnapshotResponse, error) {
 	if len(req.GetSnapshotId()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Snapshot ID is required for deletion")
 	}
@@ -463,11 +481,13 @@ func (cs *ControllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
 	return &csi.DeleteSnapshotResponse{}, nil
 }
 
-func (cs *ControllerServer) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
+func (cs *ControllerServer) ListSnapshots(_ context.Context, _ *csi.ListSnapshotsRequest) (
+	*csi.ListSnapshotsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (cs *ControllerServer) ControllerExpandVolume(_ context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+func (cs *ControllerServer) ControllerExpandVolume(_ context.Context, req *csi.ControllerExpandVolumeRequest) (
+	*csi.ControllerExpandVolumeResponse, error) {
 	if len(req.GetVolumeId()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
@@ -483,7 +503,8 @@ func (cs *ControllerServer) ControllerExpandVolume(_ context.Context, req *csi.C
 }
 
 // Mount nfs server at base-dir
-func (cs *ControllerServer) internalMount(ctx context.Context, vol *nfsVolume, volumeContext map[string]string, volCap *csi.VolumeCapability) error {
+func (cs *ControllerServer) internalMount(ctx context.Context, vol *nfsVolume, volumeContext map[string]string,
+	volCap *csi.VolumeCapability) error {
 	if volCap == nil {
 		volCap = &csi.VolumeCapability{
 			AccessType: &csi.VolumeCapability_Mount{
@@ -547,7 +568,8 @@ func (cs *ControllerServer) internalUnmount(ctx context.Context, vol *nfsVolume)
 	return err
 }
 
-func (cs *ControllerServer) copyFromSnapshot(ctx context.Context, req *csi.CreateVolumeRequest, dstVol *nfsVolume) error {
+func (cs *ControllerServer) copyFromSnapshot(ctx context.Context, req *csi.CreateVolumeRequest,
+	dstVol *nfsVolume) error {
 	snap, err := getNfsSnapFromID(req.VolumeContentSource.GetSnapshot().GetSnapshotId())
 	if err != nil {
 		return status.Error(codes.NotFound, err.Error())
@@ -866,7 +888,8 @@ func getNfsVolFromID(id string) (*nfsVolume, error) {
 // Given a CSI snapshot ID, return a nfsSnapshot
 // sample snapshot ID:
 //
-//	nfs-server.default.svc.cluster.local#share#snapshot-016f784f-56f4-44d1-9041-5f59e82dbce1#snapshot-016f784f-56f4-44d1-9041-5f59e82dbce1#pvc-4bcbf944-b6f7-4bd0-b50f-3c3dd00efc64
+//	nfs-server.default.svc.cluster.local#share#snapshot-016f784f-...#
+//	snapshot-016f784f-...#pvc-4bcbf944-b6f7-4bd0-b50f-3c3dd00efc64
 func getNfsSnapFromID(id string) (*nfsSnapshot, error) {
 	segments := strings.Split(id, separator)
 	if len(segments) == totalIDSnapElements {
@@ -911,7 +934,9 @@ func validateSnapshot(snapInternalVolPath string, snap *nfsSnapshot, enableCompr
 		uncompressedName := snap.archiveName(false)
 		if d.Name() != compressedName && d.Name() != uncompressedName {
 			// there should be just one archive in the snapshot path and archive name should match
-			return status.Errorf(codes.AlreadyExists, "snapshot with the same name but different source volume ID already exists: found %q, desired %q", d.Name(), expectedArchiveName)
+			return status.Errorf(codes.AlreadyExists,
+				"snapshot with the same name but different source volume ID already exists: found %q, desired %q",
+				d.Name(), expectedArchiveName)
 		}
 		// If archive already exists (either compressed or uncompressed), snapshot was already created
 		return nil
