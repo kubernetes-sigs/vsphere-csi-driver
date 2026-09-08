@@ -231,7 +231,7 @@ func (f *fileVolumeClient) AddClientVMToIPList(ctx context.Context,
 	log.Debugf("Updating cnsfilevolumeclient instance %s with spec: %+v", fileVolumeName, instance)
 	err = f.client.Update(ctx, instance)
 	if err != nil {
-		log.Errorf("failed to update cnsfilevolumeclient instance %s/%s with error: %+v", fileVolumeName, err)
+		log.Errorf("failed to update cnsfilevolumeclient instance %s with error: %+v", fileVolumeName, err)
 	}
 	return err
 }
