@@ -1400,7 +1400,7 @@ func checkCapabilitiesCR(ctx context.Context, clusterFlavor cnstypes.CnsClusterF
 			Name: common.WCPCapabilitiesCRName},
 			wcpCapabilities)
 		if err != nil {
-			log.Errorf("failed to fetch Capabilities CR instance  with name %q Error: %+v",
+			log.Errorf("failed to fetch Capabilities CR instance with name %q Error: %+v",
 				common.WCPCapabilitiesCRName, err)
 			return err
 		}
@@ -1554,7 +1554,7 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 		if isPVCSIFSSEnabled {
 			// Skip SV FSS check for Windows Support since there is no dependency on supervisor
 			if featureName == common.CSIWindowsSupport {
-				log.Info("CSI Windows Suppport is set to true in pvcsi fss configmap. Skipping SV FSS check")
+				log.Info("CSI Windows Support is set to true in pvcsi fss configmap. Skipping SV FSS check")
 				return true
 			}
 

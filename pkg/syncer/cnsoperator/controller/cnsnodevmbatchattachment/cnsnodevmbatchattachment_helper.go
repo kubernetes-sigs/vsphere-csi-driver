@@ -208,8 +208,9 @@ func getVolumesToDetachFromInstance(ctx context.Context,
 		// Get PVC object for the given PVC name.
 		pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, pvcNs)
 		if err != nil {
-			msg := fmt.Sprintf("failed to find PVC obj for PVC name %s in namespace %s", pvcName, pvcNs)
-			return pvcsToDetach, errors.New(msg)
+			return pvcsToDetach, fmt.Errorf("failed to find PVC obj for PVC name %s in namespace %s: %w. "+
+				"Verify the PVC still exists and the CSI node informer cache is in sync",
+				pvcName, pvcNs, err)
 		}
 
 		addPVCToDetachList := false
@@ -643,7 +644,9 @@ func constructBatchAttachRequest(ctx context.Context,
 
 			pvcObj, err := commonco.ContainerOrchestratorUtility.GetPvcObjectByName(ctx, pvcName, instance.Namespace)
 			if err != nil {
-				err := fmt.Errorf("failed to find the PVC object")
+				err := fmt.Errorf("failed to find the PVC object %q in namespace %q: %w. "+
+					"Verify the PVC exists and the CnsNodeVMBatchAttachment spec references a valid PVC name",
+					pvcName, instance.Namespace, err)
 				log.With("pvc", pvcName).With("namespace", instance.Namespace).
 					Error(err)
 				return pvcsInSpec, volumeIdsInSpec, batchAttachRequest, err

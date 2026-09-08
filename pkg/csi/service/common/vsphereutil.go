@@ -158,7 +158,7 @@ func CreateBlockVolumeUtil(
 		if opts.FilterSuspendedDatastores {
 			sharedDatastores, err = vsphere.FilterSuspendedDatastores(ctx, sharedDatastores)
 			if err != nil {
-				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+				log.Errorf("Error occurred while filtering suspended datastores, err: %+v", err)
 				return nil, csifault.CSIInternalFault, err
 			}
 		}
@@ -620,7 +620,7 @@ func CreateFileVolumeUtil(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		if filterSuspendedDatastores {
 			datastores, err = vsphere.FilterSuspendedDatastores(ctx, datastores)
 			if err != nil {
-				log.Errorf("Error occurred while filter suspended datastores, err: %+v", err)
+				log.Errorf("Error occurred while filtering suspended datastores, err: %+v", err)
 				return nil, csifault.CSIInternalFault, err
 			}
 		}

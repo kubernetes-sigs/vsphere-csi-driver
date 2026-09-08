@@ -820,7 +820,7 @@ func (osUtils *OsUtils) PublishFileVol(
 // an error if it doesn't exist or is not a block device.
 func (osUtils *OsUtils) GetDevice(ctx context.Context, path string) (*Device, error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("check path exits %s", path)
+	log.Infof("check if path exists %s", path)
 	fi, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -831,10 +831,10 @@ func (osUtils *OsUtils) GetDevice(ctx context.Context, path string) (*Device, er
 				log.Debugf("Potential stale file handle detected: %s", path)
 				return nil, syscall.ESTALE
 			}
-			log.Infof("path: %v does not exists", err)
+			log.Infof("path: %s does not exist: %v", path, err)
 			return nil, nil
 		} else if mount.IsCorruptedMnt(err) {
-			log.Infof("mount is currupted %v", err)
+			log.Infof("mount is corrupted %v", err)
 			return nil, err
 		}
 		log.Infof("error checking path %v", err)
