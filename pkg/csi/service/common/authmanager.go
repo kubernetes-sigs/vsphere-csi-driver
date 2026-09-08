@@ -299,7 +299,7 @@ func GenerateFSEnabledClustersToDsMap(ctx context.Context,
 	// Initialize vsan client.
 	err = vc.ConnectVsan(ctx)
 	if err != nil {
-		log.Errorf("error occurred while connecting to VSAN from vCenter %q, err: %+v", vc.Config.Host, err)
+		log.Errorf("Error occurred while connecting to VSAN from vCenter %q, err: %+v", vc.Config.Host, err)
 		return nil, err
 	}
 

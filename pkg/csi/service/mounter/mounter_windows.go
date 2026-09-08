@@ -481,7 +481,7 @@ func (mounter *csiProxyMounter) Rescan(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	log.Infof("Calling CSI Proxy's rescan API")
 	if _, err := mounter.DiskClient.Rescan(ctx, &disk.RescanRequest{}); err != nil {
-		log.Errorf("failed to rescan stroage cache. err: %v", err)
+		log.Errorf("failed to rescan storage cache. err: %v", err)
 		return err
 	}
 	return nil

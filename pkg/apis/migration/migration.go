@@ -507,7 +507,7 @@ func (volumeMigration *volumeMigration) registerVolume(ctx context.Context,
 		storagePolicyID, err = vCenter.GetStoragePolicyIDByName(ctx, volumeSpec.StoragePolicyName)
 		if err != nil {
 			return "", false, logger.LogNewErrorf(log,
-				"Error occurred while getting stroage policy ID from storage policy name: %q, err: %+v",
+				"Error occurred while getting storage policy ID from storage policy name: %q, err: %+v",
 				volumeSpec.StoragePolicyName, err)
 		}
 		log.Debugf("Obtained storage policy ID: %q for storage policy name: %q",
