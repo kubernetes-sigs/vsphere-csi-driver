@@ -585,25 +585,34 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Use cached K8s client for registration operations.
 	k8sclient := r.k8sclient
 
-	var storageClassName string
-	if instance.Spec.StorageClassName != "" {
-		// Already resolved and verified as assigned to this namespace before the CNS volume was
-		// created; no need to re-derive or re-validate it here.
-		storageClassName = instance.Spec.StorageClassName
-	} else {
-		// Get K8S storageclass name mapping the storagepolicy id with Immediate volume binding mode
-		storageClassName, err = getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sclient, r.client,
-			volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to find K8S Storageclass mapping storagepolicyId: %s and assigned to namespace: %s",
-				volume.StoragePolicyId, request.Namespace)
-			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
-		log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s",
-			volume.StoragePolicyId, storageClassName, request.Namespace)
+	// Check if PVC already exists and has valid DataSourceRef. Fetch this before resolving
+	// storageClassName below: when the PVC already declares a StorageClass, that's the ground
+	// truth of what the caller actually asked for, and is preferred over independently
+	// re-deriving a name from the volume's storage policy ID -- which is ambiguous whenever more
+	// than one StorageClass shares the same storagePolicyID (e.g. after a policy rename leaves an
+	// old and a new StorageClass both pointing at the same policy ID).
+	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
+	// is created even if validation fails.
+	pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
+	if err != nil {
+		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
+			instance.Spec.PvcName, err)
+		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
+			instance.Namespace, instance.Spec.PvcName, err))
+		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	storageClassName, err := resolveStorageClassNameForRegistration(ctx, k8sclient, r.client, instance, pvc,
+		volume.StoragePolicyId, request.Namespace, syncer.IsPodVMOnStretchSupervisorFSSEnabled)
+	if err != nil {
+		msg := fmt.Sprintf("Failed to resolve K8S Storageclass for storagepolicyId: %s in namespace: %s. Error: %+v",
+			volume.StoragePolicyId, request.Namespace, err)
+		log.Error(msg)
+		setInstanceError(ctx, r, instance, msg)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	log.Infof("Volume with storagepolicyId: %s is mapping to K8S storage class: %s and assigned to namespace: %s",
+		volume.StoragePolicyId, storageClassName, request.Namespace)
 
 	sc, err := k8sclient.StorageV1().StorageClasses().Get(ctx, storageClassName, metav1.GetOptions{})
 	if err != nil {
@@ -686,17 +695,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		}
 	}
 
-	// Check if PVC already exists and has valid DataSourceRef
-	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
-	// is created even if validation fails
-	pvc, err := checkExistingPVCDataSourceRef(ctx, k8sclient, instance.Spec.PvcName, instance.Namespace)
-	if err != nil {
-		log.Errorf("Failed to check existing PVC %s/%s with DataSourceRef: %+v", instance.Namespace,
-			instance.Spec.PvcName, err)
-		setInstanceError(ctx, r, instance, fmt.Sprintf("Failed to check existing PVC %s/%s with DataSourceRef: %+v",
-			instance.Namespace, instance.Spec.PvcName, err))
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
+	// pvc was already fetched above (before storageClassName resolution).
 
 	// If existing PVC has DataSourceRef and volumeMode set, handle volumeMode validation and inheritance
 	volumeModeInherited := false
