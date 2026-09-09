@@ -286,6 +286,13 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
+            # privileged + SYS_ADMIN are required so this container can mount an external NFS
+            # export to create/remove the per-PVC subdirectory backing guest-local NFS-driver
+            # volumes (see pkg/csi/service/wcpguest/nfsdriver). Not needed for CNS-backed
+            # block or vSAN-file volumes proxied through the Supervisor.
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
           resources:
             requests:
               cpu: 10m

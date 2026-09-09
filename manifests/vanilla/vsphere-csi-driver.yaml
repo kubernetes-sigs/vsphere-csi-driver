@@ -312,6 +312,13 @@ spec:
             runAsNonRoot: true
             runAsUser: 65532
             runAsGroup: 65532
+            # privileged + SYS_ADMIN are required so this container can mount an external NFS
+            # export to create/remove the per-PVC subdirectory backing "external NFS" RWX file
+            # volumes (see pkg/csi/service/common/externalnfs). Not needed for vSAN File
+            # Service or block volumes.
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
           volumeMounts:
             - mountPath: /etc/cloud
               name: vsphere-config-volume
