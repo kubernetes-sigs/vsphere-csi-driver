@@ -837,9 +837,22 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 				AccessMode:  "ReadWriteOnce",
 			},
 		}
+		// The suite runs with syncer.IsPodVMOnStretchSupervisorFSSEnabled = true, so namespace
+		// assignment (read by resolveStorageClassNameForRegistration, since the PVC below declares
+		// a StorageClass) is expressed via a StoragePolicyQuota CR rather than a ResourceQuota.
+		_ = cnsstoragepolicyquotasv1alpha3.AddToScheme(scheme)
+		spq := &cnsstoragepolicyquotasv1alpha3.StoragePolicyQuota{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-sc-spq", Namespace: "test-ns"},
+			Spec:       cnsstoragepolicyquotasv1alpha3.StoragePolicyQuotaSpec{StoragePolicyId: "dummy-storage-policy-id"},
+			Status: cnsstoragepolicyquotasv1alpha3.StoragePolicyQuotaStatus{
+				SCLevelQuotaStatuses: []cnsstoragepolicyquotasv1alpha3.SCLevelQuotaStatus{
+					{StorageClassName: storageClassName},
+				},
+			},
+		}
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
-			WithObjects(diskURLCR).
+			WithObjects(diskURLCR, spq).
 			Build()
 
 		var unregCalled bool
@@ -865,7 +878,10 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 				StorageClassName: &storageClassName,
 			},
 		}
-		sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: storageClassName}}
+		sc := &storagev1.StorageClass{
+			ObjectMeta: metav1.ObjectMeta{Name: storageClassName},
+			Parameters: map[string]string{scParamStoragePolicyID: "dummy-storage-policy-id"},
+		}
 		k8sclientFake := k8sfake.NewClientset(pvc, sc)
 
 		diskURLReconciler := &ReconcileCnsRegisterVolume{
@@ -884,7 +900,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			return &cnstypes.CnsVolume{
 				VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
 				DatastoreUrl:    "dummy-ds-url",
-				StoragePolicyId: "dummy-policy-id",
+				StoragePolicyId: "dummy-storage-policy-id",
 				BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
 					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
 				},

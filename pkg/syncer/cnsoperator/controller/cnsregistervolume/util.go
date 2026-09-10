@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -345,11 +346,25 @@ const scParamStoragePolicyID = "storagePolicyID"
 
 // getStoragePolicyIDForStorageClass fetches the named StorageClass and returns the vSphere
 // storage policy ID carried in its storagePolicyID parameter.
+//
+// It also rejects a WaitForFirstConsumer StorageClass (e.g. the "-latebinding" companion wcpsvc
+// creates alongside every Immediate StorageClass for the same storagePolicyID): that binding mode
+// exists to delay dynamic provisioning until a consuming pod is scheduled, which has no meaning
+// for CnsRegisterVolume's static registration of an already-provisioned volume. All of this
+// function's callers -- the early instance.Spec.StorageClassName validation in Reconcile, the CNS
+// create-spec profile lookup, and the PVC-trust tier of resolveStorageClassNameForRegistration --
+// resolve the StorageClass to use for a CnsRegisterVolume, so the same rule applies uniformly
+// regardless of whether the name came from the CR, the PVC, or (for the ambiguous
+// policy-ID-only case) getK8sStorageClassNameWithImmediateBindingModeForPolicy's own filter.
 func getStoragePolicyIDForStorageClass(ctx context.Context, k8sClient clientset.Interface,
 	scName string) (string, error) {
 	sc, err := k8sClient.StorageV1().StorageClasses().Get(ctx, scName, metav1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch StorageClass %q: %w", scName, err)
+	}
+	if sc.VolumeBindingMode != nil && *sc.VolumeBindingMode == storagev1.VolumeBindingWaitForFirstConsumer {
+		return "", fmt.Errorf("StorageClass %q uses WaitForFirstConsumer binding, which is not valid "+
+			"for CnsRegisterVolume; use the corresponding Immediate-binding StorageClass instead", scName)
 	}
 	policyID := sc.Parameters[scParamStoragePolicyID]
 	if policyID == "" {
@@ -488,6 +503,17 @@ func isStoragePolicyAssignedToNamespace(ctx context.Context, k8sClient clientset
 
 // getK8sStorageClassNameWithImmediateBindingModeForPolicy gets the storage class name in K8S mapping the vsphere
 // storagepolicy id. The policy must also be assigned to the passed namespace.
+//
+// A storagePolicyID is not guaranteed to map to a single StorageClass: e.g. renaming a storage
+// policy in vCenter can leave an old and a new StorageClass both pointing at the same policy ID
+// (see the sgc1-raid-1 / sgc1-raid-1-mirroring-0 case). This function collects every
+// Immediate-binding candidate and narrows to the ones whose policy is actually assigned to the
+// namespace. Callers of this function have no way to state which StorageClass name they actually
+// want (that preference, if any, is expected to already have been honored via
+// instance.Spec.StorageClassName or the PVC's own StorageClassName before falling back to this
+// policy-ID-based lookup -- see resolveStorageClassNameForRegistration), so when more than one
+// candidate remains, this picks the lexicographically smallest name for a stable, reproducible
+// result and logs a warning rather than failing the registration outright.
 func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context, k8sClient clientset.Interface,
 	client ctrlruntimeclient.Client, storagePolicyID string, namespace string,
 	isPodVMOnStretchedSupervisorEnabled bool) (string, error) {
@@ -496,31 +522,97 @@ func getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx context.Context
 	if err != nil {
 		return "", logger.LogNewErrorf(log, "Failed to get Storageclasses from API server. Error: %+v", err)
 	}
-	var scName string
+
+	var candidates []string
 	for _, sc := range scList.Items {
-		scParams := sc.Parameters
-		for paramName, val := range scParams {
-			param := strings.ToLower(paramName)
-			if param == common.AttributeStoragePolicyID && val == storagePolicyID {
-				if *sc.VolumeBindingMode != storagev1.VolumeBindingWaitForFirstConsumer {
-					scName = sc.Name
-					break
-				}
+		if sc.VolumeBindingMode != nil && *sc.VolumeBindingMode == storagev1.VolumeBindingWaitForFirstConsumer {
+			continue
+		}
+		for paramName, val := range sc.Parameters {
+			if strings.ToLower(paramName) == common.AttributeStoragePolicyID && val == storagePolicyID {
+				candidates = append(candidates, sc.Name)
+				break
 			}
 		}
 	}
 
-	assigned, err := isStoragePolicyAssignedToNamespace(ctx, k8sClient, client, storagePolicyID, scName,
-		namespace, isPodVMOnStretchedSupervisorEnabled)
-	if err != nil {
-		return "", err
+	var assignedCandidates []string
+	for _, scName := range candidates {
+		assigned, err := isStoragePolicyAssignedToNamespace(ctx, k8sClient, client, storagePolicyID, scName,
+			namespace, isPodVMOnStretchedSupervisorEnabled)
+		if err != nil {
+			return "", err
+		}
+		if assigned {
+			assignedCandidates = append(assignedCandidates, scName)
+		}
 	}
-	if assigned {
-		return scName, nil
+
+	switch len(assignedCandidates) {
+	case 0:
+		return "", logger.LogNewErrorf(log, "Failed to find matching K8s Storageclass. "+
+			"Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s",
+			storagePolicyID, namespace)
+	case 1:
+		return assignedCandidates[0], nil
+	default:
+		sort.Strings(assignedCandidates)
+		log.Warnf("storagepolicyId: %s maps to multiple StorageClasses assigned to namespace %s: %v. "+
+			"Picking %q deterministically; set spec.storageClassName on the CnsRegisterVolume or on the "+
+			"PVC to choose a specific one.", storagePolicyID, namespace, assignedCandidates, assignedCandidates[0])
+		return assignedCandidates[0], nil
 	}
-	return "", logger.LogNewErrorf(log, "Failed to find matching K8s Storageclass. "+
-		"Either storagepolicyId: %s doesn't match any storage class, or the policy is not assigned to namespace: %s",
-		storagePolicyID, namespace)
+}
+
+// resolveStorageClassNameForRegistration determines which K8s StorageClass name should be used
+// for the volume being registered, in order of preference:
+//
+//  1. instance.Spec.StorageClassName, if set. The caller (Reconcile) has already verified this is
+//     assigned to the namespace before any CNS volume was created, so it's trusted as-is here.
+//  2. The existing PVC's own declared StorageClassName, if the PVC already exists and specifies
+//     one. This is the ground truth of what the caller (e.g. VM Operator) actually asked for, and
+//     is preferred over independently re-deriving a name from the volume's storage policy ID --
+//     which is ambiguous whenever more than one StorageClass shares the same storagePolicyID. The
+//     PVC's choice is still validated here: its StorageClass must map to the volume's actual
+//     storage policy, and must be assigned to the namespace.
+//  3. Otherwise, derive the name from the volume's storage policy ID via
+//     getK8sStorageClassNameWithImmediateBindingModeForPolicy.
+func resolveStorageClassNameForRegistration(ctx context.Context, k8sClient clientset.Interface,
+	client ctrlruntimeclient.Client, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	pvc *v1.PersistentVolumeClaim, volumeStoragePolicyID, namespace string,
+	isPodVMOnStretchedSupervisorEnabled bool) (string, error) {
+	if instance.Spec.StorageClassName != "" {
+		return instance.Spec.StorageClassName, nil
+	}
+
+	if pvc != nil && pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != "" {
+		candidate := *pvc.Spec.StorageClassName
+
+		policyID, err := getStoragePolicyIDForStorageClass(ctx, k8sClient, candidate)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve storage policy for PVC %s's StorageClass %q: %w",
+				pvc.Name, candidate, err)
+		}
+		if policyID != volumeStoragePolicyID {
+			return "", fmt.Errorf("PVC %s has storage class %q (storage policy %q), but volume maps to "+
+				"storage policy %q", pvc.Name, candidate, policyID, volumeStoragePolicyID)
+		}
+
+		assigned, err := isStoragePolicyAssignedToNamespace(ctx, k8sClient, client, policyID, candidate,
+			namespace, isPodVMOnStretchedSupervisorEnabled)
+		if err != nil {
+			return "", fmt.Errorf("failed to verify StorageClass %q is assigned to namespace %q: %w",
+				candidate, namespace, err)
+		}
+		if !assigned {
+			return "", fmt.Errorf("PVC %s's storage class %q is not assigned to namespace %q",
+				pvc.Name, candidate, namespace)
+		}
+		return candidate, nil
+	}
+
+	return getK8sStorageClassNameWithImmediateBindingModeForPolicy(ctx, k8sClient, client,
+		volumeStoragePolicyID, namespace, isPodVMOnStretchedSupervisorEnabled)
 }
 
 // getPersistentVolumeSpec creates a PV spec for the given params. Caller supplies capacity
