@@ -443,18 +443,11 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 
 		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
+		// This starts the sharedInformer including csiNodeInformer we requested in above Prepare call
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			utils.LogoutAllvCenterSessions(ctx)
 			os.Exit(0)
-		}
-		if nodeMgr != nil {
-			log.Info("Starting CSINode discovery after all configured vCenters are registered")
-			if err := nodeMgr.Start(); err != nil {
-				log.Errorf("failed to start nodeManager. Error: %+v", err)
-				utils.LogoutAllvCenterSessions(ctx)
-				os.Exit(1)
-			}
 		}
 	}
 }

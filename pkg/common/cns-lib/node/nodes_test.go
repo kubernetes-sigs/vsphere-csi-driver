@@ -46,7 +46,10 @@ func (s *stubNodeManager) SetKubernetesClient(client clientset.Interface) {}
 
 func (s *stubNodeManager) RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error {
 	if s.registered != nil {
-		s.registered <- struct{}{}
+		select {
+		case s.registered <- struct{}{}:
+		default:
+		}
 	}
 	return s.registerErr
 }
