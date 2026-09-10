@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/fsnotify/fsnotify"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	cnstypes "github.com/vmware/govmomi/cns/types"
@@ -102,6 +103,9 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 		}
 		if err := vmoperatortypes.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add vmoperatortypes to global scheme: %+v", err)
+		}
+		if err := certmanagerv1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add certmanagerv1 to global scheme: %+v", err)
 		}
 
 		log.Info("Global scheme initialization completed successfully")

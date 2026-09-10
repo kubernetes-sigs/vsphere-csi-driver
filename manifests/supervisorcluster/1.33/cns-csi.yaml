@@ -170,7 +170,7 @@ rules:
     verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates/status"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["mobility-operator.vmware.com"]
     resources: ["virtualmachineinframigrations", "volumemigrations"]
     verbs: ["get", "list", "watch"]

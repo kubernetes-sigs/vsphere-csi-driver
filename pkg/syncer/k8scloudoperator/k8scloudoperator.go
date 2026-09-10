@@ -71,6 +71,16 @@ const (
 	// certificate issued for this identity are authorized to invoke any RPC,
 	// even though the CA also signs this server's own certificate.
 	k8sCloudOperatorClientCertCN = "vmware-system-csi-k8scloudoperator-client"
+
+	// K8sCloudOperatorCACertName is the cert-manager Certificate name of the
+	// K8sCloudOperator root CA. It signs both K8sCloudOperatorServerCertName
+	// and K8sCloudOperatorClientCertName below.
+	K8sCloudOperatorCACertName = "vmware-system-csi-k8scloudoperator-ca-cert"
+
+	// K8sCloudOperatorServerCertName and K8sCloudOperatorClientCertName are
+	// the two leaves signed by K8sCloudOperatorCACertName.
+	K8sCloudOperatorServerCertName = "vmware-system-csi-k8scloudoperator-server-cert"
+	K8sCloudOperatorClientCertName = "vmware-system-csi-k8scloudoperator-client-cert"
 )
 
 type k8sCloudOperator struct {
