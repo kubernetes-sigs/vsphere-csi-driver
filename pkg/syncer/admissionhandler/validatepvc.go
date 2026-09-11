@@ -112,7 +112,6 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 	switch req.Kind.Kind {
 	case "PersistentVolumeClaim":
 		oldPVC := corev1.PersistentVolumeClaim{}
-		log.Debugf("JSON req.OldObject.Raw: %v", string(req.OldObject.Raw))
 		// req.OldObject is null for CREATE and CONNECT operations.
 		if err := json.Unmarshal(req.OldObject.Raw, &oldPVC); err != nil {
 			log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
@@ -134,7 +133,6 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 		var newReq resource.Quantity
 		if req.Operation != admissionv1.Delete {
 			newPVC = corev1.PersistentVolumeClaim{}
-			log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 			// req.Object is null for DELETE operations.
 			if err := json.Unmarshal(req.Object.Raw, &newPVC); err != nil {
 				log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
@@ -378,7 +376,7 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 			},
 		}
 	}
-	log.Debugf("validateGuestPVCOperation called with the PVC request %+v", pvc)
+	log.Debugf("validateGuestPVCOperation called with the PVC %s/%s", pvc.Namespace, pvc.Name)
 
 	if metav1.HasAnnotation(pvc.ObjectMeta, common.AttributeIsLinkedClone) {
 		if pvc.Annotations[common.AnnKeyLinkedClone] == "true" {

@@ -29,10 +29,10 @@ const (
 // on either of supervisor or guest cluster.
 func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1.AdmissionRequest) admission.Response {
 	log := logger.GetLogger(ctx)
-	log.Debugf("validateSnapshotOperationGuestRequest called with the request %v", req)
+	log.Debugf("validateSnapshotOperationGuestRequest called with the request name=%q namespace=%q kind=%q",
+		req.Name, req.Namespace, req.Kind.Kind)
 	if req.Kind.Kind == "VolumeSnapshotClass" {
 		vsclass := snap.VolumeSnapshotClass{}
-		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 		if err := json.Unmarshal(req.Object.Raw, &vsclass); err != nil {
 			reason := "error deserializing volume snapshot class"
 			log.Warn(reason)
@@ -45,7 +45,6 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		}
 	} else if req.Kind.Kind == "VolumeSnapshotContent" {
 		vsc := snap.VolumeSnapshotContent{}
-		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 		if err := json.Unmarshal(req.Object.Raw, &vsc); err != nil {
 			reason := "error deserializing volume snapshot content"
 			log.Warn(reason)
@@ -79,7 +78,6 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 
 			return checkIfLinkedClonesExist(ctx, vs)
 		}
-		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 		if err := json.Unmarshal(req.Object.Raw, &vs); err != nil {
 			reason := "error deserializing volume snapshot"
 			log.Warn(reason)
@@ -110,14 +108,16 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 			}
 		}
 	}
-	log.Debugf("validateSnapshotOperationGuestRequest completed for the request %v", req)
+	log.Debugf("validateSnapshotOperationGuestRequest completed for the request name=%q namespace=%q",
+		req.Name, req.Namespace)
 	return admission.Allowed("")
 }
 
 func validateSnapshotOperationSupervisorRequest(ctx context.Context,
 	req *admissionv1.AdmissionRequest) admission.Response {
 	log := logger.GetLogger(ctx)
-	log.Debugf("validateSnapshotOperationSupervisorRequest called with the request %v", req)
+	log.Debugf("validateSnapshotOperationSupervisorRequest called with the request name=%q namespace=%q kind=%q",
+		req.Name, req.Namespace, req.Kind.Kind)
 
 	if req.Kind.Kind == "VolumeSnapshot" {
 		if !featureIsLinkedCloneSupportEnabled {
@@ -127,7 +127,6 @@ func validateSnapshotOperationSupervisorRequest(ctx context.Context,
 		// Only apply Linked Clone validation for delete operations.
 		if featureIsLinkedCloneSupportEnabled && req.Operation == admissionv1.Delete {
 			vs := snap.VolumeSnapshot{}
-			log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 			if err := json.Unmarshal(req.OldObject.Raw, &vs); err != nil {
 				reason := "error deserializing volume snapshot"
 				log.Warn(reason)
@@ -145,7 +144,8 @@ func validateSnapshotOperationSupervisorRequest(ctx context.Context,
 			return checkIfLinkedClonesExist(ctx, vs)
 		}
 	}
-	log.Debugf("validateSnapshotOperationSupervisorRequest completed for the request %v", req)
+	log.Debugf("validateSnapshotOperationSupervisorRequest completed for the request name=%q namespace=%q",
+		req.Name, req.Namespace)
 	return admission.Allowed("")
 }
 

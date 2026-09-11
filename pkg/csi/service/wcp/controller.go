@@ -740,7 +740,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes are not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", logger.RedactCSIRequest(req))
 			}
 		case common.AttributeHostLocalPolicy:
 			isHostLocalRequest = strings.EqualFold(req.Parameters[paramName], "true")
@@ -752,7 +752,8 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	if isHostLocalRequest && !isHostLocalStorageSupportEnabled {
 		return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
 			"host-local storage policy volume provisioning is not supported: "+
-				"supports_host_local_storage capability is not enabled. Request: %+v", req)
+				"supports_host_local_storage capability is not enabled. Request: %+v",
+			logger.RedactCSIRequest(req))
 	}
 
 	// If VM_PVC_STORAGE_POLICY_MUTABILITY is enabled and mutable_parameters contains a
@@ -1887,7 +1888,7 @@ func (c *controller) createFileVolume(ctx context.Context, req *csi.CreateVolume
 			}
 			if isLinkedCloneRequest && !linkedCloneSupportEnabled {
 				return nil, csifault.CSIUnimplementedFault, logger.LogNewErrorCodef(log, codes.Unimplemented,
-					"linked clone volumes are not supported. Request: %+v", req)
+					"linked clone volumes are not supported. Request: %+v", logger.RedactCSIRequest(req))
 			}
 		}
 	}
@@ -2214,7 +2215,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		err := validateWCPCreateVolumeRequest(ctx, req, isBlockRequest)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for CreateVolume Request: %+v has failed. Error: %+v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -2290,14 +2291,15 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 	cnsVolumeType := common.UnknownVolumeType
 
 	deleteVolumeInternal := func() (*csi.DeleteVolumeResponse, string, error) {
-		log.Infof("DeleteVolume: called with args: %+v", req)
+		log.Infof("DeleteVolume: called with args: %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// For all other cases, the faultType will be set to "csi.fault.Internal" for now.
 		// Later we may need to define different csi faults.
 		err := validateWCPDeleteVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v", req, err)
+			msg := fmt.Sprintf("Validation for DeleteVolume Request: %+v has failed. Error: %+v",
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -2390,7 +2392,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		// Later we may need to define different csi faults.
 		err := validateWCPControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v", req, err)
+			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 			log.Errorf(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -2401,7 +2404,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			caps := []*csi.VolumeCapability{volCap}
 			if isSharedRawBlockRequest(ctx, caps) {
 				// Shared Disk feature is not supported for PodVMs.
-				err := fmt.Errorf("shared disks are not supportd for PodVMs. Invalid request %+v", req)
+				err := fmt.Errorf("shared disks are not supportd for PodVMs. Invalid request %+v",
+					logger.RedactCSIRequest(req))
 				log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
 				return nil, csifault.CSIInvalidArgumentFault, err
 			}
@@ -2573,7 +2577,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		// Later we may need to define different csi faults.
 		err := validateWCPControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
-			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v", req, err)
+			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -3029,7 +3034,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Validate CreateSnapshotRequest
 		if err := validateWCPCreateSnapshotRequest(ctx, req); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for CreateSnapshot Request: %+v has failed. Error: %v", req, err)
+				"validation for CreateSnapshot Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 		volumeID := req.GetSourceVolumeId()
 		volumeType = prometheus.PrometheusBlockVolumeType
@@ -3376,7 +3382,8 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		isOnlineExpansionEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.OnlineVolumeExtend)
 		err = validateWCPControllerExpandVolumeRequest(ctx, req, c.manager, isOnlineExpansionEnabled)
 		if err != nil {
-			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v", req, err)
+			log.Errorf("validation for ExpandVolume Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType

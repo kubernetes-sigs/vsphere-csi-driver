@@ -1549,7 +1549,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
-		log.Infof("DeleteVolume: called with args: %+v", req)
+		log.Infof("DeleteVolume: called with args: %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -1690,7 +1690,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		if err != nil {
 
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for PublishVolume Request: %+v has failed. Error: %v", req, err)
+				"validation for PublishVolume Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 		publishInfo := make(map[string]string)
 		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
@@ -1831,7 +1832,8 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		err := validateVanillaControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
 			return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for UnpublishVolume Request: %+v has failed. Error: %v", req, err)
+				"validation for UnpublishVolume Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 
 		_, volumeManager, err := getVCenterAndVolumeManagerForVolumeID(ctx, c, req.VolumeId, volumeInfoService)
@@ -2413,7 +2415,8 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Validate CreateSnapshotRequest
 		if err := validateVanillaCreateSnapshotRequestRequest(ctx, req); err != nil {
 			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"validation for CreateSnapshot Request: %+v has failed. Error: %v", req, err)
+				"validation for CreateSnapshot Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 
 		// Check if the source volume is migrated vSphere volume

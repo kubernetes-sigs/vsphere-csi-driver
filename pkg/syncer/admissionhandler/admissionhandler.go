@@ -363,7 +363,8 @@ func validationHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if r.URL.Path == "/validate" {
 			log.Debugf("request URL path is /validate")
-			log.Debugf("admissionReview: %+v", ar)
+			log.Debugf("admissionReview: name=%q namespace=%q kind=%q operation=%q",
+				ar.Request.Name, ar.Request.Namespace, ar.Request.Kind.Kind, ar.Request.Operation)
 			switch ar.Request.Kind.Kind {
 			case "StorageClass":
 				admissionResponse = validateStorageClass(ctx, &ar)

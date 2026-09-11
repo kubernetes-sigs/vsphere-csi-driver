@@ -832,7 +832,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 
 	deleteVolumeInternal := func() (
 		*csi.DeleteVolumeResponse, string, error) {
-		log.Infof("DeleteVolume: called with args: %+v", req)
+		log.Infof("DeleteVolume: called with args: %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -906,7 +906,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 					req.VolumeId)
 				return &csi.DeleteVolumeResponse{}, "", nil
 			}
-			msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", req, err)
+			msg := fmt.Sprintf("DeleteVolume Request: %+v has failed. Error: %+v", logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
