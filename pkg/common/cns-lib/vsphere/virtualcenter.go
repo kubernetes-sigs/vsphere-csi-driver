@@ -573,6 +573,14 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			return err
 		}
 
+		// Keep this branch consistent with the relogin branch below: if a
+		// dependent client is somehow still set while vc.Client was nil, it is
+		// bound to a vim25 client that no longer exists, and nothing later in
+		// connect() would notice -- the session checks only look at vc.Client.
+		if err := vc.updateDependentClients(ctx); err != nil {
+			return err
+		}
+
 		vc.restLoginCooldownUntil = time.Time{}
 		log.Infof("VirtualCenter.connect() successfully created new client")
 		return nil
@@ -665,14 +673,35 @@ func (vc *VirtualCenter) connect(ctx context.Context) error {
 			return err
 		}
 	}
-	if vc.Client, vc.RestClient, err = vc.NewClient(ctx, useragent); err != nil {
+	// Assign through locals for the same reason as the initialisation branch
+	// above: a failed NewClient must not leave vc.Client nil.
+	var client *govmomi.Client
+	var restClient *rest.Client
+	if client, restClient, err = vc.NewClient(ctx, useragent); err != nil {
 		log.Errorf("failed to create govmomi client with err: %v", err)
 		if !vc.Config.Insecure {
 			log.Errorf("failed to connect to vCenter using CA file: %q", vc.Config.CAFile)
 		}
 		return err
 	}
+	vc.Client, vc.RestClient = client, restClient
 	vc.restLoginCooldownUntil = time.Time{}
+
+	return vc.updateDependentClients(ctx)
+}
+
+// updateDependentClients points every already-created dependent client at
+// vc.Client's current vim25 client, so none of them keeps using a session that
+// vc.Client has already moved on from.
+//
+// Call this only from connect(), immediately after vc.Client has been replaced
+// with a freshly built one -- it rebuilds against whatever vc.Client currently
+// holds. Clients that were never created are left nil: their ConnectXxx helpers
+// build them on demand from the current vc.Client.
+func (vc *VirtualCenter) updateDependentClients(ctx context.Context) error {
+	log := logger.GetLogger(ctx)
+	var err error
+
 	// Recreate PbmClient if created using timed out VC Client.
 	if vc.PbmClient != nil {
 		if vc.PbmClient, err = pbm.NewClient(ctx, vc.Client.Client); err != nil {
@@ -923,8 +952,15 @@ func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 			log.Infof("failed to logout rest with err: %v", err)
 		}
 	}
+	// Drop the dependent clients too. They are built on the vim25 client that
+	// was just logged out, so leaving them non-nil while vc.Client is nil is
+	// exactly the state that strands them on a dead session.
 	vc.Client = nil
 	vc.RestClient = nil
+	vc.PbmClient = nil
+	vc.CnsClient = nil
+	vc.VsanClient = nil
+	vc.VslmClient = nil
 	return nil
 }
 
