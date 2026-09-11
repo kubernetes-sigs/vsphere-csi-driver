@@ -459,6 +459,11 @@ spec:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
             - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+            - "--http-endpoint=:9809"
+          ports:
+            - containerPort: 9809
+              name: healthz
+              protocol: TCP
           env:
             - name: ADDRESS
               value: /csi/csi.sock
@@ -470,12 +475,13 @@ spec:
             - name: registration-dir
               mountPath: /registration
           livenessProbe:
-            exec:
-              command:
-              - /csi-node-driver-registrar
-              - --kubelet-registration-path=/var/lib/kubelet/plugins/csi.vsphere.vmware.com/csi.sock
-              - --mode=kubelet-registration-probe
-            initialDelaySeconds: 3
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 30
+            timeoutSeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
         - name: vsphere-csi-node
           image: us-central1-docker.pkg.dev/k8s-staging-images/csi-vsphere/driver:latest
           args:
