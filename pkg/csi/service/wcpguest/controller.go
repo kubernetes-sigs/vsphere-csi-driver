@@ -411,7 +411,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 		err := validateGuestClusterCreateVolumeRequest(ctx, req)
 		if err != nil {
 			log.Errorf("validation for CreateVolume Request: %+v has failed. Error: %+v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 		isFileVolumeRequest := common.IsFileVolumeRequest(ctx, req.GetVolumeCapabilities())
@@ -612,7 +612,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 							!isHostLocalStorageSupportFSSEnabled {
 							msg := fmt.Sprintf("host-local storage policy volume provisioning is not supported: "+
 								"%s FSS/capability is not enabled, but requested topology contains %s. Request: %+v",
-								common.HostLocalStorageSupportFSS, common.GuestClusterTopologyLabelHost, req)
+								common.HostLocalStorageSupportFSS, common.GuestClusterTopologyLabelHost,
+								logger.RedactCSIRequest(req))
 							return nil, csifault.CSIUnimplementedFault, status.Error(codes.Unimplemented, msg)
 						}
 						translatedPreferred = append(translatedPreferred, &csi.Topology{
@@ -843,7 +844,7 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 		err = validateGuestClusterDeleteVolumeRequest(ctx, req)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for Delete Volume Request: %+v has failed. Error: %+v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
@@ -968,7 +969,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 		err := validateGuestClusterControllerPublishVolumeRequest(ctx, req)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for PublishVolume Request: %+v has failed. Error: %v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.Internal, msg)
 		}
@@ -1425,7 +1426,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 		err := validateGuestClusterControllerUnpublishVolumeRequest(ctx, req)
 		if err != nil {
 			msg := fmt.Sprintf("Validation for UnpublishVolume Request: %+v has failed. Error: %v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}

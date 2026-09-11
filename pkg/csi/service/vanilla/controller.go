@@ -1979,7 +1979,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		err = validateVanillaControllerExpandVolumeRequest(ctx, req, isOnlineExpansionEnabled, isOnlineExpansionSupported)
 		if err != nil {
 			msg := fmt.Sprintf("validation for ExpandVolume Request: %+v has failed. Error: %v",
-				req, err)
+				logger.RedactCSIRequest(req), err)
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, err
 		}

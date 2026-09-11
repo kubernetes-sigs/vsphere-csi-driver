@@ -232,7 +232,8 @@ func (osUtils *OsUtils) PublishBlockVol(
 	log := logger.GetLogger(ctx)
 
 	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"PublishBlockVol Raw Block devices are currently not supported by windows : %v", req)
+		"PublishBlockVol Raw Block devices are currently not supported by windows : %v",
+		logger.RedactCSIRequest(req))
 }
 
 // PublishBlockVol mounts file volume to publish target
@@ -243,7 +244,8 @@ func (osUtils *OsUtils) PublishFileVol(
 	*csi.NodePublishVolumeResponse, error) {
 	log := logger.GetLogger(ctx)
 	return nil, logger.LogNewErrorCodef(log, codes.Internal,
-		"PublishBlockVol File Volumes are currently not supported by windows : %v", req)
+		"PublishBlockVol File Volumes are currently not supported by windows : %v",
+		logger.RedactCSIRequest(req))
 }
 
 // GetMetrics helps get volume metrics using k8s fsInfo strategy.

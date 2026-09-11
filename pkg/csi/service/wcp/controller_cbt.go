@@ -87,7 +87,8 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 		// Validate request
 		if err := validateGetMetadataAllocatedRequest(ctx, req); err != nil {
 			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"validation for GetMetadataAllocated Request: %+v has failed. Error: %v", req, err)
+				"validation for GetMetadataAllocated Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 
 		snapshotID := req.GetSnapshotId()
@@ -266,7 +267,8 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 		// Validate request
 		if err := validateGetMetadataDeltaRequest(ctx, req); err != nil {
 			return logger.LogNewErrorCodef(log, codes.InvalidArgument,
-				"validation for GetMetadataDelta Request: %+v has failed. Error: %v", req, err)
+				"validation for GetMetadataDelta Request: %+v has failed. Error: %v",
+				logger.RedactCSIRequest(req), err)
 		}
 
 		// base_snapshot_id is the vSphere change-id, an opaque string. Pass it straight to
