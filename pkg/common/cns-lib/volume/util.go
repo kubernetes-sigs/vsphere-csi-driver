@@ -19,6 +19,7 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -429,6 +430,41 @@ func ExtractFaultTypeFromVolumeResponseResult(ctx context.Context,
 	}
 	log.Info("No fault in resp %+v", resp)
 	return ""
+}
+
+// ExtractDetailedFaultMessage builds a detailed error message for a LocalizedMethodFault.
+// LocalizedMessage on the fault is often a generic, templated string (for example
+// vim.fault.InvalidDeviceSpec always reports "Invalid configuration for device '<index>'."
+// regardless of the underlying cause). The actual root cause is frequently found one level
+// down, in the nested MethodFault's FaultMessage entries or its immediate FaultCause, which
+// this function appends to the generic message so callers get an actionable error.
+func ExtractDetailedFaultMessage(ctx context.Context, fault *types.LocalizedMethodFault) string {
+	log := logger.GetLogger(ctx)
+	if fault == nil {
+		return ""
+	}
+	msg := fault.LocalizedMessage
+	if fault.Fault == nil {
+		return msg
+	}
+	methodFault := fault.Fault.GetMethodFault()
+	if methodFault == nil {
+		return msg
+	}
+	var details []string
+	for _, faultMsg := range methodFault.FaultMessage {
+		if faultMsg.Message != "" {
+			details = append(details, faultMsg.Message)
+		}
+	}
+	if methodFault.FaultCause != nil && methodFault.FaultCause.LocalizedMessage != "" {
+		details = append(details, methodFault.FaultCause.LocalizedMessage)
+	}
+	if len(details) > 0 {
+		msg = fmt.Sprintf("%s Details: %s", msg, strings.Join(details, "; "))
+	}
+	log.Debugf("Extracted detailed fault message: %q from fault: %+v", msg, fault)
+	return msg
 }
 
 // invokeCNSCreateSnapshot invokes CreateSnapshot operation for that volume on CNS.
