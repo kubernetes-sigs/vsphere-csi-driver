@@ -2185,7 +2185,7 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	createVolumeInternal := func() (
 		*csi.CreateVolumeResponse, string, error) {
-		log.Infof("CreateVolume: called with args %+v", req)
+		log.Infof("CreateVolume: called with args %+v", logger.RedactCSIRequest(req))
 		isWorkloadDomainIsolationEnabled := commonco.ContainerOrchestratorUtility.
 			IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
@@ -2381,7 +2381,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 	controllerPublishVolumeInternal := func() (
 		*csi.ControllerPublishVolumeResponse, string, error) {
-		log.Infof("ControllerPublishVolume: called with args %+v", req)
+		log.Infof("ControllerPublishVolume: called with args %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -2564,7 +2564,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 	volumeType := prometheus.PrometheusUnknownVolumeType
 	controllerUnpublishVolumeInternal := func() (
 		*csi.ControllerUnpublishVolumeResponse, string, error) {
-		log.Infof("ControllerUnpublishVolume: called with args %+v", req)
+		log.Infof("ControllerUnpublishVolume: called with args %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -2824,7 +2824,7 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	*csi.ValidateVolumeCapabilitiesResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", req)
+	log.Infof("ControllerGetCapabilities: called with args %+v", logger.RedactCSIRequest(req))
 	volCaps := req.GetVolumeCapabilities()
 	var confirmed *csi.ValidateVolumeCapabilitiesResponse_Confirmed
 	if err := isValidVolumeCapabilitiesInWcp(ctx, volCaps); err == nil {
@@ -2979,7 +2979,7 @@ func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityReques
 	*csi.GetCapacityResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("GetCapacity: called with args %+v", req)
+	log.Infof("GetCapacity: called with args %+v", logger.RedactCSIRequest(req))
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
@@ -2988,7 +2988,7 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ControllerGetCapabilities: called with args %+v", req)
+	log.Infof("ControllerGetCapabilities: called with args %+v", logger.RedactCSIRequest(req))
 	var caps []*csi.ControllerServiceCapability
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
 		controllerCaps = append(controllerCaps, csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
@@ -3019,7 +3019,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("WCP CreateSnapshot: called with args %+v", req)
+	log.Infof("WCP CreateSnapshot: called with args %+v", logger.RedactCSIRequest(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "createSnapshot")
@@ -3199,7 +3199,7 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("DeleteSnapshot: called with args %+v", req)
+	log.Infof("DeleteSnapshot: called with args %+v", logger.RedactCSIRequest(req))
 	volumeType := prometheus.PrometheusBlockVolumeType
 	start := time.Now()
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
@@ -3277,7 +3277,7 @@ func (c *controller) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRe
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
 	volumeType := prometheus.PrometheusBlockVolumeType
-	log.Infof("ListSnapshots: called with args %+v", req)
+	log.Infof("ListSnapshots: called with args %+v", logger.RedactCSIRequest(req))
 	isBlockVolumeSnapshotWCPEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.BlockVolumeSnapshot)
 	if !isBlockVolumeSnapshotWCPEnabled {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented, "listSnapshot")
@@ -3333,7 +3333,7 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 	controllerExpandVolumeInternal := func() (
 		*csi.ControllerExpandVolumeResponse, string, error) {
 		var err error
-		log.Infof("ControllerExpandVolume: called with args %+v", req)
+		log.Infof("ControllerExpandVolume: called with args %+v", logger.RedactCSIRequest(req))
 		// TODO: If the err is returned by invoking CNS API, then faultType should be
 		// populated by the underlying layer.
 		// If the request failed due to validate the request, "csi.fault.InvalidArgument" will be return.
@@ -3548,7 +3548,7 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("ControllerModifyVolume: called with args %+v", req)
+	log.Infof("ControllerModifyVolume: called with args %+v", logger.RedactCSIRequest(req))
 
 	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
 		return nil, logger.LogNewErrorCode(log, codes.Unimplemented,

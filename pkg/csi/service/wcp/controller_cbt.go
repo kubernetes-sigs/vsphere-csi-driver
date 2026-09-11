@@ -63,7 +63,7 @@ func (c *controller) GetMetadataAllocated(req *csi.GetMetadataAllocatedRequest,
 	ctx := server.Context()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("GetMetadataAllocated: called with args %+v", req)
+	log.Infof("GetMetadataAllocated: called with args %+v", logger.RedactCSIRequest(req))
 
 	// Check if CBT feature is enabled.
 	//
@@ -243,7 +243,7 @@ func (c *controller) GetMetadataDelta(req *csi.GetMetadataDeltaRequest,
 	ctx := server.Context()
 	ctx = logger.NewContextWithLogger(ctx)
 	log := logger.GetLogger(ctx)
-	log.Infof("GetMetadataDelta: called with args %+v", req)
+	log.Infof("GetMetadataDelta: called with args %+v", logger.RedactCSIRequest(req))
 
 	// Check if CBT feature is enabled.
 	//

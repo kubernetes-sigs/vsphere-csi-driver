@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/google/uuid"
@@ -139,4 +140,37 @@ func LogNewErrorCodef(log *zap.SugaredLogger, c codes.Code, format string, a ...
 	msg := fmt.Sprintf(format, a...)
 	log.Desugar().WithOptions(zap.AddCallerSkip(1)).Sugar().Error(msg)
 	return status.Error(c, msg)
+}
+
+// secretsGetter is implemented by every generated CSI request type that
+// carries a "Secrets" field (e.g. NodeStageVolumeRequest, CreateVolumeRequest).
+type secretsGetter interface {
+	GetSecrets() map[string]string
+}
+
+// RedactCSIRequest returns a value suitable for logging a CSI RPC request
+// with %+v: if the request carries a Secrets map, it is replaced with a
+// fixed-size redaction marker so credentials never reach the log stream.
+// Non-secret-bearing request types are returned unchanged.
+func RedactCSIRequest(req interface{}) interface{} {
+	sg, ok := req.(secretsGetter)
+	if !ok || len(sg.GetSecrets()) == 0 {
+		return req
+	}
+
+	// Copy the request so the caller's original object is left untouched,
+	// then zero out the Secrets field on the copy via reflection since the
+	// concrete type is only known through the secretsGetter interface.
+	v := reflect.ValueOf(req)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return req
+	}
+	cp := reflect.New(v.Elem().Type())
+	cp.Elem().Set(v.Elem())
+	if f := cp.Elem().FieldByName("Secrets"); f.IsValid() && f.CanSet() {
+		redacted := reflect.MakeMapWithSize(f.Type(), 1)
+		redacted.SetMapIndex(reflect.ValueOf("***stripped***"), reflect.ValueOf("***stripped***"))
+		f.Set(redacted)
+	}
+	return cp.Interface()
 }
