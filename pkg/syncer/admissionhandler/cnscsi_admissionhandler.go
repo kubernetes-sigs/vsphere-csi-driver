@@ -528,8 +528,9 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 			// Best-effort for a plain restore: no accessibility info available to propagate.
 		} else {
 			// Case-1: If the PVC has "csi.vsphere.volume-requested-topology" annotation:
-			// - Validate that its zones are a subset of the source PVC's accessible zones,
-			//   fail the request if not.
+			// - Validate that the source PVC's accessible zones are a subset of its requested
+			//   zones, fail the request if not; otherwise narrow the annotation down to the
+			//   source PVC's accessible zones.
 			// Case-2: If the PVC does NOT have "csi.vsphere.volume-requested-topology" annotation:
 			// - Add the source PVC's accessible topology as-is, so the consuming VM can only
 			//   be placed where the snapshot's data is reachable.
@@ -553,13 +554,23 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 					log.Infof("no zone segments to compare for PVC %s/%s (requested: %s, accessible: %s), "+
 						"skipping zone validation", newPVC.Namespace, newPVC.Name,
 						newPVCAccessibility, sourcePVCAccessibility)
-				} else if !isZoneSubset(requestedZones, accessibleZones) {
-					// accessibility requirement mismatch, deny the request and suggest the correct annotation
+				} else if !isZoneSubset(accessibleZones, requestedZones) {
+					// The source snapshot's accessible zone(s) must be among the requested
+					// zones; the requested annotation may legitimately list more zones than
+					// the source is accessible from (e.g. an unnarrowed candidate list), so
+					// the check is the source's accessible zones being a subset of what was
+					// requested, not the other way around.
 					errMsg := fmt.Sprintf("expected accessibility requirement to be a subset of: %s but got %s, "+
 						"volumes restored from a snapshot must request a zone where the source snapshot is "+
 						"accessible, if unset, it will be automatically chosen", sourcePVCAccessibility,
 						newPVCAccessibility)
 					return admission.Denied(errMsg)
+				} else if newPVCAccessibility != sourcePVCAccessibility {
+					// Narrow the requested topology down to the zone(s) the source snapshot
+					// is actually accessible from, so downstream CreateVolume pins to a
+					// concrete zone instead of carrying forward a broader candidate list.
+					newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = sourcePVCAccessibility
+					wasMutated = true
 				}
 			} else {
 				// If not present, set it as the same as the source PVC
