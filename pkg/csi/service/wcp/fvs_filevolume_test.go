@@ -1565,6 +1565,162 @@ func TestCreateFileVolumeViaFVS_ErrorPhasePropagatesCondition(t *testing.T) {
 	require.Contains(t, err.Error(), "vdfs grpc dial")
 }
 
+// newFileStoreTestController builds the FVS fixture shared by the file-store label tests: a consumer
+// namespace and an instance namespace on the same VPC and zone, plus a pre-seeded FileVolume (the
+// Phase 1 reuse path, so no healthy FileVolumeService CR is needed). It returns the controller and the
+// CreateVolume request to drive it with.
+func newFileStoreTestController(t *testing.T, pvcUID string,
+	existing *fvv1alpha1.FileVolume) (*controller, *csi.CreateVolumeRequest) {
+	t.Helper()
+	consumerAnn := "pvc-ns-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	instAnn := "inst-ns-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	sameVPCPath := "/orgs/default/projects/default/vpcs/same-vpc"
+
+	k8s := k8sfake.NewClientset(
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "pvc-ns",
+				Annotations: map[string]string{AnnotationVPCNetworkConfig: consumerAnn},
+			},
+		},
+		&v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "inst-ns",
+				Labels:      map[string]string{NamespaceLabelFVSInstance: "true"},
+				Annotations: map[string]string{AnnotationVPCNetworkConfig: instAnn},
+			},
+		},
+	)
+	dyn := newTestDynamicClient(t,
+		testVPCNetworkConfigurationCR(consumerAnn, sameVPCPath),
+		testVPCNetworkConfigurationCR(instAnn, sameVPCPath),
+	)
+
+	origZones := fvsZonesForNamespace
+	t.Cleanup(func() { fvsZonesForNamespace = origZones })
+	fvsZonesForNamespace = func(ns string) map[string]struct{} {
+		if ns == "pvc-ns" || ns == "inst-ns" {
+			return map[string]struct{}{"zone-a": {}}
+		}
+		return nil
+	}
+
+	fvClient := ctrlfake.NewClientBuilder().
+		WithScheme(newFileVolumeSchemeForTest(t)).
+		WithObjects(existing).
+		Build()
+
+	c := &controller{
+		k8sClient:        k8s,
+		dynamicClient:    dyn,
+		namespaceLister:  testNamespaceLister(t, k8s),
+		fileVolumeClient: fvClient,
+	}
+	req := &csi.CreateVolumeRequest{
+		Name: "pvc-" + pvcUID,
+		Parameters: map[string]string{
+			common.AttributePvcNamespace: "pvc-ns",
+			common.AttributePvcName:      "my-pvc",
+		},
+		AccessibilityRequirements: &csi.TopologyRequirement{
+			Preferred: []*csi.Topology{{Segments: map[string]string{v1.LabelTopologyZone: "zone-a"}}},
+		},
+	}
+	return c, req
+}
+
+// TestCreateFileVolumeViaFVS_HappyPathReturnsFileStore verifies that once the FileVolume CR is Ready
+// with an export path, an endpoint and the FVS file-store label, createFileVolumeViaFVS returns the
+// file store name in the CreateVolume response volume context. external-provisioner reads it from
+// there to publish the same label on the PVC.
+func TestCreateFileVolumeViaFVS_HappyPathReturnsFileStore(t *testing.T) {
+	ctx := context.Background()
+	withFastFVSWait(t)
+	pvcUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+	existing := &fvv1alpha1.FileVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvcUID,
+			Namespace: "inst-ns",
+			Labels:    map[string]string{common.FileStoreLabelKey: "my-file-store"},
+		},
+		Status: fvv1alpha1.FileVolumeStatus{
+			Phase:      fvv1alpha1.FileVolumePhaseReady,
+			ExportPath: "/vsanfs/fs-1",
+			Endpoint:   "10.0.0.10",
+		},
+	}
+	c, req := newFileStoreTestController(t, pvcUID, existing)
+
+	resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+	require.NoError(t, err)
+	require.Empty(t, fault)
+	require.NotNil(t, resp)
+	require.Equal(t, common.FVSVolumeIDPrefix+"inst-ns:"+pvcUID, resp.Volume.VolumeId)
+	require.Equal(t, common.DiskTypeFileVolume, resp.Volume.VolumeContext[common.AttributeDiskType])
+	require.Equal(t, "10.0.0.10:/vsanfs/fs-1", resp.Volume.VolumeContext[common.Nfsv4ExportPathAnnotationKey])
+	require.Equal(t, "my-file-store", resp.Volume.VolumeContext[common.FileStoreLabelKey])
+}
+
+// TestCreateFileVolumeViaFVS_IncompleteReadyTimesOut verifies that a Ready FileVolume that is missing
+// any of the export path, the endpoint or the file-store label is not treated as provisioned: the poll
+// keeps waiting and CreateVolume ultimately fails with DeadlineExceeded rather than returning a volume
+// with no file store to publish on the PVC.
+func TestCreateFileVolumeViaFVS_IncompleteReadyTimesOut(t *testing.T) {
+	pvcUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	cases := []struct {
+		name       string
+		labels     map[string]string
+		exportPath string
+		endpoint   string
+	}{
+		{
+			name:       "file store label absent",
+			exportPath: "/vsanfs/fs-1",
+			endpoint:   "10.0.0.10",
+		},
+		{
+			name:       "file store label present but empty",
+			labels:     map[string]string{common.FileStoreLabelKey: ""},
+			exportPath: "/vsanfs/fs-1",
+			endpoint:   "10.0.0.10",
+		},
+		{
+			// Regression guard: the file store label is an additional condition, not a replacement for
+			// the existing export path and endpoint checks.
+			name:       "file store label present but endpoint missing",
+			labels:     map[string]string{common.FileStoreLabelKey: "my-file-store"},
+			exportPath: "/vsanfs/fs-1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			withFastFVSWait(t)
+			existing := &fvv1alpha1.FileVolume{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      pvcUID,
+					Namespace: "inst-ns",
+					Labels:    tc.labels,
+				},
+				Status: fvv1alpha1.FileVolumeStatus{
+					Phase:      fvv1alpha1.FileVolumePhaseReady,
+					ExportPath: tc.exportPath,
+					Endpoint:   tc.endpoint,
+				},
+			}
+			c, req := newFileStoreTestController(t, pvcUID, existing)
+
+			resp, fault, err := c.createFileVolumeViaFVS(ctx, req)
+			require.Nil(t, resp)
+			require.Error(t, err)
+			require.Equal(t, csifault.CSIInternalFault, fault)
+			require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+			require.Contains(t, err.Error(), common.FileStoreLabelKey)
+		})
+	}
+}
+
 // TestReservedFVSStorageClassGuard documents the invariant the new CreateVolume guard relies on:
 // the reserved vSAN file-service storage classes are recognised by isVsanFileServicePolicyStorageClass,
 // and when the FVS FSS is disabled, shouldProvisionVsanFileVolumeViaFVS returns useFVS=false. The

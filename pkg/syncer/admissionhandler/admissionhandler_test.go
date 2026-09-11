@@ -67,6 +67,20 @@ func TestInitWorkloadFSSFlag(t *testing.T) {
 			expectFlag:           false,
 			expectLateEnablement: true,
 		},
+		{
+			name:                 "vSAN file volume service enabled",
+			capability:           common.VsanFileVolumeService,
+			fssEnabled:           true,
+			expectFlag:           true,
+			expectLateEnablement: false,
+		},
+		{
+			name:                 "vSAN file volume service disabled starts late-enablement watcher",
+			capability:           common.VsanFileVolumeService,
+			fssEnabled:           false,
+			expectFlag:           false,
+			expectLateEnablement: true,
+		},
 	}
 
 	for _, test := range tests {

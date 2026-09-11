@@ -64,6 +64,7 @@ var (
 	featureIsSharedDiskEnabled             bool
 	featureIsLinkedCloneSupportEnabled     bool
 	featureIsVACPolicyMutabilityEnabled    bool
+	featureIsVsanFileVolumeServiceEnabled  bool
 )
 
 // initWorkloadFSSFlag sets the given flag from the current state of the given Workload (Supervisor)
@@ -168,6 +169,8 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 			&featureIsSharedDiskEnabled)
 		initWorkloadFSSFlag(ctx, containerOrchestratorUtility, common.VMPVCStoragePolicyMutability,
 			&featureIsVACPolicyMutabilityEnabled)
+		initWorkloadFSSFlag(ctx, containerOrchestratorUtility, common.VsanFileVolumeService,
+			&featureIsVsanFileVolumeServiceEnabled)
 		if err := startCNSCSIWebhookManager(ctx, enableWebhookClientCertVerification,
 			containerOrchestratorUtility); err != nil {
 			return fmt.Errorf("unable to run the webhook manager: %w", err)
