@@ -614,7 +614,7 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	// Snapshot the status so setters below can skip the write if unchanged.
 	origStatus := instance.Status.DeepCopy()
 
-	// Populate TopologyInfo from InfraStoragePolicyInfo.
+	// Populate Topology from InfraStoragePolicyInfo.
 	// activeClustersByZone contains the active-cluster set namespaceFilteredZones already
 	// resolved per zone.
 	activeClustersByZone, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
@@ -791,21 +791,21 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 	if infraSPI.Status.Topology == nil {
 		log.Debugf("InfraStoragePolicyInfo %q has no topology; clearing StoragePolicyInfo topology",
 			infraSPI.Name)
-		instance.Status.TopologyInfo = nil
+		instance.Status.Topology = nil
 		return nil, nil
 	}
 
 	accessibleZones, activeClustersByZone := r.namespaceFilteredZones(ctx, instance.Namespace,
 		infraSPI.Status.Topology.AccessibleZones)
 
-	instance.Status.TopologyInfo = &spiv1alpha1.Topology{
+	instance.Status.Topology = &spiv1alpha1.Topology{
 		TopologyType:    infraSPI.Status.Topology.TopologyType,
 		AccessibleZones: accessibleZones,
 	}
 	log.Debugf("Synced topology for StoragePolicyInfo %s/%s: type=%q zones=%v",
 		instance.Namespace, instance.Name,
-		instance.Status.TopologyInfo.TopologyType,
-		instance.Status.TopologyInfo.AccessibleZones)
+		instance.Status.Topology.TopologyType,
+		instance.Status.Topology.AccessibleZones)
 	return activeClustersByZone, nil
 }
 
@@ -855,23 +855,23 @@ func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx cont
 // just the namespace's accessible zones (already namespace-filtered by
 // syncTopologyFromInfraSPI) via computeLinkedCloneForNamespace/computeHPLCForNamespace.
 //
-// instance.Status.TopologyInfo is nil only when InfraStoragePolicyInfo itself has no
+// instance.Status.Topology is nil only when InfraStoragePolicyInfo itself has no
 // Topology, which happens exclusively when the cluster-scoped reconcile failed to resolve the
 // policy's StorageClass or StorageTopologyType (see populateTopologyCapabilities) — never as a
 // legitimate "non-zonal" state, since a genuinely non-zonal policy still gets a non-nil
-// Topology with an empty TopologyType. That's an upstream failure, not an absence of
+// Topology with TopologyType omitted. That's an upstream failure, not an absence of
 // applicable zones, so it's surfaced as an error here rather than silently falling back to
 // infraCaps (which was computed from that same failed reconcile and can't be trusted either).
 func linkedCloneCapabilitiesForNamespace(ctx context.Context, zp zonesProvider,
 	activeClustersByZone map[string]map[string]bool, instance *spiv1alpha1.StoragePolicyInfo,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo) (lc bool, hplc bool, err error) {
-	if instance.Status.TopologyInfo == nil {
+	if instance.Status.Topology == nil {
 		return false, false, fmt.Errorf(
 			"cannot determine LinkedClone capabilities for namespace %q: InfraStoragePolicyInfo %q "+
 				"has not resolved its topology yet", instance.Namespace, infraSPI.Name)
 	}
 
-	nsZones := instance.Status.TopologyInfo.AccessibleZones
+	nsZones := instance.Status.Topology.AccessibleZones
 
 	if activeClustersByZone == nil {
 		activeClustersByZone = activeClusterSetsForZones(ctx, zp, instance.Namespace, nsZones)
@@ -1085,7 +1085,7 @@ func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Contex
 	if infraSPI.Status.Topology == nil || infraSPI.Status.Topology.TopologyType == "" {
 		log.Debugf("syncTopologyFromInfraSPI: marker policy %q has no topology type; clearing topology",
 			instance.Name)
-		instance.Status.TopologyInfo = nil
+		instance.Status.Topology = nil
 		return nil
 	}
 
@@ -1098,7 +1098,7 @@ func (r *ReconcileStoragePolicyInfo) syncMarkerPolicyTopology(ctx context.Contex
 		return fmt.Errorf("failed to compute marker-policy zones for namespace %q: %w",
 			instance.Namespace, err)
 	}
-	instance.Status.TopologyInfo = &spiv1alpha1.Topology{
+	instance.Status.Topology = &spiv1alpha1.Topology{
 		TopologyType:    infraSPI.Status.Topology.TopologyType,
 		AccessibleZones: zones,
 	}

@@ -578,13 +578,13 @@ func TestSyncTopologyFromInfraSPI_CopiesTopology(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
-	require.NotNil(t, inst.Status.TopologyInfo)
-	assert.Equal(t, "zonal", inst.Status.TopologyInfo.TopologyType)
-	assert.ElementsMatch(t, []string{"az1", "az2"}, inst.Status.TopologyInfo.AccessibleZones)
+	require.NotNil(t, inst.Status.Topology)
+	assert.Equal(t, "zonal", inst.Status.Topology.TopologyType)
+	assert.ElementsMatch(t, []string{"az1", "az2"}, inst.Status.Topology.AccessibleZones)
 }
 
 // TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology verifies that when
-// InfraStoragePolicyInfo has no Topology, the StoragePolicyInfo TopologyInfo is
+// InfraStoragePolicyInfo has no Topology, the StoragePolicyInfo Topology is
 // set to nil.
 func TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -597,7 +597,7 @@ func TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology(t *testing.T) {
 	inst := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{TopologyType: "zonal"},
+			Topology: &spiv1alpha1.Topology{TopologyType: "zonal"},
 		},
 	}
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
@@ -606,11 +606,11 @@ func TestSyncTopologyFromInfraSPI_ClearsWhenNilTopology(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
-	assert.Nil(t, inst.Status.TopologyInfo)
+	assert.Nil(t, inst.Status.Topology)
 }
 
 // TestSyncTopologyFromInfraSPI_NoAccessibleZonesKeepsTopologyType verifies that when the
-// namespace has no Zone CRs assigned, TopologyInfo is still populated with the InfraSPI's
+// namespace has no Zone CRs assigned, Topology is still populated with the InfraSPI's
 // TopologyType and an empty (non-nil) AccessibleZones slice, rather than being cleared
 // entirely — distinguishing "zonal policy, no zones currently accessible" from "no topology
 // at all".
@@ -638,10 +638,10 @@ func TestSyncTopologyFromInfraSPI_NoAccessibleZonesKeepsTopologyType(t *testing.
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, inst, infraSPI)
 	require.NoError(t, err)
-	require.NotNil(t, inst.Status.TopologyInfo)
-	assert.Equal(t, "zonal", inst.Status.TopologyInfo.TopologyType)
-	assert.NotNil(t, inst.Status.TopologyInfo.AccessibleZones)
-	assert.Empty(t, inst.Status.TopologyInfo.AccessibleZones)
+	require.NotNil(t, inst.Status.Topology)
+	assert.Equal(t, "zonal", inst.Status.Topology.TopologyType)
+	assert.NotNil(t, inst.Status.Topology.AccessibleZones)
+	assert.Empty(t, inst.Status.Topology.AccessibleZones)
 }
 
 // TestNamespaceFilteredZones exercises the zone-intersection logic used by
@@ -1102,14 +1102,14 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
-	require.NotNil(t, got.Status.TopologyInfo)
-	assert.Equal(t, "zonal", got.Status.TopologyInfo.TopologyType)
-	assert.ElementsMatch(t, []string{"az1", "az3"}, got.Status.TopologyInfo.AccessibleZones,
+	require.NotNil(t, got.Status.Topology)
+	assert.Equal(t, "zonal", got.Status.Topology.TopologyType)
+	assert.ElementsMatch(t, []string{"az1", "az3"}, got.Status.Topology.AccessibleZones,
 		"az2 should be filtered out because ns1 is not assigned to it")
 }
 
 // TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones verifies that when a namespace has
-// no Zone CRs assigned, TopologyInfo keeps the InfraSPI's TopologyType but yields an empty
+// no Zone CRs assigned, Topology keeps the InfraSPI's TopologyType but yields an empty
 // AccessibleZones slice (rather than falling back to all cluster-accessible zones).
 func TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -1145,10 +1145,10 @@ func TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
-	require.NotNil(t, got.Status.TopologyInfo,
-		"TopologyInfo should still be populated (with TopologyType) when namespace has no Zone CRs assigned")
-	assert.Equal(t, "zonal", got.Status.TopologyInfo.TopologyType)
-	assert.Empty(t, got.Status.TopologyInfo.AccessibleZones,
+	require.NotNil(t, got.Status.Topology,
+		"Topology should still be populated (with TopologyType) when namespace has no Zone CRs assigned")
+	assert.Equal(t, "zonal", got.Status.Topology.TopologyType)
+	assert.Empty(t, got.Status.Topology.AccessibleZones,
 		"AccessibleZones should be an empty slice, not omitted, when no zones are accessible")
 }
 
@@ -1161,7 +1161,7 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 	spi := &spiv1alpha1.StoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
 		Status: spiv1alpha1.StoragePolicyInfoStatus{
-			TopologyInfo: &spiv1alpha1.Topology{
+			Topology: &spiv1alpha1.Topology{
 				TopologyType:    "zonal",
 				AccessibleZones: []string{"az1"}, // stale — az2 was added to InfraSPI
 			},
@@ -1200,8 +1200,8 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "ns1", Name: "gold"}, got))
-	require.NotNil(t, got.Status.TopologyInfo)
-	assert.ElementsMatch(t, []string{"az1", "az2"}, got.Status.TopologyInfo.AccessibleZones,
+	require.NotNil(t, got.Status.Topology)
+	assert.ElementsMatch(t, []string{"az1", "az2"}, got.Status.Topology.AccessibleZones,
 		"topology should be updated to include az2 after InfraStoragePolicyInfo status update")
 
 	// A Normal sync event must be recorded to confirm the reconcile ran to completion.
@@ -1322,8 +1322,8 @@ func TestReconcile_MarkerPolicy_SPQPresent_SyncsTopology(t *testing.T) {
 
 	got := &spiv1alpha1.StoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, types.NamespacedName{Namespace: "consumer-ns", Name: markerPolicy}, got))
-	require.NotNil(t, got.Status.TopologyInfo)
-	assert.Equal(t, []string{"zone-x"}, got.Status.TopologyInfo.AccessibleZones)
+	require.NotNil(t, got.Status.Topology)
+	assert.Equal(t, []string{"zone-x"}, got.Status.Topology.AccessibleZones)
 
 	// The marker policy's owner reference is the StoragePolicyQuota, same as any
 	// other policy — no marker-specific exemption from the ownership logic.
@@ -1543,9 +1543,9 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
-	require.NotNil(t, instance.Status.TopologyInfo)
-	assert.Equal(t, "zonal", instance.Status.TopologyInfo.TopologyType)
-	assert.Equal(t, []string{"zone-x"}, instance.Status.TopologyInfo.AccessibleZones,
+	require.NotNil(t, instance.Status.Topology)
+	assert.Equal(t, "zonal", instance.Status.Topology.TopologyType)
+	assert.Equal(t, []string{"zone-x"}, instance.Status.Topology.AccessibleZones,
 		"only zones from FVS namespaces sharing the consumer VPC path should be included")
 }
 
@@ -1589,12 +1589,12 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NoFVSNamespaces(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
-	assert.Nil(t, instance.Status.TopologyInfo,
-		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology type")
+	assert.Nil(t, instance.Status.Topology,
+		"Topology should be nil when InfraStoragePolicyInfo has no topology type")
 }
 
 // TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology verifies that when
-// InfraStoragePolicyInfo has no topology, the marker branch clears TopologyInfo
+// InfraStoragePolicyInfo has no topology, the marker branch clears Topology
 // without attempting any VPC/zone lookup.
 func TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
@@ -1618,8 +1618,8 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_NilTopology(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
-	assert.Nil(t, instance.Status.TopologyInfo,
-		"TopologyInfo should be nil when InfraStoragePolicyInfo has no topology")
+	assert.Nil(t, instance.Status.Topology,
+		"Topology should be nil when InfraStoragePolicyInfo has no topology")
 }
 
 // TestSyncTopologyFromInfraSPI_MarkerPolicy_FSSDisabled verifies that when the
@@ -1664,8 +1664,8 @@ func TestSyncTopologyFromInfraSPI_MarkerPolicy_FSSDisabled(t *testing.T) {
 
 	_, err := r.syncTopologyFromInfraSPI(ctx, instance, infraSPI)
 	require.NoError(t, err)
-	require.NotNil(t, instance.Status.TopologyInfo)
-	assert.Equal(t, "zonal", instance.Status.TopologyInfo.TopologyType)
-	assert.Equal(t, []string{"zone-a"}, instance.Status.TopologyInfo.AccessibleZones,
+	require.NotNil(t, instance.Status.Topology)
+	assert.Equal(t, "zonal", instance.Status.Topology.TopologyType)
+	assert.Equal(t, []string{"zone-a"}, instance.Status.Topology.AccessibleZones,
 		"with marker FSS off, the marker SPI must use the regular namespace-filtered zones")
 }
