@@ -48,7 +48,7 @@ func (c *controller) GetMetadataAllocated(
 
 	ctx := logger.NewContextWithLogger(server.Context())
 	log := logger.GetLogger(ctx)
-	log.Infof("GetMetadataAllocated: called with args %+v", req)
+	log.Infof("GetMetadataAllocated: called with args %+v", logger.RedactCSIRequest(req))
 
 	// Gate on the pvCSI-side CBT FSS. In production this FSS is wired via
 	// common.WCPFeatureStateAssociatedWithPVCSI to the Supervisor's
@@ -165,7 +165,7 @@ func (c *controller) GetMetadataDelta(
 
 	ctx := logger.NewContextWithLogger(server.Context())
 	log := logger.GetLogger(ctx)
-	log.Infof("GetMetadataDelta: called with args %+v", req)
+	log.Infof("GetMetadataDelta: called with args %+v", logger.RedactCSIRequest(req))
 
 	// Same gating as GetMetadataAllocated: the pvCSI FSS resolves to the
 	// Supervisor's supports_CSI_Backup_API capability via WCPFeatureStateAssociatedWithPVCSI.

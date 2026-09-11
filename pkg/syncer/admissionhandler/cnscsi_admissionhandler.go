@@ -212,8 +212,9 @@ type CSISupervisorWebhook struct {
 
 func (h *CSISupervisorWebhook) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
 	log := logger.GetLogger(ctx)
-	log.Debugf("CNS-CSI validation webhook handler called with request: %+v", req)
-	defer log.Debugf("CNS-CSI validation webhook handler completed for the request: %+v", req)
+	log.Debugf("CNS-CSI validation webhook handler called with request: %s/%s", req.Name, req.Namespace)
+	defer log.Debugf("CNS-CSI validation webhook handler completed for the request: %s/%s",
+		req.Name, req.Namespace)
 
 	resp = admission.Allowed("")
 	if req.Kind.Kind == "PersistentVolumeClaim" {
@@ -282,8 +283,9 @@ type CSISupervisorMutationWebhook struct {
 
 func (h *CSISupervisorMutationWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
 	log := logger.GetLogger(ctx)
-	log.Debugf("CNS-CSI mutation webhook handler called with request: %+v", req)
-	defer log.Debugf("CNS-CSI mutation webhook handler completed for the request: %+v", req)
+	log.Debugf("CNS-CSI mutation webhook handler called with request: %s/%s", req.Name, req.Namespace)
+	defer log.Debugf("CNS-CSI mutation webhook handler completed for the request: %s/%s",
+		req.Name, req.Namespace)
 
 	if req.Kind.Kind == "PersistentVolumeClaim" {
 		switch req.Operation {

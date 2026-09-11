@@ -57,7 +57,6 @@ func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) 
 	switch req.Kind.Kind {
 	case "StorageClass":
 		sc := stroagev1.StorageClass{}
-		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
 		if err := json.Unmarshal(req.Object.Raw, &sc); err != nil {
 			log.Error("error deserializing storage class")
 			return &admissionv1.AdmissionResponse{
@@ -66,7 +65,7 @@ func validateStorageClass(ctx context.Context, ar *admissionv1.AdmissionReview) 
 				},
 			}
 		}
-		log.Infof("Validating StorageClass: %q", sc.Name)
+		log.Infof("Validating StorageClass: %q, provisioner: %q", sc.Name, sc.Provisioner)
 		if sc.Provisioner == "csi.vsphere.vmware.com" {
 			// Migration parameters check for csi.vsphere.vmware.com provisioner.
 			for param := range sc.Parameters {
