@@ -18,6 +18,7 @@ package csisnapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -251,6 +252,12 @@ func WaitForVolumeSnapshotContentToBeDeletedWithPandoraWait(ctx context.Context,
 					ginkgo.By(fmt.Sprintf("Sleeping for %v seconds to allow CNS to sync with pandora", pandoraSyncWaitTime))
 					time.Sleep(time.Duration(pandoraSyncWaitTime) * time.Second)
 					return true, nil
+				} else if errors.Is(err, context.DeadlineExceeded) {
+					// transient client-side throttling/rate-limiter timeout, retry within
+					// the overall poll timeout instead of failing the test immediately
+					framework.Logf("transient error fetching volumesnapshotcontent %s details, "+
+						"retrying: %v", name, err)
+					return false, nil
 				} else {
 					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
 				}
@@ -388,6 +395,12 @@ func WaitForVolumeSnapshotContentToBeDeleted(client snapclient.Clientset, ctx co
 				if apierrors.IsNotFound(err) {
 					framework.Logf("VolumeSnapshotContent: %s is deleted", name)
 					return true, nil
+				} else if errors.Is(err, context.DeadlineExceeded) {
+					// transient client-side throttling/rate-limiter timeout, retry within
+					// the overall poll timeout instead of failing the test immediately
+					framework.Logf("transient error fetching volumesnapshotcontent %s details, "+
+						"retrying: %v", name, err)
+					return false, nil
 				} else {
 					return false, fmt.Errorf("error fetching volumesnapshotcontent details : %v", err)
 				}

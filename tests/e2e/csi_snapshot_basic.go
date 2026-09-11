@@ -2420,7 +2420,8 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		}()
 
 		ginkgo.By("Create a volume snapshot - 1")
-		diskSize := "1Gi"
+		pvc1Storage := pvclaim1.Spec.Resources.Requests[v1.ResourceStorage]
+		diskSize := pvc1Storage.String()
 		volumeSnapshot1, snapshotContent1, snapshotCreated1,
 			snapshotContentCreated1, snapshotId1, _, err := createDynamicVolumeSnapshot(ctx, namespace, snapc,
 			volumeSnapshotClass, pvclaim1, volHandle1, diskSize, true)
@@ -2500,8 +2501,9 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		denied the request: Deleting volume with snapshots is not allowed */
 
 		ginkgo.By("Restoring a snapshot-1 to create a new volume and attach it to a new Pod")
+		restoreSize1 := volumeSnapshot1.Status.RestoreSize.String()
 		pvclaim3, persistentVolumes3, pod3 := verifyVolumeRestoreOperation(ctx, client,
-			namespace, storageclass, volumeSnapshot1, diskSize, true)
+			namespace, storageclass, volumeSnapshot1, restoreSize1, true)
 		volHandle3 := persistentVolumes3[0].Spec.CSI.VolumeHandle
 		if guestCluster {
 			volHandle3 = getVolumeIDFromSupervisorCluster(volHandle3)
@@ -3896,7 +3898,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			ginkgo.By("Done with reboot")
 			essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-			checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+			checkVcenterServicesRunning(ctx, vcAddress, essentialServices, vcRebootRecoveryTimeout)
 
 			// After reboot.
 			bootstrap()
@@ -3915,7 +3917,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
 		essentialServices := []string{spsServiceName, vsanhealthServiceName, vpxdServiceName}
-		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices, vcRebootRecoveryTimeout)
 
 		// After reboot.
 		bootstrap()
@@ -4006,7 +4008,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		err = waitForHostToBeUp(vcAddress)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		ginkgo.By("Done with reboot")
-		checkVcenterServicesRunning(ctx, vcAddress, essentialServices)
+		checkVcenterServicesRunning(ctx, vcAddress, essentialServices, vcRebootRecoveryTimeout)
 
 		// After reboot.
 		bootstrap()
@@ -5801,7 +5803,7 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 		gomega.Expect(strings.Contains(output, "Hello message from test into Pod")).NotTo(gomega.BeFalse())
 
 		wrtiecmd2 := []string{"exec", pod.Name, "--namespace=" + namespace, "--", "/bin/sh", "-c",
-			"echo 'fsync' "}
+			"sync"}
 		e2ekubectl.RunKubectlOrDie(namespace, wrtiecmd2...)
 
 		ginkgo.By("Get volume snapshot class")
@@ -6236,7 +6238,10 @@ var _ = ginkgo.Describe("Volume Snapshot Basic Test", func() {
 			ginkgo.By(fmt.Sprintf("Deleting the pvc %s in namespace %s", pvclaim.Name, namespace))
 			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvclaim.Name, namespace)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle)
+			// This volume just had a snapshot created and deleted on it as part of this negative
+			// test; give CNS extra time beyond the default budget to settle before treating a
+			// slow deletion as a failure.
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volHandle, cnsVolumeDeleteTimeout*2)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}()
 
