@@ -2866,7 +2866,8 @@ func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesReques
 			clusterMoIds = clusterComputeResourceMoIds
 		}
 
-		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", req, expectedStartingIndex)
+		log.Debugf("ListVolumes called with args %+v, expectedStartingIndex %v", logger.RedactCSIRequest(req),
+			expectedStartingIndex)
 		k8sVolumeIDs := commonco.ContainerOrchestratorUtility.GetAllVolumes()
 
 		startingIdx := 0
