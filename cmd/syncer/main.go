@@ -314,11 +314,12 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			}()
 		}
 
+		var nodeMgr *node.Nodes
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
-			// Initialize node manager so that syncer components can
-			// retrieve NodeVM using the NodeID.
-			nodeMgr := &node.Nodes{}
-			err = nodeMgr.Initialize(ctx)
+			// Prepare the node manager, but do not start processing CSINodes
+			// until the metadata syncer has registered all configured vCenters.
+			nodeMgr = &node.Nodes{}
+			err = nodeMgr.Prepare(ctx)
 			if err != nil {
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 				os.Exit(1)
@@ -442,6 +443,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 		}
 
 		syncer.PeriodicSyncIntervalInMin = *periodicSyncIntervalInMin
+		// This starts the sharedInformer including csiNodeInformer we requested in above Prepare call
 		if err := syncer.InitMetadataSyncer(ctx, clusterFlavor, configInfo); err != nil {
 			log.Errorf("Error initializing Metadata Syncer. Error: %+v", err)
 			utils.LogoutAllvCenterSessions(ctx)

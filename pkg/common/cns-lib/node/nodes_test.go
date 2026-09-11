@@ -20,15 +20,19 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
+	k8stesting "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes/testing"
 )
 
 // stubNodeManager implements Manager for CSINode handler tests.
@@ -36,11 +40,18 @@ type stubNodeManager struct {
 	registerErr error
 	k8sNode     *v1.Node
 	k8sErr      error
+	registered  chan struct{}
 }
 
 func (s *stubNodeManager) SetKubernetesClient(client clientset.Interface) {}
 
 func (s *stubNodeManager) RegisterNode(ctx context.Context, nodeUUID string, nodeName string) error {
+	if s.registered != nil {
+		select {
+		case s.registered <- struct{}{}:
+		default:
+		}
+	}
 	return s.registerErr
 }
 
@@ -101,6 +112,60 @@ func csiNodeWithNodeID(name, nodeID string) *storagev1.CSINode {
 				{Name: csitypes.Name, NodeID: nodeID},
 			},
 		},
+	}
+}
+
+func TestPrepareDefersCSINodeProcessingUntilStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := fake.NewSimpleClientset(csiNodeWithNodeID("worker-1", "uuid-1"))
+	registered := make(chan struct{}, 1)
+	stub := &stubNodeManager{registered: registered}
+	nodes := &Nodes{}
+
+	previousGetNodeManager := getNodeManager
+	previousNewKubernetesClient := newKubernetesClient
+	previousNewInformerManager := newInformerManager
+	getNodeManager = func(context.Context) Manager {
+		return stub
+	}
+	newKubernetesClient = func(context.Context) (clientset.Interface, error) {
+		return client, nil
+	}
+	newInformerManager = func(ctx context.Context, client clientset.Interface) *k8s.InformerManager {
+		return k8stesting.NewInformerForTest(ctx, client)
+	}
+	t.Cleanup(func() {
+		getNodeManager = previousGetNodeManager
+		newKubernetesClient = previousNewKubernetesClient
+		newInformerManager = previousNewInformerManager
+	})
+
+	if err := nodes.Prepare(ctx); err != nil {
+		t.Fatalf("Prepare() failed: %v", err)
+	}
+
+	select {
+	case <-registered:
+		t.Fatal("CSINode was processed before Start()")
+	default:
+	}
+
+	if err := nodes.Start(); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	select {
+	case <-registered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CSINode was not processed after Start()")
+	}
+}
+
+func TestStartBeforePrepareReturnsError(t *testing.T) {
+	err := (&Nodes{}).Start()
+	if err == nil {
+		t.Fatal("expected Start() to fail before Prepare()")
 	}
 }
 
