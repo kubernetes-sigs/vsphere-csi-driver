@@ -520,17 +520,24 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc c
 	// Instead we label them with `pv_missing=true` on their existing PV-type
 	// CnsKubernetesEntityMetadata, after a two-cycle grace period to absorb
 	// transient races between PV deletion and full-sync execution.
-	missingPVUpdateSpecs, missingPVCount, err := getMissingPVVolumeUpdateSpecs(ctx, volumesWithMetadata,
-		k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync, containerCluster, vc)
-	if err != nil {
-		log.Errorf("FullSync for VC %s: failed to compute pv_missing update specs with err %+v", vc, err)
-		return err
-	}
-	prometheus.CnsVolumePVMissingGaugeVec.WithLabelValues(vc.String()).Set(float64(missingPVCount))
-	if len(missingPVUpdateSpecs) > 0 {
-		log.Infof("FullSync for VC %s: applying pv_missing label to %d volume(s)",
-			vc, len(missingPVUpdateSpecs))
-		updateSpecArray = append(updateSpecArray, missingPVUpdateSpecs...)
+	//
+	// Gated behind ImprovedVolumeVisibility: this labeling is part of the CNS
+	// Health orphan-volume-visibility feature and must stay dark until the
+	// FSS is enabled, same as the other ImprovedVolumeVisibility-gated
+	// behaviors in this file.
+	if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
+		missingPVUpdateSpecs, missingPVCount, err := getMissingPVVolumeUpdateSpecs(ctx, volumesWithMetadata,
+			k8sPVMap, metadataSyncer, migrationFeatureStateForFullSync, containerCluster, vc)
+		if err != nil {
+			log.Errorf("FullSync for VC %s: failed to compute pv_missing update specs with err %+v", vc, err)
+			return err
+		}
+		prometheus.CnsVolumePVMissingGaugeVec.WithLabelValues(vc.String()).Set(float64(missingPVCount))
+		if len(missingPVUpdateSpecs) > 0 {
+			log.Infof("FullSync for VC %s: applying pv_missing label to %d volume(s)",
+				vc, len(missingPVUpdateSpecs))
+			updateSpecArray = append(updateSpecArray, missingPVUpdateSpecs...)
+		}
 	}
 
 	// On Supervisor clusters, label CNS volumes whose Kubernetes PV has
