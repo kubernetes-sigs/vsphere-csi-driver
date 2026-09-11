@@ -6600,28 +6600,59 @@ func getCSIPodWhereListVolumeResponseIsPresent(ctx context.Context,
 			// to same temporary file
 			// NOTE: This is not valid for vsphere-csi-controller container as for
 			// vsphere-csi-controller all the replicas will behave as leaders
+			//
+			// ListVolumes is served in pages (queryLimit can be as low as 1 in this
+			// testbed), so any single ListVolumes log line may report only one
+			// volume ID, and unrelated volumes from other concurrently running
+			// tests can show up in between. Grab a wider tail window sized to the
+			// number of volumes we're looking for, and poll for a few cycles of
+			// the ~1-minute ListVolumes reporting interval, so a pagination cycle
+			// covering all the expected volumes has a chance to be captured
+			// instead of failing on the first snapshot that doesn't contain them.
+			tailCount := 2
+			if len(volumeids) > 0 {
+				tailCount = 10 * len(volumeids)
+			}
 			grepCmdForFindingCurrentLeader = "echo `kubectl logs " + csiPod.Name + " -n " +
 				csiSystemNamespace + " " + containerName + " | grep " + "'" + logMessage + "'| " +
-				"tail -2` | tee -a listVolumeResponse.log"
+				"tail -" + strconv.Itoa(tailCount) + "` | tee -a listVolumeResponse.log"
 
-			framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
-				k8sMasterIP)
-			result, err := sshExec(sshClientConfig, k8sMasterIP,
-				grepCmdForFindingCurrentLeader)
-			if err != nil || result.Code != 0 {
-				fssh.LogResult(result)
-				return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-					grepCmdForFindingCurrentLeader, k8sMasterIP, err)
-			} else {
-				if len(volumeids) > 0 {
-					fssh.LogResult(result)
-					for i := 0; i < len(volumeids); i++ {
-						framework.Logf("validating volumeID %s in response", volumeids[i])
-						if !strings.Contains(result.Stdout, volumeids[i]) {
-							return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
-								grepCmdForFindingCurrentLeader, k8sMasterIP, err)
+			if len(volumeids) > 0 {
+				var lastResult fssh.Result
+				var lastErr error
+				waitErr := wait.PollUntilContextTimeout(ctx, pollTimeoutShort, pollTimeout, true,
+					func(ctx context.Context) (bool, error) {
+						framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+							k8sMasterIP)
+						result, err := sshExec(sshClientConfig, k8sMasterIP, grepCmdForFindingCurrentLeader)
+						lastResult, lastErr = result, err
+						if err != nil || result.Code != 0 {
+							fssh.LogResult(result)
+							return false, nil
 						}
-					}
+						fssh.LogResult(result)
+						for _, volumeid := range volumeids {
+							framework.Logf("validating volumeID %s in response", volumeid)
+							if !strings.Contains(result.Stdout, volumeid) {
+								return false, nil
+							}
+						}
+						return true, nil
+					})
+				if waitErr != nil {
+					return "", "", fmt.Errorf("volumes %v did not all show up together in the '%s' logs on "+
+						"host: %v within timeout, last error: %v, last result: %+v",
+						volumeids, logMessage, k8sMasterIP, lastErr, lastResult)
+				}
+			} else {
+				framework.Logf("Invoking command '%v' on host %v", grepCmdForFindingCurrentLeader,
+					k8sMasterIP)
+				result, err := sshExec(sshClientConfig, k8sMasterIP,
+					grepCmdForFindingCurrentLeader)
+				if err != nil || result.Code != 0 {
+					fssh.LogResult(result)
+					return "", "", fmt.Errorf("couldn't execute command: %s on host: %v , error: %s",
+						grepCmdForFindingCurrentLeader, k8sMasterIP, err)
 				}
 			}
 
