@@ -25,7 +25,7 @@ go version
 # script is located.
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-go install honnef.co/go/tools/cmd/staticcheck@latest
+go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 
 GOOS=linux "$(go env GOPATH)"/bin/staticcheck --version
 
