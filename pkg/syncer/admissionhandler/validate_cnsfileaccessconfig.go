@@ -72,6 +72,8 @@ func validateCreateCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	log.Debugf("validateCreateCnsFileAccessConfig called with the request name=%q namespace=%q kind=%q",
+		req.Name, req.Namespace, req.Kind.Kind)
 	if err := json.Unmarshal(req.Object.Raw, &cnsFileAccessConfig); err != nil {
 		log.Errorf("error deserializing CnsFileAccessConfig: %v. skipping validation.", err)
 		// return AdmissionResponse result
@@ -199,6 +201,8 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 	log := logger.GetLogger(ctx)
 
 	cnsFileAccessConfig := cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{}
+	log.Debugf("validateDeleteCnsFileAccessConfig called with the request name=%q namespace=%q kind=%q",
+		req.Name, req.Namespace, req.Kind.Kind)
 	if err := json.Unmarshal(req.OldObject.Raw, &cnsFileAccessConfig); err != nil {
 		log.Errorf("error deserializing CnsFileAccessConfig: %v. skipping validation.", err)
 		// return AdmissionResponse result

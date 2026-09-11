@@ -112,6 +112,7 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 	switch req.Kind.Kind {
 	case "PersistentVolumeClaim":
 		oldPVC := corev1.PersistentVolumeClaim{}
+		log.Debugf("validatePVC called with the request name=%q namespace=%q", req.Name, req.Namespace)
 		// req.OldObject is null for CREATE and CONNECT operations.
 		if err := json.Unmarshal(req.OldObject.Raw, &oldPVC); err != nil {
 			log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
@@ -133,6 +134,7 @@ func validatePVC(ctx context.Context, req *admissionv1.AdmissionRequest) *admiss
 		var newReq resource.Quantity
 		if req.Operation != admissionv1.Delete {
 			newPVC = corev1.PersistentVolumeClaim{}
+			log.Debugf("validatePVC: deserializing new PVC name=%q namespace=%q", req.Name, req.Namespace)
 			// req.Object is null for DELETE operations.
 			if err := json.Unmarshal(req.Object.Raw, &newPVC); err != nil {
 				log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
