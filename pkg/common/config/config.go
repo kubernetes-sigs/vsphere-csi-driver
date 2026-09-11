@@ -426,7 +426,7 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			cfg.Global.VCenterIP = vcServer
 		}
 		// Print out the config.
-		log.Debugf("vc server %s config: %+v", vcServer, vcConfig)
+		log.Debugf("vc server %s config: %s", vcServer, vcConfig)
 	}
 
 	clusterFlavor, err := GetClusterFlavor(ctx)
