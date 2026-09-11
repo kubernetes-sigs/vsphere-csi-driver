@@ -973,3 +973,284 @@ func TestDefaultVslmHooksDisconnectedVC(t *testing.T) {
 	_, err = defaultRetrieveSnapshotDetailsHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{})
 	assert.Error(t, err)
 }
+
+// blockSpec builds a CnsVolumeCreateSpec for isVolumeSpecCompatible tests. profileID == "" omits
+// the Profile slice entirely, exercising the "no policy requested" branch.
+func blockSpec(volumeID string, capacityMb int64, profileID string) *cnstypes.CnsVolumeCreateSpec {
+	spec := &cnstypes.CnsVolumeCreateSpec{
+		VolumeId:   &cnstypes.CnsVolumeId{Id: volumeID},
+		VolumeType: string(cnstypes.CnsVolumeTypeBlock),
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: capacityMb},
+		},
+	}
+	if profileID != "" {
+		spec.Profile = []vim25types.BaseVirtualMachineProfileSpec{
+			&vim25types.VirtualMachineDefinedProfileSpec{ProfileId: profileID},
+		}
+	}
+	return spec
+}
+
+func datastoreMoRef(value string) vim25types.ManagedObjectReference {
+	return vim25types.ManagedObjectReference{Type: "Datastore", Value: value}
+}
+
+// blockVolume builds a CnsVolume (as returned by QueryVolume) for isVolumeSpecCompatible tests.
+func blockVolume(volumeType string, capacityMb int64, storagePolicyID string) cnstypes.CnsVolume {
+	return cnstypes.CnsVolume{
+		VolumeType:      volumeType,
+		StoragePolicyId: storagePolicyID,
+		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+			CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: capacityMb},
+		},
+	}
+}
+
+// TestIsVolumeSpecCompatible covers the compatibility decision used when CNS reports
+// CnsVolumeAlreadyExistsFault: an existing volume must be treated as an idempotent success when
+// it satisfies the requested spec, and as incompatible (falling back to delete+recreate)
+// otherwise.
+func TestIsVolumeSpecCompatible(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	const volID = "78be0f2f-b27d-49fe-8ffe-8107965361f7"
+	const policyID = "789e6ee7-280b-4b5e-81f5-59739df0d392"
+
+	tests := []struct {
+		name       string
+		existing   cnstypes.CnsVolume
+		spec       *cnstypes.CnsVolumeCreateSpec
+		wantCompat bool
+		wantErr    bool
+	}{
+		{
+			name:       "exact match is compatible",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, policyID),
+			spec:       blockSpec(volID, 1024, policyID),
+			wantCompat: true,
+		},
+		{
+			name:       "existing volume larger than requested (post-resize race) is compatible",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1025, policyID),
+			spec:       blockSpec(volID, 1024, policyID),
+			wantCompat: true,
+		},
+		{
+			name:       "existing volume smaller than requested is not compatible",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1000, policyID),
+			spec:       blockSpec(volID, 1024, policyID),
+			wantCompat: false,
+		},
+		{
+			name:       "VolumeType mismatch is not compatible",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeFile), 1024, policyID),
+			spec:       blockSpec(volID, 1024, policyID),
+			wantCompat: false,
+		},
+		{
+			name:       "StoragePolicyId mismatch is not compatible",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, "other-policy-id"),
+			spec:       blockSpec(volID, 1024, policyID),
+			wantCompat: false,
+		},
+		{
+			name:       "no profile requested skips the policy check",
+			existing:   blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, "any-policy-id"),
+			spec:       blockSpec(volID, 1024, ""),
+			wantCompat: true,
+		},
+		{
+			name:     "unrecognised requested backing details type errors",
+			existing: blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, policyID),
+			spec: func() *cnstypes.CnsVolumeCreateSpec {
+				s := blockSpec(volID, 1024, policyID)
+				s.BackingObjectDetails = &cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024}
+				return s
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "unrecognised existing backing details type errors",
+			existing: cnstypes.CnsVolume{
+				VolumeType:           string(cnstypes.CnsVolumeTypeBlock),
+				StoragePolicyId:      policyID,
+				BackingObjectDetails: &cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+			},
+			spec:    blockSpec(volID, 1024, policyID),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			compatible, err := isVolumeSpecCompatible(ctx, tt.existing, tt.spec)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantCompat, compatible)
+		})
+	}
+}
+
+// TestIsExistingVolumeCompatible covers the QueryVolume-calling wrapper's own error/empty-result
+// handling, distinct from the pure comparison logic covered by TestIsVolumeSpecCompatible.
+func TestIsExistingVolumeCompatible(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	spec := blockSpec("78be0f2f-b27d-49fe-8ffe-8107965361f7", 1024, "")
+
+	// No virtualCenter means QueryVolume fails validateManager before touching the network,
+	// so this exercises the error-propagation path without a live CNS connection.
+	m := &defaultManager{virtualCenter: nil}
+	compatible, err := isExistingVolumeCompatible(ctx, m, spec)
+	assert.Error(t, err)
+	assert.False(t, compatible)
+}
+
+// TestIsDatastoreAmongCandidates covers isDatastoreAmongCandidates via GetDatastoreURLHook, so it
+// doesn't need a live vCenter to resolve candidate datastore morefs to URLs.
+func TestIsDatastoreAmongCandidates(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	origHook := GetDatastoreURLHook
+	defer func() { GetDatastoreURLHook = origHook }()
+
+	urlByMoRef := map[string]string{
+		"ds-1": "ds:///vmfs/volumes/ds-1/",
+		"ds-2": "ds:///vmfs/volumes/ds-2/",
+	}
+	GetDatastoreURLHook = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+		ref vim25types.ManagedObjectReference) (string, error) {
+		if ref.Value == "ds-error" {
+			return "", fmt.Errorf("failed to resolve datastore %s", ref.Value)
+		}
+		return urlByMoRef[ref.Value], nil
+	}
+
+	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+
+	tests := []struct {
+		name         string
+		datastoreURL string
+		candidates   []vim25types.ManagedObjectReference
+		want         bool
+		wantErr      bool
+	}{
+		{
+			name:         "match on only candidate",
+			datastoreURL: urlByMoRef["ds-1"],
+			candidates:   []vim25types.ManagedObjectReference{datastoreMoRef("ds-1")},
+			want:         true,
+		},
+		{
+			name:         "match on later candidate",
+			datastoreURL: urlByMoRef["ds-2"],
+			candidates:   []vim25types.ManagedObjectReference{datastoreMoRef("ds-1"), datastoreMoRef("ds-2")},
+			want:         true,
+		},
+		{
+			name:         "no candidate matches",
+			datastoreURL: "ds:///vmfs/volumes/ds-3/",
+			candidates:   []vim25types.ManagedObjectReference{datastoreMoRef("ds-1"), datastoreMoRef("ds-2")},
+			want:         false,
+		},
+		{
+			name:         "empty candidate list",
+			datastoreURL: urlByMoRef["ds-1"],
+			candidates:   nil,
+			want:         false,
+		},
+		{
+			name:         "candidate resolution error propagates",
+			datastoreURL: urlByMoRef["ds-1"],
+			candidates:   []vim25types.ManagedObjectReference{datastoreMoRef("ds-error")},
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := isDatastoreAmongCandidates(ctx, m, tt.datastoreURL, tt.candidates)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestIsQueriedVolumeCompatible covers the zone check added on top of isVolumeSpecCompatible,
+// using a fake existing CnsVolume instead of a live QueryVolume call.
+func TestIsQueriedVolumeCompatible(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	origHook := GetDatastoreURLHook
+	defer func() { GetDatastoreURLHook = origHook }()
+
+	const volID = "78be0f2f-b27d-49fe-8ffe-8107965361f7"
+	const requestedZoneURL = "ds:///vmfs/volumes/in-zone/"
+	const otherZoneURL = "ds:///vmfs/volumes/out-of-zone/"
+
+	GetDatastoreURLHook = func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+		ref vim25types.ManagedObjectReference) (string, error) {
+		if ref.Value == "ds-error" {
+			return "", fmt.Errorf("failed to resolve datastore %s", ref.Value)
+		}
+		return requestedZoneURL, nil
+	}
+
+	m := &defaultManager{virtualCenter: &cnsvsphere.VirtualCenter{}}
+
+	tests := []struct {
+		name       string
+		existing   cnstypes.CnsVolume
+		datastores []vim25types.ManagedObjectReference
+		wantCompat bool
+		wantErr    bool
+	}{
+		{
+			name:       "no candidate datastores skips zone check",
+			existing:   withDatastoreURL(blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, ""), otherZoneURL),
+			datastores: nil,
+			wantCompat: true,
+		},
+		{
+			name:       "existing volume in requested zone is compatible",
+			existing:   withDatastoreURL(blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, ""), requestedZoneURL),
+			datastores: []vim25types.ManagedObjectReference{datastoreMoRef("ds-in-zone")},
+			wantCompat: true,
+		},
+		{
+			name:       "existing volume outside requested zone is not compatible",
+			existing:   withDatastoreURL(blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, ""), otherZoneURL),
+			datastores: []vim25types.ManagedObjectReference{datastoreMoRef("ds-in-zone")},
+			wantCompat: false,
+		},
+		{
+			name:       "candidate resolution error propagates",
+			existing:   withDatastoreURL(blockVolume(string(cnstypes.CnsVolumeTypeBlock), 1024, ""), requestedZoneURL),
+			datastores: []vim25types.ManagedObjectReference{datastoreMoRef("ds-error")},
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := blockSpec(volID, 1024, "")
+			spec.Datastores = tt.datastores
+			compatible, err := isQueriedVolumeCompatible(ctx, m, tt.existing, spec)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantCompat, compatible)
+		})
+	}
+}
+
+func withDatastoreURL(vol cnstypes.CnsVolume, url string) cnstypes.CnsVolume {
+	vol.DatastoreUrl = url
+	return vol
+}
