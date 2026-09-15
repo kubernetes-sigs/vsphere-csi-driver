@@ -752,7 +752,7 @@ data:
   "linked-clone-support": "true"
   "vsan-file-volume-service-support": "false"
   "CSI_Backup_API": "false"
-  "improved-volume-visibility": "false"
+  "improved-volume-visibility": "true"
   "host-local-storage-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
