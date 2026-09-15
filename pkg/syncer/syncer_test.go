@@ -663,6 +663,23 @@ func runTestFullSyncWorkflows(t *testing.T) {
 	// Per the cns-health-initiative design, fullsync no longer unregisters
 	// such volumes; instead it labels them with pv_missing=true on their
 	// PV-type CnsKubernetesEntityMetadata after a two-cycle grace period.
+	// This labeling is gated behind ImprovedVolumeVisibility, so enable it
+	// for this scenario and restore the prior state afterward.
+	fssSetter, ok := metadataSyncer.coCommonInterface.(interface {
+		EnableFSS(context.Context, string) error
+		DisableFSS(context.Context, string) error
+	})
+	if !ok {
+		t.Fatalf("coCommonInterface does not support EnableFSS/DisableFSS")
+	}
+	if err := fssSetter.EnableFSS(ctx, common.ImprovedVolumeVisibility); err != nil {
+		t.Fatalf("failed to enable %s FSS: %v", common.ImprovedVolumeVisibility, err)
+	}
+	defer func() {
+		if err := fssSetter.DisableFSS(ctx, common.ImprovedVolumeVisibility); err != nil {
+			t.Errorf("failed to disable %s FSS: %v", common.ImprovedVolumeVisibility, err)
+		}
+	}()
 	waitForListerSync()
 	err = CsiFullSync(ctx, metadataSyncer, csiConfig.Global.VCenterIP)
 	if err != nil {
