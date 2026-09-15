@@ -29,7 +29,7 @@ func validatePv(ctx context.Context, req *admissionv1.AdmissionRequest) *admissi
 	switch req.Kind.Kind {
 	case "PersistentVolume":
 		pv := corev1.PersistentVolume{}
-		log.Debugf("JSON req.Object.Raw: %v", string(req.Object.Raw))
+		log.Debugf("validatePv called with the request name=%q kind=%q", req.Name, req.Kind.Kind)
 		if err := json.Unmarshal(req.Object.Raw, &pv); err != nil {
 			log.Errorf("error deserializing PV: %v. skipping validation.", err)
 			allowed = false

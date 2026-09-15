@@ -21,7 +21,7 @@ const (
 
 func validatePVCAnnotationForTKGSHA(ctx context.Context, request admission.Request) admission.Response {
 	log := logger.GetLogger(ctx)
-	log.Debugf("validatePVCAnnotationForTKGSHA called with the request %v", request)
+	log.Debugf("validatePVCAnnotationForTKGSHA called for PVC %s/%s", request.Namespace, request.Name)
 	if request.Operation == admissionv1.Delete {
 		// PVC tkgs ha annotation validation is not required for delete PVC calls
 		return admission.Allowed("")
@@ -87,6 +87,6 @@ func validatePVCAnnotationForTKGSHA(ctx context.Context, request admission.Reque
 		}
 	}
 
-	log.Debugf("validatePVCAnnotationForTKGSHA completed for the request %v", request)
+	log.Debugf("validatePVCAnnotationForTKGSHA completed for PVC %s/%s", request.Namespace, request.Name)
 	return admission.Allowed("")
 }
