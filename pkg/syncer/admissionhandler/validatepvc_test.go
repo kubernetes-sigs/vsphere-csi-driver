@@ -1273,6 +1273,126 @@ func TestValidatePVC_VACChange(t *testing.T) {
 	}
 }
 
+func TestValidateGuestPVCVACChange(t *testing.T) {
+	oldVACName := "old-vac"
+	newVACName := "new-vac"
+	blockVolumeMode := corev1.PersistentVolumeBlock
+
+	makeReq := func(operation admissionv1.Operation, oldVAC, newVAC *string,
+		accessMode corev1.PersistentVolumeAccessMode,
+		volMode *corev1.PersistentVolumeMode) *admissionv1.AdmissionRequest {
+		makePVC := func(vac *string) *corev1.PersistentVolumeClaim {
+			return &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName:          &testStorageClassName,
+					VolumeAttributesClassName: vac,
+					AccessModes:               []corev1.PersistentVolumeAccessMode{accessMode},
+					VolumeMode:                volMode,
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("5Gi")},
+					},
+				},
+			}
+		}
+		oldRaw, err := json.Marshal(makePVC(oldVAC))
+		assert.NoError(t, err)
+		newRaw, err := json.Marshal(makePVC(newVAC))
+		assert.NoError(t, err)
+		return &admissionv1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: operation,
+			OldObject: runtime.RawExtension{Raw: oldRaw},
+			Object:    runtime.RawExtension{Raw: newRaw},
+		}
+	}
+
+	tests := []struct {
+		name                       string
+		vacPolicyMutabilityEnabled bool
+		req                        *admissionv1.AdmissionRequest
+		expectedAllowed            bool
+	}{
+		{
+			name:                       "VAC change denied on RWX file volume",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Update, &oldVACName, &newVACName,
+				corev1.ReadWriteMany, &volumeMode),
+			expectedAllowed: false,
+		},
+		{
+			name:                       "VAC change denied on ROX file volume",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Update, &oldVACName, &newVACName,
+				corev1.ReadOnlyMany, &volumeMode),
+			expectedAllowed: false,
+		},
+		{
+			name:                       "VAC change denied on file volume with VolumeMode unset",
+			vacPolicyMutabilityEnabled: true,
+			req:                        makeReq(admissionv1.Update, &oldVACName, &newVACName, corev1.ReadWriteMany, nil),
+			expectedAllowed:            false,
+		},
+		{
+			// A guest cluster has no RWX raw block volumes, so this is denied as a file volume
+			// too. Kept to pin the behaviour, since the Supervisor quota webhook allows it.
+			name:                       "VAC change denied on RWX Block volume in guest",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Update, &oldVACName, &newVACName,
+				corev1.ReadWriteMany, &blockVolumeMode),
+			expectedAllowed: false,
+		},
+		{
+			name:                       "VAC change allowed on RWO block volume",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Update, &oldVACName, &newVACName,
+				corev1.ReadWriteOnce, &volumeMode),
+			expectedAllowed: true,
+		},
+		{
+			name:                       "update without a VAC change allowed on RWX file volume",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Update, &oldVACName, &oldVACName,
+				corev1.ReadWriteMany, &volumeMode),
+			expectedAllowed: true,
+		},
+		{
+			// Not an assertion that the VAC update takes effect: with the feature disabled a VAC
+			// change is never honored, since ControllerModifyVolume returns Unimplemented. This
+			// only pins that the file-volume check itself does not run.
+			name:                       "file volume check not evaluated when feature is disabled",
+			vacPolicyMutabilityEnabled: false,
+			req: makeReq(admissionv1.Update, &oldVACName, &newVACName,
+				corev1.ReadWriteMany, &volumeMode),
+			expectedAllowed: true,
+		},
+		{
+			name:                       "non-update operation on RWX file volume is skipped",
+			vacPolicyMutabilityEnabled: true,
+			req: makeReq(admissionv1.Delete, &oldVACName, &newVACName,
+				corev1.ReadWriteMany, &volumeMode),
+			expectedAllowed: true,
+		},
+	}
+
+	origVACPolicyMutabilityEnabled := featureIsVACPolicyMutabilityEnabled
+	defer func() {
+		featureIsVACPolicyMutabilityEnabled = origVACPolicyMutabilityEnabled
+	}()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			featureIsVACPolicyMutabilityEnabled = test.vacPolicyMutabilityEnabled
+
+			resp := validateGuestPVCVACChange(context.Background(), test.req)
+			assert.Equal(t, test.expectedAllowed, resp.Allowed)
+			if !test.expectedAllowed {
+				assert.Equal(t, metav1.StatusReason(VACChangeFileVolumeErrorMessage), resp.Result.Reason)
+			}
+		})
+	}
+}
+
 func TestDetectVACChange(t *testing.T) {
 	vacA := "vac-a"
 	vacB := "vac-b"

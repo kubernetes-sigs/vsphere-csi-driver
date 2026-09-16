@@ -42,6 +42,8 @@ const (
 		"VM_PVC_STORAGE_POLICY_MUTABILITY feature is disabled"
 	VACChangeAPINotServedErrorMessage = "VolumeAttributesClass modification is not allowed: " +
 		"the VolumeAttributesClass API is not served by this cluster"
+	VACChangeFileVolumeErrorMessage = "VolumeAttributesClass modification is not allowed: " +
+		"VAC update is not supported for file volumes"
 )
 
 // vacAPIGroupVersion is the GA VolumeAttributesClass API version required for VAC-based
@@ -85,6 +87,17 @@ func detectVACChange(oldPVC, newPVC corev1.PersistentVolumeClaim) (bool, string,
 		newVAC = *newPVC.Spec.VolumeAttributesClassName
 	}
 	return oldVAC != newVAC, oldVAC, newVAC
+}
+
+// getVolumeMode returns the PVC's VolumeMode, defaulting to Filesystem when unset.
+// The API server defaults VolumeMode on stored PVCs, so it is normally populated by the time
+// a webhook sees the object, but an object built via server-side apply or an older stored
+// object can still arrive with it unset.
+func getVolumeMode(pvc corev1.PersistentVolumeClaim) corev1.PersistentVolumeMode {
+	if pvc.Spec.VolumeMode == nil {
+		return corev1.PersistentVolumeFilesystem
+	}
+	return *pvc.Spec.VolumeMode
 }
 
 // validatePVC helps validate AdmissionReview requests for PersistentVolumeClaim.
@@ -346,6 +359,61 @@ func getSnapshotsForPVC(ctx context.Context, ns string, name string) ([]snapshot
 	}
 
 	return result, nil
+}
+
+// validateGuestPVCVACChange denies a VolumeAttributesClass change on a guest PVC that is backed by
+// a file volume. Storage policy modification is not supported for file volumes.
+//
+// This is deliberately guest-only. On the Supervisor the storage quota webhook is the single
+// enforcement point for this rule, so the shared validatePVC is left alone. The quota webhook also
+// covers the guest indirectly - it rejects the patch pvCSI makes against the Supervisor PVC - but
+// only after the guest PVC update has already been accepted, surfacing the failure asynchronously
+// through ModifyVolumeStatus. Denying here reports it on the guest PVC update itself.
+func validateGuestPVCVACChange(ctx context.Context,
+	req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	log := logger.GetLogger(ctx)
+	log.Debugf("validateGuestPVCVACChange called with the request %s/%s", req.Namespace, req.Name)
+
+	allowedResp := func() *admissionv1.AdmissionResponse {
+		return &admissionv1.AdmissionResponse{Allowed: true}
+	}
+
+	if !featureIsVACPolicyMutabilityEnabled || req.Operation != admissionv1.Update {
+		return allowedResp()
+	}
+
+	oldPVC := corev1.PersistentVolumeClaim{}
+	if err := json.Unmarshal(req.OldObject.Raw, &oldPVC); err != nil {
+		log.Errorf("error deserializing old pvc: %v. skipping validation.", err)
+		return allowedResp()
+	}
+	newPVC := corev1.PersistentVolumeClaim{}
+	if err := json.Unmarshal(req.Object.Raw, &newPVC); err != nil {
+		log.Errorf("error deserializing new pvc: %v. skipping validation.", err)
+		return allowedResp()
+	}
+
+	vacChanged, oldVAC, newVAC := detectVACChange(oldPVC, newPVC)
+	if !vacChanged {
+		return allowedResp()
+	}
+
+	// featureIsSharedDiskEnabled is never initialized for the guest flavor, so isFileVolume
+	// treats every RWX/ROX PVC as a file volume here. That matches pvCSI provisioning, which
+	// classifies volumes via common.IsFileVolumeRequest without regard to VolumeMode, i.e. a
+	// guest cluster has no RWX raw block volumes.
+	if !isFileVolume(oldPVC.Spec.AccessModes, getVolumeMode(oldPVC)) {
+		return allowedResp()
+	}
+
+	log.Errorf("denying VAC change %q -> %q on PVC %s/%s: PVC is backed by a file volume",
+		oldVAC, newVAC, oldPVC.Namespace, oldPVC.Name)
+	return &admissionv1.AdmissionResponse{
+		Allowed: false,
+		Result: &metav1.Status{
+			Reason: VACChangeFileVolumeErrorMessage,
+		},
+	}
 }
 
 // validateGuestPVCOperation helps validate AdmissionReview requests for PersistentVolumeClaim.
