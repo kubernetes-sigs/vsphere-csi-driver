@@ -52,7 +52,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
@@ -131,7 +130,7 @@ func getMigrationDynamicClient() (dynamic.Interface, error) {
 
 // handlePvcMigrationAnnotations is invoked from pvcUpdated whenever a PVC
 // updates. It is a cheap no-op when:
-//   - the VM_PVC_STORAGE_POLICY_MUTABILITY supervisor capability is disabled, or
+//   - the VM/PVC storage-policy mutability feature is disabled, or
 //   - the PVC carries no migration annotations and no watcher is active for it.
 //
 // When a new migration appears (annotations present + no active watcher OR
@@ -141,11 +140,10 @@ func getMigrationDynamicClient() (dynamic.Interface, error) {
 func handlePvcMigrationAnnotations(ctx context.Context, oldPvc, newPvc *v1.PersistentVolumeClaim,
 	metadataSyncer *metadataSyncInformer) {
 
-	// Defensive guards: this hook is invoked from pvcUpdated, which is wired up
-	// from the syncer's PVC informer. In some test setups the orchestrator
-	// utility may not be initialized; in those cases we silently no-op.
-	if commonco.ContainerOrchestratorUtility == nil ||
-		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+	// pvcUpdated is wired up from the syncer's PVC informer on both the Supervisor and a Guest,
+	// so gate on the flavor-resolved value rather than querying a hardcoded FSS/capability name
+	// here: the Supervisor capability name is not a key in the guest internal FSS ConfigMap.
+	if !IsVMPVCStoragePolicyMutabilityEnabled {
 		return
 	}
 
