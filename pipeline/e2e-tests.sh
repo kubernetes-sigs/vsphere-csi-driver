@@ -39,7 +39,7 @@ export COMPUTE_CLUSTER_NAME=$COMPUTE_CLUSTER_NAME
 
 export E2E_TEST_CONF_FILE=$CI_BUILDS_DIR/e2eTest.conf
 
-echo "$GOVC_URL"
+echo "GOVC_URL=https://$vimUsername:****@$vcIp"
 echo "$DATACENTER"
 echo "$COMPUTE_CLUSTER_NAME"
 echo "$E2E_TEST_CONF_FILE"

@@ -17,9 +17,13 @@ limitations under the License.
 package logger
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
+
+	"github.com/container-storage-interface/spec/lib/go/csi"
 )
 
 func TestLogNewError(t *testing.T) {
@@ -95,5 +99,84 @@ func BenchmarkLogNewErrorCodef(b *testing.B) {
 		if e == nil {
 			b.Error("Failed to create an error")
 		}
+	}
+}
+
+func TestRedactCSIRequestStripsSecrets(t *testing.T) {
+	req := &csi.CreateVolumeRequest{
+		Name:    "test-volume",
+		Secrets: map[string]string{"username": "admin", "password": "topsecret"},
+	}
+
+	redacted := RedactCSIRequest(req)
+
+	out := fmt.Sprintf("%+v", redacted)
+	if strings.Contains(out, "topsecret") || strings.Contains(out, "admin") {
+		t.Errorf("secret leaked in redacted output: %s", out)
+	}
+
+	rv, ok := redacted.(*csi.CreateVolumeRequest)
+	if !ok {
+		t.Fatalf("expected *csi.CreateVolumeRequest, got %T", redacted)
+	}
+	if len(rv.Secrets) != 1 || rv.Secrets["***stripped***"] != "***stripped***" {
+		t.Errorf("expected Secrets to be replaced with stripped marker, got %v", rv.Secrets)
+	}
+}
+
+func TestRedactCSIRequestDoesNotMutateOriginal(t *testing.T) {
+	req := &csi.CreateVolumeRequest{
+		Name:    "test-volume",
+		Secrets: map[string]string{"password": "topsecret"},
+	}
+
+	_ = RedactCSIRequest(req)
+
+	if req.Secrets["password"] != "topsecret" {
+		t.Errorf("original request was mutated, Secrets = %v", req.Secrets)
+	}
+}
+
+func TestRedactCSIRequestEmptySecretsUnchanged(t *testing.T) {
+	req := &csi.CreateVolumeRequest{Name: "test-volume"}
+
+	redacted := RedactCSIRequest(req)
+
+	rv, ok := redacted.(*csi.CreateVolumeRequest)
+	if !ok {
+		t.Fatalf("expected *csi.CreateVolumeRequest, got %T", redacted)
+	}
+	if rv != req {
+		t.Errorf("expected the same request pointer to be returned unchanged when Secrets is empty")
+	}
+}
+
+func TestRedactCSIRequestNonSecretBearingTypeUnchanged(t *testing.T) {
+	req := &csi.GetCapacityRequest{}
+
+	redacted := RedactCSIRequest(req)
+
+	if redacted != req {
+		t.Errorf("expected request without a Secrets field to be returned unchanged")
+	}
+}
+
+func TestRedactCSIRequestNilPointerDoesNotPanic(t *testing.T) {
+	var req *csi.CreateVolumeRequest
+
+	redacted := RedactCSIRequest(req)
+
+	if redacted != req {
+		t.Errorf("expected nil pointer to be returned unchanged")
+	}
+}
+
+func TestRedactCSIRequestNonPointerUnchanged(t *testing.T) {
+	req := "not a csi request"
+
+	redacted := RedactCSIRequest(req)
+
+	if redacted != req {
+		t.Errorf("expected non-secretsGetter value to be returned unchanged")
 	}
 }

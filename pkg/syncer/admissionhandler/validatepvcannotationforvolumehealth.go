@@ -25,7 +25,8 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 	log := logger.GetLogger(ctx)
 	username := request.UserInfo.Username
 	isCSIServiceAccount := validateCSIServiceAccount(request.UserInfo.Username)
-	log.Debugf("validatePVCAnnotationForVolumeHealth called with the request %v by user: %v", request, username)
+	log.Debugf("validatePVCAnnotationForVolumeHealth called for PVC %s/%s by user: %v",
+		request.Namespace, request.Name, username)
 	if request.Operation == admissionv1.Delete {
 		// PVC volume health annotation validation is not required for delete PVC calls
 		return admission.Allowed("")
@@ -71,7 +72,7 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 		}
 	}
 
-	log.Debugf("validatePVCAnnotationForVolumeHealth completed for the request %v", request)
+	log.Debugf("validatePVCAnnotationForVolumeHealth completed for PVC %s/%s", request.Namespace, request.Name)
 	return admission.Allowed("")
 }
 
