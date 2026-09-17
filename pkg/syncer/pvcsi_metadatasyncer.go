@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
@@ -27,13 +28,17 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsvolumemetadatav1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsvolumemetadata/v1alpha1"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cnsnfsvolumeinformation"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
@@ -92,6 +97,154 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{},
 		return
 	}
 	log.Infof("pvCSI VolumeUpdated: Successfully patched CnsVolumeMetadata: %v", currentMetadata.Name)
+}
+
+// pvcsiNfsVolumeUpdated creates the CnsNfsVolumeInformation CR for this VKS cluster if
+// it doesn't exist yet, and upserts (or refreshes) this PVC's entry in it. Unlike
+// pvcsiVolumeUpdated, this never touches CnsVolumeMetadata - guest-local NFS volumes
+// have no corresponding CNS volume for CNS to have metadata about in the first place.
+// This covers only the "Volume created" step for now; health/pod-attach refreshes and
+// volume-deleted cleanup are handled separately (not yet wired in).
+func pvcsiNfsVolumeUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume,
+	metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("pvCSI NfsVolumeUpdated: Unable to fetch supervisor namespace. Err: %v", err)
+		return
+	}
+
+	// NFSSharePath is derived from the volume handle itself (after stripping the
+	// "guestnfs:" prefix nfsvolume.go wraps around nfsdriver's own encoded ID) rather
+	// than guessed from VolumeContext key names.
+	var nfsSharePath string
+	rawID := strings.TrimPrefix(pv.Spec.CSI.VolumeHandle, nfsdriver.VolumeIDPrefix)
+	if server, share, subDir, err := nfsdriver.DecodeVolumeID(rawID); err != nil {
+		log.Errorf("pvCSI NfsVolumeUpdated: Failed to decode NFS volume handle %q for PVC %s/%s: %v",
+			pv.Spec.CSI.VolumeHandle, pvc.Namespace, pvc.Name, err)
+	} else {
+		nfsSharePath = server + ":/" + strings.Trim(share, "/") + "/" + strings.Trim(subDir, "/")
+	}
+
+	entry := cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry{
+		VKSNamespace:    pvc.Namespace,
+		ClaimName:       pvc.Name,
+		NFSSharePath:    nfsSharePath,
+		Labels:          pvc.Labels,
+		ClaimStatus:     string(pvc.Status.Phase),
+		LastUpdatedTime: metav1.Now(),
+	}
+	if health, ok := pvc.Annotations[annVolumeHealth]; ok {
+		entry.Health = health
+	}
+	if capacity, ok := pvc.Status.Capacity[v1.ResourceStorage]; ok {
+		capacity := capacity.DeepCopy()
+		entry.Capacity = &capacity
+	}
+
+	crName := cnsnfsvolumeinformation.CRName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+	if err := cnsnfsvolumeinformation.UpsertVolumeEntry(ctx, metadataSyncer.cnsOperatorClient, crName,
+		supervisorNamespace, string(pvc.GetUID()), entry); err != nil {
+		log.Errorf("pvCSI NfsVolumeUpdated: Failed to upsert entry for PVC %s/%s on CnsNfsVolumeInformation %s: %v",
+			pvc.Namespace, pvc.Name, crName, err)
+		return
+	}
+	log.Infof("pvCSI NfsVolumeUpdated: Successfully upserted entry for PVC %s/%s on CnsNfsVolumeInformation %s",
+		pvc.Namespace, pvc.Name, crName)
+}
+
+// pvcsiNfsPodUpdated refreshes the health/podNames/lastUpdatedTime of every guest-local
+// NFS-backed PVC that pod mounts, on this VKS cluster's CnsNfsVolumeInformation CR. This
+// is the "Health / pod attach changes" flow (step 7): podNames must reflect every pod
+// currently mounting a volume (RWX volumes are routinely mounted by multiple pods on
+// multiple nodes at once), so it is recomputed from scratch on every pod
+// add/update/delete rather than incrementally toggled.
+func pvcsiNfsPodUpdated(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
+	log := logger.GetLogger(ctx)
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("pvCSI NfsPodUpdated: Unable to fetch supervisor namespace. Err: %v", err)
+		return
+	}
+	crName := cnsnfsvolumeinformation.CRName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim == nil {
+			continue
+		}
+		valid, pv, pvc := IsValidVolume(ctx, volume, pod, metadataSyncer)
+		if !valid || !isGuestNFSVolume(pv) {
+			continue
+		}
+
+		podNames, err := nfsVolumeMountingPodNames(metadataSyncer, pvc, pod, deleteFlag)
+		if err != nil {
+			log.Errorf("pvCSI NfsPodUpdated: failed to list pods for PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
+			continue
+		}
+
+		var health string
+		if h, ok := pvc.Annotations[annVolumeHealth]; ok {
+			health = h
+		}
+
+		if err := cnsnfsvolumeinformation.PatchVolumeEntryHealthAndPods(ctx, metadataSyncer.cnsOperatorClient,
+			crName, supervisorNamespace, string(pvc.GetUID()), health, podNames, metav1.Now()); err != nil {
+			log.Errorf("pvCSI NfsPodUpdated: failed to patch entry for PVC %s/%s on CnsNfsVolumeInformation %s: %v",
+				pvc.Namespace, pvc.Name, crName, err)
+			continue
+		}
+		log.Infof("pvCSI NfsPodUpdated: refreshed podNames (%d) for PVC %s/%s on CnsNfsVolumeInformation %s",
+			len(podNames), pvc.Namespace, pvc.Name, crName)
+	}
+}
+
+// nfsVolumeMountingPodNames lists every pod in pvc.Namespace that currently mounts pvc.
+// currentPod is excluded when deleteFlag is set, since it may still be visible in the
+// informer cache for a brief window after its own delete event has already fired.
+func nfsVolumeMountingPodNames(metadataSyncer *metadataSyncInformer, pvc *v1.PersistentVolumeClaim,
+	currentPod *v1.Pod, deleteFlag bool) ([]string, error) {
+	pods, err := metadataSyncer.podLister.Pods(pvc.Namespace).List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+	var podNames []string
+	for _, p := range pods {
+		if deleteFlag && p.Name == currentPod.Name {
+			continue
+		}
+		for _, v := range p.Spec.Volumes {
+			if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == pvc.Name {
+				podNames = append(podNames, p.Name)
+				break
+			}
+		}
+	}
+	return podNames, nil
+}
+
+// pvcsiNfsVolumeDeleted removes this PVC's entry from the VKS cluster's
+// CnsNfsVolumeInformation CR, deleting the CR itself if that was the last entry. This is
+// step 12 of the CnsNfsVolumeInformation design.
+func pvcsiNfsVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadataSyncInformer) {
+	log := logger.GetLogger(ctx)
+	supervisorNamespace, err := cnsconfig.GetSupervisorNamespace(ctx)
+	if err != nil {
+		log.Errorf("pvCSI NfsVolumeDeleted: Unable to fetch supervisor namespace. Err: %v", err)
+		return
+	}
+
+	crName := cnsnfsvolumeinformation.CRName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+	if err := cnsnfsvolumeinformation.RemoveVolumeEntry(ctx, metadataSyncer.cnsOperatorClient, crName,
+		supervisorNamespace, uID); err != nil {
+		log.Errorf("pvCSI NfsVolumeDeleted: Failed to remove entry %q on CnsNfsVolumeInformation %s: %v",
+			uID, crName, err)
+		return
+	}
+	log.Infof("pvCSI NfsVolumeDeleted: Successfully removed entry %q on CnsNfsVolumeInformation %s", uID, crName)
 }
 
 // pvcsiVolumeDeleted deletes pvc/pv CnsVolumeMetadata on supervisor cluster
@@ -203,6 +356,13 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 				// Skip FVS-backed file volumes: CnsVolumeMetadata is not pushed for them.
 				if shouldSkipFVSMetadataPushGuest(pvc, pv) {
 					log.Infof("pvCSI PODUpdatedDeleted: skipping pod entityReference for FVS-backed PVC %q "+
+						"in namespace %q on pod %q", pvc.Name, pvc.Namespace, pod.Name)
+					continue
+				}
+				// Skip guest-local NFS volumes: there is no CNS volume to attach a POD
+				// entityReference to. pvcsiNfsPodUpdated handles podNames for these instead.
+				if isGuestNFSVolume(pv) {
+					log.Infof("pvCSI PODUpdatedDeleted: skipping pod entityReference for guest-NFS PVC %q "+
 						"in namespace %q on pod %q", pvc.Name, pvc.Namespace, pod.Name)
 					continue
 				}

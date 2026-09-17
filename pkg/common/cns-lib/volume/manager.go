@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
@@ -106,6 +107,18 @@ type Manager interface {
 	UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.CnsVolumeMetadataUpdateSpec) error
 	// UpdateVolumeCrypto encrypts a volume given its spec.
 	UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error
+	// RegisterNfsVolumeInfo relays a guest-local-NFS-backed volume's metadata to CNS,
+	// which never provisioned it and has no other way to learn it exists.
+	RegisterNfsVolumeInfo(ctx context.Context, volumeID string,
+		entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error
+	// UpdateNfsVolumeInfo refreshes an already-registered guest-local-NFS volume's
+	// metadata in CNS (e.g. health/podNames changes) without re-registering it.
+	UpdateNfsVolumeInfo(ctx context.Context, volumeID string,
+		entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error
+	// DeleteNfsVolumeInfo removes a previously-registered guest-local-NFS volume's
+	// metadata from CNS. There is no corresponding CNS volume/FCD to delete - only the
+	// metadata record CNS has no other way to learn is now stale.
+	DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error
 	// QueryVolumeInfo calls the CNS QueryVolumeInfo API and return a task, from
 	// which CnsQueryVolumeInfoResult is extracted.
 	QueryVolumeInfo(ctx context.Context, volumeIDList []cnstypes.CnsVolumeId) (*cnstypes.CnsQueryVolumeInfoResult, error)
@@ -1851,6 +1864,67 @@ func (m *defaultManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstype
 }
 
 // UpdateVolumeCrypto updates a volume given its spec.
+// RegisterNfsVolumeInfo relays a guest-local-NFS-backed volume's metadata to CNS.
+func (m *defaultManager) RegisterNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	log := logger.GetLogger(ctx)
+	if err := validateManager(ctx, m); err != nil {
+		log.Errorf("failed to validate manager with error: %v", err)
+		return err
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+
+	// TODO: govmomi's cns.Client has no RegisterNfsVolumeInfo binding yet (verified
+	// against vendor/github.com/vmware/govmomi/cns/client.go - no such method exists as
+	// of this writing). Once it does, replace this stub with the same
+	// call -> m.waitOnTask -> cns.GetTaskResult -> Fault-check shape used by every other
+	// CNS write call in this file (see UpdateVolumeMetadata for the exact pattern).
+	return logger.LogNewErrorf(log, "RegisterNfsVolumeInfo is not yet supported: govmomi's CNS client "+
+		"has no API binding for it (volumeID: %q)", volumeID)
+}
+
+// UpdateNfsVolumeInfo refreshes an already-registered guest-local-NFS volume's metadata
+// in CNS (e.g. health/podNames changes) without re-registering it.
+func (m *defaultManager) UpdateNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	log := logger.GetLogger(ctx)
+	if err := validateManager(ctx, m); err != nil {
+		log.Errorf("failed to validate manager with error: %v", err)
+		return err
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+
+	// TODO: same caveat as RegisterNfsVolumeInfo above - govmomi's cns.Client has no
+	// UpdateNfsVolumeInfo binding yet. Replace this stub once it does.
+	return logger.LogNewErrorf(log, "UpdateNfsVolumeInfo is not yet supported: govmomi's CNS client "+
+		"has no API binding for it (volumeID: %q)", volumeID)
+}
+
+// DeleteNfsVolumeInfo removes a previously-registered guest-local-NFS volume's metadata
+// from CNS.
+func (m *defaultManager) DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error {
+	log := logger.GetLogger(ctx)
+	if err := validateManager(ctx, m); err != nil {
+		log.Errorf("failed to validate manager with error: %v", err)
+		return err
+	}
+	if err := m.virtualCenter.ConnectCns(ctx); err != nil {
+		log.Errorf("ConnectCns failed with err: %+v", err)
+		return err
+	}
+
+	// TODO: same caveat as RegisterNfsVolumeInfo above - govmomi's cns.Client has no
+	// DeleteNfsVolumeInfo binding yet. Replace this stub once it does.
+	return logger.LogNewErrorf(log, "DeleteNfsVolumeInfo is not yet supported: govmomi's CNS client "+
+		"has no API binding for it (volumeID: %q)", volumeID)
+}
+
 func (m *defaultManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
 	ctx, cancelFunc := ensureOperationContextHasATimeout(ctx)
 	defer cancelFunc()

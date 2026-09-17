@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	cnsstoragepolicyquotasv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
@@ -111,6 +112,23 @@ func (m *mockVolumeManager) UpdateVolumeMetadata(ctx context.Context,
 }
 
 func (m *mockVolumeManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockVolumeManager) UpdateNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockVolumeManager) DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m *mockVolumeManager) RegisterNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
 	//TODO implement me
 	panic("implement me")
 }

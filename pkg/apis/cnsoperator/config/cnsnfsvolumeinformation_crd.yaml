@@ -1,0 +1,239 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: cnsnfsvolumeinformations.cns.vmware.com
+spec:
+  group: cns.vmware.com
+  names:
+    kind: CnsNfsVolumeInformation
+    listKind: CnsNfsVolumeInformationList
+    plural: cnsnfsvolumeinformations
+    shortNames:
+    - cnsnfsvolinfo
+    singular: cnsnfsvolumeinformation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.vksClusterName
+      name: VKSCluster
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          CnsNfsVolumeInformation is the Schema for the cnsnfsvolumeinformations API.
+          Group: cns.vmware.com, Version: v1alpha1, Kind: CnsNfsVolumeInformation.
+
+          Naming convention: <vksClusterName>-<vksClusterID>-nfsvolumes, one per VKS cluster,
+          created in that cluster's Supervisor Namespace.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: CnsNfsVolumeInformationSpec defines the desired state of
+              CnsNfsVolumeInformation.
+            properties:
+              supervisorNamespace:
+                description: SupervisorNamespace is the vSphere Namespace this CR
+                  (and the VKS cluster) lives in.
+                type: string
+              vksClusterID:
+                description: VKSClusterID is the stable UID of the owning VKS cluster
+                  (guest cluster UID).
+                type: string
+              vksClusterName:
+                description: VKSClusterName is the display name of the owning VKS
+                  cluster.
+                type: string
+              volumes:
+                additionalProperties:
+                  description: |-
+                    NfsVolumeEntry describes a single NFS-backed guest PVC tracked by a
+                    CnsNfsVolumeInformation CR.
+                  properties:
+                    capacity:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        Capacity is the PVC's requested/bound size, so the CNS table doesn't need a
+                        separate lookup to answer "how big is this volume."
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    claimName:
+                      description: ClaimName is the guest PVC's name.
+                      type: string
+                    claimStatus:
+                      description: |-
+                        ClaimStatus is the PVC phase (Bound/Pending/Terminating) - kept distinct from
+                        Health, which is reachability, not Kubernetes binding state. Conflating the two
+                        was flagged earlier as a schema ambiguity worth avoiding.
+                      type: string
+                    health:
+                      description: |-
+                        Health mirrors the volumehealth.storage.kubernetes.io/health annotation value
+                        (see the Volume Health proposal) - "accessible" / "inaccessible".
+                      type: string
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: Labels are copied from the PVC's own labels at
+                        sync time.
+                      type: object
+                    lastUpdatedTime:
+                      description: |-
+                        LastUpdatedTime lets a stale entry (not touched in N hours) be treated as a
+                        staleness/health signal by the relay controller, independent of the Health field.
+                      format: date-time
+                      type: string
+                    nfsSharePath:
+                      description: |-
+                        NFSSharePath is "server:/share/subdirectory" - everything needed to identify the
+                        backing export, already derivable from the volume handle at CreateVolume time.
+                      type: string
+                    nfsVersion:
+                      description: |-
+                        NFSVersion is read from the StorageClass's mountOptions (e.g. "4.1"); left empty
+                        if the StorageClass never set nfsvers explicitly, rather than guessing a default.
+                      type: string
+                    podNames:
+                      description: |-
+                        PodNames lists every pod currently mounting this volume. A list, not a single name -
+                        RWX volumes are routinely mounted by multiple pods on multiple nodes simultaneously.
+                      items:
+                        type: string
+                      type: array
+                    vksNamespace:
+                      description: |-
+                        VKSNamespace is the namespace of the PVC/Pod inside the VKS cluster (distinct from
+                        SupervisorNamespace, which is set once at the Spec level, not per-entry).
+                      type: string
+                  required:
+                  - claimName
+                  - claimStatus
+                  - health
+                  - lastUpdatedTime
+                  - nfsSharePath
+                  - vksNamespace
+                  type: object
+                description: |-
+                  Volumes is keyed by the guest PVC's UID (stable across renames; the CNS table's
+                  VolumeID is derived from this key - see "Table schema alignment" below).
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - supervisorNamespace
+            - vksClusterID
+            - vksClusterName
+            - volumes
+            type: object
+          status:
+            description: CnsNfsVolumeInformationStatus defines the observed state
+              of CnsNfsVolumeInformation.
+            properties:
+              conditions:
+                description: |-
+                  Conditions surfaces relay failures (e.g. CNS API unreachable) without pvCSI needing
+                  to know anything about the CNS API itself.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              syncedVolumeHashes:
+                additionalProperties:
+                  type: string
+                description: |-
+                  SyncedVolumeHashes is keyed by volumeID and records a content hash of the entry as
+                  of the last successful relay. The reconciler compares this against the current
+                  entry's hash to decide RegisterNfsVolumeInfo (key absent) vs UpdateNfsVolumeInfo
+                  (key present but hash differs) vs no-op (hash unchanged) - a plain
+                  "already in SyncedVolumeIDs" check can't tell "registered once" from "registered
+                  but now stale," which the Health/pod-attach-changes flow requires.
+                type: object
+              syncedVolumeIDs:
+                description: |-
+                  SyncedVolumeIDs records which entries the relay controller has confirmed written to
+                  the CNS table, so pvCSI (or an observer) can tell sync lag from sync failure.
+                items:
+                  type: string
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

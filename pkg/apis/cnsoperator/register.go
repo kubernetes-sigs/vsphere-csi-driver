@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	clusterstoragepolicyinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsnodevmattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmattachment/v1alpha1"
 	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
@@ -71,6 +72,10 @@ var (
 	CnsUnregisterVolumePlural = "cnsunregistervolumes"
 	// CnsFileAccessConfigPlural is plural of CnsFileAccessConfig
 	CnsFileAccessConfigPlural = "cnsfileaccessconfigs"
+	// CnsNfsVolumeInformationSingular is Singular of CnsNfsVolumeInformation
+	CnsNfsVolumeInformationSingular = "cnsnfsvolumeinformation"
+	// CnsNfsVolumeInformationPlural is plural of CnsNfsVolumeInformation
+	CnsNfsVolumeInformationPlural = "cnsnfsvolumeinformations"
 	// CnsStoragePolicyUsageSingular is singular of StoragePolicyUsage
 	CnsStoragePolicyUsageSingular = "storagepolicyusage"
 	// CnsStoragePolicyUsagePlural is plural of StoragePolicyUsage
@@ -134,6 +139,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{},
 		&cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{},
+	)
+
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
+		&cnsnfsvolumeinformationv1alpha1.CnsNfsVolumeInformation{},
+		&cnsnfsvolumeinformationv1alpha1.CnsNfsVolumeInformationList{},
 	)
 
 	scheme.AddKnownTypes(

@@ -3037,6 +3037,12 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			// Guest-local NFS volumes have no CNS volume at all; relay to
+			// CnsNfsVolumeInformation instead of the normal CnsVolumeMetadata push.
+			pvcsiNfsVolumeUpdated(ctx, newPvc, pv, metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(newPvc, pv) {
 			log.Infof("PVCUpdated: Skipping CnsVolumeMetadata push for FVS-backed PVC %q in namespace %q",
 				newPvc.Name, newPvc.Namespace)
@@ -3133,6 +3139,10 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			pvcsiNfsVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(pvc, pv) {
 			log.Infof("PVCDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PVC %q in namespace %q",
 				pvc.Name, pvc.Namespace)
@@ -3266,6 +3276,21 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(newPv) {
+			if newPv.Spec.ClaimRef == nil {
+				log.Debugf("PVUpdated: guest-NFS PV %q has no ClaimRef yet, skipping", newPv.Name)
+				return
+			}
+			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(newPv.Spec.ClaimRef.Namespace).
+				Get(newPv.Spec.ClaimRef.Name)
+			if err != nil {
+				log.Errorf("PVUpdated: Failed to get PVC %s/%s for guest-NFS PV %q: %v",
+					newPv.Spec.ClaimRef.Namespace, newPv.Spec.ClaimRef.Name, newPv.Name, err)
+				return
+			}
+			pvcsiNfsVolumeUpdated(ctx, pvc, newPv, metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(nil, newPv) {
 			log.Infof("PVUpdated: Skipping CnsVolumeMetadata push for FVS-backed PV %q (storageClass=%q)",
 				newPv.Name, newPv.Spec.StorageClassName)
@@ -3317,6 +3342,17 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			if pv.Spec.ClaimRef == nil {
+				log.Debugf("PVDeleted: guest-NFS PV %q has no ClaimRef, cannot resolve PVC UID, skipping", pv.Name)
+				return
+			}
+			// Use the PVC UID cached on ClaimRef, not pv.GetUID() - the PVC (whose UID
+			// this entry was upserted under) is very likely already gone from the lister
+			// by the time the PV itself is deleted.
+			pvcsiNfsVolumeDeleted(ctx, string(pv.Spec.ClaimRef.UID), metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(nil, pv) {
 			log.Infof("PVDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PV %q (storageClass=%q)",
 				pv.Name, pv.Spec.StorageClassName)
@@ -3451,6 +3487,7 @@ func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		pvcsiUpdatePod(ctx, pod, metadataSyncer, deleteFlag)
+		pvcsiNfsPodUpdated(ctx, pod, metadataSyncer, deleteFlag)
 	} else {
 		csiUpdatePod(ctx, pod, metadataSyncer, deleteFlag)
 	}
