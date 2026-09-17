@@ -52,6 +52,13 @@ rules:
     resources: ["cnsvolumemetadatas", "cnsfileaccessconfigs", "cnsfileaccessconfigs/status", "clusterstoragepolicyinfos", "clusterstoragepolicyinfos/status", "infrastoragepolicyinfos", "infrastoragepolicyinfos/status", "storagepolicyinfos", "storagepolicyinfos/status"]
     verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: ["cns.vmware.com"]
+    # The relay controller (pkg/syncer/cnsoperator/controller/cnsnfsvolumeinformation)
+    # only watches/reads Spec and patches Status/finalizers - it never creates or
+    # deletes this CR itself. Only pvCSI does that, via its own separate
+    # per-guest-cluster Supervisor Namespace token, not this ClusterRole.
+    resources: ["cnsnfsvolumeinformations", "cnsnfsvolumeinformations/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["cns.vmware.com"]
     resources: ["clusterstoragepolicyinfos", "infrastoragepolicyinfos", "storagepolicyinfos"]
     verbs: ["create"]
   - apiGroups: ["cns.vmware.com"]

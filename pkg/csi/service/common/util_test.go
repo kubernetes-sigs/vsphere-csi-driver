@@ -46,6 +46,7 @@ import (
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsvolumeoperationrequest "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
@@ -871,6 +872,20 @@ func (m *cbtFlagsMockVolumeManager) UpdateVolumeMetadata(context.Context,
 }
 func (m *cbtFlagsMockVolumeManager) UpdateVolumeCrypto(context.Context,
 	*cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	return nil
+}
+
+func (m *cbtFlagsMockVolumeManager) RegisterNfsVolumeInfo(context.Context, string,
+	cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	return nil
+}
+
+func (m *cbtFlagsMockVolumeManager) UpdateNfsVolumeInfo(context.Context, string,
+	cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	return nil
+}
+
+func (m *cbtFlagsMockVolumeManager) DeleteNfsVolumeInfo(context.Context, string) error {
 	return nil
 }
 func (m *cbtFlagsMockVolumeManager) QueryVolumeInfo(context.Context,
