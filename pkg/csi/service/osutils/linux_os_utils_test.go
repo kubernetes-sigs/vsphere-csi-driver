@@ -6,10 +6,16 @@ package osutils
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
 
+	"github.com/akutz/gofsutil"
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 	testingexec "k8s.io/utils/exec/testing"
@@ -345,5 +351,95 @@ func TestUnescape(t *testing.T) {
 				t.Errorf("Expected %q to be unescaped as %q, got %q", test.in, test.out, out)
 			}
 		})
+	}
+}
+
+func TestIsTargetInMounts(t *testing.T) {
+	ctx := context.Background()
+	pod1Target := "/var/lib/kubelet/pods/pod-1/volumeDevices/kubernetes.io~csi/pvc-abc/vol"
+	pod2Target := "/var/lib/kubelet/pods/pod-2/volumeDevices/kubernetes.io~csi/pvc-abc/vol"
+
+	tests := []struct {
+		name   string
+		target string
+		mnts   []gofsutil.Info
+		want   bool
+	}{
+		{
+			name:   "no existing mounts",
+			target: pod1Target,
+			mnts:   nil,
+			want:   false,
+		},
+		{
+			name:   "first pod publish target",
+			target: pod1Target,
+			mnts: []gofsutil.Info{
+				{Device: "/dev/sdb", Path: pod1Target},
+			},
+			want: true,
+		},
+		{
+			name:   "second pod publish target while first is mounted",
+			target: pod2Target,
+			mnts: []gofsutil.Info{
+				{Device: "/dev/sdb", Path: pod1Target},
+			},
+			want: false,
+		},
+		{
+			name:   "second pod target among multiple mounts",
+			target: pod2Target,
+			mnts: []gofsutil.Info{
+				{Device: "/dev/sdb", Path: pod1Target},
+				{Device: "/dev/sdb", Path: pod2Target},
+			},
+			want: true,
+		},
+		{
+			name:   "escaped mount path matches unescaped target",
+			target: "/var/lib/kubelet/pods/pod-1/volumeDevices/kubernetes.io~csi/foo bar/vol",
+			mnts: []gofsutil.Info{
+				{Device: "/dev/sdb", Path: `/var/lib/kubelet/pods/pod-1/volumeDevices/kubernetes.io~csi/foo\040bar/vol`},
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isTargetInMounts(ctx, tc.target, tc.mnts); got != tc.want {
+				t.Fatalf("isTargetInMounts(%q) = %v, want %v", tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPublishBlockVol_ReadOnlyRejected(t *testing.T) {
+	ctx := context.Background()
+	target := filepath.Join(t.TempDir(), "vol")
+	if err := os.WriteFile(target, nil, 0o644); err != nil {
+		t.Fatalf("failed to create target file: %v", err)
+	}
+
+	osUtils := &OsUtils{
+		Mounter: &mount.SafeFormatAndMount{Interface: mount.NewFakeMounter(nil)},
+	}
+	req := &csi.NodePublishVolumeRequest{VolumeId: "vol-1"}
+	dev := &Device{FullPath: "/dev/sdb", RealDev: "/dev/sdb"}
+	params := NodePublishParams{
+		VolID:  "vol-1",
+		Target: target,
+		Ro:     true,
+	}
+
+	_, err := osUtils.PublishBlockVol(ctx, req, dev, params)
+	if err == nil {
+		t.Fatal("expected read-only block publish to fail")
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected %s, got %s: %v", codes.InvalidArgument, status.Code(err), err)
 	}
 }
