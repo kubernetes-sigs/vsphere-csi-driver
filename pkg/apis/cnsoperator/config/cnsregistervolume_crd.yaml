@@ -41,6 +41,9 @@ spec:
                   backing the CnsRegisterVolume has. AccessMode must be specified
                   if VolumeID is specified.
                 type: string
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "accessMode is immutable"
               diskURLPath:
                 description: 'DiskUrlPath is URL path to an existing block volume
                   to be imported into Project Pacific cluster. VolumeID and DiskUrlPath
@@ -53,10 +56,16 @@ spec:
                   under datacenter "Datacenter-1" and datastore "vsanDatastore".'
                 type: string
                 pattern: '^(http[s]?:\/\/)?([^\/\s]+\/folder\/)(.*)$'
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "diskURLPath is immutable"
               pvcName:
                 description: Name of the PVC
                 type: string
                 pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "pvcName is immutable"
               volumeID:
                 description: VolumeID indicates an existing vsphere volume to be imported
                   into Project Pacific cluster. If the AccessMode is "ReadWriteMany"
@@ -67,10 +76,16 @@ spec:
                   together.
                 type: string
                 pattern: '^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$'
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "volumeID is immutable"
               volumeMode:
                 description: VolumeMode can either be Block (for raw block volume) or
                   Filesystem. Default value is Filesystem.
                 type: string
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "volumeMode is immutable"
               backingType:
                 description: |
                   BackingType enumerates types of backing for batch attach operations.
@@ -82,6 +97,8 @@ spec:
                 x-kubernetes-validations:
                 - rule: "self == '' || self == 'FlatVer1BackingInfo' || self == 'FlatVer2BackingInfo' || self == 'SparseVer1BackingInfo' || self == 'SparseVer2BackingInfo' || self == 'RawDiskMappingVer1BackingInfo' || self == 'SeSparseBackingInfo' || self == 'LocalPMemBackingInfo'"
                   message: "backingType must be one of: FlatVer1BackingInfo, FlatVer2BackingInfo, SparseVer1BackingInfo, SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo, LocalPMemBackingInfo, or empty string"
+                - rule: "self == oldSelf"
+                  message: "backingType is immutable"
               storageClassName:
                 description: StorageClassName is the name of the Kubernetes StorageClass
                   whose associated vSphere storage policy should be assigned to
@@ -89,6 +106,9 @@ spec:
                   policy is applied unconditionally, regardless of whether the volume
                   already has a storage policy associated with it in CNS.
                 type: string
+                x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "storageClassName is immutable"
             required:
             - pvcName
             type: object
