@@ -28,6 +28,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	cbtconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cbtconfig/v1alpha1"
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/dpoperator/controller"
@@ -75,6 +76,12 @@ func NewManager(
 		return nil, fmt.Errorf(
 			"failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
 			snapshotmetadatav1beta1.SchemeGroupVersion.Group, err)
+	}
+
+	if err := wcpcapapis.AddToScheme(mgr.GetScheme()); err != nil {
+		return nil, fmt.Errorf(
+			"failed to set scheme for Data Protection(DP) operator for type %s. Err: %+v",
+			wcpcapapis.GroupName, err)
 	}
 
 	if err := controller.AddToManager(mgr, clusterFlavor, configInfo); err != nil {
