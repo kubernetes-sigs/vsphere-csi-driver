@@ -1179,9 +1179,14 @@ func pvDeleted(obj interface{}) {
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToPvcMap", pv.Spec.CSI.VolumeHandle)
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.CSI.VolumeHandle)
 		log.Debugf("k8sorchestrator: Deleted key %s from volumeIDToNameMap", pv.Spec.CSI.VolumeHandle)
-		k8sOrchestratorInstance.pvcToVolumeIDMap.remove(pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name)
-		log.Debugf("k8sorchestrator: Deleted key %s from pvcToVolumeID",
-			pv.Spec.ClaimRef.Namespace+"/"+pv.Spec.ClaimRef.Name)
+		// A statically provisioned PV that was never bound to a PVC has a nil
+		// ClaimRef, and pvAdded only records a pvcToVolumeIDMap entry once the PV
+		// is Bound, so there is nothing to remove in that case.
+		if pv.Spec.ClaimRef != nil {
+			objVal := pv.Spec.ClaimRef.Namespace + "/" + pv.Spec.ClaimRef.Name
+			k8sOrchestratorInstance.pvcToVolumeIDMap.remove(objVal)
+			log.Debugf("k8sorchestrator: Deleted key %s from pvcToVolumeID", objVal)
+		}
 	}
 	if pv.Spec.VsphereVolume != nil {
 		k8sOrchestratorInstance.volumeIDToNameMap.remove(pv.Spec.VsphereVolume.VolumePath)
