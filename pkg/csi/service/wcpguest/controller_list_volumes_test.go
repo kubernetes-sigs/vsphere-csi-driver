@@ -29,6 +29,7 @@ import (
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	"google.golang.org/grpc/codes"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -38,6 +39,8 @@ import (
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsfileaccessconfigv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsfileaccessconfig/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -47,11 +50,20 @@ import (
 const listVolumesTestNamespace = "test-namespace"
 
 // newListVolumesController builds a controller with a fresh fake CO interface, restored via
-// t.Cleanup, and fresh fake clients for the guest clientset and the vmOperator
-// controller-runtime client. commonco.ContainerOrchestratorUtility is a package global whose
-// fake FSS map is otherwise shared across tests, so each test needs its own to avoid an FSS
-// toggled in one test leaking into another.
+// t.Cleanup, and fresh fake clients for the guest clientset, the supervisor clientset, and the
+// vmOperator/cnsOperator controller-runtime clients. commonco.ContainerOrchestratorUtility is a
+// package global whose fake FSS map is otherwise shared across tests, so each test needs its
+// own to avoid an FSS toggled in one test leaking into another.
 func newListVolumesController(t *testing.T, vmObjs []ctrlclient.Object, guestObjs []runtime.Object) *controller {
+	t.Helper()
+	return newListVolumesControllerWithSupervisorObjs(t, vmObjs, guestObjs, nil, nil)
+}
+
+// newListVolumesControllerWithSupervisorObjs is newListVolumesController plus the ability to
+// seed supervisor PersistentVolumeClaims (the classification pass) and CnsFileAccessConfig
+// objects (the legacy file pass).
+func newListVolumesControllerWithSupervisorObjs(t *testing.T, vmObjs []ctrlclient.Object, guestObjs []runtime.Object,
+	supervisorPVCs []runtime.Object, cnsFileAccessConfigs []ctrlclient.Object) *controller {
 	t.Helper()
 
 	prevCO := commonco.ContainerOrchestratorUtility
@@ -62,25 +74,42 @@ func newListVolumesController(t *testing.T, vmObjs []ctrlclient.Object, guestObj
 	commonco.ContainerOrchestratorUtility = fakeCO
 	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = prevCO })
 
-	scheme := runtime.NewScheme()
-	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+	vmScheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(vmScheme); err != nil {
 		t.Fatalf("failed to add vmoperator types to scheme: %v", err)
 	}
-	vmOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(scheme).WithObjects(vmObjs...).Build()
+	vmOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(vmScheme).WithObjects(vmObjs...).Build()
+
+	cnsScheme := runtime.NewScheme()
+	if err := cnsoperatorapis.AddToScheme(cnsScheme); err != nil {
+		t.Fatalf("failed to add cnsoperator types to scheme: %v", err)
+	}
+	cnsOperatorClient := ctrlclientfake.NewClientBuilder().WithScheme(cnsScheme).WithObjects(cnsFileAccessConfigs...).
+		Build()
 
 	return &controller{
 		guestClient:         testclient.NewClientset(guestObjs...),
+		supervisorClient:    testclient.NewClientset(supervisorPVCs...),
 		vmOperatorClient:    vmOperatorClient,
+		cnsOperatorClient:   cnsOperatorClient,
 		supervisorNamespace: listVolumesTestNamespace,
 	}
 }
 
+// newGuestPV builds a guest PersistentVolume whose Name equals its volume handle. Real guest
+// PVs never satisfy that equality (the PV name follows the "pvc-<uid>" convention, unrelated to
+// the CNS volume handle) - use newGuestPVWithName when a test needs to exercise that mismatch.
 func newGuestPV(handle string, accessModes ...v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
+	return newGuestPVWithName(handle, handle, accessModes...)
+}
+
+// newGuestPVWithName is newGuestPV with an explicit, independent PersistentVolume Name.
+func newGuestPVWithName(pvName, handle string, accessModes ...v1.PersistentVolumeAccessMode) *v1.PersistentVolume {
 	if len(accessModes) == 0 {
 		accessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteOnce}
 	}
 	return &v1.PersistentVolume{
-		ObjectMeta: metav1.ObjectMeta{Name: handle},
+		ObjectMeta: metav1.ObjectMeta{Name: pvName},
 		Spec: v1.PersistentVolumeSpec{
 			AccessModes: accessModes,
 			Capacity: v1.ResourceList{
@@ -102,6 +131,59 @@ func newVM(name string, volumes ...vmoperatortypes.VirtualMachineVolumeStatus) *
 		Status: vmoperatortypes.VirtualMachineStatus{
 			Volumes: volumes,
 		},
+	}
+}
+
+// newSupervisorPVC builds a supervisor PersistentVolumeClaim with the given storage class name,
+// used by the classification pass to tell legacy and FVS file volumes apart. An empty
+// storageClassName produces a PVC with no storage class set at all (legacy).
+func newSupervisorPVC(handle, storageClassName string) *v1.PersistentVolumeClaim {
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: handle, Namespace: listVolumesTestNamespace},
+	}
+	if storageClassName != "" {
+		pvc.Spec.StorageClassName = &storageClassName
+	}
+	return pvc
+}
+
+// newCnsFileAccessConfig builds a CnsFileAccessConfig for the legacy file pass.
+func newCnsFileAccessConfig(pvcName, vmName string, done bool,
+	statusError string) *cnsfileaccessconfigv1alpha1.CnsFileAccessConfig {
+	return &cnsfileaccessconfigv1alpha1.CnsFileAccessConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: vmName + "-" + pvcName, Namespace: listVolumesTestNamespace},
+		Spec: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigSpec{
+			PvcName: pvcName,
+			VMName:  vmName,
+		},
+		Status: cnsfileaccessconfigv1alpha1.CnsFileAccessConfigStatus{
+			Done:  done,
+			Error: statusError,
+		},
+	}
+}
+
+// newGuestVolumeAttachment builds a guest VolumeAttachment as external-attacher would create
+// for a CSI attach, with Status.Attached set as it would be once the attach has actually
+// completed. Used by the FVS file volume echo path. Its Source.PersistentVolumeName equals
+// handle; use newGuestVolumeAttachmentForPV when a test needs the PV name to differ from the
+// handle, as it always does for a real guest PV.
+func newGuestVolumeAttachment(handle, nodeName string) *storagev1.VolumeAttachment {
+	return newGuestVolumeAttachmentForPV(handle, handle, nodeName)
+}
+
+// newGuestVolumeAttachmentForPV is newGuestVolumeAttachment with an explicit, independent PV
+// name in Source.PersistentVolumeName.
+func newGuestVolumeAttachmentForPV(pvName, handle, nodeName string) *storagev1.VolumeAttachment {
+	name := pvName
+	return &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{Name: volumeAttachmentName(handle, csitypes.Name, nodeName)},
+		Spec: storagev1.VolumeAttachmentSpec{
+			Attacher: csitypes.Name,
+			NodeName: nodeName,
+			Source:   storagev1.VolumeAttachmentSource{PersistentVolumeName: &name},
+		},
+		Status: storagev1.VolumeAttachmentStatus{Attached: true},
 	}
 }
 
@@ -296,12 +378,11 @@ func TestListVolumesOwnershipScoping(t *testing.T) {
 	}
 }
 
-// TestListVolumesOwnedFileVolumeExcluded verifies that this RPC, which handles block volumes
-// only, excludes an owned file volume from the ownership pass rather than admitting it and
-// reporting it unpublished (which would assert a detach that never happened) or failing the
-// whole rebuild (which would let a single file PV disable ListVolumes for every block volume
-// in the cluster for as long as that PV exists).
-func TestListVolumesOwnedFileVolumeExcluded(t *testing.T) {
+// TestListVolumesOwnedFileVolumeIncludedButUnpublishedWithoutConfig verifies that an owned
+// file volume with no matching CnsFileAccessConfig appears in the response (not omitted -
+// omission would read to external-attacher as "detached" just the same) but with no published
+// nodes, alongside a block volume reported via the ordinary VirtualMachine.Status.Volumes check.
+func TestListVolumesOwnedFileVolumeIncludedButUnpublishedWithoutConfig(t *testing.T) {
 	c := newListVolumesController(t,
 		[]ctrlclient.Object{
 			newVM("node-a", vmoperatortypes.VirtualMachineVolumeStatus{
@@ -317,8 +398,12 @@ func TestListVolumesOwnedFileVolumeExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if entryForHandle(resp, "file-vol-1") != nil {
-		t.Errorf("file volume must not appear in a block-only listing")
+	fileEntry := entryForHandle(resp, "file-vol-1")
+	if fileEntry == nil {
+		t.Fatalf("file volume must still appear in the response, not be omitted")
+	}
+	if got := fileEntry.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("file-vol-1: PublishedNodeIds = %v, want empty (no CnsFileAccessConfig exists)", got)
 	}
 	e := entryForHandle(resp, "block-vol-1")
 	if e == nil {
@@ -737,4 +822,438 @@ func hasCap(resp *csi.ControllerGetCapabilitiesResponse, capType csi.ControllerS
 		}
 	}
 	return false
+}
+
+// TestListVolumesLegacyFileVolumeDonePublished verifies that a legacy file volume with a
+// Status.Done CnsFileAccessConfig is reported published on the config's VMName: a check that
+// only reads VirtualMachine.Status would call every file volume unattached forever.
+func TestListVolumesLegacyFileVolumeDonePublished(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{newCnsFileAccessConfig("file-vol-1", "node-a", true, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "file-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "file-vol-1")
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v", got, want)
+	}
+}
+
+// TestListVolumesLegacyFileVolumeNotDoneUnpublished verifies that a legacy file volume whose
+// CnsFileAccessConfig has not completed (Status.Done false) is reported with no published
+// nodes, rather than trusting an in-progress ACL grant.
+func TestListVolumesLegacyFileVolumeNotDoneUnpublished(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{newCnsFileAccessConfig("file-vol-1", "node-a", false, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "file-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "file-vol-1")
+	}
+	if got := e.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("PublishedNodeIds = %v, want empty", got)
+	}
+}
+
+// TestListVolumesLegacyFileVolumeErrorUnpublished verifies that a CnsFileAccessConfig with a
+// non-empty Status.Error is not treated as published, even if Status.Done is true.
+func TestListVolumesLegacyFileVolumeErrorUnpublished(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{newCnsFileAccessConfig("file-vol-1", "node-a", true, "some ACL error")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "file-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "file-vol-1")
+	}
+	if got := e.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("PublishedNodeIds = %v, want empty", got)
+	}
+}
+
+// TestListVolumesLegacyFileVolumeDeletingUnpublished verifies that a CnsFileAccessConfig with a
+// deletion timestamp is not treated as published, since CnsOperator is in the process of
+// revoking access for it.
+func TestListVolumesLegacyFileVolumeDeletingUnpublished(t *testing.T) {
+	cfg := newCnsFileAccessConfig("file-vol-1", "node-a", true, "")
+	now := metav1.Now()
+	cfg.DeletionTimestamp = &now
+	cfg.Finalizers = []string{"test.vmware.com/keep-around-for-fake-client"}
+
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{cfg})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "file-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "file-vol-1")
+	}
+	if got := e.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("PublishedNodeIds = %v, want empty", got)
+	}
+}
+
+// TestListVolumesFVSFileVolumeEchoesVolumeAttachment verifies that an FVS-backed file volume
+// (a supervisor PVC on one of the vSAN File Service marker storage classes) is not reported
+// unpublished merely for lacking a CnsFileAccessConfig - it reports the node named by its
+// guest VolumeAttachment instead. This is the regression test for an attach-storm-on-every-
+// FVS-volume bug: skipping file volumes entirely would report every FVS volume unpublished on
+// every reconcile cycle.
+func TestListVolumesFVSFileVolumeEchoesVolumeAttachment(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{
+			newGuestPV("fvs-vol-1", v1.ReadWriteMany),
+			newGuestVolumeAttachment("fvs-vol-1", "node-a"),
+		},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		nil) // No CnsFileAccessConfig - FVS volumes never get one.
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "fvs-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "fvs-vol-1")
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v", got, want)
+	}
+}
+
+// TestListVolumesFVSFileVolumePVNameDiffersFromHandle verifies the FVS echo path matches
+// VolumeAttachments by PV name, not by the CNS volume handle - unlike a real guest PV, other
+// FVS tests in this file give the PV the same name as the handle, which would mask this bug.
+func TestListVolumesFVSFileVolumePVNameDiffersFromHandle(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	handle := "fvs-vol-1"
+	pvName := "pv-" + handle
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{
+			newGuestPVWithName(pvName, handle, v1.ReadWriteMany),
+			newGuestVolumeAttachmentForPV(pvName, handle, "node-a"),
+		},
+		[]runtime.Object{newSupervisorPVC(handle, common.StorageClassVsanFileServicePolicy)},
+		nil) // No CnsFileAccessConfig - FVS volumes never get one.
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, handle)
+	if e == nil {
+		t.Fatalf("expected an entry for %q", handle)
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v", got, want)
+	}
+}
+
+// TestListVolumesFVSFileVolumeNoVolumeAttachmentUnpublished verifies that an FVS file volume
+// with no guest VolumeAttachment at all is reported with no published nodes - there is nothing
+// to echo.
+func TestListVolumesFVSFileVolumeNoVolumeAttachmentUnpublished(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("fvs-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		nil)
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "fvs-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "fvs-vol-1")
+	}
+	if got := e.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("PublishedNodeIds = %v, want empty", got)
+	}
+}
+
+// TestListVolumesFVSFileVolumeNotYetAttachedUnpublished verifies that a VolumeAttachment whose
+// Status.Attached is still false is not echoed as published: the object exists once created,
+// before the attach completes, so echoing on presence alone would report an in-flight attach as
+// already done.
+func TestListVolumesFVSFileVolumeNotYetAttachedUnpublished(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	va := newGuestVolumeAttachment("fvs-vol-1", "node-a")
+	va.Status.Attached = false
+
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{
+			newGuestPV("fvs-vol-1", v1.ReadWriteMany),
+			va,
+		},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		nil)
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "fvs-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "fvs-vol-1")
+	}
+	if got := e.GetStatus().GetPublishedNodeIds(); len(got) != 0 {
+		t.Errorf("PublishedNodeIds = %v, want empty (attach not yet completed)", got)
+	}
+}
+
+// TestListVolumesFVSFileVolumeIgnoresCnsFileAccessConfig verifies that even if a
+// CnsFileAccessConfig somehow exists for an FVS-classified handle, the legacy file pass does
+// not use it - classification, not object presence, decides which check applies.
+func TestListVolumesFVSFileVolumeIgnoresCnsFileAccessConfig(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{
+			newGuestPV("fvs-vol-1", v1.ReadWriteMany),
+			newGuestVolumeAttachment("fvs-vol-1", "node-a"),
+		},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		[]ctrlclient.Object{newCnsFileAccessConfig("fvs-vol-1", "node-b", true, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "fvs-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "fvs-vol-1")
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v (only the VolumeAttachment echo, not the stray CnsFileAccessConfig)",
+			got, want)
+	}
+}
+
+// TestListVolumesFVSClassificationDisabledByFSS verifies that classifyFileVolumes does not
+// reclassify a PVC on the vSAN File Service storage class as FVS when
+// IsVsanFileVolumeServiceEnabled is false: the storage-class name is not trusted on its own
+// once the capability has been disabled (e.g. after a rollback), so the volume stays
+// volumeKindLegacyFile and is reported via its CnsFileAccessConfig instead of the
+// VolumeAttachment echo.
+func TestListVolumesFVSClassificationDisabledByFSS(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, false)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{
+			newGuestPV("fvs-vol-1", v1.ReadWriteMany),
+			newGuestVolumeAttachment("fvs-vol-1", "node-b"),
+		},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		[]ctrlclient.Object{newCnsFileAccessConfig("fvs-vol-1", "node-a", true, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "fvs-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "fvs-vol-1")
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v (legacy CnsFileAccessConfig path, FVS echo skipped)", got, want)
+	}
+}
+
+// TestListVolumesEmptyVMListWithOnlyFileVolumesSucceeds verifies that the empty-VirtualMachine-
+// list safety guard does not fire for a cluster that owns only file volumes: file volumes never
+// appear in VirtualMachine.Status.Volumes regardless of cluster health, so an empty VM list
+// says nothing about them.
+func TestListVolumesEmptyVMListWithOnlyFileVolumesSucceeds(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil, // No VMs at all.
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{newCnsFileAccessConfig("file-vol-1", "node-a", true, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e := entryForHandle(resp, "file-vol-1")
+	if e == nil {
+		t.Fatalf("expected an entry for %q", "file-vol-1")
+	}
+	if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("PublishedNodeIds = %v, want %v", got, want)
+	}
+}
+
+// TestListVolumesMixedBlockAndFileVolumes verifies that a single listing correctly reports a
+// block volume (via VirtualMachine.Status.Volumes), a legacy file volume (via
+// CnsFileAccessConfig) and an FVS file volume (via the VolumeAttachment echo) at once, each
+// through its own applicable check.
+func TestListVolumesMixedBlockAndFileVolumes(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		[]ctrlclient.Object{
+			newVM("node-a", vmoperatortypes.VirtualMachineVolumeStatus{
+				Name: "block-vol-1", Attached: true, DiskUUID: "u1",
+			}),
+		},
+		[]runtime.Object{
+			newGuestPV("block-vol-1"),
+			newGuestPV("legacy-file-vol-1", v1.ReadWriteMany),
+			newGuestPV("fvs-vol-1", v1.ReadWriteMany),
+			newGuestVolumeAttachment("fvs-vol-1", "node-a"),
+		},
+		[]runtime.Object{
+			newSupervisorPVC("legacy-file-vol-1", ""),
+			newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy),
+		},
+		[]ctrlclient.Object{newCnsFileAccessConfig("legacy-file-vol-1", "node-a", true, "")})
+
+	resp, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(resp.Entries))
+	}
+	for _, handle := range []string{"block-vol-1", "legacy-file-vol-1", "fvs-vol-1"} {
+		e := entryForHandle(resp, handle)
+		if e == nil {
+			t.Fatalf("expected an entry for %q", handle)
+		}
+		if got, want := e.GetStatus().GetPublishedNodeIds(), []string{"node-a"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("handle %q: PublishedNodeIds = %v, want %v", handle, got, want)
+		}
+	}
+}
+
+// TestListVolumesLegacyFileVolumeVMListErrorPropagates verifies that a cluster owning only
+// legacy file volumes still propagates a VirtualMachine list failure, since the block pass
+// always runs regardless of which volume kinds are owned.
+func TestListVolumesLegacyFileVolumeVMListErrorPropagates(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		[]ctrlclient.Object{newCnsFileAccessConfig("file-vol-1", "node-a", true, "")})
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add vmoperator types to scheme: %v", err)
+	}
+	c.vmOperatorClient = ctrlclientfake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(
+		interceptor.Funcs{
+			List: func(ctx context.Context, cli ctrlclient.WithWatch, list ctrlclient.ObjectList,
+				opts ...ctrlclient.ListOption) error {
+				if _, ok := list.(*vmoperatortypes.VirtualMachineList); ok {
+					return errors.New("injected VirtualMachine list failure")
+				}
+				return cli.List(ctx, list, opts...)
+			},
+		},
+	).Build()
+
+	_, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	assertGRPCCode(t, err, codes.Internal)
+}
+
+// TestListVolumesCnsFileAccessConfigListErrorPropagates verifies that a failure listing
+// CnsFileAccessConfig objects fails the whole RPC rather than returning a response assembled
+// from partial data.
+func TestListVolumesCnsFileAccessConfigListErrorPropagates(t *testing.T) {
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("file-vol-1", "")},
+		nil)
+
+	scheme := runtime.NewScheme()
+	if err := cnsoperatorapis.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add cnsoperator types to scheme: %v", err)
+	}
+	c.cnsOperatorClient = ctrlclientfake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(
+		interceptor.Funcs{
+			List: func(ctx context.Context, cli ctrlclient.WithWatch, list ctrlclient.ObjectList,
+				opts ...ctrlclient.ListOption) error {
+				if _, ok := list.(*cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList); ok {
+					return errors.New("injected CnsFileAccessConfig list failure")
+				}
+				return cli.List(ctx, list, opts...)
+			},
+		},
+	).Build()
+
+	_, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	assertGRPCCode(t, err, codes.Internal)
+}
+
+// TestListVolumesSupervisorPVCListErrorPropagates verifies that a failure listing supervisor
+// PersistentVolumeClaims (the classification pass) fails the whole RPC.
+func TestListVolumesSupervisorPVCListErrorPropagates(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("file-vol-1", v1.ReadWriteMany)},
+		nil,
+		nil)
+	c.supervisorClient.(*testclient.Clientset).PrependReactor("list", "persistentvolumeclaims",
+		func(action ktesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("injected supervisor PersistentVolumeClaim list failure")
+		})
+
+	_, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	assertGRPCCode(t, err, codes.Internal)
+}
+
+// TestListVolumesFVSVolumeAttachmentListErrorPropagates verifies that a failure listing guest
+// VolumeAttachments (the FVS echo path) fails the whole RPC rather than reporting every owned
+// FVS volume as unpublished: since the echo path is the only source of published-node truth for
+// FVS volumes, silently swallowing this error would make a healthy, attached FVS volume
+// indistinguishable from a genuinely detached one, and external-attacher would patch its
+// VolumeAttachment to Attached=false on the strength of that wrong answer.
+func TestListVolumesFVSVolumeAttachmentListErrorPropagates(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, true)
+	c := newListVolumesControllerWithSupervisorObjs(t,
+		nil,
+		[]runtime.Object{newGuestPV("fvs-vol-1", v1.ReadWriteMany)},
+		[]runtime.Object{newSupervisorPVC("fvs-vol-1", common.StorageClassVsanFileServicePolicy)},
+		nil)
+	c.guestClient.(*testclient.Clientset).PrependReactor("list", "volumeattachments",
+		func(action ktesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("injected guest VolumeAttachment list failure")
+		})
+
+	_, err := c.ListVolumes(context.Background(), &csi.ListVolumesRequest{})
+	assertGRPCCode(t, err, codes.Internal)
 }
