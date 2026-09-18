@@ -362,6 +362,7 @@ func resetMigrationStateForTest(t *testing.T) {
 	origHandle := migrationHandleStoragePolicyChange
 	origInterval := migrationPollInterval
 	origSvc := volumeInfoService
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
 
 	t.Cleanup(func() {
 		activeMigrationsMu.Lock()
@@ -381,11 +382,15 @@ func resetMigrationStateForTest(t *testing.T) {
 		migrationHandleStoragePolicyChange = origHandle
 		migrationPollInterval = origInterval
 		volumeInfoService = origSvc
+		IsVMPVCStoragePolicyMutabilityEnabled = origFSS
 	})
 }
 
 // enableMigrationFSS installs a FakeK8SOrchestrator with the
-// VM_PVC_STORAGE_POLICY_MUTABILITY FSS turned on.
+// VM_PVC_STORAGE_POLICY_MUTABILITY FSS turned on, and marks the feature as resolved-enabled.
+// The migration watcher gates on IsVMPVCStoragePolicyMutabilityEnabled, which InitMetadataSyncer
+// populates per cluster flavor at startup and which no unit test exercises, so it has to be set
+// here too. resetMigrationStateForTest restores both.
 func enableMigrationFSS(t *testing.T) {
 	t.Helper()
 	fakeCO, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
@@ -396,6 +401,7 @@ func enableMigrationFSS(t *testing.T) {
 		t.Fatalf("EnableFSS failed: %v", err)
 	}
 	commonco.ContainerOrchestratorUtility = fakeCO
+	IsVMPVCStoragePolicyMutabilityEnabled = true
 }
 
 // fakeVolumeInfoServiceImpl is a minimal cnsvolumeinfo.VolumeInfoService used
@@ -692,8 +698,13 @@ func TestHandlePvcMigrationAnnotations(t *testing.T) {
 		}
 	}
 
-	t.Run("orchestrator-nil short-circuits", func(t *testing.T) {
+	// handlePvcMigrationAnnotations must not depend on the orchestrator utility: it is invoked from
+	// the PVC informer on both cluster flavors and gates purely on the resolved feature flag. A nil
+	// orchestrator therefore has to be survivable, so that re-introducing a lookup here without a
+	// nil guard fails loudly instead of panicking inside the informer callback.
+	t.Run("does not dereference the orchestrator", func(t *testing.T) {
 		resetMigrationStateForTest(t)
+		enableMigrationFSS(t)
 		commonco.ContainerOrchestratorUtility = nil
 		called := false
 		migrationStartMigrationWatcher = func(
@@ -705,8 +716,8 @@ func TestHandlePvcMigrationAnnotations(t *testing.T) {
 				common.AnnMigrationCRKind: common.MigrationCRKindVolume,
 				common.AnnMigrationCRName: "cr",
 			}), nil)
-		if called {
-			t.Fatal("startMigrationWatcher should not be called when orchestrator is nil")
+		if !called {
+			t.Fatal("expected watcher to start: the feature is enabled and the orchestrator is unused")
 		}
 	})
 

@@ -131,6 +131,10 @@ func (h *CSIGuestWebhook) Handle(ctx context.Context, req admission.Request) (re
 			resp.AdmissionResponse = *admissionResp.DeepCopy()
 		}
 		// Do additional checks only if the previous checks were successful
+		if resp.Allowed && featureIsVACPolicyMutabilityEnabled {
+			admissionResp := validateGuestPVCVACChange(ctx, &req.AdmissionRequest)
+			resp.AdmissionResponse = *admissionResp.DeepCopy()
+		}
 		if resp.Allowed && featureIsLinkedCloneSupportEnabled {
 			admissionResp := validateGuestPVCOperation(ctx, &req.AdmissionRequest)
 			resp.AdmissionResponse = *admissionResp.DeepCopy()

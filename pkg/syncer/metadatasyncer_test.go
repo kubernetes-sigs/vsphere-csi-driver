@@ -2503,19 +2503,8 @@ func TestCsiPVDeleted_BlockVolume_ImprovedVolumeVisibility(t *testing.T) {
 // set and the mutability FSS is on; StorageClass-keyed SPU otherwise) - otherwise a migrated
 // volume's usage gets decremented from the wrong, stale SPU on deletion.
 func TestDeriveStoragePolicyUsageKeyForDeletion(t *testing.T) {
-	origCO := commonco.ContainerOrchestratorUtility
-	defer func() { commonco.ContainerOrchestratorUtility = origCO }()
-
-	newFakeCO := func(t *testing.T, fssEnabled bool) {
-		co, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
-		assert.NoError(t, err)
-		if fssEnabled {
-			assert.NoError(t, co.(interface {
-				EnableFSS(context.Context, string) error
-			}).EnableFSS(context.Background(), common.VMPVCStoragePolicyMutability))
-		}
-		commonco.ContainerOrchestratorUtility = co
-	}
+	origFSS := IsVMPVCStoragePolicyMutabilityEnabled
+	defer func() { IsVMPVCStoragePolicyMutabilityEnabled = origFSS }()
 
 	cases := []struct {
 		name             string
@@ -2556,8 +2545,8 @@ func TestDeriveStoragePolicyUsageKeyForDeletion(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			newFakeCO(t, tc.fssEnabled)
-			got := deriveStoragePolicyUsageKeyForDeletion(context.Background(), tc.storageClassName, tc.vacName)
+			IsVMPVCStoragePolicyMutabilityEnabled = tc.fssEnabled
+			got := deriveStoragePolicyUsageKeyForDeletion(tc.storageClassName, tc.vacName)
 			assert.Equal(t, tc.want, got)
 		})
 	}
