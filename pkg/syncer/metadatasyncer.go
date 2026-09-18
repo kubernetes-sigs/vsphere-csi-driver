@@ -121,6 +121,14 @@ var (
 	IsPodVMOnStretchSupervisorFSSEnabled bool
 	// IsLinkedCloneSupportFSSEnabled is true when linked-clone-support FSS is enabled.
 	IsLinkedCloneSupportFSSEnabled bool
+	// IsVMPVCStoragePolicyMutabilityEnabled is true when the VM/PVC storage-policy mutability
+	// feature is enabled. On the Supervisor this is driven solely by the
+	// VMPVCStoragePolicyMutability WCP capability; on a Guest it additionally requires the paired
+	// VMPVCStoragePolicyMutabilityFSS internal FSS. Callers must read this cached value rather than
+	// calling IsFSSEnabled with either name directly: the capability name only resolves on the
+	// Supervisor and the FSS name only resolves on a Guest, so a single hardcoded name silently
+	// evaluates to false on the other flavor.
+	IsVMPVCStoragePolicyMutabilityEnabled bool
 	// IsCSITransactionSupportEnabled is true when csi-transaction-support FSS is enabled.
 	IsCSITransactionSupportEnabled bool
 	// IsMultipleClustersPerVsphereZoneFSSEnabled is true when supports_multiple_clusters_per_zone FSS is enabled
@@ -419,6 +427,12 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.VsanFileVolumeService, "", "")
 		}
+		IsVMPVCStoragePolicyMutabilityEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.VMPVCStoragePolicyMutability)
+		if !IsVMPVCStoragePolicyMutabilityEnabled {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.VMPVCStoragePolicyMutability, "", "")
+		}
 		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsExposingStoragePolicyAttributes) {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.SupportsExposingStoragePolicyAttributes, "", "")
@@ -483,6 +497,21 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		if vsanFilePVCSIFSS && !vsanFileServiceEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.VsanFileVolumeService,
+				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
+		}
+		// Resolve the VM/PVC storage-policy mutability feature using the pvCSI FSS name. The
+		// capability name used on the Supervisor is not a key in the guest internal FSS ConfigMap,
+		// so it must not be passed to IsPVCSIFSSEnabled/IsFSSEnabled here.
+		vacPolicyMutabilityPVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
+			ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		vacPolicyMutabilityCapability := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
+			ctx, common.VMPVCStoragePolicyMutabilityFSS)
+		IsVMPVCStoragePolicyMutabilityEnabled = vacPolicyMutabilityPVCSIFSS && vacPolicyMutabilityCapability
+		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the
+		// current supervisor capability is disabled.
+		if vacPolicyMutabilityPVCSIFSS && !vacPolicyMutabilityCapability {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.VMPVCStoragePolicyMutability,
 				metadataSyncer.configInfo.Cfg.GC.Port, metadataSyncer.configInfo.Cfg.GC.Endpoint)
 		}
 	}
@@ -1345,7 +1374,7 @@ func syncStorageQuotaReserved(ctx context.Context,
 
 		// Check if the VM/PVC storage-policy mutability FSS is enabled before accounting for
 		// in-flight ModifyVolume (VolumeAttributesClass change) operations.
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		if IsVMPVCStoragePolicyMutabilityEnabled {
 			// calculate reserved values for PVCs undergoing a ModifyVolume operation
 			modifyVolumeReserved, err := calculateModifyVolumeReservedForNamespace(ctx, ns, metadataSyncer)
 			if err != nil {
@@ -3858,8 +3887,8 @@ func csiPVUpdated(ctx context.Context, newPv *v1.PersistentVolume, oldPv *v1.Per
 // StorageClass-keyed SPU. This must stay consistent with the key derivation in
 // handleVACChangeForVolumeInfo, or a migrated volume's usage will be decremented
 // from the wrong (stale) SPU on deletion.
-func deriveStoragePolicyUsageKeyForDeletion(ctx context.Context, storageClassName, vacName string) string {
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) && vacName != "" {
+func deriveStoragePolicyUsageKeyForDeletion(storageClassName, vacName string) string {
+	if IsVMPVCStoragePolicyMutabilityEnabled && vacName != "" {
 		return "vac-" + vacName
 	}
 	return storageClassName
@@ -3887,7 +3916,7 @@ func csiPVDeleted(ctx context.Context, pv *v1.PersistentVolume, metadataSyncer *
 		}
 
 		// Fetch StoragePolicyUsage instance owning this volume's quota.
-		storagePolicyUsageInstanceName := deriveStoragePolicyUsageKeyForDeletion(ctx,
+		storagePolicyUsageInstanceName := deriveStoragePolicyUsageKeyForDeletion(
 			volumeInfo.Spec.StorageClassName, volumeInfo.Spec.VolumeAttributeClassName) + "-" +
 			storagepolicyv1alpha3.NameSuffixForPVC
 		storagePolicyUsageCR := &storagepolicyv1alpha3.StoragePolicyUsage{}
@@ -4425,7 +4454,7 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 	// Also create SPUs for all VolumeAttributesClasses in the namespace.
 	// This is only supported in Supervisor clusters with VM_PVC_STORAGE_POLICY_MUTABILITY FSS enabled.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		IsVMPVCStoragePolicyMutabilityEnabled {
 		err = createVACStoragePolicyUsageCRs(ctx, storageQuotaClient, namespace, metadataSyncer)
 		if err != nil {
 			log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create VAC-based SPUs. Err: %+v", err)
@@ -4754,7 +4783,7 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 	// Doing this here avoids a redundant discovery + list call for every SPQ namespace in the loop below.
 	var vacItems []storagev1.VolumeAttributesClass
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
-		metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+		IsVMPVCStoragePolicyMutabilityEnabled {
 		vacSupported, vacErr := vacAPIAvailableCheck(ctx)
 		if vacErr != nil {
 			log.Warnf("createStoragePolicyUsageCRS: Could not discover VolumeAttributesClass API; "+
@@ -5346,9 +5375,9 @@ func updateStoragePolicyUsageQuota(ctx context.Context, cnsOperatorClient client
 func initMigrationWatchersOnStartup(ctx context.Context, metadataSyncer *metadataSyncInformer) {
 	log := logger.GetLogger(ctx)
 
-	// Only proceed if the migration FSS is enabled
-	if commonco.ContainerOrchestratorUtility == nil ||
-		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutability) {
+	// Only proceed if the migration FSS is enabled. This runs on both the Supervisor and a Guest,
+	// so it must use the flavor-resolved value instead of a hardcoded FSS/capability name.
+	if !IsVMPVCStoragePolicyMutabilityEnabled {
 		log.Debugf("initMigrationWatchersOnStartup: VM_PVC_STORAGE_POLICY_MUTABILITY FSS not enabled, skipping")
 		return
 	}

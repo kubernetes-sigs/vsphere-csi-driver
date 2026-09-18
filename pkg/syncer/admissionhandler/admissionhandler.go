@@ -190,15 +190,26 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 				common.VMPVCStoragePolicyMutabilityFSS)
 		}
 		featureIsVACPolicyMutabilityEnabled = vacPolicyMutabilityPVCSIFSS && vacPolicyMutabilityCapability
-		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
-		// capability is disabled.
+		// Start the late enablement watcher for a capability only if the PVCSI internal FSS is
+		// enabled, but the current supervisor capability is disabled. Both capabilities below are
+		// registered in common.WCPFeatureStatesSupportsLateEnablement, so the supervisor can turn
+		// them on after this container has already started.
+		lateEnablementCapabilities := make([]string, 0, 2)
 		if linkedClonePVCSIFSS && !linkedCloneCapability {
+			lateEnablementCapabilities = append(lateEnablementCapabilities, common.LinkedCloneSupport)
+		}
+		if vacPolicyMutabilityPVCSIFSS && !vacPolicyMutabilityCapability {
+			lateEnablementCapabilities = append(lateEnablementCapabilities, common.VMPVCStoragePolicyMutability)
+		}
+		if len(lateEnablementCapabilities) > 0 {
 			gcConfig, configErr := cnsconfig.GetConfig(ctx)
 			if configErr != nil {
-				return fmt.Errorf("failed to read config. Error: %+v", err)
+				return fmt.Errorf("failed to read config. Error: %+v", configErr)
 			}
-			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
-				common.LinkedCloneSupport, gcConfig.GC.Port, gcConfig.GC.Endpoint)
+			for _, capability := range lateEnablementCapabilities {
+				go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+					cnstypes.CnsClusterFlavorGuest, capability, gcConfig.GC.Port, gcConfig.GC.Endpoint)
+			}
 		}
 		if featureIsLinkedCloneSupportEnabled {
 			pvcsiConfigPath := cnsconfig.GetConfigPath(ctx)

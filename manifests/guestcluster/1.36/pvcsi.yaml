@@ -756,6 +756,7 @@ data:
   "host-local-storage-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
+  "VM_PVC_STORAGE_POLICY_MUTABILITY": "false" # paired with the supports_VM_PVC_storage_policy_mutability supervisor capability; effective only when that capability is also enabled
 kind: ConfigMap
 metadata:
   name: internal-feature-states.csi.vsphere.vmware.com
