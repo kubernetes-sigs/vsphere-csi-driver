@@ -19,7 +19,11 @@ package wcpguest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
@@ -1315,6 +1320,504 @@ func TestControllerPublishForBlockVolumeStaleAttachOnRetry(t *testing.T) {
 	}
 }
 
+// TestControllerPublishForBlockVolumeBackoffOnConflict verifies that
+// controllerPublishForBlockVolume waits between VirtualMachine patch retries
+// after an optimistic-concurrency conflict, instead of retrying in a tight
+// loop, and that it still succeeds once the conflict clears. A tight retry
+// loop is what turns a handful of concurrent Attach/Detach calls on the same
+// node into a thundering herd against the API server.
+func TestControllerPublishForBlockVolumeBackoffOnConflict(t *testing.T) {
+	origBackoff := vmPatchRetryBackoff
+	vmPatchRetryBackoff = wait.Backoff{
+		Duration: 20 * time.Millisecond,
+		Factor:   2.0,
+		Jitter:   0,
+		Cap:      1 * time.Second,
+		Steps:    math.MaxInt32,
+	}
+	defer func() { vmPatchRetryBackoff = origBackoff }()
+
+	ctx := context.Background()
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-conflict-volume"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+	}
+	// status.Volumes reports the disk as already attached so that the call
+	// returns without needing the VirtualMachine watch.
+	vm.Status.Volumes = []vmoperatortypes.VirtualMachineVolumeStatus{
+		{Name: volumeHandle, Attached: true, DiskUUID: "6000c29-fake-disk-uuid"},
+	}
+	va := &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+		},
+	}
+	guestClient := testclient.NewClientset(va)
+
+	patchAttempts := 0
+	const wantPatchAttempts = 3 // two conflicts, then success
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(vm).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				patchAttempts++
+				if patchAttempts < wantPatchAttempts {
+					return apierrors.NewConflict(storagev1.Resource("virtualmachines"), obj.GetName(), errors.New("conflict"))
+				}
+				return cli.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	c := &controller{
+		vmOperatorClient:    vmClient,
+		guestClient:         guestClient,
+		supervisorNamespace: namespace,
+	}
+
+	start := time.Now()
+	_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+		VolumeId: volumeHandle,
+		NodeId:   nodeName,
+	}, c)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("expected attach to eventually succeed once the conflict clears, got err: %v", err)
+	}
+	if patchAttempts != wantPatchAttempts {
+		t.Errorf("expected %d patch attempts (2 conflicts + 1 success), got %d", wantPatchAttempts, patchAttempts)
+	}
+	// With Jitter disabled above, the two backoff waits are ~20ms then ~40ms.
+	// A tight retry loop (the bug being fixed) would finish in well under 1ms.
+	wantMinElapsed := 20*time.Millisecond + 40*time.Millisecond
+	if elapsed < wantMinElapsed {
+		t.Errorf("expected at least %v to elapse across the two backoff waits between retries, "+
+			"only %v elapsed - are retries backing off?", wantMinElapsed, elapsed)
+	}
+}
+
+// TestVMPatchConflictBackoffNeverExceedsIntendedCap verifies, against the
+// actual production vmPatchRetryBackoff value (not a scaled-down test
+// copy), that the delay it produces never exceeds its intended 5s ceiling.
+// wait.Backoff applies Jitter on top of Cap, so a naive Cap: 5*time.Second
+// would let the jittered delay reach Cap*(1+Jitter) = 7.5s; Cap is set below
+// 5s to leave room for that headroom instead.
+func TestVMPatchConflictBackoffNeverExceedsIntendedCap(t *testing.T) {
+	const intendedCap = 5 * time.Second
+	backoff := vmPatchRetryBackoff
+	for i := 0; i < 5000; i++ {
+		if d := backoff.Step(); d > intendedCap {
+			t.Fatalf("step %d: delay %v exceeds the intended %v cap", i, d, intendedCap)
+		}
+	}
+}
+
+// TestVMPatchRetryStoppedError verifies that vmPatchRetryStoppedError tells a
+// cancelled RPC apart from an internal retry-deadline timeout.
+// waitBeforeVMPatchRetry only signals "give up" as a bare false, for both
+// reasons alike, so this function is the only place left that can still
+// distinguish them via ctx.Err(); collapsing them back down would report a
+// cancelled request as codes.DeadlineExceeded, which is not final and would
+// make external-attacher keep retrying a request nothing is waiting on
+// anymore.
+func TestVMPatchRetryStoppedError(t *testing.T) {
+	t.Run("canceled context reports codes.Canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := vmPatchRetryStoppedError(ctx, "add", "test-volume", "test-vm")
+		assertGRPCCode(t, err, codes.Canceled)
+		if !strings.Contains(err.Error(), "context was canceled") {
+			t.Errorf("expected message to mention cancellation, got: %v", err)
+		}
+	})
+
+	t.Run("caller's own context deadline reports codes.DeadlineExceeded without "+
+		"claiming our internal timeout elapsed", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		_, err := vmPatchRetryStoppedError(ctx, "add", "test-volume", "test-vm")
+		assertGRPCCode(t, err, codes.DeadlineExceeded)
+		if strings.Contains(err.Error(), "minute(s)") {
+			t.Errorf("expected message to attribute this to the caller's own deadline, not our "+
+				"internal attacher timeout, got: %v", err)
+		}
+	})
+
+	t.Run("no ctx error means our own internal retry timeout elapsed", func(t *testing.T) {
+		_, err := vmPatchRetryStoppedError(context.Background(), "remove", "test-volume", "test-vm")
+		assertGRPCCode(t, err, codes.DeadlineExceeded)
+		if !strings.Contains(err.Error(), "minute(s)") {
+			t.Errorf("expected message to reference our internal attacher timeout, got: %v", err)
+		}
+	})
+}
+
+// TestControllerPublishForBlockVolumeCanceledDuringBackoffReportsCanceled
+// drives the actual attach retry loop, not just vmPatchRetryStoppedError in
+// isolation: it forces a conflict, cancels the request's context while the
+// loop is backing off before its next retry, and checks the RPC as a whole
+// surfaces codes.Canceled - not codes.DeadlineExceeded with a misleading
+// "timed out" message, which is what it did before this was fixed.
+func TestControllerPublishForBlockVolumeCanceledDuringBackoffReportsCanceled(t *testing.T) {
+	origBackoff := vmPatchRetryBackoff
+	vmPatchRetryBackoff = wait.Backoff{
+		Duration: 50 * time.Millisecond, Factor: 1, Jitter: 0, Steps: math.MaxInt32,
+	}
+	defer func() { vmPatchRetryBackoff = origBackoff }()
+
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-cancel-during-backoff"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+	va := &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+		},
+	}
+	guestClient := testclient.NewClientset(va)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+		}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				// Force the first attempt to conflict, then cancel the RPC's
+				// own context while the loop is backing off before retrying.
+				go cancel()
+				return apierrors.NewConflict(storagev1.Resource("virtualmachines"), obj.GetName(), errors.New("conflict"))
+			},
+		}).
+		Build()
+
+	c := &controller{
+		vmOperatorClient:    vmClient,
+		guestClient:         guestClient,
+		supervisorNamespace: namespace,
+	}
+
+	_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+		VolumeId: volumeHandle,
+		NodeId:   nodeName,
+	}, c)
+
+	assertGRPCCode(t, err, codes.Canceled)
+}
+
+// TestRemoveVolumeFromVMSpecCanceledDuringBackoffPreservesReason verifies
+// that removeVolumeFromVMSpec, like the RPC handlers above, reports why it
+// gave up rather than silently returning the last (unrelated) patch conflict
+// error when ctx is canceled while backing off between retries.
+func TestRemoveVolumeFromVMSpecCanceledDuringBackoffPreservesReason(t *testing.T) {
+	origBackoff := vmPatchRetryBackoff
+	vmPatchRetryBackoff = wait.Backoff{
+		Duration: 50 * time.Millisecond, Factor: 1, Jitter: 0, Steps: math.MaxInt32,
+	}
+	defer func() { vmPatchRetryBackoff = origBackoff }()
+
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-remove-cancel-during-backoff"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+			Spec: vmoperatortypes.VirtualMachineSpec{
+				Volumes: []vmoperatortypes.VirtualMachineVolume{{Name: volumeHandle}},
+			},
+		}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				// Force the first attempt to conflict, then cancel while the
+				// loop is backing off before its next retry.
+				go cancel()
+				return apierrors.NewConflict(storagev1.Resource("virtualmachines"), obj.GetName(), errors.New("conflict"))
+			},
+		}).
+		Build()
+
+	c := &controller{vmOperatorClient: vmClient, supervisorNamespace: namespace}
+	vmKey := types.NamespacedName{Namespace: namespace, Name: nodeName}
+
+	err := removeVolumeFromVMSpec(ctx, c, vmKey, volumeHandle, time.Now().Add(time.Minute))
+	if err == nil {
+		t.Fatal("expected an error once ctx is canceled, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected the returned error to wrap context.Canceled (the real reason we gave up), "+
+			"got: %v", err)
+	}
+}
+
+// TestWaitBeforeVMPatchRetry unit-tests waitBeforeVMPatchRetry's two early-exit
+// paths directly, since they are hard to hit reliably by driving the full
+// controllerPublishForBlockVolume/controllerUnpublishForBlockVolume retry loop
+// (both are gated by the multi-minute attacher timeout, not a value tests can
+// shrink): bailing out before sleeping when the next backoff step would run
+// past the deadline anyway, and returning promptly - not after the full delay
+// - when ctx is canceled during the wait.
+func TestWaitBeforeVMPatchRetry(t *testing.T) {
+	t.Run("proceeds and sleeps roughly the backoff step when time remains", func(t *testing.T) {
+		backoff := wait.Backoff{Duration: 30 * time.Millisecond, Factor: 1, Jitter: 0, Steps: math.MaxInt32}
+		start := time.Now()
+		ok := waitBeforeVMPatchRetry(context.Background(), &backoff, start.Add(time.Hour))
+		elapsed := time.Since(start)
+		if !ok {
+			t.Fatal("expected waitBeforeVMPatchRetry to return true when the deadline is far away")
+		}
+		if elapsed < 30*time.Millisecond {
+			t.Errorf("expected to sleep at least the 30ms backoff step, only %v elapsed", elapsed)
+		}
+	})
+
+	t.Run("clamps the delay to the deadline so a final attempt still happens", func(t *testing.T) {
+		backoff := wait.Backoff{Duration: 1 * time.Hour, Factor: 1, Jitter: 0, Steps: math.MaxInt32}
+		start := time.Now()
+		ok := waitBeforeVMPatchRetry(context.Background(), &backoff, start.Add(30*time.Millisecond))
+		elapsed := time.Since(start)
+		if !ok {
+			t.Fatal("expected waitBeforeVMPatchRetry to return true and allow a final attempt at the deadline")
+		}
+		if elapsed > time.Second {
+			t.Errorf("expected the 1h backoff step to be clamped to the ~30ms remaining, took %v", elapsed)
+		}
+	})
+
+	t.Run("bails out immediately, without sleeping, when the deadline has passed", func(t *testing.T) {
+		backoff := wait.Backoff{Duration: 1 * time.Hour, Factor: 1, Jitter: 0, Steps: math.MaxInt32}
+		start := time.Now()
+		ok := waitBeforeVMPatchRetry(context.Background(), &backoff, start.Add(-time.Millisecond))
+		if ok {
+			t.Fatal("expected waitBeforeVMPatchRetry to return false once the deadline has passed")
+		}
+		if time.Since(start) > 10*time.Millisecond {
+			t.Errorf("expected an immediate return, took %v", time.Since(start))
+		}
+	})
+
+	t.Run("returns promptly, not after the full delay, when ctx is canceled mid-wait", func(t *testing.T) {
+		backoff := wait.Backoff{Duration: 1 * time.Hour, Factor: 1, Jitter: 0, Steps: math.MaxInt32}
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+		start := time.Now()
+		ok := waitBeforeVMPatchRetry(ctx, &backoff, start.Add(time.Hour))
+		elapsed := time.Since(start)
+		if ok {
+			t.Fatal("expected waitBeforeVMPatchRetry to return false when ctx is canceled")
+		}
+		if elapsed > time.Second {
+			t.Errorf("expected cancellation to interrupt the wait promptly, took %v", elapsed)
+		}
+	})
+}
+
+// TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode is a
+// burst-style integration test: many goroutines call
+// controllerPublishForBlockVolume concurrently for different volumes on the
+// SAME node, so they race to patch that node's VirtualMachine.Spec.Volumes.
+// Unlike the other conflict tests in this file, no interceptor injects a
+// canned conflict error - the fake client's own optimistic-lock enforcement
+// produces real conflicts when concurrent patches collide, the same way the
+// real API server does: objects added via WithObjects get a resourceVersion
+// assigned automatically (controller-runtime fake client, versioned_tracker.go),
+// and MergeFromWithOptimisticLock embeds it in the patch, so the tracker's
+// accessor.GetResourceVersion() != oldAccessor.GetResourceVersion() check
+// (versioned_tracker.go) rejects a patch carrying a resourceVersion that
+// another goroutine's successful patch has since bumped past.
+//
+// It asserts three things a tight, backoff-less retry loop could get wrong
+// under this kind of burst: every volume ends up attached (no request gives
+// up early), no volume is lost or duplicated in the spec (no lost update from
+// a racy read-modify-write), and contention actually produced retries (i.e.
+// this test is exercising the conflict path, not silently passing because
+// nothing contended).
+func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.T) {
+	origBackoff := vmPatchRetryBackoff
+	vmPatchRetryBackoff = wait.Backoff{
+		Duration: 2 * time.Millisecond,
+		Factor:   1.5,
+		Jitter:   0.5,
+		Cap:      50 * time.Millisecond,
+		Steps:    math.MaxInt32,
+	}
+	defer func() { vmPatchRetryBackoff = origBackoff }()
+
+	ctx := context.Background()
+	const (
+		namespace  = "test-ns"
+		nodeName   = "test-node"
+		numVolumes = 30
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	volumeHandles := make([]string, numVolumes)
+	statusVolumes := make([]vmoperatortypes.VirtualMachineVolumeStatus, numVolumes)
+	for i := 0; i < numVolumes; i++ {
+		vol := fmt.Sprintf("test-cluster-uid-burst-volume-%02d", i)
+		volumeHandles[i] = vol
+		statusVolumes[i] = vmoperatortypes.VirtualMachineVolumeStatus{
+			Name: vol, Attached: true, DiskUUID: fmt.Sprintf("6000c29-fake-disk-uuid-%02d", i),
+		}
+	}
+
+	// status.Volumes reports every disk as already attached so that each
+	// call returns without needing the VirtualMachine watch - the watch
+	// plumbing isn't what this test is exercising.
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+	}
+	vm.Status.Volumes = statusVolumes
+
+	guestObjects := make([]runtime.Object, 0, numVolumes)
+	for _, vol := range volumeHandles {
+		guestObjects = append(guestObjects, &storagev1.VolumeAttachment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: volumeAttachmentName(vol, csitypes.Name, nodeName),
+			},
+		})
+	}
+	guestClient := testclient.NewClientset(guestObjects...)
+
+	// Starting gate: block each of the first numVolumes Get calls - one per
+	// goroutine, since Get is the first thing controllerPublishForBlockVolume
+	// does - until all of them have arrived, then release them together. This
+	// guarantees every goroutine reads the same pre-patch VirtualMachine
+	// (same resourceVersion) before any of them patches it, so at least
+	// numVolumes-1 real conflicts on the first wave are certain, not just
+	// likely: relying on goroutine scheduling alone to produce contention,
+	// without this gate, would make the test flaky under a scheduler that
+	// happens to run the goroutines mostly sequentially.
+	var gate sync.WaitGroup
+	gate.Add(numVolumes)
+	released := make(chan struct{})
+	go func() {
+		gate.Wait()
+		close(released)
+	}()
+	var getCalls atomic.Int64
+	var patchAttempts atomic.Int64
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(vm).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cli ctrlclient.WithWatch, key ctrlclient.ObjectKey,
+				obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+				if getCalls.Add(1) <= int64(numVolumes) {
+					gate.Done()
+					select {
+					case <-released:
+					case <-time.After(10 * time.Second):
+						return errors.New("starting gate never opened: not every goroutine reached Get")
+					}
+				}
+				return cli.Get(ctx, key, obj, opts...)
+			},
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				patchAttempts.Add(1)
+				return cli.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	c := &controller{
+		vmOperatorClient:    vmClient,
+		guestClient:         guestClient,
+		supervisorNamespace: namespace,
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, numVolumes)
+	start := time.Now()
+	for i, vol := range volumeHandles {
+		wg.Add(1)
+		go func(i int, vol string) {
+			defer wg.Done()
+			_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+				VolumeId: vol,
+				NodeId:   nodeName,
+			}, c)
+			errs[i] = err
+		}(i, vol)
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("volume %q: expected attach to succeed, got err: %v", volumeHandles[i], err)
+		}
+	}
+
+	final := &vmoperatortypes.VirtualMachine{}
+	if err := vmClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: nodeName}, final); err != nil {
+		t.Fatalf("failed to read back VirtualMachine: %v", err)
+	}
+	if len(final.Spec.Volumes) != numVolumes {
+		t.Errorf("expected all %d volumes to end up in VirtualMachine.Spec.Volumes, got %d: %+v",
+			numVolumes, len(final.Spec.Volumes), final.Spec.Volumes)
+	}
+	seen := make(map[string]bool)
+	for _, v := range final.Spec.Volumes {
+		if seen[v.Name] {
+			t.Errorf("volume %q appears more than once in VirtualMachine.Spec.Volumes - lost/duplicated update",
+				v.Name)
+		}
+		seen[v.Name] = true
+	}
+
+	// The starting gate above guarantees at least numVolumes-1 conflicts on
+	// the first wave alone (only one of numVolumes goroutines reading the
+	// same resourceVersion can win), so total patch attempts must reach at
+	// least numVolumes (first wave) + (numVolumes-1) (their first retry).
+	if wantMinAttempts := int64(2*numVolumes - 1); patchAttempts.Load() < wantMinAttempts {
+		t.Errorf("expected at least %d patch attempts (%d volumes + at least %d guaranteed first-wave "+
+			"conflicts), got %d - the starting gate should make this deterministic, not probabilistic",
+			wantMinAttempts, numVolumes, numVolumes-1, patchAttempts.Load())
+	}
+	t.Logf("%d volumes attached via %d patch attempts (%.1fx) in %v",
+		numVolumes, patchAttempts.Load(), float64(patchAttempts.Load())/float64(numVolumes), elapsed)
+}
+
 // TestControllerUnpublishForBlockVolumeWatchTermination drives
 // controllerUnpublishForBlockVolume through its VirtualMachine watch loop to
 // verify the two ways that watch can end without observing the volume detached
@@ -1515,6 +2018,159 @@ func TestControllerPublishStaleAfterPatch(t *testing.T) {
 	if len(vm.Spec.Volumes) != 0 {
 		t.Errorf("expected the stale volume to be removed from VirtualMachine.Spec.Volumes, got %+v",
 			vm.Spec.Volumes)
+	}
+}
+
+// TestControllerPublishStaleAfterPatchCleanupSurvivesCancel
+// covers the same stale-after-patch window as TestControllerPublishStaleAfterPatch,
+// but the RPC's context is canceled while removeVolumeFromVMSpec is backing off
+// after a conflict. The cleanup runs on a context detached from the RPC's, so it
+// must still retry and succeed, the stale volume must be removed, and the RPC
+// returns codes.FailedPrecondition (the attach is no longer requested).
+func TestControllerPublishStaleAfterPatchCleanupSurvivesCancel(t *testing.T) {
+	runStaleAfterPatchCancelDuringCleanup(t, false, codes.FailedPrecondition)
+}
+
+// TestControllerPublishStaleAfterPatchCleanupFailsAfterCancelReportsCanceled
+// is the same scenario, but every cleanup patch conflicts until the cleanup
+// gives up. Because the RPC's own context was canceled, the "Failed to remove
+// it" error must surface codes.Canceled rather than codes.Internal.
+func TestControllerPublishStaleAfterPatchCleanupFailsAfterCancelReportsCanceled(t *testing.T) {
+	origTimeout := removeStaleVolumeTimeout
+	removeStaleVolumeTimeout = 300 * time.Millisecond
+	defer func() { removeStaleVolumeTimeout = origTimeout }()
+	runStaleAfterPatchCancelDuringCleanup(t, true, codes.Canceled)
+}
+
+// runStaleAfterPatchCancelDuringCleanup drives the stale-after-patch cleanup
+// with the RPC's context canceled during the cleanup's first backoff. When
+// cleanupAlwaysFails is false only that first cleanup patch conflicts; when
+// true every cleanup patch does.
+func runStaleAfterPatchCancelDuringCleanup(t *testing.T, cleanupAlwaysFails bool, wantCode codes.Code) {
+	t.Helper()
+	const (
+		namespace    = "test-ns"
+		nodeName     = "test-node"
+		volumeHandle = "test-cluster-uid-cleanup-cancel-during-backoff"
+	)
+
+	scheme := runtime.NewScheme()
+	if err := vmoperatortypes.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to register vmoperator scheme: %v", err)
+	}
+
+	origInterval := attachStillRequestedCheckInterval
+	attachStillRequestedCheckInterval = 50 * time.Millisecond
+	defer func() { attachStillRequestedCheckInterval = origInterval }()
+
+	origBackoff := vmPatchRetryBackoff
+	vmPatchRetryBackoff = wait.Backoff{
+		Duration: 50 * time.Millisecond, Factor: 1, Jitter: 0, Steps: math.MaxInt32,
+	}
+	defer func() { vmPatchRetryBackoff = origBackoff }()
+
+	va := &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: volumeAttachmentName(volumeHandle, csitypes.Name, nodeName),
+		},
+	}
+	guestClient := testclient.NewClientset(va)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var patchAttempts atomic.Int64
+	vmClient := ctrlclientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: nodeName, Namespace: namespace},
+		}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
+				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
+				n := patchAttempts.Add(1)
+				if n == 1 {
+					// Let the initial "add volume to spec" patch through so we
+					// reach the watch-wait stage below.
+					return cli.Patch(ctx, obj, patch, opts...)
+				}
+				if n == 2 || cleanupAlwaysFails {
+					// removeVolumeFromVMSpec's first cleanup patch: force a
+					// conflict, then cancel the RPC's context while it backs
+					// off. The cleanup runs on a detached context, so it must
+					// still retry and succeed.
+					if n == 2 {
+						go cancel()
+					}
+					return apierrors.NewConflict(storagev1.Resource("virtualmachines"), obj.GetName(),
+						errors.New("conflict"))
+				}
+				return cli.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	fakeWatch := watch.NewFake()
+	defer fakeWatch.Stop()
+
+	c := &controller{
+		vmOperatorClient:    vmClient,
+		guestClient:         guestClient,
+		supervisorNamespace: namespace,
+		vmWatcher: &cache.ListWatch{
+			WatchFuncWithContext: func(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
+				return fakeWatch, nil
+			},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := controllerPublishForBlockVolume(ctx, &csi.ControllerPublishVolumeRequest{
+			VolumeId: volumeHandle,
+			NodeId:   nodeName,
+		}, c)
+		done <- err
+	}()
+
+	// Wait until the initial patch has landed before deleting the
+	// VolumeAttachment, otherwise we would re-test the pre-patch guard.
+	patched := false
+	for i := 0; i < 100; i++ {
+		vm := &vmoperatortypes.VirtualMachine{}
+		if err := vmClient.Get(ctx,
+			types.NamespacedName{Namespace: namespace, Name: nodeName}, vm); err == nil {
+			if len(vm.Spec.Volumes) == 1 && vm.Spec.Volumes[0].Name == volumeHandle {
+				patched = true
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !patched {
+		t.Fatal("expected the volume to be written into VirtualMachine.Spec.Volumes before the VA is deleted")
+	}
+
+	if err := guestClient.StorageV1().VolumeAttachments().Delete(
+		ctx, va.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("failed to delete VolumeAttachment: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		assertGRPCCode(t, err, wantCode)
+	case <-time.After(15 * time.Second):
+		t.Fatal("controllerPublishForBlockVolume did not return after ctx was canceled")
+	}
+
+	if cleanupAlwaysFails {
+		return
+	}
+	vm := &vmoperatortypes.VirtualMachine{}
+	if err := vmClient.Get(context.Background(),
+		types.NamespacedName{Namespace: namespace, Name: nodeName}, vm); err != nil {
+		t.Fatalf("failed to get VirtualMachine: %v", err)
+	}
+	if len(vm.Spec.Volumes) != 0 {
+		t.Errorf("expected the stale volume to be removed despite ctx cancellation, got %v", vm.Spec.Volumes)
 	}
 }
 
