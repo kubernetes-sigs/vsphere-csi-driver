@@ -342,7 +342,7 @@ func isValidvCenterUsernameWithDomain(username string) bool {
 	// Allowed username is in the format "userName@domainName" or "domainName\\userName".
 	// If domain name is not provided in username, then functions like HasUserPrivilegeOnEntities
 	// doesn't return any entity for given user and eventually volume creation fails.
-	regex := `^(?:[a-zA-Z0-9.-]+\\[a-zA-Z0-9._-]+|[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+)$`
+	regex := `^(?:[a-zA-Z0-9.-]+\\[a-zA-Z0-9._-]+|[a-zA-Z0-9._@-]+@[a-zA-Z0-9.-]+)$`
 	match, _ := regexp.MatchString(regex, username)
 	return match
 }
