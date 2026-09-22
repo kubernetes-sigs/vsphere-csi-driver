@@ -47,8 +47,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	cnsoperatorapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	wcpcapv1alph1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities/v1alpha1"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -117,16 +119,27 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		},
 	)
 
+	// Direct, uncached client for the CR export resources. The manager's client is
+	// cache-backed, so reading ConfigExport through it would start an informer for a
+	// CRD that is absent on supervisors without the addon framework.
+	apiClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		log.Errorf("Failed to create client for CR export resources. Err: %v", err)
+		return err
+	}
+
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: cnsoperatorapis.GroupName})
-	return add(mgr, newReconciler(mgr, recorder))
+	return add(mgr, newReconciler(mgr, recorder, apiClient))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager, recorder record.EventRecorder) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager, recorder record.EventRecorder,
+	apiClient client.Client) reconcile.Reconciler {
 	return &ReconcileSnapshotMetadataService{
-		client:   mgr.GetClient(),
-		scheme:   mgr.GetScheme(),
-		recorder: recorder,
+		client:    mgr.GetClient(),
+		scheme:    mgr.GetScheme(),
+		recorder:  recorder,
+		apiClient: apiClient,
 	}
 }
 
@@ -254,7 +267,44 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		log.Errorf("failed to watch for changes to SMS Service resource with error: %+v", err)
 		return err
 	}
+
+	// Secondary watch: the supervisor Capabilities CR. The CR export resources are
+	// gated on core_addon_management, which can be activated long after this
+	// controller starts; without this watch the activation would go unnoticed until
+	// the next cert rotation or pod restart.
+	err = c.Watch(source.Kind(
+		mgr.GetCache(),
+		&wcpcapv1alph1.Capabilities{},
+		handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, _ *wcpcapv1alph1.Capabilities) []reconcile.Request {
+			return enqueueSMSRequest()
+		}),
+		capabilitiesPredicate(),
+	))
+	if err != nil {
+		log.Errorf("failed to watch for changes to Capabilities resource with error: %+v", err)
+		return err
+	}
 	return nil
+}
+
+// capabilitiesPredicate filters Capabilities events down to the supervisor-capabilities
+// CR and, on update, to an actual change in core_addon_management's activated value, so
+// unrelated capability churn on the same CR does not trigger a reconcile.
+func capabilitiesPredicate() predicate.TypedFuncs[*wcpcapv1alph1.Capabilities] {
+	return predicate.TypedFuncs[*wcpcapv1alph1.Capabilities]{
+		CreateFunc: func(e event.TypedCreateEvent[*wcpcapv1alph1.Capabilities]) bool {
+			return e.Object.GetName() == common.WCPCapabilitiesCRName
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*wcpcapv1alph1.Capabilities]) bool {
+			if e.ObjectNew.GetName() != common.WCPCapabilitiesCRName {
+				return false
+			}
+			return isCoreAddonManagementActivated(e.ObjectOld) != isCoreAddonManagementActivated(e.ObjectNew)
+		},
+		DeleteFunc: func(e event.TypedDeleteEvent[*wcpcapv1alph1.Capabilities]) bool {
+			return false
+		},
+	}
 }
 
 // shouldProcessCertificate checks if the certificate should be processed
@@ -273,6 +323,9 @@ type ReconcileSnapshotMetadataService struct {
 	client   client.Client
 	scheme   *runtime.Scheme
 	recorder record.EventRecorder
+	// apiClient is a direct, uncached client used for the CR export resources, whose
+	// ConfigExport CRD may not exist on the cluster.
+	apiClient client.Client
 }
 
 // Reconcile brings the SnapshotMetadataService CR to its desired state:
@@ -458,12 +511,20 @@ func (r *ReconcileSnapshotMetadataService) Reconcile(ctx context.Context,
 		reconcileLog.Infof("SnapshotMetadataService %s already up-to-date, no action needed", targetSMSName)
 	}
 
+	// Export the SnapshotMetadataService CR for VKS once core_addon_management is
+	// activated. Failures here must not block the caCert/address sync above, which is
+	// this controller's primary job, so they surface as a requeue rather than an error.
+	requeueForCRExport := r.syncCRExportResources(ctx)
+
 	// Cleanup instance entry from backOffDuration map.
 	backOffDurationMapMutex.Lock()
 	delete(backOffDuration, sms.Name)
 	backOffDurationMapMutex.Unlock()
 
 	reconcileLog.Infof("Finished Reconcile for SnapshotMetadataService request: %q", request.NamespacedName)
+	if requeueForCRExport {
+		return reconcile.Result{RequeueAfter: crExportRequeueAfter}, nil
+	}
 	return reconcile.Result{}, nil
 }
 

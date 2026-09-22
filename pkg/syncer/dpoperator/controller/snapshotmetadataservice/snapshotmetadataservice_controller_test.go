@@ -45,6 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	wcpcapapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/wcpcapabilities"
 )
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,9 @@ func newTestScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, v1.AddToScheme(s))
 	require.NoError(t, certmanagerv1.AddToScheme(s))
 	require.NoError(t, snapshotmetadatav1beta1.AddToScheme(s))
+	// Reconcile also reads the Capabilities CR to decide whether to export the
+	// SnapshotMetadataService CR for VKS.
+	require.NoError(t, wcpcapapis.AddToScheme(s))
 	return s
 }
 
