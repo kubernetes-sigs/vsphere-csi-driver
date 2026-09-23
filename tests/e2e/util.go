@@ -2856,8 +2856,11 @@ func verifyIsDetachedInSupervisor(ctx context.Context, f *framework.Framework,
 // verifyPodCreation helps to create/verify and delete the pod in given
 // namespace. It takes client, namespace, pvc, pv as input.
 func verifyPodCreation(ctx context.Context, f *framework.Framework, client clientset.Interface, namespace string,
-	pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume) {
+	pvc *v1.PersistentVolumeClaim, pv *v1.PersistentVolume, wg *sync.WaitGroup) {
 	defer ginkgo.GinkgoRecover()
+	if wg != nil {
+		defer wg.Done()
+	}
 	ginkgo.By("Create pod and wait for this to be in running phase")
 	pod, err := createPod(ctx, client, namespace, nil, []*v1.PersistentVolumeClaim{pvc}, false, "")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -2872,12 +2875,13 @@ func verifyPodCreation(ctx context.Context, f *framework.Framework, client clien
 	expectedInstanceName := pod.Spec.NodeName + "-" + svcPVCName
 	vcVersion = getVCversion(ctx, vcAddress)
 	isBatchAttachSupported := isVersionGreaterOrEqual(vcVersion, batchAttachSupportedVCVersion)
+	crdNameToVerify := crdCNSNodeVMAttachment
 	if isBatchAttachSupported {
 		expectedInstanceName = pod.Spec.NodeName
+		crdNameToVerify = crdCNSNodeVMBatchAttachment
 	}
 	verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName,
-		crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
-	// TODO for batchAttach
+		crdNameToVerify, crdVersion, crdGroup, true)
 	verifyIsAttachedInSupervisor(ctx, f, pod.Spec.NodeName, svcPVCName, crdVersion, crdGroup)
 
 	ginkgo.By("Deleting the pod")
@@ -2892,7 +2896,7 @@ func verifyPodCreation(ctx context.Context, f *framework.Framework, client clien
 
 	ginkgo.By("Verify CnsNodeVmAttachment CRDs are deleted")
 	verifyCRDInSupervisorWithWait(ctx, f, expectedInstanceName,
-		crdCNSNodeVMAttachment, crdVersion, crdGroup, false)
+		crdNameToVerify, crdVersion, crdGroup, false)
 
 }
 
@@ -2911,8 +2915,9 @@ func verifyCRDInSupervisorWithWait(ctx context.Context, f *framework.Framework,
 	resourceClient := dynamicClient.Resource(gvr).Namespace("")
 	var instanceFound bool
 
-	const timeout time.Duration = 30
+	const timeout time.Duration = 2 * time.Minute
 	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		instanceFound = false
 		list, err := resourceClient.List(ctx, metav1.ListOptions{})
 		if err != nil || list == nil {
 			continue
@@ -2952,11 +2957,14 @@ func verifyCRDInSupervisorWithWait(ctx context.Context, f *framework.Framework,
 				}
 			}
 		}
-		if isCreated {
-			gomega.Expect(instanceFound).To(gomega.BeTrue())
-		} else {
-			gomega.Expect(instanceFound).To(gomega.BeFalse())
+		if instanceFound == isCreated {
+			return
 		}
+	}
+	if isCreated {
+		gomega.Expect(instanceFound).To(gomega.BeTrue())
+	} else {
+		gomega.Expect(instanceFound).To(gomega.BeFalse())
 	}
 }
 

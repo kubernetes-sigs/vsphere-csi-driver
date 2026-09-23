@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -243,8 +244,11 @@ var _ = ginkgo.Describe("[csi-guest] CnsNodeVmAttachment persistence", func() {
 		}()
 
 		ginkgo.By("Create 2 Pods concurrently with these PVCs mounted as volumes")
-		go verifyPodCreation(ctx, f, client, namespace, pvc1, pv1)
-		verifyPodCreation(ctx, f, client, namespace, pvc2, pv2)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go verifyPodCreation(ctx, f, client, namespace, pvc1, pv1, &wg)
+		verifyPodCreation(ctx, f, client, namespace, pvc2, pv2, nil)
+		wg.Wait()
 
 	})
 
