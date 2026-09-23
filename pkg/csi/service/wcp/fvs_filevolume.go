@@ -486,7 +486,7 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	}
 
 	fv := &fvv1alpha1.FileVolume{}
-	var exportPath, endpoint string
+	var exportPath, endpoint, fileStore string
 	err = wait.PollUntilContextTimeout(ctx, fvsWaitStep, fvsWaitMax, true, func(ctx context.Context) (bool, error) {
 		if err := c.fileVolumeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: instanceNS, Name: fvName}, fv); err != nil {
 			return false, err
@@ -504,7 +504,17 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 		}
 		exportPath = fv.Status.ExportPath
 		endpoint = fv.Status.Endpoint
-		return exportPath != "" && endpoint != "", nil
+		// The FVS controller labels the FileVolume CR with the backing file store name once the volume
+		// is fully provisioned, but only on a VCFA-backed supervisor: a standalone supervisor never sets
+		// this label. Read it opportunistically so it can be surfaced in the CreateVolume response when
+		// present, but it is not part of the readiness condition below.
+		fileStore = fv.Labels[common.FileStoreLabelKey]
+		if exportPath == "" || endpoint == "" {
+			log.Warnf("FileVolume %s/%s is Ready but still incomplete (exportPath set: %t, endpoint set: %t); "+
+				"continuing to wait", instanceNS, fvName, exportPath != "", endpoint != "")
+			return false, nil
+		}
+		return true, nil
 	})
 	if err != nil {
 		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.DeadlineExceeded,
@@ -517,6 +527,9 @@ func (c *controller) createFileVolumeViaFVS(ctx context.Context, req *csi.Create
 	attributes := map[string]string{
 		common.AttributeDiskType:            common.DiskTypeFileVolume,
 		common.Nfsv4ExportPathAnnotationKey: nfsv41Export,
+	}
+	if fileStore != "" {
+		attributes[common.FileStoreLabelKey] = fileStore
 	}
 
 	resp := &csi.CreateVolumeResponse{
