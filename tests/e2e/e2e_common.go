@@ -171,6 +171,7 @@ const (
 	pollTimeout                               = 10 * time.Minute
 	pollTimeoutShort                          = 1 * time.Minute
 	pollTimeoutSixMin                         = 6 * time.Minute
+	vcRebootRecoveryTimeout                   = 90 * time.Minute
 	healthStatusPollTimeout                   = 20 * time.Minute
 	healthStatusPollInterval                  = 30 * time.Second
 	psodTime                                  = "120"
