@@ -21,6 +21,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,8 @@ import (
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	sqperiodicsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagequotaperiodicsync/v1alpha1"
+	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
 
@@ -1517,6 +1520,86 @@ func TestUpdateStorageQuotaPeriodicSyncCR(t *testing.T) {
 
 			// The function handles errors gracefully by logging them
 			// We verify it completes execution without panicking
+		})
+	}
+}
+
+func TestVCConfigChanged(t *testing.T) {
+	baseOld := &cnsconfig.VirtualCenterConfig{
+		User:                  "administrator@vsphere.local",
+		Password:              "old-password",
+		VCSessionManagerURL:   "https://session-manager.tld/session",
+		VCSessionManagerToken: "old-token",
+	}
+	baseNew := func() *cnsvsphere.VirtualCenterConfig {
+		return &cnsvsphere.VirtualCenterConfig{
+			Host:                  "vc.tld",
+			Username:              baseOld.User,
+			Password:              baseOld.Password,
+			VCSessionManagerURL:   baseOld.VCSessionManagerURL,
+			VCSessionManagerToken: baseOld.VCSessionManagerToken,
+		}
+	}
+	const currentHost = "vc.tld"
+
+	testCases := []struct {
+		name           string
+		mutateNew      func(*cnsvsphere.VirtualCenterConfig)
+		forceReconnect bool
+		want           bool
+	}{
+		{
+			name:      "nothing changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) {},
+			want:      false,
+		},
+		{
+			name:           "force reconnect with nothing else changed",
+			mutateNew:      func(c *cnsvsphere.VirtualCenterConfig) {},
+			forceReconnect: true,
+			want:           true,
+		},
+		{
+			name:      "host changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.Host = "other-vc.tld" },
+			want:      true,
+		},
+		{
+			name:      "username changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.Username = "someone-else@vsphere.local" },
+			want:      true,
+		},
+		{
+			name:      "password changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.Password = "new-password" },
+			want:      true,
+		},
+		{
+			name: "session manager URL changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) {
+				c.VCSessionManagerURL = "https://other-session-manager.tld/session"
+			},
+			want: true,
+		},
+		{
+			name:      "session manager token changed",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.VCSessionManagerToken = "new-token" },
+			want:      true,
+		},
+		{
+			name:      "session manager token cleared",
+			mutateNew: func(c *cnsvsphere.VirtualCenterConfig) { c.VCSessionManagerToken = "" },
+			want:      true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			newVCConfig := baseNew()
+			tc.mutateNew(newVCConfig)
+
+			got := vcConfigChanged(currentHost, baseOld, newVCConfig, tc.forceReconnect)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
