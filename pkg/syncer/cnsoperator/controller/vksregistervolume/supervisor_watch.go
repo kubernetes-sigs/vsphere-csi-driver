@@ -53,6 +53,13 @@ const (
 //   - ("", false, err)      – transient; caller should requeue with backoff.
 //   - ("", true,  err)      – terminal; caller should set Phase=Failed with no requeue.
 //
+// A non-empty Status.Error on the Supervisor CR is treated as transient rather than terminal:
+// CnsRegisterVolume reports errors (e.g. a storage quota not yet propagated) on CRs it is still
+// actively retrying, and its status carries no signal that distinguishes "still retrying" from
+// "gave up". As long as the Supervisor CR exists and hasn't reported Registered==true, this
+// reconciler keeps retrying in lock-step with it, so a transient condition on the Supervisor side
+// can resolve itself without stranding the guest-side registration.
+//
 // A VKS cluster can only ever access resources in its own Supervisor namespace (r.supervisorNamespace),
 // so instance.Spec.CnsRegisterVolumeName is looked up there without a separate namespace field.
 func waitForSupervisorRegistration(
@@ -88,12 +95,14 @@ func waitForSupervisorRegistration(
 			supervisorCRMissingTimeout)
 	}
 
-	if supervisorCR.Status.Error != "" {
-		return "", true, fmt.Errorf("supervisor CnsRegisterVolume %s/%s failed registration: %s",
-			supervisorNamespace, instance.Spec.CnsRegisterVolumeName, supervisorCR.Status.Error)
-	}
-
 	if !supervisorCR.Status.Registered {
+		if supervisorCR.Status.Error != "" {
+			log.Infof("Supervisor CnsRegisterVolume %s/%s reports error %q but still exists and is "+
+				"not yet registered; will retry",
+				supervisorNamespace, instance.Spec.CnsRegisterVolumeName, supervisorCR.Status.Error)
+			return "", false, fmt.Errorf("supervisor CnsRegisterVolume %s/%s not yet registered: %s",
+				supervisorNamespace, instance.Spec.CnsRegisterVolumeName, supervisorCR.Status.Error)
+		}
 		log.Infof("Supervisor CnsRegisterVolume %s/%s not yet registered; will retry",
 			supervisorNamespace, instance.Spec.CnsRegisterVolumeName)
 		return "", false, fmt.Errorf("supervisor CnsRegisterVolume %s/%s not yet registered",

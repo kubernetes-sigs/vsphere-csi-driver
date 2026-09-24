@@ -82,7 +82,7 @@ func TestWaitForSupervisorRegistration(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name: "supervisor CR reports error",
+			name: "supervisor CR reports error but is still retrying is transient",
 			supervisorCR: &cnsregistervolumev1alpha1.CnsRegisterVolume{
 				ObjectMeta: metav1.ObjectMeta{Name: crName, Namespace: supervisorNS},
 				Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
@@ -90,7 +90,20 @@ func TestWaitForSupervisorRegistration(t *testing.T) {
 					Error:      "backing disk not found",
 				},
 			},
-			wantTerminal: true,
+			wantTerminal: false,
+			wantErr:      true,
+		},
+		{
+			name: "supervisor CR reports error and is old is still transient",
+			supervisorCR: &cnsregistervolumev1alpha1.CnsRegisterVolume{
+				ObjectMeta: metav1.ObjectMeta{Name: crName, Namespace: supervisorNS},
+				Status: cnsregistervolumev1alpha1.CnsRegisterVolumeStatus{
+					Registered: false,
+					Error:      "storage policy quota not yet assigned to namespace",
+				},
+			},
+			instanceAge:  supervisorCRMissingTimeout + time.Minute,
+			wantTerminal: false,
 			wantErr:      true,
 		},
 		{
