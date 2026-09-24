@@ -669,7 +669,7 @@ var PbmQueryMatchingHubFn = func(ctx context.Context, vc *cnsvsphere.VirtualCent
 // single-host-local datastores merely attributed to the zone their one mounting host happens to
 // belong to; they are not "zonal" in that sense. The map is still built and returned in this shape
 // solely so checkLinkedClone (called next, via populateVolumeCapabilities) can compute
-// SupportsLinkedClone/SupportsHighPerformanceLinkedClone for host-local policies through the same
+// ZonesSupportingLinkedClone/ZonesSupportingHighPerformanceLinkedClone for host-local policies through the same
 // code path used for regular policies, without having to special-case host-local there too.
 func GetHostLocalAccessibleZones(ctx context.Context, topologyMgr commoncotypes.ControllerTopologyService,
 	vc *cnsvsphere.VirtualCenter, profileID string) (
