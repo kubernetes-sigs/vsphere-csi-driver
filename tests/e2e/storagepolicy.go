@@ -153,6 +153,7 @@ var _ = ginkgo.Describe("Storage Policy Based Volume Provisioning", func() {
 			_, _ = fpv.CreatePVC(ctx, client, namespace, pvcspec)
 
 		} else {
+			expectedErrorMsg = "failed to create volume"
 			scParameters[svStorageClassName] = storagePolicyNameForNonSharedDatastores
 			createVolumeWaitTime = pollTimeout
 		}
