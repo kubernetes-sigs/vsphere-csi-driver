@@ -217,7 +217,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*VirtualCenterConfig, error) {
 	log := logger.GetLogger(ctx)
 	if len(cfg.VirtualCenter) == 0 {
-		return nil, errors.New("unable get vCenter Hosts from VSphereConfig")
+		return nil, errors.New("unable to get vCenter Hosts from VSphereConfig")
 	}
 	VirtualCenterConfigs := make([]*VirtualCenterConfig, 0, len(cfg.VirtualCenter))
 	for host, vcConfigEntry := range cfg.VirtualCenter {
@@ -272,7 +272,7 @@ func getFirstVirtualCenter(cfg *config.Config) (commontypes.FQDN, *config.Virtua
 	for host, vcConfigEntry := range cfg.VirtualCenter {
 		return host, vcConfigEntry, nil
 	}
-	return commontypes.FQDN{}, nil, errors.New("unable get vCenter Hosts from VSphereConfig")
+	return commontypes.FQDN{}, nil, errors.New("unable to get vCenter Hosts from VSphereConfig")
 }
 
 // GetLabelsMapFromKeyValue creates a  map object from given parameter.

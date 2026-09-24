@@ -360,14 +360,14 @@ func getPVCUID(ctx context.Context, pvcName, namespace string) (string, error) {
 
 	k8sClient, err := k8s.NewClient(ctx)
 	if err != nil {
-		log.Errorf("failed to create k8s client. Errror: %s", err)
+		log.Errorf("failed to create k8s client. Error: %s", err)
 		return "", err
 	}
 
 	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, pvcName,
 		v1.GetOptions{})
 	if err != nil {
-		log.Errorf("failed to obtain PVC %s. Errror: %s", pvcName, err)
+		log.Errorf("failed to obtain PVC %s. Error: %s", pvcName, err)
 		return "", err
 	}
 

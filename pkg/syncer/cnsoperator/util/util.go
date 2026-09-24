@@ -443,7 +443,7 @@ func GetVCDatacentersFromConfig(cfg *config.Config) ([]string, commontypes.FQDN,
 		}
 	}
 	if len(dcList) == 0 {
-		return dcList, vcHost, errors.New("unable get vCenter datacenters from vsphere config")
+		return dcList, vcHost, errors.New("unable to get vCenter datacenters from vsphere config")
 	}
 	return dcList, vcHost, nil
 }

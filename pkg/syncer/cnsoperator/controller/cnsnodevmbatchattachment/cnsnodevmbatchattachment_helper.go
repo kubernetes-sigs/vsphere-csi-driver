@@ -443,7 +443,7 @@ func getVolumesToDetachForVmFromVC(ctx context.Context,
 	err = removeStaleEntriesFromInstanceStatus(ctx, client, k8sClient, cnsOperatorClient,
 		instance, pvcsToDetach, volumeNamesInSpec)
 	if err != nil {
-		log.Errorf("failed to remove stale entried from instance spec. Err: %s", err)
+		log.Errorf("failed to remove stale entries from instance spec. Err: %s", err)
 		return pvcsToDetach, err
 	}
 	return pvcsToDetach, nil
