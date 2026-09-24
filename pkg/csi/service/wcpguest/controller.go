@@ -27,8 +27,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -86,6 +88,11 @@ var (
 	// from VirtualMachine.Spec.Volumes once the attach is known to be stale.
 	// Declared as a var so it can be shortened in tests.
 	removeStaleVolumeTimeout = 30 * time.Second
+
+	// listVolumesListTimeout bounds each LIST issued while the pagination lock is held.
+	// Without a deadline, a hung API server would block every subsequent ListVolumes call
+	// behind it. Declared as a var so it can be shortened in tests.
+	listVolumesListTimeout = 30 * time.Second
 
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
@@ -179,6 +186,13 @@ type controller struct {
 	tanzukubernetesClusterName string
 	guestClusterDist           string
 	topologyEnabled            bool
+	// listVolumesMu serializes ListVolumes end to end.
+	listVolumesMu sync.Mutex
+	// listVolumesCache is the current pagination sequence's cache, or nil between sequences.
+	listVolumesCache *listVolumesCache
+	// listVolumesGeneration is bumped once per rebuild, so successive caches never share a
+	// token namespace. Guarded by listVolumesMu, same as the cache itself.
+	listVolumesGeneration int64
 }
 
 // New creates a CNS controller
@@ -863,10 +877,8 @@ func (c *controller) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequ
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 		volumeType = prometheus.PrometheusBlockVolumeType
-		for _, accessMode := range svPVC.Spec.AccessModes {
-			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-				volumeType = prometheus.PrometheusFileVolumeType
-			}
+		if isFileVolumeAccessMode(svPVC.Spec.AccessModes) {
+			volumeType = prometheus.PrometheusFileVolumeType
 		}
 		// Remove the finalizer before deleting the Supervisor PVC if SVPVCSnapshotProtectionFinalizer FSS is enabled
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SVPVCSnapshotProtectionFinalizer) {
@@ -1440,13 +1452,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			log.Error(msg)
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
-		var isFileVolume bool
-		for _, accessMode := range svPVC.Spec.AccessModes {
-			if accessMode == corev1.ReadWriteMany || accessMode == corev1.ReadOnlyMany {
-				isFileVolume = true
-			}
-		}
-		if isFileVolume {
+		if isFileVolumeAccessMode(svPVC.Spec.AccessModes) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.FileVolume) {
 				return controllerUnpublishForFileVolume(ctx, req, c)
@@ -1482,6 +1488,17 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 // removeDetachingSuffixFromVolumeName removes the suffix from the volume name.
 func removeDetachingSuffixFromVolumeName(volumeName string) string {
 	return strings.TrimSuffix(volumeName, ":detaching")
+}
+
+// isFileVolumeAccessMode reports whether accessModes is a file volume's, the access-mode check
+// shared by DeleteVolume and ControllerUnpublishVolume.
+func isFileVolumeAccessMode(accessModes []corev1.PersistentVolumeAccessMode) bool {
+	for _, mode := range accessModes {
+		if mode == corev1.ReadWriteMany || mode == corev1.ReadOnlyMany {
+			return true
+		}
+	}
+	return false
 }
 
 // controllerUnpublishForBlockVolume is helper method to handle ControllerPublishVolume for Block volumes
@@ -1919,15 +1936,6 @@ func (c *controller) ValidateVolumeCapabilities(ctx context.Context, req *csi.Va
 	}, nil
 }
 
-func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
-	*csi.ListVolumesResponse, error) {
-
-	ctx = logger.NewContextWithLogger(ctx)
-	log := logger.GetLogger(ctx)
-	log.Infof("ListVolumes: called with args %+v", logger.RedactCSIRequest(req))
-	return nil, status.Error(codes.Unimplemented, "")
-}
-
 func (c *controller) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (
 	*csi.GetCapacityResponse, error) {
 	ctx = logger.NewContextWithLogger(ctx)
@@ -1982,6 +1990,16 @@ func (c *controller) ControllerGetCapabilities(ctx context.Context, req *csi.Con
 	// will not call ControllerModifyVolume against drivers that do not yet support it.
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VMPVCStoragePolicyMutabilityFSS) {
 		localControllerCaps = append(localControllerCaps, csi.ControllerServiceCapability_RPC_MODIFY_VOLUME)
+	}
+
+	// Advertise both LIST_VOLUMES capabilities together, only when the FSS is on, so
+	// external-attacher never calls an RPC we don't implement. Both this check and
+	// ListVolumes itself re-check the FSS live on every call, so toggling it takes effect
+	// immediately, without a controller pod restart.
+	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		localControllerCaps = append(localControllerCaps,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES,
+			csi.ControllerServiceCapability_RPC_LIST_VOLUMES_PUBLISHED_NODES)
 	}
 
 	for _, cap := range localControllerCaps {
@@ -2656,4 +2674,573 @@ func (c *controller) findSupervisorSnapshotByHandle(
 	log.Infof("Resolved CSI snapshot handle %s to supervisor VolumeSnapshot %s/%s",
 		snapshotHandle, vs.Namespace, vs.Name)
 	return vs.Namespace, vs.Name, nil
+}
+
+// volumeKind picks which pass may publish nodes for a volume - block, legacy file, and
+// FVS file each use a different mechanism.
+type volumeKind int
+
+const (
+	// volumeKindBlock is published via VirtualMachine.Status.Volumes (the block pass).
+	volumeKindBlock volumeKind = iota
+	// volumeKindLegacyFile: published via a per-(PVC,VM) CnsFileAccessConfig record.
+	volumeKindLegacyFile
+	// volumeKindFVSFile: no per-VM ACL/record exists; echoes the guest VolumeAttachment's
+	// node instead - not real detection.
+	volumeKindFVSFile
+)
+
+// ownedVolume represents a single entry in the ownership set, built by scanning guest
+// PersistentVolumes. Only volume handles that make it into this set are eligible to appear in
+// the response. kind starts out as volumeKindBlock or volumeKindLegacyFile from the ownership
+// pass (VolumeMode/access mode alone distinguishes block from file), and is refined to
+// volumeKindFVSFile by the classification pass, which needs the supervisor PVC's storage class.
+type ownedVolume struct {
+	kind          volumeKind
+	capacityBytes int64
+	// nodes accumulates published node names found by the pass applicable to this volume's
+	// kind, deduplicated and sorted at flatten time.
+	nodes []string
+	// bound records whether the owning PersistentVolume was in the Bound phase, used to
+	// break ties when more than one guest PV claims the same volume handle.
+	bound bool
+	// pvName is the owning guest PersistentVolume's Name, which VolumeAttachment.Spec.Source
+	// .PersistentVolumeName references. It is not the same string as the map key (the CNS
+	// volume handle) and must be used to match VolumeAttachments, not the handle.
+	pvName string
+}
+
+// listVolumesCache is built once and served page by page for one pagination sequence.
+// Guarded by controller.listVolumesMu. A rebuild always creates a brand new cache and swaps it
+// in for controller.listVolumesCache; it never edits the old cache's data in place. That's
+// because a response we already sent back may still be holding onto (i.e. sharing the same
+// underlying array as) that old cache's PublishedNodeIds slice, even after we've released the
+// lock. Editing the old cache in place could corrupt data a caller is still reading.
+type listVolumesCache struct {
+	// generation is embedded in every token so a token minted against a superseded cache
+	// can't collide with a coincidentally equal index in the current one.
+	generation int64
+	entries    []*csi.ListVolumesResponse_Entry
+	// maxIssued is the highest starting index ever handed out as a NextToken for this cache.
+	// A starting_token with index <= maxIssued is accepted and replayed, so a client that
+	// never got a response can retry it instead of being rejected as ABORTED. It only moves
+	// forward, and entries is immutable, so replaying any issued index is always safe.
+	maxIssued int
+}
+
+// ListVolumes implements the CSI ListVolumes RPC for the guest (pvCSI) flavor, covering block
+// volumes, legacy file volumes and vSAN File Service (FVS) file volumes. It queries neither CNS
+// nor vCenter for this RPC, reading instead the same Kubernetes objects the attach path already
+// trusts. FVS file volumes get no genuine detection value: no per-node backend record exists
+// for them, so their published nodes are echoed straight from the guest VolumeAttachment.
+func (c *controller) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (
+	*csi.ListVolumesResponse, error) {
+
+	ctx = logger.NewContextWithLogger(ctx)
+	log := logger.GetLogger(ctx)
+	log.Infof("ListVolumes: called with args %+v", req)
+
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.ListVolumes) {
+		return nil, status.Error(codes.Unimplemented, "list volumes FSS disabled")
+	}
+
+	start := time.Now()
+	volumeType := prometheus.PrometheusBlockVolumeType
+	resp, faultType, err := c.listVolumesInternal(ctx, req)
+	if err != nil {
+		if csifault.IsNonStorageFault(faultType) {
+			faultType = csifault.AddCsiNonStoragePrefix(ctx, faultType)
+		}
+		log.Errorf("Operation failed, reporting failure status to Prometheus."+
+			" Operation Type: %q, Volume Type: %q, Fault Type: %q",
+			prometheus.PrometheusListVolumeOpType, volumeType, faultType)
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusFailStatus, faultType).Observe(time.Since(start).Seconds())
+	} else {
+		prometheus.CsiControlOpsHistVec.WithLabelValues(volumeType, prometheus.PrometheusListVolumeOpType,
+			prometheus.PrometheusPassStatus, faultType).Observe(time.Since(start).Seconds())
+	}
+	return resp, err
+}
+
+// listVolumesInternal holds the pagination lock for the whole check, build and page
+// sequence, so exactly one caller is ever inside it at a time.
+func (c *controller) listVolumesInternal(ctx context.Context, req *csi.ListVolumesRequest) (
+	*csi.ListVolumesResponse, string, error) {
+	log := logger.GetLogger(ctx)
+
+	if req.MaxEntries < 0 {
+		return nil, csifault.CSIInvalidArgumentFault, status.Error(codes.InvalidArgument,
+			"MaxEntries must not be negative")
+	}
+
+	c.listVolumesMu.Lock()
+	defer c.listVolumesMu.Unlock()
+
+	startIdx, aborted := parseListVolumesToken(req.StartingToken, c.listVolumesCache)
+	if aborted {
+		currentGen := int64(-1)
+		if c.listVolumesCache != nil {
+			currentGen = c.listVolumesCache.generation
+		}
+		log.Warnf("ListVolumes: starting token does not continue any in-progress listing "+
+			"(current cache generation %d), discarding cache and returning ABORTED", currentGen)
+		c.listVolumesCache = nil
+		return nil, csifault.CSIInternalFault, status.Error(codes.Aborted,
+			"starting_token does not continue the current listing; restart with an empty starting_token")
+	}
+
+	if req.StartingToken == "" {
+		cache, faultType, err := c.buildListVolumesCache(ctx)
+		if err != nil {
+			return nil, faultType, err
+		}
+		c.listVolumesCache = cache
+		startIdx = 0
+	}
+
+	cache := c.listVolumesCache
+	entries := cache.entries
+	end := len(entries)
+	if req.MaxEntries > 0 && int(req.MaxEntries) < end-startIdx {
+		end = startIdx + int(req.MaxEntries)
+	}
+
+	page := entries[startIdx:end]
+	resp := &csi.ListVolumesResponse{Entries: page}
+	if end < len(entries) {
+		resp.NextToken = listVolumesToken(cache.generation, end)
+	}
+	// maxIssued only grows, and is recorded after the page is built, so a retry of this or
+	// any earlier token in the sequence replays the same page instead of being ABORTED.
+	if end > cache.maxIssued {
+		cache.maxIssued = end
+	}
+	return resp, "", nil
+}
+
+// parseListVolumesToken implements the token state machine. An empty token starts a new
+// sequence. Any other value must have an index that was previously issued as a NextToken (or
+// 0, the implicit start) against the current cache generation, or the listing is aborted; it
+// never rebuilds and pages from an index of its own choosing, since that would silently skip
+// or duplicate entries. Accepting any previously issued index - not just the very latest one -
+// lets a client whose response was lost in transit retry the same token and get the same page
+// again, rather than losing the whole in-progress listing.
+func parseListVolumesToken(token string, cache *listVolumesCache) (idx int, aborted bool) {
+	if token == "" {
+		return 0, false
+	}
+	gen, idx, err := splitListVolumesToken(token)
+	if err != nil || idx < 0 {
+		return 0, true
+	}
+	if cache == nil || cache.generation != gen || idx > cache.maxIssued {
+		return 0, true
+	}
+	return idx, false
+}
+
+func listVolumesToken(generation int64, idx int) string {
+	return fmt.Sprintf("%d:%d", generation, idx)
+}
+
+func splitListVolumesToken(token string) (generation int64, idx int, err error) {
+	parts := strings.SplitN(token, ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("malformed starting_token %q", token)
+	}
+	gen, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	i, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return gen, i, nil
+}
+
+// buildListVolumesCache runs the ownership, classification, block and file passes and returns
+// a freshly allocated cache. Never mutates any previous cache.
+func (c *controller) buildListVolumesCache(ctx context.Context) (*listVolumesCache, string, error) {
+	log := logger.GetLogger(ctx)
+
+	owned, faultType, err := c.listOwnedVolumes(ctx)
+	if err != nil {
+		return nil, faultType, err
+	}
+
+	fvsCount, faultType, err := c.classifyFileVolumes(ctx, owned)
+	if err != nil {
+		return nil, faultType, err
+	}
+
+	blockCount := 0
+	for _, ov := range owned {
+		if ov.kind == volumeKindBlock {
+			blockCount++
+		}
+	}
+
+	vmCount, faultType, err := c.addPublishedNodesFromVMs(ctx, owned)
+	if err != nil {
+		return nil, faultType, err
+	}
+
+	// A healthy cluster that owns block volumes necessarily has nodes, so an empty
+	// VirtualMachine list here would be reported as an empty response, which reads to
+	// external-attacher as everything being detached and would force-sync every owned
+	// volume. Fail instead. File volumes never appear in VirtualMachine.Status.Volumes at
+	// all, so their presence says nothing about whether VMs should exist - only owned
+	// block volumes count towards this guard.
+	if vmCount == 0 && blockCount > 0 {
+		return nil, csifault.CSIInternalFault, status.Error(codes.FailedPrecondition,
+			"no VirtualMachine objects found in the Supervisor namespace while this cluster owns "+
+				"provisioned block volumes; refusing to report an empty listing")
+	}
+
+	if err := c.addPublishedNodesForLegacyFileVolumes(ctx, owned); err != nil {
+		return nil, csifault.CSIInternalFault, err
+	}
+
+	// Skipped entirely when the FSS is off: classifyFileVolumes never reclassifies anything to
+	// volumeKindFVSFile in that case, so there is nothing for this pass to echo, and it would
+	// otherwise list every guest VolumeAttachment for no reason.
+	if IsVsanFileVolumeServiceEnabled {
+		if err := c.addPublishedNodesForFVSFileVolumes(ctx, owned); err != nil {
+			return nil, csifault.CSIInternalFault, err
+		}
+	}
+
+	entries, pairCount := flattenListVolumesEntries(owned)
+
+	// Unlike vanilla and wcp, there's no guard here against a drop in published-pair count:
+	// those flavors compare a rebuild against a threshold from the same pass and self-heal on
+	// the next call. Here, both lists are either read to completion or the whole rebuild fails,
+	// so a successful rebuild is never partial. Adding a guard would only ever latch onto a
+	// real drop (e.g. a scale-down) and never recover.
+
+	c.listVolumesGeneration++
+	log.Infof("ListVolumes: rebuilt cache generation %d: owned=%d (block=%d fvsFile=%d) vms=%d entries=%d "+
+		"publishedPairs=%d", c.listVolumesGeneration, len(owned), blockCount, fvsCount, vmCount, len(entries),
+		pairCount)
+
+	return &listVolumesCache{
+		generation: c.listVolumesGeneration,
+		entries:    entries,
+		maxIssued:  0,
+	}, "", nil
+}
+
+// listOwnedVolumes scans guest PersistentVolumes to build the ownership set, seeding one entry
+// per owned handle with its capacity and provisional kind. A file volume is tentatively marked
+// volumeKindLegacyFile here; classifyFileVolumes reclassifies it to volumeKindFVSFile once the
+// supervisor PVC's storage class is known, since VolumeMode/access mode alone cannot tell
+// legacy and FVS file volumes apart. Since nothing outside this set can ever enter the
+// response, a foreign cluster's volumes are excluded automatically, without needing to know
+// which VMs belong to which cluster.
+func (c *controller) listOwnedVolumes(ctx context.Context) (
+	owned map[string]*ownedVolume, faultType string, err error) {
+	log := logger.GetLogger(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
+	defer cancel()
+
+	owned = make(map[string]*ownedVolume)
+	continueToken := ""
+	for {
+		pvList, err := c.guestClient.CoreV1().PersistentVolumes().List(listCtx, metav1.ListOptions{
+			Limit:    500,
+			Continue: continueToken,
+		})
+		if err != nil {
+			msg := fmt.Sprintf("failed to list guest PersistentVolumes: %v", err)
+			log.Error(msg)
+			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+		}
+		for i := range pvList.Items {
+			pv := &pvList.Items[i]
+			if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != csitypes.Name || pv.Spec.CSI.VolumeHandle == "" {
+				continue
+			}
+			// A Block VolumeMode always wins regardless of access mode, since raw block
+			// volumes can be provisioned with RWX/ROX access too.
+			isBlockVolumeMode := pv.Spec.VolumeMode != nil && *pv.Spec.VolumeMode == corev1.PersistentVolumeBlock
+			kind := volumeKindBlock
+			if !isBlockVolumeMode && isFileVolumeAccessMode(pv.Spec.AccessModes) {
+				kind = volumeKindLegacyFile
+			}
+			handle := pv.Spec.CSI.VolumeHandle
+			if existing, exists := owned[handle]; exists {
+				if existing.bound || pv.Status.Phase != corev1.VolumeBound {
+					log.Warnf("ListVolumes: volume handle %q owned by more than one guest "+
+						"PersistentVolume; keeping the entry already recorded (Bound=%t) over "+
+						"this one (Bound=%t)", handle, existing.bound, pv.Status.Phase == corev1.VolumeBound)
+					continue
+				}
+				log.Warnf("ListVolumes: volume handle %q owned by more than one guest "+
+					"PersistentVolume; replacing a non-Bound entry with this Bound one", handle)
+			}
+			capacity := pv.Spec.Capacity[corev1.ResourceStorage]
+			owned[handle] = &ownedVolume{
+				kind:          kind,
+				capacityBytes: capacity.Value(),
+				bound:         pv.Status.Phase == corev1.VolumeBound,
+				pvName:        pv.Name,
+			}
+		}
+		// This is the Kubernetes List API's own chunking token: the API server sets it
+		// whenever more pages remain and leaves it empty on the last page. It's unrelated to
+		// this file's own CSI-level StartingToken/NextToken pagination, which wraps the
+		// fully-built cache below, not this inner PV listing loop.
+		continueToken = pvList.Continue
+		if continueToken == "" {
+			break
+		}
+	}
+	return owned, "", nil
+}
+
+// addPublishedNodesFromVMs lists Supervisor VirtualMachines and, for each Status.Volumes
+// entry satisfying Attached && DiskUUID != "" (the same predicate ControllerPublishVolume
+// waits on), adds the VM name to that volume's node set. Returns the VM count, used by the
+// empty-list guard in buildListVolumesCache.
+func (c *controller) addPublishedNodesFromVMs(ctx context.Context, owned map[string]*ownedVolume) (
+	int, string, error) {
+	log := logger.GetLogger(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
+	defer cancel()
+
+	vmList, err := utils.ListVirtualMachines(listCtx, c.vmOperatorClient, c.supervisorNamespace)
+	if err != nil {
+		msg := fmt.Sprintf("failed to list Supervisor VirtualMachines in namespace %q: %v",
+			c.supervisorNamespace, err)
+		log.Error(msg)
+		return 0, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+	}
+
+	seenNotOwned := 0
+	for i := range vmList.Items {
+		vm := &vmList.Items[i]
+		for _, vs := range vm.Status.Volumes {
+			if !(vs.Attached && vs.DiskUUID != "") {
+				continue
+			}
+			// vm-operator appends ":detaching" to the volume name while a detach is in
+			// flight. Strip it and report the volume as published rather than skipping it,
+			// since reporting it unpublished would race a fresh attach against the detach
+			// already underway.
+			name := removeDetachingSuffixFromVolumeName(vs.Name)
+			ov, ok := owned[name]
+			if !ok {
+				seenNotOwned++
+				continue
+			}
+			if ov.kind != volumeKindBlock {
+				// File volumes are never represented in VirtualMachine.Status.Volumes; a
+				// handle collision here would mean a file volume's supervisor PVC name
+				// coincides with an unrelated block disk entry.
+				log.Warnf("ListVolumes: volume handle %q appears in VirtualMachine.Status.Volumes "+
+					"but is classified as a file volume; ignoring this entry", name)
+				continue
+			}
+			ov.nodes = appendUniqueNode(ov.nodes, vm.Name)
+		}
+	}
+	if seenNotOwned > 0 {
+		log.Infof("ListVolumes: saw %d attached volume(s) on Supervisor VirtualMachines that this "+
+			"cluster does not own (foreign cluster or InstanceVolumeClaim volumes); excluded", seenNotOwned)
+	}
+	return len(vmList.Items), "", nil
+}
+
+// classifyFileVolumes lists supervisor PersistentVolumeClaims and reclassifies each owned file
+// volume (tentatively volumeKindLegacyFile from listOwnedVolumes) to volumeKindFVSFile when its
+// supervisor PVC's storage class is one of the vSAN File Service marker policies, using the
+// same check the guest controller already uses to route publish/unpublish
+// (common.IsFVSPersistentVolumeClaim). Returns the number of volumes reclassified as FVS, for
+// the summary log line in buildListVolumesCache. Block volumes and volumes with no supervisor
+// PVC of the same name are left untouched.
+// Gated on IsVsanFileVolumeServiceEnabled, like every other FVS check in this file.
+func (c *controller) classifyFileVolumes(ctx context.Context, owned map[string]*ownedVolume) (
+	fvsCount int, faultType string, err error) {
+	if !IsVsanFileVolumeServiceEnabled {
+		return 0, "", nil
+	}
+	log := logger.GetLogger(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
+	defer cancel()
+
+	continueToken := ""
+	for {
+		pvcList, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).List(
+			listCtx, metav1.ListOptions{
+				Limit:    500,
+				Continue: continueToken,
+			})
+		if err != nil {
+			msg := fmt.Sprintf("failed to list supervisor PersistentVolumeClaims in namespace %q: %v",
+				c.supervisorNamespace, err)
+			log.Error(msg)
+			return 0, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
+		}
+		for i := range pvcList.Items {
+			pvc := &pvcList.Items[i]
+			ov, ok := owned[pvc.Name]
+			if !ok || ov.kind == volumeKindBlock {
+				continue
+			}
+			if common.IsFVSPersistentVolumeClaim(pvc) {
+				ov.kind = volumeKindFVSFile
+				fvsCount++
+			}
+		}
+		continueToken = pvcList.Continue
+		if continueToken == "" {
+			break
+		}
+	}
+	return fvsCount, "", nil
+}
+
+// addPublishedNodesForLegacyFileVolumes lists supervisor CnsFileAccessConfig objects and, for
+// each with Status.Done, no Status.Error and no deletion timestamp, adds Spec.VMName to the
+// node set of Spec.PvcName if that handle is owned and classified as a legacy file volume. This
+// is a genuine, independent per-node record, unlike the FVS echo path below.
+func (c *controller) addPublishedNodesForLegacyFileVolumes(ctx context.Context, owned map[string]*ownedVolume) error {
+	log := logger.GetLogger(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
+	defer cancel()
+
+	cfgList := &cnsfileaccessconfigv1alpha1.CnsFileAccessConfigList{}
+	if err := c.cnsOperatorClient.List(listCtx, cfgList, client.InNamespace(c.supervisorNamespace)); err != nil {
+		msg := fmt.Sprintf("failed to list CnsFileAccessConfig objects in namespace %q: %v",
+			c.supervisorNamespace, err)
+		log.Error(msg)
+		return status.Error(codes.Internal, msg)
+	}
+
+	seenNotOwned := 0
+	for i := range cfgList.Items {
+		cfg := &cfgList.Items[i]
+		if !cfg.Status.Done || cfg.Status.Error != "" || cfg.DeletionTimestamp != nil {
+			continue
+		}
+		ov, ok := owned[cfg.Spec.PvcName]
+		if !ok || ov.kind != volumeKindLegacyFile {
+			seenNotOwned++
+			continue
+		}
+		ov.nodes = appendUniqueNode(ov.nodes, cfg.Spec.VMName)
+	}
+	if seenNotOwned > 0 {
+		log.Infof("ListVolumes: saw %d CnsFileAccessConfig object(s) that this cluster does not own as a "+
+			"legacy file volume (foreign cluster or reclassified as FVS); excluded", seenNotOwned)
+	}
+	return nil
+}
+
+// addPublishedNodesForFVSFileVolumes lists guest VolumeAttachment objects and, for each owned
+// FVS file volume, copies the node name straight from the matching VolumeAttachment. FVS
+// volumes have no per-node backend record - the export is reachable VPC-wide without a
+// per-VM ACL - so this is a deliberate echo, not an independent check, logged distinctly so
+// it isn't mistaken for real detection coverage.
+//
+// VolumeAttachment.Spec.Source.PersistentVolumeName is the guest PersistentVolume's Name, not
+// the CNS volume handle owned is keyed by, so matching requires a PV-name index over the owned
+// FVS volumes rather than a direct lookup into owned.
+//
+// A list failure here is propagated, not swallowed: an empty result would look identical to
+// "genuinely detached" once flattened, and external-attacher would patch a healthy
+// VolumeAttachment to Attached=false on that basis.
+//
+// Uses the guest's own VolumeAttachments directly rather than GetNodesForVolumes, which isn't
+// wired up for the guest flavor today.
+func (c *controller) addPublishedNodesForFVSFileVolumes(ctx context.Context, owned map[string]*ownedVolume) error {
+	log := logger.GetLogger(ctx)
+	listCtx, cancel := context.WithTimeout(ctx, listVolumesListTimeout)
+	defer cancel()
+
+	vaList, err := c.guestClient.StorageV1().VolumeAttachments().List(listCtx, metav1.ListOptions{})
+	if err != nil {
+		msg := fmt.Sprintf("failed to list guest VolumeAttachments for the FVS file volume echo path: %v", err)
+		log.Error(msg)
+		return status.Error(codes.Internal, msg)
+	}
+
+	fvsByPVName := make(map[string]*ownedVolume, len(owned))
+	for _, ov := range owned {
+		if ov.kind == volumeKindFVSFile && ov.pvName != "" {
+			fvsByPVName[ov.pvName] = ov
+		}
+	}
+
+	fvsPublished := 0
+	for i := range vaList.Items {
+		va := &vaList.Items[i]
+		if va.Spec.Attacher != csitypes.Name || va.Spec.Source.PersistentVolumeName == nil {
+			continue
+		}
+		// Require Status.Attached, not just the object's existence: a VolumeAttachment is
+		// created before the attach completes, so treating its mere presence as published
+		// would echo an attach that is still in flight. This is the same condition
+		// vanilla/wcp's VolumeAttachment informer gates on before adding a volume to their
+		// own node map.
+		if !va.Status.Attached {
+			continue
+		}
+		ov, ok := fvsByPVName[*va.Spec.Source.PersistentVolumeName]
+		if !ok {
+			continue
+		}
+		ov.nodes = appendUniqueNode(ov.nodes, va.Spec.NodeName)
+		fvsPublished++
+	}
+	if fvsPublished > 0 {
+		log.Infof("ListVolumes: reported %d FVS file volume(s) published by echoing their guest "+
+			"VolumeAttachment; this provides no detection value for that subset", fvsPublished)
+	}
+	return nil
+}
+
+// appendUniqueNode appends nodeName if not already present. This avoids double-counting a
+// volume seen as both "foo" and "foo:detaching" on the same VM.
+func appendUniqueNode(nodes []string, nodeName string) []string {
+	for _, n := range nodes {
+		if n == nodeName {
+			return nodes
+		}
+	}
+	return append(nodes, nodeName)
+}
+
+// flattenListVolumesEntries sorts handles and, within each, node IDs, so page boundaries are
+// deterministic across rebuilds since map iteration order is not. Status is always non-nil,
+// even when PublishedNodeIds is empty, because the attacher's lister silently drops any
+// entry whose Status is nil. Returns the entries plus the total published pair count, logged
+// by buildListVolumesCache.
+func flattenListVolumesEntries(owned map[string]*ownedVolume) ([]*csi.ListVolumesResponse_Entry, int) {
+	handles := make([]string, 0, len(owned))
+	for h := range owned {
+		handles = append(handles, h)
+	}
+	sort.Strings(handles)
+
+	entries := make([]*csi.ListVolumesResponse_Entry, 0, len(handles))
+	pairCount := 0
+	for _, h := range handles {
+		ov := owned[h]
+		nodes := append([]string(nil), ov.nodes...)
+		sort.Strings(nodes)
+		pairCount += len(nodes)
+		entries = append(entries, &csi.ListVolumesResponse_Entry{
+			Volume: &csi.Volume{
+				VolumeId:      h,
+				CapacityBytes: ov.capacityBytes,
+			},
+			Status: &csi.ListVolumesResponse_VolumeStatus{
+				PublishedNodeIds: nodes,
+			},
+		})
+	}
+	return entries, pairCount
 }
