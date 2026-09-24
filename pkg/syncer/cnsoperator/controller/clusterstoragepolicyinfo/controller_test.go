@@ -3956,36 +3956,28 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                          string
-		k8sCompliantName              string
-		expectedSupportsVolumeBlock   bool
-		expectedSupportsLinkedClone   bool
-		expectedSupportsHPLinkedClone bool
-		isMarkerPolicy                bool
+		name                        string
+		k8sCompliantName            string
+		expectedSupportsVolumeBlock bool
+		isMarkerPolicy              bool
 	}{
 		{
-			name:                          "Non-marker policy supports all capabilities",
-			k8sCompliantName:              "some-regular-policy",
-			expectedSupportsVolumeBlock:   true,
-			expectedSupportsLinkedClone:   false, // false: nil topology manager in test
-			expectedSupportsHPLinkedClone: false, // false: nil topology manager in test
-			isMarkerPolicy:                false,
+			name:                        "Non-marker policy supports all capabilities",
+			k8sCompliantName:            "some-regular-policy",
+			expectedSupportsVolumeBlock: true,
+			isMarkerPolicy:              false,
 		},
 		{
-			name:                          "Marker policy does not support block volume mode and linked clone capabilities",
-			k8sCompliantName:              common.StorageClassVsanFileServicePolicy,
-			expectedSupportsVolumeBlock:   false,
-			expectedSupportsLinkedClone:   false,
-			expectedSupportsHPLinkedClone: false,
-			isMarkerPolicy:                true,
+			name:                        "Marker policy does not support block volume mode and linked clone capabilities",
+			k8sCompliantName:            common.StorageClassVsanFileServicePolicy,
+			expectedSupportsVolumeBlock: false,
+			isMarkerPolicy:              true,
 		},
 		{
-			name:                          "Different policy name supports block volume mode",
-			k8sCompliantName:              "custom-storage-policy",
-			expectedSupportsVolumeBlock:   true,
-			expectedSupportsLinkedClone:   false, // false: nil topology manager in test
-			expectedSupportsHPLinkedClone: false, // false: nil topology manager in test
-			isMarkerPolicy:                false,
+			name:                        "Different policy name supports block volume mode",
+			k8sCompliantName:            "custom-storage-policy",
+			expectedSupportsVolumeBlock: true,
+			isMarkerPolicy:              false,
 		},
 	}
 
@@ -4018,19 +4010,14 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 				"SupportsVolumeModeBlock should be %v for k8sCompliantName %s",
 				tt.expectedSupportsVolumeBlock, tt.k8sCompliantName)
 
-			// Check SupportsLinkedClone matches expected value
-			actualLC, existsLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsLinkedClone]
-			assert.True(t, existsLC, "SupportsLinkedClone should be set")
-			assert.Equal(t, tt.expectedSupportsLinkedClone, actualLC,
-				"SupportsLinkedClone should be %v for k8sCompliantName %s",
-				tt.expectedSupportsLinkedClone, tt.k8sCompliantName)
-
-			// Check SupportsHighPerformanceLinkedClone matches expected value
-			actualHPLC, existsHPLC := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHighPerformanceLinkedClone]
-			assert.True(t, existsHPLC, "SupportsHighPerformanceLinkedClone should be set")
-			assert.Equal(t, tt.expectedSupportsHPLinkedClone, actualHPLC,
-				"SupportsHighPerformanceLinkedClone should be %v for k8sCompliantName %s",
-				tt.expectedSupportsHPLinkedClone, tt.k8sCompliantName)
+			// No zone supports LinkedClone/HighPerformanceLinkedClone: marker policies never do, and
+			// non-marker policies have no zones with compatible datastores in this test. Both
+			// capabilities are still reported, each with an empty zone list.
+			assert.Equal(t, map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
+				infraspiv1alpha1.ZonesSupportingLinkedClone:                {},
+				infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {},
+			}, infraSPI.Status.ZonalVolumeCapabilities,
+				"empty zonal capabilities expected for k8sCompliantName %s", tt.k8sCompliantName)
 		})
 	}
 }
@@ -4076,16 +4063,16 @@ func TestPopulateVolumeCapabilities_HostLocal(t *testing.T) {
 }
 
 // TestCheckHighPerformanceLinkedClone_EmptyInput verifies that an empty per-zone map
-// returns false without error and without making any vCenter calls.
+// returns no zones without error and without making any vCenter calls.
 func TestCheckHighPerformanceLinkedClone_EmptyInput(t *testing.T) {
 	ctx := context.Background()
 	result, err := checkHighPerformanceLinkedClone(ctx, nil, map[string]map[string]vimtypes.ManagedObjectReference{})
 	assert.NoError(t, err)
-	assert.False(t, result, "empty per-zone input should yield HPLC=false")
+	assert.Empty(t, result, "empty per-zone input should yield no HPLC zones")
 }
 
 // TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts verifies that zones with no
-// ESXi 9.1+ hosts yield HPLC=false (no ESA check possible, all-zones requirement fails).
+// ESXi 9.1+ hosts yield no HPLC zones, without an ESA check (and so without a vCenter client).
 func TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts(t *testing.T) {
 	ctx := context.Background()
 	input := map[string]map[string]vimtypes.ManagedObjectReference{
@@ -4094,17 +4081,17 @@ func TestCheckHighPerformanceLinkedClone_ZonesWithNoHosts(t *testing.T) {
 	}
 	result, err := checkHighPerformanceLinkedClone(ctx, nil, input)
 	assert.NoError(t, err)
-	assert.False(t, result, "HPLC must be false when no zone has ESXi 9.1+ hosts")
+	assert.Empty(t, result, "no HPLC zones when no zone has ESXi 9.1+ hosts")
 }
 
 // TestCheckLinkedClone_NoZones verifies that checkLinkedClone returns
-// LC=false when there are no zones with compatible datastores (empty zoneCompatibleDS).
+// no LC zones when there are no zones with compatible datastores (empty zoneCompatibleDS).
 func TestCheckLinkedClone_NoZones(t *testing.T) {
 	ctx := context.Background()
 	stubVC := &cnsvsphere.VirtualCenter{Client: &govmomi.Client{}}
 	lc, perZone, err := checkLinkedClone(ctx, stubVC, "test-policy", map[string][]*cnsvsphere.DatastoreInfo{}, nil)
 	assert.NoError(t, err)
-	assert.False(t, lc, "LC must be false when there are no zones")
+	assert.Empty(t, lc, "no LC zones when there are no zones")
 	assert.Empty(t, perZone)
 }
 
@@ -4114,7 +4101,7 @@ func TestCheckLinkedClone_NilVC(t *testing.T) {
 	ctx := context.Background()
 	lc, perZone, err := checkLinkedClone(ctx, nil, "test-policy", nil, nil)
 	assert.Error(t, err)
-	assert.False(t, lc)
+	assert.Empty(t, lc)
 	assert.Nil(t, perZone)
 }
 
@@ -4130,19 +4117,18 @@ func TestCheckHighPerformanceLinkedClone_NilVC(t *testing.T) {
 	assert.Error(t, err, "nil vc should return an error when hosts are present")
 }
 
-// TestCheckHighPerformanceLinkedClone_PartialZoneSupport verifies that HPLC=false
-// when only a subset of zones have ESXi 9.1+ hosts (all-zones requirement).
+// TestCheckHighPerformanceLinkedClone_PartialZoneSupport verifies that a zone with no ESXi 9.1+
+// hosts no longer short-circuits the whole check: the remaining zone with a host must still be
+// evaluated for vSAN-ESA, which here requires (and so fails on) the missing vCenter client.
 func TestCheckHighPerformanceLinkedClone_PartialZoneSupport(t *testing.T) {
 	ctx := context.Background()
 	fakeHost := vimtypes.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
-	// zone-a has a host; zone-b has none — all-zones requirement is not met.
 	input := map[string]map[string]vimtypes.ManagedObjectReference{
 		"zone-a": {fakeHost.Value: fakeHost},
 		"zone-b": {},
 	}
-	result, err := checkHighPerformanceLinkedClone(ctx, nil, input)
-	assert.NoError(t, err)
-	assert.False(t, result, "HPLC must be false when not all zones have ESXi 9.1+ hosts")
+	_, err := checkHighPerformanceLinkedClone(ctx, nil, input)
+	assert.Error(t, err, "zone-a must still be checked for vSAN-ESA even though zone-b has no hosts")
 }
 
 // --- simulator helpers ----------------------------------------------------------------
@@ -4383,7 +4369,7 @@ func TestFetchESXi91HostsForDatastore_AllESXi91(t *testing.T) {
 
 // --- checkLinkedClone simulator tests --------------------------------------------------
 
-// TestCheckLinkedClone_SingleZoneAllHostsESXi91 verifies LC=true when the only zone's
+// TestCheckLinkedClone_SingleZoneAllHostsESXi91 verifies LC is supported in the only zone when its
 // compatible datastore is mounted only by ESXi 9.1+ hosts.
 func TestCheckLinkedClone_SingleZoneAllHostsESXi91(t *testing.T) {
 	ctx, vc, model, stop := setupLCSim(t, 1, 2)
@@ -4402,13 +4388,13 @@ func TestCheckLinkedClone_SingleZoneAllHostsESXi91(t *testing.T) {
 
 	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
 	require.NoError(t, err)
-	assert.True(t, lc, "LC should be true when the zone's datastore is mounted only by ESXi 9.1+ hosts")
+	assert.Equal(t, []string{"zone-a"}, lc,
+		"zone-a should support LC when its datastore is mounted only by ESXi 9.1+ hosts")
 	assert.NotEmpty(t, perZone["zone-a"])
 }
 
-// TestCheckLinkedClone_OneZoneMissingESXi91Host verifies LC=false when only one of two
-// zones has a qualifying ESXi 9.1+ host (LC requires every zone with compatible
-// datastores to have at least one).
+// TestCheckLinkedClone_OneZoneMissingESXi91Host verifies that only the zone with a qualifying
+// ESXi 9.1+ host is reported when the other zone with compatible datastores has none.
 func TestCheckLinkedClone_OneZoneMissingESXi91Host(t *testing.T) {
 	ctx, vc, model, clusters, datastores, stop := setupLCSimIsolatedDatastores(t, 2)
 	defer stop()
@@ -4431,7 +4417,7 @@ func TestCheckLinkedClone_OneZoneMissingESXi91Host(t *testing.T) {
 
 	lc, _, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
 	require.NoError(t, err)
-	assert.False(t, lc, "LC must be false when not every zone has a qualifying ESXi 9.1+ host")
+	assert.Equal(t, []string{"zone-a"}, lc, "only zone-a has a qualifying ESXi 9.1+ host")
 }
 
 // TestCheckLinkedClone_HostFromInactiveClusterExcluded verifies that a host is only
@@ -4464,7 +4450,7 @@ func TestCheckLinkedClone_HostFromInactiveClusterExcluded(t *testing.T) {
 
 	lc, perZone, err := checkLinkedClone(ctx, vc, "test-policy", zoneCompatibleDS, zoneClusters)
 	require.NoError(t, err)
-	assert.True(t, lc, "LC should be true: zone-a has an ESXi 9.1+ host in its active cluster")
+	assert.Equal(t, []string{"zone-a"}, lc, "zone-a has an ESXi 9.1+ host in its active cluster")
 	assert.Contains(t, perZone["zone-a"], hostsA[0].Value, "clusterA's host is an active member of zone-a")
 	assert.NotContains(t, perZone["zone-a"], hostsB[0].Value,
 		"clusterB's host must be excluded: clusterB is not an active member of zone-a")
@@ -4472,8 +4458,8 @@ func TestCheckLinkedClone_HostFromInactiveClusterExcluded(t *testing.T) {
 
 // --- checkHighPerformanceLinkedClone simulator tests ----------------------------------
 
-// TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled verifies HPLC=true when
-// the single zone's cluster has vSAN-ESA enabled.
+// TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled verifies the single zone supports HPLC
+// when its cluster has vSAN-ESA enabled.
 func TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled(t *testing.T) {
 	ctx, vc, model, stop := setupLCSim(t, 1, 1)
 	defer stop()
@@ -4490,10 +4476,10 @@ func TestCheckHighPerformanceLinkedClone_SingleZone_ESAEnabled(t *testing.T) {
 	}
 	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
 	require.NoError(t, err)
-	assert.True(t, result, "HPLC should be true when the zone's cluster has ESA enabled")
+	assert.Equal(t, []string{"zone-a"}, result, "zone-a should support HPLC when its cluster has ESA enabled")
 }
 
-// TestCheckHighPerformanceLinkedClone_SingleZone_NoESA verifies HPLC=false when
+// TestCheckHighPerformanceLinkedClone_SingleZone_NoESA verifies no HPLC zones are reported when
 // the single zone's cluster does not have vSAN-ESA enabled.
 func TestCheckHighPerformanceLinkedClone_SingleZone_NoESA(t *testing.T) {
 	ctx, vc, model, stop := setupLCSim(t, 1, 1)
@@ -4511,11 +4497,11 @@ func TestCheckHighPerformanceLinkedClone_SingleZone_NoESA(t *testing.T) {
 	}
 	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
 	require.NoError(t, err)
-	assert.False(t, result, "HPLC should be false when the zone's cluster has no ESA")
+	assert.Empty(t, result, "no HPLC zones when the zone's cluster has no ESA")
 }
 
-// TestCheckHighPerformanceLinkedClone_TwoZones_AllESA verifies HPLC=true only when
-// every zone has at least one host in an ESA-enabled cluster.
+// TestCheckHighPerformanceLinkedClone_TwoZones_AllESA verifies every zone is reported, sorted, when
+// each has at least one host in an ESA-enabled cluster.
 func TestCheckHighPerformanceLinkedClone_TwoZones_AllESA(t *testing.T) {
 	ctx, vc, model, stop := setupLCSim(t, 2, 1)
 	defer stop()
@@ -4539,11 +4525,11 @@ func TestCheckHighPerformanceLinkedClone_TwoZones_AllESA(t *testing.T) {
 	}
 	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
 	require.NoError(t, err)
-	assert.True(t, result, "HPLC should be true when all zones have ESA-enabled clusters")
+	assert.Equal(t, []string{"zone-a", "zone-b"}, result, "both zones have ESA-enabled clusters")
 }
 
-// TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA verifies HPLC=false when
-// only one of two zones has an ESA-enabled cluster (all-zones requirement).
+// TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA verifies only the zone with an
+// ESA-enabled cluster is reported when the other zone's cluster has no ESA.
 func TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA(t *testing.T) {
 	ctx, vc, model, stop := setupLCSim(t, 2, 1)
 	defer stop()
@@ -4567,7 +4553,39 @@ func TestCheckHighPerformanceLinkedClone_TwoZones_PartialESA(t *testing.T) {
 	}
 	result, err := checkHighPerformanceLinkedClone(ctx, vc, input)
 	require.NoError(t, err)
-	assert.False(t, result, "HPLC should be false when not all zones have ESA-enabled clusters")
+	assert.Equal(t, []string{"zone-a"}, result, "only zone-a has an ESA-enabled cluster")
+}
+
+// TestPopulateVolumeCapabilities_MixedZones mirrors the motivating scenario: of three zones, only
+// zone-b and zone-c have ESXi 9.1+ hosts, and only zone-b's cluster has vSAN-ESA. InfraSPI must
+// list exactly those zones per capability, with HPLC zones a subset of LC zones.
+func TestPopulateVolumeCapabilities_MixedZones(t *testing.T) {
+	ctx, vc, model, clusters, datastores, stop := setupLCSimIsolatedDatastores(t, 3)
+	defer stop()
+
+	versions := []string{"8.0.3", "9.1.0", "9.1.0"}
+	esa := []bool{true, true, false}
+	zones := []string{"zone-a", "zone-b", "zone-c"}
+	zoneCompatibleDS := make(map[string][]*cnsvsphere.DatastoreInfo, len(zones))
+	zoneClusters := make(map[string][]string, len(zones))
+	for i, zone := range zones {
+		for _, hostRef := range hostRefsInCluster(model, clusters[i]) {
+			setHostESXiVersion(model, hostRef, versions[i])
+		}
+		setClusterESA(model, clusters[i], esa[i])
+		zoneCompatibleDS[zone] = []*cnsvsphere.DatastoreInfo{datastores[i]}
+		zoneClusters[zone] = []string{clusters[i].Value}
+	}
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
+	infraSPI.Name = "some-regular-policy"
+	err := populateVolumeCapabilities(ctx, infraSPI, vc, "test-policy", zoneCompatibleDS, zoneClusters, false)
+	require.NoError(t, err)
+	assert.Equal(t, map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
+		infraspiv1alpha1.ZonesSupportingLinkedClone:                {"zone-b", "zone-c"},
+		infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {"zone-b"},
+	}, infraSPI.Status.ZonalVolumeCapabilities)
+	assert.True(t, infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeBlock])
 }
 
 // TestMapFVSNamespaceToClusterMarkerSPI verifies that any FVS instance namespace event maps to
