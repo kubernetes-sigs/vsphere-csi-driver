@@ -51,6 +51,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -86,6 +87,25 @@ var (
 	// from VirtualMachine.Spec.Volumes once the attach is known to be stale.
 	// Declared as a var so it can be shortened in tests.
 	removeStaleVolumeTimeout = 30 * time.Second
+
+	// vmPatchConflictBackoff bounds the delay between retries when patching a
+	// VirtualMachine's Spec.Volumes loses a race with another concurrent
+	// Attach/Detach on the same node (an optimistic-concurrency conflict).
+	// Without this, a burst of Attach/Detach calls landing on the same node
+	// retries in a tight loop with no delay, which just re-collides.
+	//
+	// wait.Backoff applies Jitter on top of Cap (it jitters the delay it is
+	// about to return, after growth has already been clamped to Cap), so the
+	// delay actually returned can be up to Cap*(1+Jitter). Cap is set below
+	// its intended 5s ceiling to leave room for that, so the jittered delay
+	// this produces tops out at 5s.
+	vmPatchConflictBackoff = wait.Backoff{
+		Duration: 100 * time.Millisecond,
+		Factor:   2.0,
+		Jitter:   0.5,
+		Cap:      (5 * time.Second) * 2 / 3, // 5s / (1+Jitter)
+		Steps:    math.MaxInt32,
+	}
 
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
@@ -1012,6 +1032,54 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 	return resp, err
 }
 
+// waitBeforeVMPatchRetry pauses for the next exponential-backoff-with-jitter
+// step before retrying a VirtualMachine patch that lost an optimistic-
+// concurrency race. It returns false, without necessarily sleeping the full
+// delay, if ctx is done or waiting would run past deadline; callers should
+// treat that the same as a timeout.
+func waitBeforeVMPatchRetry(ctx context.Context, backoff *wait.Backoff, deadline time.Time) bool {
+	log := logger.GetLogger(ctx)
+	delay := backoff.Step()
+	if time.Now().Add(delay).After(deadline) {
+		return false
+	}
+	log.Debugf("backing off %v before retrying VirtualMachine patch", delay)
+	select {
+	case <-time.After(delay):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// vmPatchRetryStoppedError reports why controllerPublishForBlockVolume/
+// controllerUnpublishForBlockVolume gave up on their VirtualMachine patch
+// retry loop. waitBeforeVMPatchRetry collapses "ctx was canceled or hit its
+// own deadline while backing off" and "our internal retry deadline was
+// reached" into a single false return, so the caller must consult ctx.Err()
+// here to tell them apart, the same way vmWatchClosedError (above) does:
+// reporting a cancelled or caller-timed-out RPC with a "timed out after N
+// minute(s)" message describing our own internal budget would be misleading.
+func vmPatchRetryStoppedError(ctx context.Context, action, volumeID, vmName string) (string, error) {
+	log := logger.GetLogger(ctx)
+	code := codes.DeadlineExceeded
+	var msg string
+	switch ctx.Err() {
+	case context.Canceled:
+		code = codes.Canceled
+		msg = fmt.Sprintf("context was canceled while trying to %s volume %q to virtualmachine %q spec",
+			action, volumeID, vmName)
+	case context.DeadlineExceeded:
+		msg = fmt.Sprintf("context deadline exceeded while trying to %s volume %q to virtualmachine %q spec",
+			action, volumeID, vmName)
+	default:
+		msg = fmt.Sprintf("timed out after %d minute(s) trying to %s volume %q to virtualmachine %q spec",
+			getAttacherTimeoutInMin(ctx), action, volumeID, vmName)
+	}
+	log.Error(msg)
+	return csifault.CSIInternalFault, status.Error(code, msg)
+}
+
 // removeVolumeFromVMSpec removes volumeID from the VirtualMachine's
 // Spec.Volumes if it is present, retrying until deadline on patch conflicts.
 // It is a no-op (returns nil) when the VirtualMachine is gone or the volume is
@@ -1025,6 +1093,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 func removeVolumeFromVMSpec(ctx context.Context, c *controller, vmKey types.NamespacedName,
 	volumeID string, deadline time.Time) error {
 	log := logger.GetLogger(ctx)
+	backoff := vmPatchConflictBackoff
 	for {
 		virtualMachine, _, err := utils.GetVirtualMachine(ctx, vmKey, c.vmOperatorClient)
 		if err != nil {
@@ -1049,15 +1118,22 @@ func removeVolumeFromVMSpec(ctx context.Context, c *controller, vmKey types.Name
 				volumeID, vmKey.Name)
 			return nil
 		}
-		if err := utils.PatchVirtualMachine(ctx, c.vmOperatorClient, virtualMachine, oldVirtualMachine); err == nil {
+		err = utils.PatchVirtualMachine(ctx, c.vmOperatorClient, virtualMachine, oldVirtualMachine)
+		if err == nil {
 			log.Infof("Removed volume %q from virtualmachine %q spec", volumeID, vmKey.Name)
 			return nil
-		} else {
-			log.Errorf("failed to remove volume %q from virtualmachine %q spec. Err: %v",
-				volumeID, vmKey.Name, err)
-			if time.Now().After(deadline) {
-				return err
+		}
+		log.Errorf("failed to remove volume %q from virtualmachine %q spec. Err: %v",
+			volumeID, vmKey.Name, err)
+		if !waitBeforeVMPatchRetry(ctx, &backoff, deadline) {
+			// If ctx itself was canceled or hit its own deadline, that - not
+			// the last patch conflict - is why we're giving up; report it so
+			// callers/logs see the real reason rather than a stale conflict.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("gave up removing volume %q from virtualmachine %q spec: %w",
+					volumeID, vmKey.Name, ctxErr)
 			}
+			return err
 		}
 	}
 }
@@ -1078,6 +1154,7 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	backoff := vmPatchConflictBackoff
 	for {
 		virtualMachine, _, err = utils.GetVirtualMachine(
 			ctx, vmKey, c.vmOperatorClient)
@@ -1130,11 +1207,9 @@ func controllerPublishForBlockVolume(ctx context.Context, req *csi.ControllerPub
 		} else {
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
-		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timed out after %d minute(s) trying to add volume %q to virtualmachine %q spec",
-				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
+		if !waitBeforeVMPatchRetry(ctx, &backoff, timeout) {
+			faultType, err := vmPatchRetryStoppedError(ctx, "add", req.VolumeId, virtualMachine.Name)
+			return nil, faultType, err
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
@@ -1496,6 +1571,7 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 	var err error
 	timeoutSeconds := int64(getAttacherTimeoutInMin(ctx) * 60)
 	timeout := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	backoff := vmPatchConflictBackoff
 	for {
 		virtualMachine, _, err = utils.GetVirtualMachine(
 			ctx, vmKey, c.vmOperatorClient)
@@ -1525,11 +1601,9 @@ func controllerUnpublishForBlockVolume(ctx context.Context, req *csi.ControllerU
 		} else {
 			log.Errorf("failed to update virtualmachine. Err: %v", err)
 		}
-		if time.Now().After(timeout) {
-			msg := fmt.Sprintf("timed out after %d minute(s) trying to remove volume %q from virtualmachine %q spec",
-				getAttacherTimeoutInMin(ctx), req.VolumeId, virtualMachine.Name)
-			log.Error(msg)
-			return nil, csifault.CSIInternalFault, status.Error(codes.DeadlineExceeded, msg)
+		if !waitBeforeVMPatchRetry(ctx, &backoff, timeout) {
+			faultType, err := vmPatchRetryStoppedError(ctx, "remove", req.VolumeId, virtualMachine.Name)
+			return nil, faultType, err
 		}
 		virtualMachine = &vmoperatortypes.VirtualMachine{}
 	}
