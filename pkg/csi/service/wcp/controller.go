@@ -2404,7 +2404,7 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			caps := []*csi.VolumeCapability{volCap}
 			if isSharedRawBlockRequest(ctx, caps) {
 				// Shared Disk feature is not supported for PodVMs.
-				err := fmt.Errorf("shared disks are not supportd for PodVMs. Invalid request %+v",
+				err := fmt.Errorf("shared disks are not supported for PodVMs. Invalid request %+v",
 					logger.RedactCSIRequest(req))
 				log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
 				return nil, csifault.CSIInvalidArgumentFault, err

@@ -295,7 +295,7 @@ func GetSVMotionPlan(ctx context.Context, client kubernetes.Interface,
 			storagePoolName, len(accessibleNodes))
 		if len(accessibleNodes) == 0 {
 			return nil, fmt.Errorf("the given datastore/StoragePool is not accessible from any host. " +
-				"Maybe its unmounted or host is under maintenance mode")
+				"Maybe it's unmounted or the host is under maintenance mode")
 		}
 		// If datastore is accessible from multiple host, ignore the error.
 	}
@@ -357,7 +357,7 @@ func getSPForPVCPlacement(ctx context.Context,
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		}
-		return assignedSP, fmt.Errorf("fail to find a StoragePool passing all criteria")
+		return assignedSP, fmt.Errorf("failed to find a StoragePool passing all criteria")
 	}
 
 	xCapPendingSet := make(map[string]bool)
@@ -394,7 +394,7 @@ func getSPForPVCPlacement(ctx context.Context,
 		if onlinePlacement {
 			stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
 		}
-		return assignedSP, fmt.Errorf("fail to find any compatible StoragePool due to volume placement constraints")
+		return assignedSP, fmt.Errorf("failed to find any compatible StoragePool due to volume placement constraints")
 	}
 
 	assignedSP = spList[0]
@@ -660,7 +660,7 @@ func PlacePVConStoragePool(ctx context.Context, client kubernetes.Interface,
 	if len(sps.Items) == 0 {
 		// There is no available storage pools.
 		stampPVCWithError(ctx, client, curPVC, notEnoughResErr)
-		return fmt.Errorf("fail to find any storage pool")
+		return fmt.Errorf("failed to find any storage pool")
 	}
 
 	hostNames, err := getHostCandidates(ctx, curPVC, tops)
