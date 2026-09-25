@@ -24,8 +24,12 @@ import (
 // CnsRegisterVolumeSpec defines the desired state of CnsRegisterVolume
 // +k8s:openapi-gen=true
 type CnsRegisterVolumeSpec struct {
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="pvcName is immutable"
+
 	// Name of the PVC
 	PvcName string `json:"pvcName"`
+
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="volumeID is immutable"
 
 	// VolumeID indicates an existing vsphere volume to be imported into Project
 	// Pacific cluster.
@@ -36,10 +40,14 @@ type CnsRegisterVolumeSpec struct {
 	// VolumeID and DiskUrlPath cannot be specified together.
 	VolumeID string `json:"volumeID,omitempty"`
 
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="accessMode is immutable"
+
 	// AccessMode contains the actual access mode the volume backing the
 	// CnsRegisterVolume has.
 	// AccessMode must be specified if VolumeID is specified.
 	AccessMode v1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="diskURLPath is immutable"
 
 	// DiskUrlPath is URL path to an existing block volume to be imported into
 	// Project Pacific cluster.
@@ -55,9 +63,13 @@ type CnsRegisterVolumeSpec struct {
 	// file under datacenter "Datacenter-1" and datastore "vsanDatastore".
 	DiskURLPath string `json:"diskURLPath,omitempty"`
 
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="volumeMode is immutable"
+
 	// VolumeMode can either be Block (for raw block volume) or
 	// Filesystem. Default values is Filesystem.
 	VolumeMode v1.PersistentVolumeMode `json:"volumeMode,omitempty"`
+
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="backingType is immutable"
 
 	// BackingType enumerates types of backing for batch attach operations.
 	// The values correspond to the cns.VolumeBackingType enum.
@@ -65,6 +77,8 @@ type CnsRegisterVolumeSpec struct {
 	// SparseVer2BackingInfo, RawDiskMappingVer1BackingInfo, SeSparseBackingInfo,
 	// LocalPMemBackingInfo, or empty string.
 	BackingType string `json:"backingType,omitempty"`
+
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="storageClassName is immutable"
 
 	// StorageClassName is the name of the Kubernetes StorageClass whose associated
 	// vSphere storage policy should be assigned to the volume being registered.
