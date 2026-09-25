@@ -48,9 +48,11 @@ const (
 // Topology describes topology accessibility for the storage policy within a namespace.
 type Topology struct {
 	// TopologyType describes the type of topology for the storage policy.
-	// Valid values are empty string (no topology) or "zonal" (zone-based topology).
-	// +kubebuilder:validation:Enum="";zonal
-	TopologyType string `json:"topologyType"`
+	// The only valid value today is "zonal" (zone-based topology). If the storage
+	// policy does not have a zonal topology, this field is omitted.
+	// +optional
+	// +kubebuilder:validation:Enum=zonal
+	TopologyType string `json:"topologyType,omitempty"`
 
 	// AccessibleZones lists zones where the policy is accessible for this namespace.
 	// For a marker policy (e.g. vSAN File Service), zones are shown even if they are
@@ -84,10 +86,10 @@ type StoragePolicyInfoSpec struct {
 // StoragePolicyInfoStatus defines the observed state of StoragePolicyInfo.
 // +k8s:openapi-gen=true
 type StoragePolicyInfoStatus struct {
-	// TopologyInfo contains observed topology for this storage policy filtered
+	// Topology contains observed topology for this storage policy filtered
 	// to the zones accessible within this namespace.
 	// +optional
-	TopologyInfo *Topology `json:"topologyInfo,omitempty"`
+	Topology *Topology `json:"topology,omitempty"`
 
 	// VolumeCapabilities describes the supported volume capabilities.
 	// +optional
