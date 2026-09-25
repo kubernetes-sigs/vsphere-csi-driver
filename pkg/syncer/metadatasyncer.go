@@ -4451,11 +4451,11 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 			}
 		}
 	}
-	// Also create SPUs for all VolumeAttributesClasses in the namespace.
+	// Also create SPUs for the VolumeAttributesClasses backed by this storage policy.
 	// This is only supported in Supervisor clusters with VM_PVC_STORAGE_POLICY_MUTABILITY FSS enabled.
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload &&
 		IsVMPVCStoragePolicyMutabilityEnabled {
-		err = createVACStoragePolicyUsageCRs(ctx, storageQuotaClient, namespace, metadataSyncer)
+		err = createVACStoragePolicyUsageCRs(ctx, storageQuotaClient, k8sClient, config, namespace, storagePolicyId)
 		if err != nil {
 			log.Errorf("getOrCreateStoragePolicyUsageCR: Failed to create VAC-based SPUs. Err: %+v", err)
 			return nil, err
@@ -4465,23 +4465,13 @@ func getOrCreateStoragePolicyUsageCR(ctx context.Context, storagePolicyId string
 	return usageCR, nil
 }
 
-// createVACStoragePolicyUsageCRs creates StoragePolicyUsage CRs for all VolumeAttributesClasses.
+// createVACStoragePolicyUsageCRs creates StoragePolicyUsage CRs for the VolumeAttributesClasses
+// backed by storagePolicyId, which is the policy assigned to the namespace.
 // Each VAC's own storage policy ID is read from its parameters and stored in the SPU.
 func createVACStoragePolicyUsageCRs(ctx context.Context, quotaClient client.Client,
-	namespace string, metadataSyncer *metadataSyncInformer) error {
+	k8sClient clientset.Interface, config *restclient.Config, namespace string,
+	storagePolicyId string) error {
 	log := logger.GetLogger(ctx)
-
-	config, err := k8s.GetKubeConfig(ctx)
-	if err != nil {
-		log.Errorf("createVACStoragePolicyUsageCRs: Failed to get KubeConfig. err: %v", err)
-		return err
-	}
-
-	k8sClient, err := clientset.NewForConfig(config)
-	if err != nil {
-		log.Errorf("createVACStoragePolicyUsageCRs: Failed to create kubernetes client. Err: %+v", err)
-		return err
-	}
 
 	// Check if VAC API is available (requires K8s 1.34+)
 	vacSupported, vacErr := vacAPIAvailable(config)
@@ -4501,18 +4491,21 @@ func createVACStoragePolicyUsageCRs(ctx context.Context, quotaClient client.Clie
 		return err
 	}
 
-	return createVACStoragePolicyUsageCRsFromList(ctx, quotaClient, vacList.Items, namespace)
+	return createVACStoragePolicyUsageCRsFromList(ctx, quotaClient, vacList.Items, namespace, storagePolicyId)
 }
 
 // createVACStoragePolicyUsageCRsFromList is the inner loop used by createVACStoragePolicyUsageCRs
 // and the full sync path. It operates on an already-resolved VAC list and a pre-built CNS operator
 // client, making it straightforward to unit test.
 //
-// Each VAC is identified by its name (VolumeAttributesClassName). The storage policy ID is read
-// from the VAC's own parameters and stored in the SPU for informational purposes only — it is not
-// used as a lookup key.
+// Each VAC is identified by its name (VolumeAttributesClassName). Only VACs backed by
+// storagePolicyId get an SPU: storagePolicyId comes from the namespace's StoragePolicyQuota, so
+// this mirrors the StorageClass path, which likewise only creates SPUs for storage policies
+// assigned to the namespace. A VAC-based SPU whose policy has no StoragePolicyQuota in the
+// namespace cannot be reconciled by the supervisor StoragePolicyUsage controller, which resolves
+// the owning StoragePolicyQuota by (namespace, spec.storagePolicyId) and errors out when absent.
 func createVACStoragePolicyUsageCRsFromList(ctx context.Context, quotaClient client.Client,
-	vacItems []storagev1.VolumeAttributesClass, namespace string) error {
+	vacItems []storagev1.VolumeAttributesClass, namespace string, storagePolicyId string) error {
 	log := logger.GetLogger(ctx)
 
 	// Get existing SPUs to check what already exists
@@ -4527,9 +4520,19 @@ func createVACStoragePolicyUsageCRsFromList(ctx context.Context, quotaClient cli
 	}
 
 	for _, vac := range vacItems {
-		// The VAC's own parameters carry the storage policy ID; it is stored in the SPU for
-		// informational purposes. The VAC name is the unique key that identifies the SPU.
+		// The VAC's own parameters carry the storage policy ID. The VAC name is the unique key
+		// that identifies the SPU.
 		vacPolicyID := getStoragePolicyIDFromVAC(&vac)
+
+		// Skip VACs that are not backed by the storage policy assigned to this namespace. This
+		// also skips VACs with no storage policy ID in their parameters, for which the SPU would
+		// be rejected anyway since spec.storagePolicyId is a required, non-empty field.
+		if vacPolicyID != storagePolicyId {
+			log.Debugf("createVACStoragePolicyUsageCRsFromList: Skipping VAC %v in namespace %v; its storage "+
+				"policy %q does not match the namespace-assigned policy %q", vac.Name, namespace,
+				vacPolicyID, storagePolicyId)
+			continue
+		}
 
 		// Check if VAC-based SPUs already exist, keyed on VolumeAttributesClassName.
 		foundPvcUsageInstance := false
@@ -4877,10 +4880,12 @@ func createStoragePolicyUsageCRS(ctx context.Context, metadataSyncer *metadataSy
 			}
 		}
 
-		// Create VAC-based SPUs for this namespace using the VAC list resolved once before the loop.
+		// Create VAC-based SPUs for the VACs backed by this StoragePolicyQuota's policy, using the
+		// VAC list resolved once before the loop.
 		// vacItems is non-nil only when the FSS is enabled and the VAC API is available.
 		if len(vacItems) > 0 {
-			if err = createVACStoragePolicyUsageCRsFromList(ctx, cnsOperatorClient, vacItems, spq.Namespace); err != nil {
+			if err = createVACStoragePolicyUsageCRsFromList(ctx, cnsOperatorClient, vacItems,
+				spq.Namespace, policyID); err != nil {
 				log.Errorf("createStoragePolicyUsageCRS: Failed to create VAC-based SPUs in namespace %v. Err: %+v",
 					spq.Namespace, err)
 				// Continue processing other namespaces even if VAC SPU creation fails.
