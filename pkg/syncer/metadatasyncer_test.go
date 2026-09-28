@@ -2200,7 +2200,7 @@ func TestCreateVACStoragePolicyUsageCRsFromList_NamingPrefix(t *testing.T) {
 	cl := newVACFakeClient()
 	vacs := []storagev1.VolumeAttributesClass{makeVAC(vacName, policyID)}
 
-	err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns)
+	err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns, policyID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2235,7 +2235,7 @@ func TestCreateVACStoragePolicyUsageCRsFromList_CreatesBothSPUs(t *testing.T) {
 	ctx := context.Background()
 	cl := newVACFakeClient()
 
-	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns, policyID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -2266,7 +2266,7 @@ func TestCreateVACStoragePolicyUsageCRsFromList_IdempotentWhenSPUExists(t *testi
 	cl := newVACFakeClient()
 
 	for i := range 2 {
-		if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+		if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns, policyID); err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i+1, err)
 		}
 	}
@@ -2279,18 +2279,21 @@ func TestCreateVACStoragePolicyUsageCRsFromList_IdempotentWhenSPUExists(t *testi
 }
 
 // TestCreateVACStoragePolicyUsageCRsFromList_MultipleVACs verifies that SPUs are created
-// independently for each VAC in the list, using each VAC's own storage policy ID.
-// The VAC name is the unique key — policy ID is informational only.
+// independently for each VAC backed by the namespace-assigned storage policy.
+// The VAC name is the unique key that distinguishes the SPUs.
 func TestCreateVACStoragePolicyUsageCRsFromList_MultipleVACs(t *testing.T) {
-	const ns = "test-ns"
+	const (
+		ns       = "test-ns"
+		policyID = "policy-shared"
+	)
 	vacs := []storagev1.VolumeAttributesClass{
-		makeVAC("vac-alpha", "policy-alpha"),
-		makeVAC("vac-beta", "policy-beta"),
+		makeVAC("vac-alpha", policyID),
+		makeVAC("vac-beta", policyID),
 	}
 	ctx := context.Background()
 	cl := newVACFakeClient()
 
-	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns); err != nil {
+	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns, policyID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -2310,6 +2313,41 @@ func TestCreateVACStoragePolicyUsageCRsFromList_MultipleVACs(t *testing.T) {
 	for _, want := range wantNames {
 		if !contains(names, want) {
 			t.Errorf("SPU %q not found among %v", want, names)
+		}
+	}
+}
+
+// TestCreateVACStoragePolicyUsageCRsFromList_SkipsUnassignedPolicies verifies that no SPU is
+// created for a VAC whose storage policy is not the one assigned to the namespace, mirroring the
+// StorageClass path. A VAC with no storage policy ID in its parameters is skipped for the same
+// reason. Without this filter the supervisor StoragePolicyUsage controller cannot resolve an
+// owning StoragePolicyQuota for the SPU and requeues in a permanent error loop.
+func TestCreateVACStoragePolicyUsageCRsFromList_SkipsUnassignedPolicies(t *testing.T) {
+	const (
+		ns             = "test-ns"
+		assignedPolicy = "policy-assigned"
+	)
+	vacs := []storagev1.VolumeAttributesClass{
+		makeVAC("assigned-vac", assignedPolicy),
+		makeVAC("unassigned-vac", "policy-not-assigned-to-ns"),
+		{ObjectMeta: metav1.ObjectMeta{Name: "no-policy-vac"}},
+	}
+	ctx := context.Background()
+	cl := newVACFakeClient()
+
+	if err := createVACStoragePolicyUsageCRsFromList(ctx, cl, vacs, ns, assignedPolicy); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	spus := listSPUs(t, ctx, cl, ns)
+	names := spuNames(spus)
+	// Only the VAC backed by the namespace-assigned policy yields SPUs (PVC + Snapshot).
+	if len(spus) != 2 {
+		t.Fatalf("expected 2 SPUs for the assigned VAC only, got %d: %v", len(spus), names)
+	}
+	for _, spu := range spus {
+		if spu.Spec.VolumeAttributesClassName != "assigned-vac" {
+			t.Errorf("SPU %q created for unassigned VAC %q", spu.Name, spu.Spec.VolumeAttributesClassName)
 		}
 	}
 }
