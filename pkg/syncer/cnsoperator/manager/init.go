@@ -253,6 +253,17 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			return err
 		}
 
+		// Create CnsNfsVolumeInformation CRD. This aggregates guest-local-NFS-driver
+		// volumes (created entirely inside a VKS cluster, with no Supervisor PVC and no
+		// CNS involvement) so the relay controller here on Supervisor has something to
+		// read and forward to CNS.
+		err = k8s.CreateCustomResourceDefinitionFromManifest(ctx, cnsoperatorconfig.EmbedCnsNfsVolumeInformationCRFile,
+			cnsoperatorconfig.EmbedCnsNfsVolumeInformationCRFileName)
+		if err != nil {
+			log.Errorf("failed to create %q CRD. Err: %+v", cnsoperatorv1alpha1.CnsNfsVolumeInformationPlural, err)
+			return err
+		}
+
 		var stretchedSupervisor bool
 		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 			clusterComputeResourceMoIds, _, err := common.GetClusterComputeResourceMoIds(ctx)

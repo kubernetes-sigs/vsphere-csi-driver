@@ -244,6 +244,30 @@ func getVolumeHealthIntervalInMin(ctx context.Context) int {
 	return volumeHealthIntervalInMin
 }
 
+// getNfsGuestVolumeHealthIntervalInMin returns the interval for the guest-local NFS
+// volume health reconciler. If environment variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES
+// is set and valid, returns the interval value read from it. Otherwise, uses the
+// default value of 5 minutes.
+func getNfsGuestVolumeHealthIntervalInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	intervalInMin := defaultNfsGuestVolumeHealthIntervalInMin
+	if v := os.Getenv("NFS_VOLUME_HEALTH_INTERVAL_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("NfsGuestVolumeHealth: interval set in env variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+					"is equal or less than 0, will use the default interval", v)
+			} else {
+				intervalInMin = value
+				log.Infof("NfsGuestVolumeHealth: interval is set to %d minutes", intervalInMin)
+			}
+		} else {
+			log.Warnf("NfsGuestVolumeHealth: interval set in env variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+				"is invalid, will use the default interval", v)
+		}
+	}
+	return intervalInMin
+}
+
 // getPVtoBackingDiskObjectIdIntervalInMin returns pv to backingdiskobjectid interval.
 func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
@@ -1077,6 +1101,22 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					continue
 				}
 				break
+			}
+		}()
+
+		// Trigger guest-local NFS volume health reconciler. Unlike the block/vSAN-File
+		// volumeHealthReconciler above (which only propagates a health annotation
+		// already set by Supervisor's own CNS-query-based check), guest-local NFS
+		// volumes have no Supervisor PVC or CNS volume at all, so this independently
+		// determines health itself via a real NFSv3 MOUNT-protocol check.
+		nfsGuestVolumeHealthTicker := time.NewTicker(
+			time.Duration(getNfsGuestVolumeHealthIntervalInMin(ctx)) * time.Minute)
+		defer nfsGuestVolumeHealthTicker.Stop()
+		go func() {
+			for ; true; <-nfsGuestVolumeHealthTicker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				log.Infof("getNfsGuestVolumeHealthStatus is triggered")
+				csiGetNfsGuestVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
 			}
 		}()
 	}
@@ -3024,6 +3064,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 				metadataSyncer.volumeManager, metadataSyncer.supervisorClient)
 		}
 
+		// Guest-local NFS volumes must be relayed on annotation-only changes too (e.g.
+		// the volumehealth.storage.kubernetes.io/health annotation, which drives the
+		// CnsNfsVolumeInformation entry's Health field) - check before the label-only
+		// skip below, which would otherwise return before ever reaching the NFS
+		// dispatch and leave the CR's Health permanently stale after the first write.
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest && isGuestNFSVolume(pv) {
+			pvcsiNfsVolumeUpdated(ctx, newPvc, pv, metadataSyncer)
+			return
+		}
+
 		// For volumes provisioned by CSI driver, verify if old and new labels are not equal.
 		if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
 			log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")
@@ -3032,6 +3082,15 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 	}
 
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			// Guest-local NFS volumes have no CNS volume at all; relay to
+			// CnsNfsVolumeInformation instead of the normal CnsVolumeMetadata push.
+			// (Unreachable in practice: the check above already returns for these
+			// volumes before this point, but kept as defense-in-depth in case this
+			// function's control flow changes above.)
+			pvcsiNfsVolumeUpdated(ctx, newPvc, pv, metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(newPvc, pv) {
 			log.Infof("PVCUpdated: Skipping CnsVolumeMetadata push for FVS-backed PVC %q in namespace %q",
 				newPvc.Name, newPvc.Namespace)
@@ -3128,6 +3187,10 @@ func pvcDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			pvcsiNfsVolumeDeleted(ctx, string(pvc.GetUID()), metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(pvc, pv) {
 			log.Infof("PVCDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PVC %q in namespace %q",
 				pvc.Name, pvc.Namespace)
@@ -3261,6 +3324,21 @@ func pvUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer)
 		return
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(newPv) {
+			if newPv.Spec.ClaimRef == nil {
+				log.Debugf("PVUpdated: guest-NFS PV %q has no ClaimRef yet, skipping", newPv.Name)
+				return
+			}
+			pvc, err := metadataSyncer.pvcLister.PersistentVolumeClaims(newPv.Spec.ClaimRef.Namespace).
+				Get(newPv.Spec.ClaimRef.Name)
+			if err != nil {
+				log.Errorf("PVUpdated: Failed to get PVC %s/%s for guest-NFS PV %q: %v",
+					newPv.Spec.ClaimRef.Namespace, newPv.Spec.ClaimRef.Name, newPv.Name, err)
+				return
+			}
+			pvcsiNfsVolumeUpdated(ctx, pvc, newPv, metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(nil, newPv) {
 			log.Infof("PVUpdated: Skipping CnsVolumeMetadata push for FVS-backed PV %q (storageClass=%q)",
 				newPv.Name, newPv.Spec.StorageClassName)
@@ -3312,6 +3390,17 @@ func pvDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 		}
 	}
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
+		if isGuestNFSVolume(pv) {
+			if pv.Spec.ClaimRef == nil {
+				log.Debugf("PVDeleted: guest-NFS PV %q has no ClaimRef, cannot resolve PVC UID, skipping", pv.Name)
+				return
+			}
+			// Use the PVC UID cached on ClaimRef, not pv.GetUID() - the PVC (whose UID
+			// this entry was upserted under) is very likely already gone from the lister
+			// by the time the PV itself is deleted.
+			pvcsiNfsVolumeDeleted(ctx, string(pv.Spec.ClaimRef.UID), metadataSyncer)
+			return
+		}
 		if shouldSkipFVSMetadataPushGuest(nil, pv) {
 			log.Infof("PVDeleted: Skipping CnsVolumeMetadata delete for FVS-backed PV %q (storageClass=%q)",
 				pv.Name, pv.Spec.StorageClassName)
@@ -3446,6 +3535,7 @@ func podDeleted(obj interface{}, metadataSyncer *metadataSyncInformer) {
 func updatePodMetadata(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSyncInformer, deleteFlag bool) {
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		pvcsiUpdatePod(ctx, pod, metadataSyncer, deleteFlag)
+		pvcsiNfsPodUpdated(ctx, pod, metadataSyncer, deleteFlag)
 	} else {
 		csiUpdatePod(ctx, pod, metadataSyncer, deleteFlag)
 	}

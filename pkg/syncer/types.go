@@ -56,6 +56,11 @@ const (
 	// default interval for csi volume health
 	defaultVolumeHealthIntervalInMin = 5
 
+	// default interval for guest-local NFS volume health (real MOUNT-protocol RPC
+	// checks against the NFS server, so kept independent of defaultVolumeHealthIntervalInMin
+	// - that interval governs a cheap CNS-query/CR-read on Supervisor, not a network call)
+	defaultNfsGuestVolumeHealthIntervalInMin = 5
+
 	// default resync period for volume health reconciler
 	volumeHealthResyncPeriod = 10 * time.Minute
 	// default retry start interval time for volume health reconciler

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
@@ -348,6 +349,21 @@ func shouldSkipFVSMetadataPushGuest(pvc *v1.PersistentVolumeClaim, pv *v1.Persis
 		return true
 	}
 	return false
+}
+
+// isGuestNFSVolume reports whether pv was provisioned by the guest-local nfsdriver
+// backend (pkg/csi/service/wcpguest/nfsdriver, dispatched from wcpguest's
+// createGuestNFSVolume) - a plain subdirectory on a tenant-supplied NFS export, mounted
+// entirely within the VKS cluster, with no corresponding Supervisor PVC or CNS volume.
+// Detected via the "guestnfs:" VolumeId prefix nfsvolume.go wraps around nfsdriver's own
+// volume IDs; this is distinct from the vanilla-flavor externalnfs package's "nfsext#"
+// scheme; a vanilla cluster has no Supervisor Namespace or pvCSI, so it never reaches
+// this code path in the first place.
+func isGuestNFSVolume(pv *v1.PersistentVolume) bool {
+	if pv == nil || pv.Spec.CSI == nil {
+		return false
+	}
+	return nfsdriver.IsGuestVolumeID(pv.Spec.CSI.VolumeHandle)
 }
 
 // IsFileVolume returns true for PVs that have accessMode as RWX or ROM

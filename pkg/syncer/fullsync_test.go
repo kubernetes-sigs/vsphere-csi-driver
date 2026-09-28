@@ -47,6 +47,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	crfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsopapis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsnodevmbatchattachmentv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnodevmbatchattachment/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -799,6 +800,22 @@ func (m *mockVolumeManagerForFullSync) UpdateVolumeMetadata(
 func (m *mockVolumeManagerForFullSync) UpdateVolumeCrypto(
 	ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec,
 ) error {
+	return nil
+}
+
+func (m *mockVolumeManagerForFullSync) RegisterNfsVolumeInfo(
+	ctx context.Context, volumeID string, entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry,
+) error {
+	return nil
+}
+
+func (m *mockVolumeManagerForFullSync) UpdateNfsVolumeInfo(
+	ctx context.Context, volumeID string, entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry,
+) error {
+	return nil
+}
+
+func (m *mockVolumeManagerForFullSync) DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error {
 	return nil
 }
 

@@ -22,6 +22,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	vim25types "github.com/vmware/govmomi/vim25/types"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 )
@@ -76,6 +77,23 @@ func (m MockManager) UpdateVolumeMetadata(ctx context.Context, spec *cnstypes.Cn
 }
 
 func (m MockManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m MockManager) RegisterNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m MockManager) UpdateNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m MockManager) DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error {
 	//TODO implement me
 	panic("implement me")
 }

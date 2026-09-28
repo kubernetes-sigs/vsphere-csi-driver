@@ -55,6 +55,19 @@ func IsGuestVolumeID(id string) bool {
 	return strings.HasPrefix(id, VolumeIDPrefix)
 }
 
+// DecodeVolumeID parses a VolumeId minted by this package's CreateVolume, with
+// VolumeIDPrefix already stripped by the caller (see IsGuestVolumeID), and returns its
+// server, share (baseDir), and subDir components. Exposes getNfsVolFromID's parsing
+// (upstream, controllerserver.go) without requiring callers outside this package to
+// depend on the unexported nfsVolume type.
+func DecodeVolumeID(id string) (server, share, subDir string, err error) {
+	vol, err := getNfsVolFromID(id)
+	if err != nil {
+		return "", "", "", err
+	}
+	return vol.server, vol.baseDir, vol.subDir, nil
+}
+
 var (
 	globalDriver *Driver
 	initOnce     sync.Once

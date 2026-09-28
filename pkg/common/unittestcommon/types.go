@@ -25,6 +25,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/types"
 	v1 "k8s.io/api/core/v1"
+	cnsnfsvolumeinformationv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsnfsvolumeinformation/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/migration"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -161,6 +162,19 @@ func (m *MockVolumeManager) UpdateVolumeMetadata(ctx context.Context,
 	return nil
 }
 func (m *MockVolumeManager) UpdateVolumeCrypto(ctx context.Context, spec *cnstypes.CnsVolumeCryptoUpdateSpec) error {
+	return nil
+}
+func (m *MockVolumeManager) RegisterNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	return nil
+}
+
+func (m *MockVolumeManager) UpdateNfsVolumeInfo(ctx context.Context, volumeID string,
+	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
+	return nil
+}
+
+func (m *MockVolumeManager) DeleteNfsVolumeInfo(ctx context.Context, volumeID string) error {
 	return nil
 }
 func (m *MockVolumeManager) QueryVolumeInfo(ctx context.Context,
