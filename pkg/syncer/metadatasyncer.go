@@ -244,6 +244,30 @@ func getVolumeHealthIntervalInMin(ctx context.Context) int {
 	return volumeHealthIntervalInMin
 }
 
+// getNfsGuestVolumeHealthIntervalInMin returns the interval for the guest-local NFS
+// volume health reconciler. If environment variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES
+// is set and valid, returns the interval value read from it. Otherwise, uses the
+// default value of 5 minutes.
+func getNfsGuestVolumeHealthIntervalInMin(ctx context.Context) int {
+	log := logger.GetLogger(ctx)
+	intervalInMin := defaultNfsGuestVolumeHealthIntervalInMin
+	if v := os.Getenv("NFS_VOLUME_HEALTH_INTERVAL_MINUTES"); v != "" {
+		if value, err := strconv.Atoi(v); err == nil {
+			if value <= 0 {
+				log.Warnf("NfsGuestVolumeHealth: interval set in env variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+					"is equal or less than 0, will use the default interval", v)
+			} else {
+				intervalInMin = value
+				log.Infof("NfsGuestVolumeHealth: interval is set to %d minutes", intervalInMin)
+			}
+		} else {
+			log.Warnf("NfsGuestVolumeHealth: interval set in env variable NFS_VOLUME_HEALTH_INTERVAL_MINUTES %s "+
+				"is invalid, will use the default interval", v)
+		}
+	}
+	return intervalInMin
+}
+
 // getPVtoBackingDiskObjectIdIntervalInMin returns pv to backingdiskobjectid interval.
 func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 	log := logger.GetLogger(ctx)
@@ -1077,6 +1101,22 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 					continue
 				}
 				break
+			}
+		}()
+
+		// Trigger guest-local NFS volume health reconciler. Unlike the block/vSAN-File
+		// volumeHealthReconciler above (which only propagates a health annotation
+		// already set by Supervisor's own CNS-query-based check), guest-local NFS
+		// volumes have no Supervisor PVC or CNS volume at all, so this independently
+		// determines health itself via a real NFSv3 MOUNT-protocol check.
+		nfsGuestVolumeHealthTicker := time.NewTicker(
+			time.Duration(getNfsGuestVolumeHealthIntervalInMin(ctx)) * time.Minute)
+		defer nfsGuestVolumeHealthTicker.Stop()
+		go func() {
+			for ; true; <-nfsGuestVolumeHealthTicker.C {
+				ctx, log = logger.GetNewContextWithLogger()
+				log.Infof("getNfsGuestVolumeHealthStatus is triggered")
+				csiGetNfsGuestVolumeHealthStatus(ctx, k8sClient, metadataSyncer)
 			}
 		}()
 	}
