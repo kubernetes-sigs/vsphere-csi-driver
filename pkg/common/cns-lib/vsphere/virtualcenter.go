@@ -934,8 +934,18 @@ func (vc *VirtualCenter) GetDatacenters(ctx context.Context) ([]*Datacenter, err
 }
 
 // Disconnect disconnects the virtual center host connection if connected.
+//
+// Takes ClientMutex for its whole body, the same protection Connect/connect
+// give vc.Client and vc.RestClient. Without it, a caller unregistering this
+// VirtualCenter (e.g. a credential-rotation reconnect) can nil out vc.Client/
+// vc.RestClient concurrently with another goroutine's connect() reading them
+// past its own nil-check, panicking on a nil rest.Client. See UBMCNS-2383.
 func (vc *VirtualCenter) Disconnect(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
+
+	vc.ClientMutex.Lock()
+	defer vc.ClientMutex.Unlock()
+
 	if vc.Client == nil {
 		log.Info("Client wasn't connected, ignoring")
 		return nil
