@@ -142,10 +142,11 @@ func pvcsiNfsVolumeUpdated(ctx context.Context, pvc *v1.PersistentVolumeClaim, p
 		entry.Capacity = &capacity
 	}
 
-	crName := cnsnfsvolumeinformation.CRName(metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+	vksClusterName := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName
+	vksClusterID := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+	crName := cnsnfsvolumeinformation.CRName(vksClusterName, vksClusterID)
 	if err := cnsnfsvolumeinformation.UpsertVolumeEntry(ctx, metadataSyncer.cnsOperatorClient, crName,
-		supervisorNamespace, string(pvc.GetUID()), entry); err != nil {
+		supervisorNamespace, string(pvc.GetUID()), vksClusterName, vksClusterID, entry); err != nil {
 		log.Errorf("pvCSI NfsVolumeUpdated: Failed to upsert entry for PVC %s/%s on CnsNfsVolumeInformation %s: %v",
 			pvc.Namespace, pvc.Name, crName, err)
 		return

@@ -3024,6 +3024,16 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 				metadataSyncer.volumeManager, metadataSyncer.supervisorClient)
 		}
 
+		// Guest-local NFS volumes must be relayed on annotation-only changes too (e.g.
+		// the volumehealth.storage.kubernetes.io/health annotation, which drives the
+		// CnsNfsVolumeInformation entry's Health field) - check before the label-only
+		// skip below, which would otherwise return before ever reaching the NFS
+		// dispatch and leave the CR's Health permanently stale after the first write.
+		if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorGuest && isGuestNFSVolume(pv) {
+			pvcsiNfsVolumeUpdated(ctx, newPvc, pv, metadataSyncer)
+			return
+		}
+
 		// For volumes provisioned by CSI driver, verify if old and new labels are not equal.
 		if oldPvc.Status.Phase == v1.ClaimBound && reflect.DeepEqual(newPvc.Labels, oldPvc.Labels) {
 			log.Debugf("PVCUpdated: Old PVC and New PVC labels equal")
@@ -3035,6 +3045,9 @@ func pvcUpdated(oldObj, newObj interface{}, metadataSyncer *metadataSyncInformer
 		if isGuestNFSVolume(pv) {
 			// Guest-local NFS volumes have no CNS volume at all; relay to
 			// CnsNfsVolumeInformation instead of the normal CnsVolumeMetadata push.
+			// (Unreachable in practice: the check above already returns for these
+			// volumes before this point, but kept as defense-in-depth in case this
+			// function's control flow changes above.)
 			pvcsiNfsVolumeUpdated(ctx, newPvc, pv, metadataSyncer)
 			return
 		}

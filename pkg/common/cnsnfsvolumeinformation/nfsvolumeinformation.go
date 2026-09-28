@@ -53,10 +53,13 @@ func CRName(vksClusterName, vksClusterID string) string {
 // different pvcKeys never conflict with each other.
 //
 // If the CR does not exist yet (this is the first NFS volume for the cluster), it is
-// created with this entry as its sole volume. If Create loses a race against another
-// concurrent caller doing the same thing, the patch is retried once against the
-// now-existing CR.
+// created with this entry as its sole volume, and vksClusterName/vksClusterID/namespace
+// are stamped onto Spec at that point - they are otherwise never touched again, since
+// they are immutable for the lifetime of a given CR (one CR per VKS cluster).
+// If Create loses a race against another concurrent caller doing the same thing, the
+// patch is retried once against the now-existing CR.
 func UpsertVolumeEntry(ctx context.Context, c client.Client, name, namespace, pvcKey string,
+	vksClusterName, vksClusterID string,
 	entry cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry) error {
 
 	log := logger.GetLogger(ctx)
@@ -87,7 +90,10 @@ func UpsertVolumeEntry(ctx context.Context, c client.Client, name, namespace, pv
 
 	// CR does not exist yet - create it with this volume as the first entry.
 	obj.Spec = cnsnfsvolumeinformationv1alpha1.CnsNfsVolumeInformationSpec{
-		Volumes: map[string]cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry{pvcKey: entry},
+		VKSClusterName:      vksClusterName,
+		VKSClusterID:        vksClusterID,
+		SupervisorNamespace: namespace,
+		Volumes:             map[string]cnsnfsvolumeinformationv1alpha1.NfsVolumeEntry{pvcKey: entry},
 	}
 	err = c.Create(ctx, obj)
 	if err == nil {
