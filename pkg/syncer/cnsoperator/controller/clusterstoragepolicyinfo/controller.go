@@ -1076,8 +1076,8 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	vsphereinfra.GetCache().SetDatastoresForPolicy(clusterSPI.Name, dsIDs)
 
 	// Record, per zone, which datastores are compatible with this policy, so the
-	// namespace-scoped storagepolicyinfo controller can determine SupportsLinkedClone/
-	// SupportsHighPerformanceLinkedClone for a given zone without any additional vCenter or
+	// namespace-scoped storagepolicyinfo controller can determine ZonesSupportingLinkedClone/
+	// ZonesSupportingHighPerformanceLinkedClone for a given zone without any additional vCenter or
 	// PBM call.
 	zoneDsIDs := make(map[string][]string, len(zoneCompatibleDS))
 	for zone, datastores := range zoneCompatibleDS {

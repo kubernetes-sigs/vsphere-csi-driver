@@ -104,6 +104,18 @@ spec:
                   type: boolean
                 description: VolumeCapabilities describes the supported volume capabilities.
                 type: object
+              zonalVolumeCapabilities:
+                additionalProperties:
+                  description: ZoneList is a sorted set of zone names.
+                  items:
+                    minLength: 1
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
+                description: |-
+                  ZonalVolumeCapabilities maps each zonal volume capability to the sorted list of zones where
+                  it is supported. See ZonalVolumeCapability.
+                type: object
             type: object
         type: object
     served: true

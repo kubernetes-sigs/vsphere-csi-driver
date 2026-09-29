@@ -24,11 +24,9 @@ import (
 // The supported capabilities are:
 //   - SupportsPersistentVolumeBlock: Volume Mode Block is supported.
 //   - SupportsPersistentVolumeFilesystem: Volume Mode Filesystem is supported.
-//   - SupportsHighPerformanceLinkedClone: LinkedClone on vSAN ESA is supported.
-//   - SupportsLinkedClone: LinkedClone is supported.
 //   - SupportsHostLocal: the policy is a host-local storage policy.
 //
-// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHighPerformanceLinkedClone;SupportsLinkedClone;SupportsHostLocal
+// +kubebuilder:validation:Enum=SupportsPersistentVolumeBlock;SupportsPersistentVolumeFilesystem;SupportsHostLocal
 type VolumeCapability string
 
 const (
@@ -36,14 +34,38 @@ const (
 	SupportsVolumeModeBlock VolumeCapability = "SupportsPersistentVolumeBlock"
 	// SupportsVolumeModeFilesystem indicates that the policy supports PersistentVolume with Filesystem volume mode.
 	SupportsVolumeModeFilesystem VolumeCapability = "SupportsPersistentVolumeFilesystem"
-	// SupportsHighPerformanceLinkedClone indicates that the policy supports high-performance linked clones
-	// on vSAN ESA clusters with ESXi 9.1 or above hosts.
-	SupportsHighPerformanceLinkedClone VolumeCapability = "SupportsHighPerformanceLinkedClone"
-	// SupportsLinkedClone indicates that the policy supports linked clones with at least one ESXi 9.1+ host.
-	SupportsLinkedClone VolumeCapability = "SupportsLinkedClone"
 	// SupportsHostLocal indicates that the policy carries the host-local storage capability.
 	SupportsHostLocal VolumeCapability = "SupportsHostLocal"
 )
+
+// ZonalVolumeCapability describes a capability of the volume created with the given policy that is
+// only available in a subset of zones. Its value in ZonalVolumeCapabilities is the list of zones
+// in the cluster where the capability is supported. The supported capabilities are:
+//   - ZonesSupportingLinkedClone: zones having at least one ESXi 9.1+ host that mounts a datastore
+//     compatible with the policy.
+//   - ZonesSupportingHighPerformanceLinkedClone: zones having at least one such ESXi 9.1+ host in a
+//     vSAN-ESA enabled cluster. Always a subset of ZonesSupportingLinkedClone.
+//
+// A capability that is absent (or has an empty zone list) is not supported in any zone. Consumers
+// must intersect the zone list with the zones they place workloads in, rather than treating a
+// non-empty list as the capability being supported everywhere.
+//
+// +kubebuilder:validation:Enum=ZonesSupportingLinkedClone;ZonesSupportingHighPerformanceLinkedClone
+type ZonalVolumeCapability string
+
+const (
+	// ZonesSupportingLinkedClone lists the zones where linked clones are supported
+	// (requires hosts running ESXi 9.1 or above).
+	ZonesSupportingLinkedClone ZonalVolumeCapability = "ZonesSupportingLinkedClone"
+	// ZonesSupportingHighPerformanceLinkedClone lists the zones where high-performance linked clones
+	// are supported (requires hosts running ESXi 9.1 or above in a vSAN ESA enabled cluster).
+	ZonesSupportingHighPerformanceLinkedClone ZonalVolumeCapability = "ZonesSupportingHighPerformanceLinkedClone"
+)
+
+// ZoneList is a sorted set of zone names.
+// +listType=set
+// +kubebuilder:validation:items:MinLength=1
+type ZoneList []string
 
 // Topology describes topology accessibility for the storage policy within the cluster.
 type Topology struct {
@@ -90,6 +112,11 @@ type InfraStoragePolicyInfoStatus struct {
 	// VolumeCapabilities describes the supported volume capabilities.
 	// +optional
 	VolumeCapabilities map[VolumeCapability]bool `json:"volumeCapabilities,omitempty"`
+
+	// ZonalVolumeCapabilities maps each zonal volume capability to the sorted list of zones where
+	// it is supported. See ZonalVolumeCapability.
+	// +optional
+	ZonalVolumeCapabilities map[ZonalVolumeCapability]ZoneList `json:"zonalVolumeCapabilities,omitempty"`
 
 	// Error describes a failure condition when observing or reconciling this resource.
 	// +optional

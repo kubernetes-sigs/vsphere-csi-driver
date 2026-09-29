@@ -19,6 +19,7 @@ package clusterstoragepolicyinfo
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -512,20 +513,19 @@ func findStoragePolicyProfile(ctx context.Context,
 }
 
 // populateVolumeCapabilities computes volume capabilities for the given storage policy and
-// writes them into infraSPI.Status.VolumeCapabilities.
+// writes them into infraSPI.Status.VolumeCapabilities and infraSPI.Status.ZonalVolumeCapabilities.
 //
 // SupportsVolumeModeFilesystem is always true.
 //
 // SupportsVolumeModeBlock is always true except when the policy is a marker policy
 // (k8scompliantname is "vsan-file-service-policy").
-// For marker policies, SupportsHighPerformanceLinkedClone, SupportsLinkedClone and
-// SupportsHostLocal are also false.
+// For marker policies, SupportsHostLocal is also false and no zonal capabilities are reported.
 //
-// SupportsLinkedClone is true only if every zone with compatible datastores has at least one
+// ZonesSupportingLinkedClone lists every zone with compatible datastores that has at least one
 // mounting host running ESXi 9.1 or above.
 //
-// SupportsHighPerformanceLinkedClone is true only if SupportsLinkedClone is true AND every zone
-// has at least one ESXi 9.1+ host in a cluster with vSAN-ESA enabled.
+// ZonesSupportingHighPerformanceLinkedClone lists the subset of those zones that have at least one
+// ESXi 9.1+ host in a cluster with vSAN-ESA enabled.
 //
 // SupportsHostLocal is passed in by the caller (isHostLocal), already derived from the same raw
 // SPBM profile fetched for policyContent (via VirtualCenter.PbmRetrieveContentRaw and
@@ -553,75 +553,77 @@ func populateVolumeCapabilities(ctx context.Context,
 	log.Infof("Storage policy %s SupportsVolumeModeBlock=%v (isMarkerPolicy=%v)",
 		profileID, !isMarkerPolicy, isMarkerPolicy)
 
-	// For marker policies, linked clone and host-local capabilities are always false.
+	// For marker policies, linked clone and host-local capabilities are never supported.
 	if isMarkerPolicy {
-		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
-		caps[infraspiv1alpha1.SupportsLinkedClone] = false
 		caps[infraspiv1alpha1.SupportsHostLocal] = false
-		log.Infof("Storage policy %s is a marker policy - SupportsHighPerformanceLinkedClone=false, "+
-			"SupportsLinkedClone=false, SupportsHostLocal=false", profileID)
+		log.Infof("Storage policy %s is a marker policy - no linked clone zones, SupportsHostLocal=false",
+			profileID)
 
 		infraSPI.Status.VolumeCapabilities = caps
+		infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(nil, nil)
 		return nil
 	}
 
-	lc, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS, zoneClusters)
+	lcZones, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS, zoneClusters)
 	if err != nil {
-		log.Errorf("Failed to check SupportsLinkedClone for policy %s: %v", profileID, err)
-		caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
-		caps[infraspiv1alpha1.SupportsLinkedClone] = false
+		log.Errorf("Failed to check LinkedClone zones for policy %s: %v", profileID, err)
 		infraSPI.Status.VolumeCapabilities = caps
+		infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(nil, nil)
 		return err
 	}
 
-	caps[infraspiv1alpha1.SupportsLinkedClone] = lc
-
-	// If LinkedClone is not supported, then HighPerformanceLinkedClone cannot be supported either.
-	var hplc bool
-	if !lc {
-		hplc = false
-		log.Infof("Storage policy %s does not support LinkedClone or HighPerformanceLinkedClone", profileID)
-	} else {
-		// HPLC is supported only when every zone has at least one ESXi 9.1+ host in a vSAN-ESA cluster.
-		var err error
-		hplc, err = checkHighPerformanceLinkedClone(ctx, vc, esxi91HostsPerZone)
+	// HighPerformanceLinkedClone is only evaluated for zones that support LinkedClone.
+	var hplcZones []string
+	if len(lcZones) > 0 {
+		hplcZones, err = checkHighPerformanceLinkedClone(ctx, vc, esxi91HostsPerZone)
 		if err != nil {
-			log.Errorf("Failed to check SupportsHighPerformanceLinkedClone for policy %s: %v", profileID, err)
-			caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = false
+			log.Errorf("Failed to check HighPerformanceLinkedClone zones for policy %s: %v", profileID, err)
 			infraSPI.Status.VolumeCapabilities = caps
+			infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(lcZones, nil)
 			return err
 		}
 	}
-
-	caps[infraspiv1alpha1.SupportsHighPerformanceLinkedClone] = hplc
-	log.Infof("Storage policy %s SupportsLinkedClone=%v, SupportsHighPerformanceLinkedClone=%v",
-		profileID, lc, hplc)
+	log.Infof("Storage policy %s ZonesSupportingLinkedClone=%v, ZonesSupportingHighPerformanceLinkedClone=%v",
+		profileID, lcZones, hplcZones)
 
 	caps[infraspiv1alpha1.SupportsHostLocal] = isHostLocal
 	log.Infof("Storage policy %s SupportsHostLocal=%v", profileID, isHostLocal)
 
 	infraSPI.Status.VolumeCapabilities = caps
+	infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(lcZones, hplcZones)
 	return nil
 }
 
-// checkLinkedClone returns whether LinkedClone is supported across ALL zones and the per-zone
-// ESXi 9.1+ hosts. LC is true only when every zone that has compatible datastores also has at
-// least one ESXi 9.1+ host, belonging to a cluster that is currently an active member of that
-// zone, mounting those datastores.
+// buildZonalVolumeCapabilities returns the ZonalVolumeCapabilities map for the given sorted
+// LinkedClone and HighPerformanceLinkedClone zone lists. Every zonal capability is always
+// present; a capability supported in no zone maps to an empty (non-nil) list so it serializes
+// as [] rather than being dropped.
+func buildZonalVolumeCapabilities(lcZones, hplcZones []string,
+) map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList {
+	return map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
+		infraspiv1alpha1.ZonesSupportingLinkedClone:                append(infraspiv1alpha1.ZoneList{}, lcZones...),
+		infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: append(infraspiv1alpha1.ZoneList{}, hplcZones...),
+	}
+}
+
+// checkLinkedClone returns the sorted zones that support LinkedClone and the per-zone ESXi 9.1+
+// hosts. A zone supports LinkedClone when it has compatible datastores and at least one ESXi 9.1+
+// host, belonging to a cluster that is currently an active member of that zone, mounting those
+// datastores.
 func checkLinkedClone(ctx context.Context,
 	vc *cnsvsphere.VirtualCenter, profileID string,
 	zoneCompatibleDS map[string][]*cnsvsphere.DatastoreInfo,
 	zoneClusters map[string][]string,
-) (bool, map[string]map[string]vimtypes.ManagedObjectReference, error) {
+) ([]string, map[string]map[string]vimtypes.ManagedObjectReference, error) {
 	log := logger.GetLogger(ctx)
 
 	if vc == nil || vc.Client == nil {
-		return false, nil, fmt.Errorf("virtual center client is not available")
+		return nil, nil, fmt.Errorf("virtual center client is not available")
 	}
 
 	if len(zoneCompatibleDS) == 0 {
-		log.Infof("Storage policy %s has no zones with compatible datastores; SupportsLinkedClone=false", profileID)
-		return false, make(map[string]map[string]vimtypes.ManagedObjectReference), nil
+		log.Infof("Storage policy %s has no zones with compatible datastores; no LinkedClone zones", profileID)
+		return nil, make(map[string]map[string]vimtypes.ManagedObjectReference), nil
 	}
 	pc := property.DefaultCollector(vc.Client.Client)
 	// esxi91HostsPerZone holds, per zone, the ESXi 9.1+ host refs found via that zone's datastores.
@@ -643,17 +645,12 @@ func checkLinkedClone(ctx context.Context,
 		zoneClusterSets[zone] = toClusterSet(clusters)
 	}
 
-	// relevantZones counts zones that have at least one compatible datastore for the policy.
-	// Zones with no compatible datastores are excluded: the policy cannot be provisioned there,
-	// so they do not contribute to the LC/HPLC determination.
-	relevantZones := 0
-
-	// Check each zone for ESXi 9.1+ hosts.
+	// Check each zone for ESXi 9.1+ hosts. Zones with no compatible datastores are skipped: the
+	// policy cannot be provisioned there, so they can never support LC/HPLC.
 	for zone, compatibleDatastores := range zoneCompatibleDS {
 		if len(compatibleDatastores) == 0 {
 			continue
 		}
-		relevantZones++
 
 		esxi91HostsPerZone[zone] = make(map[string]vimtypes.ManagedObjectReference)
 		activeClusters := zoneClusterSets[zone]
@@ -661,7 +658,7 @@ func checkLinkedClone(ctx context.Context,
 		for _, ds := range compatibleDatastores {
 			dsHosts, err := getOrFetchESXi91HostsForDS(ctx, pc, ds, checkedHosts, datastoreESXi91HostsCache)
 			if err != nil {
-				return false, nil, err
+				return nil, nil, err
 			}
 			for _, hc := range dsHosts {
 				if !activeClusters[hc.Cluster] {
@@ -676,27 +673,17 @@ func checkLinkedClone(ctx context.Context,
 		}
 	}
 
-	if relevantZones == 0 {
-		log.Infof("Storage policy %s has no zones with compatible datastores; SupportsLinkedClone=false", profileID)
-		return false, make(map[string]map[string]vimtypes.ManagedObjectReference), nil
-	}
-
-	// LC is supported only when every relevant zone has at least one ESXi 9.1+ host.
-	zonesWithLC := 0
-	for _, hosts := range esxi91HostsPerZone {
+	lcZones := make([]string, 0, len(esxi91HostsPerZone))
+	for zone, hosts := range esxi91HostsPerZone {
 		if len(hosts) > 0 {
-			zonesWithLC++
+			lcZones = append(lcZones, zone)
 		}
 	}
-	linkedCloneSupported := zonesWithLC == relevantZones
-	if linkedCloneSupported {
-		log.Infof("Storage policy %s supports LinkedClone: all %d zones have ESXi 9.1+ hosts", profileID, relevantZones)
-	} else {
-		log.Infof("Storage policy %s does not support LinkedClone: only %d/%d zones have ESXi 9.1+ hosts",
-			profileID, zonesWithLC, relevantZones)
-	}
+	slices.Sort(lcZones)
+	log.Infof("Storage policy %s supports LinkedClone in %d/%d zones with compatible datastores: %v",
+		profileID, len(lcZones), len(esxi91HostsPerZone), lcZones)
 
-	return linkedCloneSupported, esxi91HostsPerZone, nil
+	return lcZones, esxi91HostsPerZone, nil
 }
 
 // hostClusterRef pairs an ESXi 9.1+ host with the moref of its parent ClusterComputeResource.
@@ -786,29 +773,31 @@ func fetchESXi91HostsForDatastore(ctx context.Context, pc *property.Collector,
 	return esxi91Hosts, nil
 }
 
-// checkHighPerformanceLinkedClone returns true only when every zone in esxi91HostsPerZone has at
-// least one ESXi 9.1+ host in a vSAN-ESA enabled cluster. A shared checkedClusters cache avoids
-// duplicate vCenter calls for clusters that span multiple zones.
+// checkHighPerformanceLinkedClone returns the sorted zones in esxi91HostsPerZone that have at least
+// one ESXi 9.1+ host in a vSAN-ESA enabled cluster. A shared checkedClusters cache avoids duplicate
+// vCenter calls for clusters that span multiple zones.
 func checkHighPerformanceLinkedClone(ctx context.Context,
 	vc *cnsvsphere.VirtualCenter,
 	esxi91HostsPerZone map[string]map[string]vimtypes.ManagedObjectReference,
-) (bool, error) {
+) ([]string, error) {
 	log := logger.GetLogger(ctx)
 
-	if len(esxi91HostsPerZone) == 0 {
-		return false, nil
-	}
-
-	// Any zone with no ESXi 9.1+ hosts can never satisfy the ESA requirement.
+	// Zones with no ESXi 9.1+ hosts can never satisfy the ESA requirement.
+	candidateZones := make([]string, 0, len(esxi91HostsPerZone))
 	for zone, hosts := range esxi91HostsPerZone {
 		if len(hosts) == 0 {
-			log.Infof("Zone %s: no ESXi 9.1+ hosts; SupportsHighPerformanceLinkedClone=false", zone)
-			return false, nil
+			log.Infof("Zone %s: no ESXi 9.1+ hosts; HighPerformanceLinkedClone not supported", zone)
+			continue
 		}
+		candidateZones = append(candidateZones, zone)
 	}
+	if len(candidateZones) == 0 {
+		return nil, nil
+	}
+	slices.Sort(candidateZones)
 
 	if vc == nil || vc.Client == nil {
-		return false, fmt.Errorf("virtual center client is not available")
+		return nil, fmt.Errorf("virtual center client is not available")
 	}
 	pc := property.DefaultCollector(vc.Client.Client)
 	// checkedClusters caches vSAN-ESA state per cluster. A key present in the map (even false)
@@ -818,19 +807,21 @@ func checkHighPerformanceLinkedClone(ctx context.Context,
 	// multiple zones are only fetched from vCenter once.
 	hostClusterCache := make(map[string]vimtypes.ManagedObjectReference)
 
-	for zone, esxi91Hosts := range esxi91HostsPerZone {
-		hplc, err := zoneHasHPLC(ctx, pc, zone, esxi91Hosts, checkedClusters, hostClusterCache)
+	hplcZones := make([]string, 0, len(candidateZones))
+	for _, zone := range candidateZones {
+		hplc, err := zoneHasHPLC(ctx, pc, zone, esxi91HostsPerZone[zone], checkedClusters, hostClusterCache)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if !hplc {
 			log.Infof("Zone %s: no ESXi 9.1+ host found in a vSAN-ESA enabled cluster; "+
-				"SupportsHighPerformanceLinkedClone=false", zone)
-			return false, nil
+				"HighPerformanceLinkedClone not supported", zone)
+			continue
 		}
+		hplcZones = append(hplcZones, zone)
 	}
 
-	return true, nil
+	return hplcZones, nil
 }
 
 // zoneHasHPLC returns true when at least one ESXi 9.1+ host in the zone belongs to a
