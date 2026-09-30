@@ -16,6 +16,7 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -44,7 +45,14 @@ const (
 		"the VolumeAttributesClass API is not served by this cluster"
 	VACChangeFileVolumeErrorMessage = "VolumeAttributesClass modification is not allowed: " +
 		"VAC update is not supported for file volumes"
+	VACChangeHostLocalErrorMessage = "VolumeAttributesClass modification is not allowed: " +
+		"VAC update is not supported to or from a host local storage policy"
+	VACChangeCompatibilityCheckFailedErrorMessage = "VolumeAttributesClass modification is not allowed: " +
+		"compatibility check failed (host-local policy restrictions)"
 )
+
+// hostLocalStorageClassAnn is "true" on StorageClasses/VACs backed by a host local policy.
+const hostLocalStorageClassAnn = "cns.vmware.com/hostLocalPolicy"
 
 // vacAPIGroupVersion is the GA VolumeAttributesClass API version required for VAC-based
 // modification to be supported. VAC-based modification is only supported on Kubernetes 1.34+
@@ -402,18 +410,110 @@ func validateGuestPVCVACChange(ctx context.Context,
 	// treats every RWX/ROX PVC as a file volume here. That matches pvCSI provisioning, which
 	// classifies volumes via common.IsFileVolumeRequest without regard to VolumeMode, i.e. a
 	// guest cluster has no RWX raw block volumes.
-	if !isFileVolume(oldPVC.Spec.AccessModes, getVolumeMode(oldPVC)) {
-		return allowedResp()
+	if isFileVolume(oldPVC.Spec.AccessModes, getVolumeMode(oldPVC)) {
+		log.Errorf("denying VAC change %q -> %q on PVC %s/%s: PVC is backed by a file volume",
+			oldVAC, newVAC, oldPVC.Namespace, oldPVC.Name)
+		return deniedResp(VACChangeFileVolumeErrorMessage)
 	}
 
-	log.Errorf("denying VAC change %q -> %q on PVC %s/%s: PVC is backed by a file volume",
-		oldVAC, newVAC, oldPVC.Namespace, oldPVC.Name)
+	log = log.With("pvc", newPVC.Namespace+"/"+newPVC.Name, "oldVAC", oldVAC, "newVAC", newVAC)
+	compatible, err := validateVACCompatibility(ctx, newPVC)
+	if err != nil {
+		log.Errorf("denying VAC change: compatibility check failed: %v", err)
+		return deniedResp(VACChangeCompatibilityCheckFailedErrorMessage)
+	}
+	if !compatible {
+		log.Error("denying VAC change: host local policy restrictions")
+		return deniedResp(VACChangeHostLocalErrorMessage)
+	}
+	return allowedResp()
+}
+
+func deniedResp(reason string) *admissionv1.AdmissionResponse {
 	return &admissionv1.AdmissionResponse{
 		Allowed: false,
-		Result: &metav1.Status{
-			Reason: VACChangeFileVolumeErrorMessage,
-		},
+		Result:  &metav1.Status{Reason: metav1.StatusReason(reason)},
 	}
+}
+
+func isVACHostLocal(vac *storagev1.VolumeAttributesClass) bool {
+	return vac.GetAnnotations()[hostLocalStorageClassAnn] == "true"
+}
+
+func isStorageClassHostLocal(sc *storagev1.StorageClass) bool {
+	return sc.GetAnnotations()[hostLocalStorageClassAnn] == "true"
+}
+
+// validateVACCompatibility returns true if the current VAC (or StorageClass, if there is no VAC)
+// of the PVC and the new VAC are both non host local. Mirrors the Supervisor quota webhook.
+func validateVACCompatibility(ctx context.Context, pvc corev1.PersistentVolumeClaim) (bool, error) {
+	log := logger.GetLogger(ctx).With("pvc", pvc.Name)
+	kubeClient, err := newK8sClient(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	existingPVC, err := kubeClient.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name,
+		metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if existingPVC.Spec.VolumeAttributesClassName != nil {
+		// VAC takes precedence over the storage class.
+		vac, err := kubeClient.StorageV1().VolumeAttributesClasses().Get(ctx,
+			*existingPVC.Spec.VolumeAttributesClassName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		log = log.With("existingVAC", vac.Name)
+		if isVACHostLocal(vac) {
+			log.Warn("unsupported operation as the policy is host local")
+			return false, nil
+		}
+	} else if existingPVC.Spec.StorageClassName != nil {
+		sc, err := kubeClient.StorageV1().StorageClasses().Get(ctx, *existingPVC.Spec.StorageClassName,
+			metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		log = log.With("existingSC", sc.Name)
+		if isStorageClassHostLocal(sc) {
+			log.Warn("unsupported operation as the policy is host local")
+			return false, nil
+		}
+	} else {
+		err = fmt.Errorf("PVC doesn't have VolumeAttributesClassName or StorageClassName")
+		log.Error(err.Error())
+		return false, err
+	}
+
+	if pvc.Spec.VolumeAttributesClassName == nil {
+		return false, fmt.Errorf("new PVC doesn't have VolumeAttributesClassName")
+	}
+	newVAC, err := kubeClient.StorageV1().VolumeAttributesClasses().Get(ctx,
+		*pvc.Spec.VolumeAttributesClassName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	log = log.With("newVAC", newVAC.Name)
+	if isVACHostLocal(newVAC) {
+		log.Warn("unsupported operation as the policy is being changed to host local")
+		return false, nil
+	}
+	return true, nil
 }
 
 // validateGuestPVCOperation helps validate AdmissionReview requests for PersistentVolumeClaim.
