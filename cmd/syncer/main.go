@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	profile_logger "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils/profile_logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
@@ -92,6 +93,8 @@ var (
 	enableProfileServer = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the syncer.")
 	enableProfileLogger = flag.Bool("enable-profile-logger", true,
 		"Write memory profiles to the log when the live heap nears GOMEMLIMIT.")
+	migrateStorageClass = flag.Bool("migrate-storageclass-expansion", false,
+		"Patch vSphere StorageClasses to allowVolumeExpansion=true, then exit.")
 )
 
 // main for vsphere syncer.
@@ -105,6 +108,15 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Vsphere Syncer BuildInfo: %s-%s-%s", service.Version, service.Branch, service.Commit)
+
+	// One-shot mode: it needs neither a vCenter connection nor the config secret, so it runs before
+	// any of the syncer's initialization.
+	if *migrateStorageClass {
+		if err := syncer.RunStorageClassExpansionMigration(ctx); err != nil {
+			log.Fatalf("storageclass expansion migration failed: %v", err)
+		}
+		return
+	}
 
 	// Log GOMEMLIMIT if set for memory management visibility
 	if goMemLimit := os.Getenv("GOMEMLIMIT"); goMemLimit != "" {
@@ -291,6 +303,9 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
 		}
+		// From here on GetConfig also completes the Supervisor configuration from its runtime
+		// sources (when their FSS is on). The CO utility, which holds the FSS, was created above.
+		runtimeconfig.Register()
 		var configInfo *config.ConfigurationInfo
 		var err error
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {
