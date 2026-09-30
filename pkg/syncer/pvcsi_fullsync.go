@@ -604,13 +604,8 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 // and returns false if their labels are not deeply equal.
 func compareCnsVolumeMetadatas(guestObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec,
 	supervisorObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec) bool {
-	if !reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels) ||
-		!reflect.DeepEqual(guestObject.ClusterDistribution, supervisorObject.ClusterDistribution) {
-		supervisorObject.Labels = guestObject.Labels
-		supervisorObject.ClusterDistribution = guestObject.ClusterDistribution
-		return false
-	}
-	return true
+	return reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels) &&
+		reflect.DeepEqual(guestObject.ClusterDistribution, supervisorObject.ClusterDistribution)
 }
 
 // isReadyVolumeSnapshotContent checks if a VolumeSnapshotContent is ready to be processed.

@@ -466,6 +466,30 @@ func TestPvcsiFullSync_PatchObject(t *testing.T) {
 			},
 		},
 		{
+			name: "Labels-only diff reaches the API server",
+			guestSpec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
+				EntityType: cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,
+				Labels:     map[string]string{"pvcLabelKeyFsync": "pvc-label-Value-fsync"},
+			},
+			supervisorSpec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
+				EntityType: cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,
+			},
+			shouldPatch: true,
+			expectError: false,
+			setupClient: func() client.Client {
+				scheme := runtime.NewScheme()
+				_ = cnsoperatorapis.AddToScheme(scheme)
+				svObj := supervisorObject.DeepCopy()
+				svObj.Spec = cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
+					EntityType: cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,
+				}
+				return fake.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(svObj).
+					Build()
+			},
+		},
+		{
 			name: "Skip patch for POD entity type",
 			guestSpec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
 				EntityType: cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD,
@@ -533,13 +557,12 @@ func TestPvcsiFullSync_PatchObject(t *testing.T) {
 				} else if tt.shouldPatch {
 					assert.NoError(t, err, "Patch operation should succeed")
 
-					// Verify that the spec was updated to match guest object
-					assert.Equal(t, testGuestObject.Spec, testSupervisorObject.Spec,
-						"Supervisor object spec should match guest object spec after patch")
-
-					// Verify that the original object was used for patching (DeepCopy was called)
-					assert.Equal(t, *originalSupervisorSpec, original.Spec,
-						"Original object should contain the pre-modification spec")
+					// Assert against what the API server actually persisted.
+					persisted := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+					getErr := fakeClient.Get(ctx, client.ObjectKeyFromObject(testSupervisorObject), persisted)
+					require.NoError(t, getErr, "should be able to fetch the patched object back from the API server")
+					assert.Equal(t, testGuestObject.Spec, persisted.Spec,
+						"API server should reflect the guest object's spec after patch")
 				}
 			} else {
 				// Verify that no patch was attempted when conditions weren't met
@@ -682,14 +705,17 @@ func TestPvcsiFullSync_PatchLogic_Integration(t *testing.T) {
 
 		assert.NoError(t, err, "Integration patch should succeed")
 
-		// Verify the patch was applied correctly
-		assert.Equal(t, guestObject.Spec.VolumeNames, supervisorObject.Spec.VolumeNames,
+		// Verify what was actually persisted on the API server
+		persisted := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+		getErr := fakeClient.Get(ctx, client.ObjectKeyFromObject(supervisorObject), persisted)
+		require.NoError(t, getErr, "should be able to fetch the patched object back from the API server")
+		assert.Equal(t, guestObject.Spec.VolumeNames, persisted.Spec.VolumeNames,
 			"VolumeNames should be updated")
-		assert.Equal(t, guestObject.Spec.EntityName, supervisorObject.Spec.EntityName,
+		assert.Equal(t, guestObject.Spec.EntityName, persisted.Spec.EntityName,
 			"EntityName should be updated")
-		assert.Equal(t, guestObject.Spec.Labels, supervisorObject.Spec.Labels,
+		assert.Equal(t, guestObject.Spec.Labels, persisted.Spec.Labels,
 			"Labels should be updated")
-		assert.Equal(t, guestObject.Spec.ClusterDistribution, supervisorObject.Spec.ClusterDistribution,
+		assert.Equal(t, guestObject.Spec.ClusterDistribution, persisted.Spec.ClusterDistribution,
 			"ClusterDistribution should be updated")
 	} else {
 		t.Fatal("Expected patch conditions to be met for integration test")
