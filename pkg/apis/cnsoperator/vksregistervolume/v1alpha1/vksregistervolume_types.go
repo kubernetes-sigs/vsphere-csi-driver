@@ -91,7 +91,8 @@ type VKSRegisterVolumeStatus struct {
 	// +optional
 	Registered bool `json:"registered,omitempty"`
 
-	// Error is a human-readable message describing a terminal failure, if any.
+	// Error is a human-readable message describing the last error encountered, if any. It may
+	// describe a terminal failure (Phase==Failed) or a transient condition still being retried.
 	// +optional
 	Error string `json:"error,omitempty"`
 }
