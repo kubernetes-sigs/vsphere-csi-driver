@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
@@ -125,6 +126,15 @@ var (
 	// ErrPasswordMissing is returned when the provided password is empty and
 	// vc-session-manager-url is not configured as an alternative.
 	ErrPasswordMissing = errors.New("password or vc-session-manager-url is missing")
+
+	// ErrSDDCNameMissing is returned when vsphere-service-account is set and a
+	// VirtualCenter section has no sddc-name.
+	ErrSDDCNameMissing = errors.New("sddc-name is missing while vsphere-service-account is set")
+
+	// ErrCredentialsWithServiceAccount is returned when vsphere-service-account is
+	// set together with a literal user or password.
+	ErrCredentialsWithServiceAccount = errors.New(
+		"user and password must not be set while vsphere-service-account is set")
 
 	// ErrInvalidVCenterIP is returned when the provided vCenter IP address is
 	// missing from the provided configuration.
@@ -345,6 +355,12 @@ func isValidvCenterUsernameWithDomain(username string) bool {
 	return match
 }
 
+// IsValidvCenterUsernameWithDomain reports whether username is fully qualified, that is
+// userName@domainName or domainName\userName.
+func IsValidvCenterUsernameWithDomain(username string) bool {
+	return isValidvCenterUsernameWithDomain(username)
+}
+
 func validateConfig(ctx context.Context, cfg *Config) error {
 	log := logger.GetLogger(ctx)
 	// Fix default global values.
@@ -385,27 +401,40 @@ func validateConfig(ctx context.Context, cfg *Config) error {
 			return ErrInvalidVCenterIP
 		}
 
-		if vcConfig.User == "" {
-			vcConfig.User = cfg.Global.User
-			if vcConfig.User == "" && vcConfig.VCSessionManagerURL == "" {
-				log.Errorf("vcConfig.User or vcConfig.VCSessionManagerURL should be configured for vc %s!", vcServer)
-				return ErrUsernameMissing
+		if cfg.Global.VSphereServiceAccount != "" {
+			// The credentials are filled in after validation, from the service account's Secret,
+			// so they are neither required nor allowed here.
+			if vcConfig.SDDCName == "" {
+				log.Errorf("sddc-name should be configured for vc %s when vsphere-service-account is set", vcServer)
+				return ErrSDDCNameMissing
 			}
-		}
+			if vcConfig.User != "" || vcConfig.Password != "" || cfg.Global.User != "" || cfg.Global.Password != "" {
+				log.Errorf("user and password are configured for vc %s while vsphere-service-account is set", vcServer)
+				return ErrCredentialsWithServiceAccount
+			}
+		} else {
+			if vcConfig.User == "" {
+				vcConfig.User = cfg.Global.User
+				if vcConfig.User == "" && vcConfig.VCSessionManagerURL == "" {
+					log.Errorf("vcConfig.User or vcConfig.VCSessionManagerURL should be configured for vc %s!", vcServer)
+					return ErrUsernameMissing
+				}
+			}
 
-		// vCenter server username provided in vSphere config secret should contain domain name,
-		// CSI driver will crash if username doesn't contain domain name.
-		if !isValidvCenterUsernameWithDomain(vcConfig.User) && vcConfig.VCSessionManagerURL == "" {
-			log.Errorf("username specified in vSphere config secret for vc %s is invalid, "+
-				"make sure that username is a fully qualified domain name.", vcServer)
-			return ErrInvalidUsername
-		}
+			// vCenter server username provided in vSphere config secret should contain domain name,
+			// CSI driver will crash if username doesn't contain domain name.
+			if !isValidvCenterUsernameWithDomain(vcConfig.User) && vcConfig.VCSessionManagerURL == "" {
+				log.Errorf("username specified in vSphere config secret for vc %s is invalid, "+
+					"make sure that username is a fully qualified domain name.", vcServer)
+				return ErrInvalidUsername
+			}
 
-		if vcConfig.Password == "" {
-			vcConfig.Password = cfg.Global.Password
-			if vcConfig.Password == "" && vcConfig.VCSessionManagerURL == "" {
-				log.Errorf("vcConfig.Password or vcConfig.VCSessionManagerURL should be configured for vc %s!", vcServer)
-				return ErrPasswordMissing
+			if vcConfig.Password == "" {
+				vcConfig.Password = cfg.Global.Password
+				if vcConfig.Password == "" && vcConfig.VCSessionManagerURL == "" {
+					log.Errorf("vcConfig.Password or vcConfig.VCSessionManagerURL should be configured for vc %s!", vcServer)
+					return ErrPasswordMissing
+				}
 			}
 		}
 		if vcConfig.VCenterPort == "" {
@@ -734,6 +763,38 @@ func GetClusterFlavor(ctx context.Context) (cnstypes.CnsClusterFlavor, error) {
 	return "", fmt.Errorf("%s", errMsg)
 }
 
+// PostProcessor completes a Config after it has been read and validated, from sources that
+// only exist at runtime (the vCenter credentials and vSAN file-share settings kept in the
+// Supervisor's API server).
+type PostProcessor func(ctx context.Context, cfg *Config) error
+
+var (
+	postProcessorMu sync.RWMutex
+	postProcessor   PostProcessor
+)
+
+// SetPostProcessor registers the PostProcessor that GetConfig runs on Supervisor configs. The
+// registration lives outside this package because it depends on the feature state switches and
+// the Kubernetes client, which in turn depend on this package.
+func SetPostProcessor(p PostProcessor) {
+	postProcessorMu.Lock()
+	defer postProcessorMu.Unlock()
+	postProcessor = p
+}
+
+func runPostProcessor(ctx context.Context, cfg *Config) error {
+	postProcessorMu.RLock()
+	p := postProcessor
+	postProcessorMu.RUnlock()
+	if p == nil {
+		if cfg.Global.VSphereServiceAccount != "" {
+			return errors.New("vsphere-service-account is set but no source for the vCenter credentials is registered")
+		}
+		return nil
+	}
+	return p(ctx, cfg)
+}
+
 // GetConfig loads configuration from secret and returns config object.
 func GetConfig(ctx context.Context) (*Config, error) {
 	var cfg *Config
@@ -750,6 +811,10 @@ func GetConfig(ctx context.Context) (*Config, error) {
 		cfg, err = GetCnsconfig(ctx, cfgPath)
 		if err != nil {
 			log.Errorf("GetCnsconfig failed with err: %v", err)
+			return cfg, err
+		}
+		if err = runPostProcessor(ctx, cfg); err != nil {
+			log.Errorf("failed to complete the config from its runtime sources: %v", err)
 			return cfg, err
 		}
 	}

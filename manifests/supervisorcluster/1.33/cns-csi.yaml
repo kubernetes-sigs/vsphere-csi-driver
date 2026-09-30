@@ -676,6 +676,7 @@ data:
   "high-pv-node-density": "true" # When enabled, increases the MAX_VOLUMES_PER_NODE from 59 to 255 for guest cluster nodes
   "improved-volume-visibility": "true"
   "vks-register-volume": "false"
+  "vsphere-csi-runtime-config": "false"
 kind: ConfigMap
 metadata:
   name: csi-feature-states
