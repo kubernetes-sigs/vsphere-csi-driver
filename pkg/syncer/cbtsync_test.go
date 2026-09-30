@@ -352,8 +352,24 @@ func TestResolvePVCToVolumeID(t *testing.T) {
 	})
 
 	t.Run("FileVolumeReturnsFalse", func(t *testing.T) {
+		isSharedDiskEnabled = true
 		pv := newCBTBlockPV("pv-1", "vol-1")
-		pv.Spec.CSI.VolumeAttributes[common.AttributeDiskType] = "vSphere CNS File Volume"
+		pv.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
+		fileMode := v1.PersistentVolumeFilesystem
+		pv.Spec.VolumeMode = &fileMode
+		pvLister, _, _ := newTestListers(t, pv)
+		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
+		_, ok := resolvePVCToVolumeID(ctx, pvLister, pvc)
+		assert.False(t, ok)
+	})
+
+	t.Run("SharedDiskVolumeReturnsFalse", func(t *testing.T) {
+		// Mock the package level variable for tests
+		isSharedDiskEnabled = true
+		pv := newCBTBlockPV("pv-1", "vol-1")
+		blockMode := v1.PersistentVolumeBlock
+		pv.Spec.VolumeMode = &blockMode
+		pv.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
 		pvLister, _, _ := newTestListers(t, pv)
 		pvc := newPVC("ns", "pvc-1", "pv-1", nil, nil)
 		_, ok := resolvePVCToVolumeID(ctx, pvLister, pvc)
@@ -426,7 +442,9 @@ func TestBuildPVCCandidates(t *testing.T) {
 	t.Run("MixedEligibilityFiltersCorrectly", func(t *testing.T) {
 		pvGood := newCBTBlockPV("pv-good", "vol-good")
 		pvFile := newCBTBlockPV("pv-file", "vol-file")
-		pvFile.Spec.CSI.VolumeAttributes[common.AttributeDiskType] = "vSphere CNS File Volume"
+		pvFile.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
+		fileMode := v1.PersistentVolumeFilesystem
+		pvFile.Spec.VolumeMode = &fileMode
 		pvAttached := newCBTBlockPV("pv-attached", "vol-attached")
 
 		pvcGood := newPVC("ns", "pvc-good", "pv-good", nil, nil)
@@ -802,7 +820,9 @@ func TestBuildAllBlockPVCs(t *testing.T) {
 	t.Run("NonBlockPVsSkipped", func(t *testing.T) {
 		pvBlock := newCBTBlockPV("pv-block", "vol-block")
 		pvFile := newCBTBlockPV("pv-file", "vol-file")
-		pvFile.Spec.CSI.VolumeAttributes[common.AttributeDiskType] = "vSphere CNS File Volume"
+		pvFile.Spec.AccessModes = []v1.PersistentVolumeAccessMode{v1.ReadWriteMany}
+		fileMode := v1.PersistentVolumeFilesystem
+		pvFile.Spec.VolumeMode = &fileMode
 		pvcBlock := newPVC("ns", "pvc-block", "pv-block", nil, nil)
 		pvcFile := newPVC("ns", "pvc-file", "pv-file", nil, nil)
 		pvLister, pvcLister, _ := newTestListers(t, pvBlock, pvFile, pvcBlock, pvcFile)

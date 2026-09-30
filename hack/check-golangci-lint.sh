@@ -53,8 +53,10 @@ shift $((OPTIND-1))
 
 export GOOS=linux
 if [ ! "${DO_DOCKER-}" ]; then
-  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)"/bin v2.11.4
+  # Ensure golangci-lint is built with the Go version targeted by our project
+  TARGET_GO_VERSION=$(grep -E "^go " go.mod | awk '{print "go"$2}')
+  GOTOOLCHAIN=${TARGET_GO_VERSION} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
   "$(go env GOPATH)"/bin/golangci-lint run -v --timeout=1200s
 else
-  docker run --rm -v "$(pwd)":/app -w /app golangci/golangci-lint:v2.11.4 golangci-lint run -v --timeout=1200s
+  docker run --rm -v "$(pwd)":/app -w /app golangci/golangci-lint:v2.14.0 golangci-lint run -v --timeout=1200s
 fi
