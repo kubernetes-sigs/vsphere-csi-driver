@@ -158,6 +158,19 @@ func CreateCnsKuberenetesEntityReference(entityType string, entityName string,
 	}
 }
 
+// parseDatacenterEntries splits the comma separated datacenters config value into
+// inventory paths or MoRef values. Whitespace is trimmed, and the "Datacenter:" type
+// prefix is stripped from MoRef entries (e.g. "Datacenter:datacenter-3" becomes
+// "datacenter-3"), because callers such as the WCP controller use the entry directly
+// as the value of a ManagedObjectReference.
+func parseDatacenterEntries(datacenters string) []string {
+	entries := strings.Split(datacenters, ",")
+	for idx := range entries {
+		entries[idx] = strings.TrimPrefix(strings.TrimSpace(entries[idx]), "Datacenter:")
+	}
+	return entries
+}
+
 // GetVirtualCenterConfig returns VirtualCenterConfig Object created using
 // vSphere Configuration specified in the argument.
 func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCenterConfig, error) {
@@ -203,10 +216,7 @@ func GetVirtualCenterConfig(ctx context.Context, cfg *config.Config) (*VirtualCe
 
 	log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 	if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
-		vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
-		for idx := range vcConfig.DatacenterPaths {
-			vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
-		}
+		vcConfig.DatacenterPaths = parseDatacenterEntries(vcConfigEntry.Datacenters)
 	}
 
 	return vcConfig, nil
@@ -256,10 +266,7 @@ func GetVirtualCenterConfigs(ctx context.Context, cfg *config.Config) ([]*Virtua
 		}
 		log.Debugf("Setting the queryLimit = %v, ListVolumeThreshold = %v", vcConfig.QueryLimit, vcConfig.ListVolumeThreshold)
 		if strings.TrimSpace(vcConfigEntry.Datacenters) != "" {
-			vcConfig.DatacenterPaths = strings.Split(vcConfigEntry.Datacenters, ",")
-			for idx := range vcConfig.DatacenterPaths {
-				vcConfig.DatacenterPaths[idx] = strings.TrimSpace(vcConfig.DatacenterPaths[idx])
-			}
+			vcConfig.DatacenterPaths = parseDatacenterEntries(vcConfigEntry.Datacenters)
 		}
 		VirtualCenterConfigs = append(VirtualCenterConfigs, vcConfig)
 	}

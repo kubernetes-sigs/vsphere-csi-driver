@@ -229,3 +229,45 @@ func TestIsInvalidLoginError(t *testing.T) {
 		assert.False(tt, result)
 	})
 }
+
+// Datacenter entries given as "Datacenter:datacenter-N" must be normalized to the bare MoID at config
+// parse time, since some callers use DatacenterPaths entries directly as a ManagedObjectReference value.
+func TestGetVirtualCenterConfigsNormalizesDatacenterEntries(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		datacenters string
+		want        []string
+	}{
+		{"inventory path is preserved", "/DC1", []string{"/DC1"}},
+		{"relative name is preserved", "DC1", []string{"DC1"}},
+		{"bare MoID is preserved", "datacenter-3", []string{"datacenter-3"}},
+		{"Datacenter: prefix is stripped", "Datacenter:datacenter-3", []string{"datacenter-3"}},
+		{"whitespace is trimmed before stripping", "  Datacenter:datacenter-3  ", []string{"datacenter-3"}},
+		{"mixed entries", "/DC1, Datacenter:datacenter-3, datacenter-5",
+			[]string{"/DC1", "datacenter-3", "datacenter-5"}},
+		{"empty value yields no entries", "", nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.VirtualCenter = map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("vc.example.com"): {
+					VCenterPort: "443",
+					Datacenters: tc.datacenters,
+				},
+			}
+
+			vcConfig, err := GetVirtualCenterConfig(ctx, cfg)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, vcConfig.DatacenterPaths)
+
+			vcConfigs, err := GetVirtualCenterConfigs(ctx, cfg)
+			assert.NoError(t, err)
+			assert.Len(t, vcConfigs, 1)
+			assert.Equal(t, tc.want, vcConfigs[0].DatacenterPaths)
+		})
+	}
+}
