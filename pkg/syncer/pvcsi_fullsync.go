@@ -229,6 +229,29 @@ func cnsVolumeMetadataEntityKey(spec cnsvolumemetadatav1alpha1.CnsVolumeMetadata
 	return string(spec.EntityType) + "/" + spec.EntityName + "/" + spec.Namespace
 }
 
+// belongsToThisGuestCluster reports whether the CnsVolumeMetadata was created by this guest
+// cluster. The guest cluster ID changes when a cluster moves from a legacy release to a
+// ClusterClass based one (the TanzuKubernetesCluster UID becomes the Cluster UID), so the
+// leftovers of the legacy release carry the old ID and cannot be recognised by ID alone.
+// The cluster name does not change, and the owner reference of a leftover names the legacy
+// TanzuKubernetesCluster, which has the same name as the migrated Cluster. Cluster names are
+// unique within a supervisor namespace, so another guest cluster never matches.
+func belongsToThisGuestCluster(cvm *cnsvolumemetadatav1alpha1.CnsVolumeMetadata,
+	guestClusterID, guestClusterName string) bool {
+	if cvm.Spec.GuestClusterID == guestClusterID {
+		return true
+	}
+	if guestClusterName == "" {
+		return false
+	}
+	for _, ownerRef := range cvm.OwnerReferences {
+		if ownerRef.Name == guestClusterName {
+			return true
+		}
+	}
+	return false
+}
+
 // cleanUpCnsVolumeMetadata deletes the cnsvolumemetadata created on legacy kubernetes releases,
 // which are left unused as customer have migrated to non-legacy kubernetes releases.
 // Only CRs belonging to this guest cluster are considered: the supervisor namespace can host
@@ -240,10 +263,12 @@ func cleanUpCnsVolumeMetadata(ctx context.Context, metadataSyncer *metadataSyncI
 	log.Info("cleanUpCnsVolumeMetadata: deleting the CnsVolumeMetadata CRs " +
 		"created on legacy vsphere kubernetes releases")
 	guestClusterID := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+	guestClusterName := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName
 	toDeleteCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
 	cnsVolMetadataMap := make(map[string]int)
-	for _, object := range cnsVolumeMetadataList.Items {
-		if object.Spec.GuestClusterID != guestClusterID {
+	for i := range cnsVolumeMetadataList.Items {
+		object := cnsVolumeMetadataList.Items[i]
+		if !belongsToThisGuestCluster(&object, guestClusterID, guestClusterName) {
 			continue
 		}
 		cnsVolMetadataMap[cnsVolumeMetadataEntityKey(object.Spec)]++

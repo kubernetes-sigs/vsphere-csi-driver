@@ -2526,10 +2526,20 @@ const (
 	cleanupCAPIV1beta1         = "cluster.x-k8s.io/v1beta1"
 	cleanupCAPIV1beta2         = "cluster.x-k8s.io/v1beta2"
 
-	cleanupThisGCUID  = "guest-cluster-a-uid"
-	cleanupOtherGCUID = "guest-cluster-b-uid"
-	cleanupSupervisor = "supervisor-ns"
+	cleanupThisGCUID   = "guest-cluster-a-uid"
+	cleanupThisGCName  = "guest-cluster-a"
+	cleanupLegacyGCUID = "guest-cluster-a-legacy-tkc-uid"
+	cleanupOtherGCUID  = "guest-cluster-b-uid"
+	cleanupOtherGCName = "guest-cluster-b"
+	cleanupSupervisor  = "supervisor-ns"
 )
+
+// cleanupOwnedBy sets the name of the single owner reference of a test CnsVolumeMetadata.
+func cleanupOwnedBy(cvm *cnsvolumemetadatav1alpha1.CnsVolumeMetadata,
+	ownerName string) *cnsvolumemetadatav1alpha1.CnsVolumeMetadata {
+	cvm.OwnerReferences[0].Name = ownerName
+	return cvm
+}
 
 // newCleanupTestCVM builds a CnsVolumeMetadata for the cleanUpCnsVolumeMetadata tests.
 // An empty ownerAPIVersion means the CR carries no owner references at all.
@@ -2575,18 +2585,65 @@ func TestCleanUpCnsVolumeMetadata(t *testing.T) {
 	tests := []struct {
 		name string
 		objs []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata
+		// emptyGCName runs the cleanup with no guest cluster name configured.
+		emptyGCName bool
 		// kept lists the CR names expected to still exist after the cleanup.
 		kept []string
 	}{
 		{
-			name: "legacy owner with a duplicate in the same guest cluster is deleted",
+			// The guest cluster ID changed on upgrade (TKC UID to Cluster UID), so the leftover
+			// carries the old ID and is recognised by the name of its owner.
+			name: "upgrade leftover with the old cluster ID is deleted, current CR on v1beta1 is kept",
 			objs: []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
-				newCleanupTestCVM("legacy-dup", cleanupThisGCUID, "data-0", "default",
-					pvcEntity, cleanupLegacyTKCAPIVersion),
-				newCleanupTestCVM("current", cleanupThisGCUID, "data-0", "default",
-					pvcEntity, cleanupCAPIV1beta2),
+				cleanupOwnedBy(newCleanupTestCVM("leftover", cleanupLegacyGCUID, "data-0", "default",
+					pvcEntity, cleanupLegacyTKCAPIVersion), cleanupThisGCName),
+				cleanupOwnedBy(newCleanupTestCVM("current", cleanupThisGCUID, "data-0", "default",
+					pvcEntity, cleanupCAPIV1beta1), cleanupThisGCName),
 			},
 			kept: []string{"current"},
+		},
+		{
+			// Guards against wiping the cluster when the current CR is already on v1beta2.
+			name: "upgrade leftover with the old cluster ID is deleted, current CR on v1beta2 is kept",
+			objs: []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				cleanupOwnedBy(newCleanupTestCVM("leftover", cleanupLegacyGCUID, "data-0", "default",
+					pvcEntity, cleanupLegacyTKCAPIVersion), cleanupThisGCName),
+				cleanupOwnedBy(newCleanupTestCVM("current", cleanupThisGCUID, "data-0", "default",
+					pvcEntity, cleanupCAPIV1beta2), cleanupThisGCName),
+			},
+			kept: []string{"current"},
+		},
+		{
+			name: "upgrade leftover without a current duplicate is kept",
+			objs: []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				cleanupOwnedBy(newCleanupTestCVM("leftover", cleanupLegacyGCUID, "data-0", "default",
+					pvcEntity, cleanupLegacyTKCAPIVersion), cleanupThisGCName),
+			},
+			kept: []string{"leftover"},
+		},
+		{
+			// Another cluster has a different ID and a different name, so its CRs are not ours
+			// even when the entity matches one of ours.
+			name: "another guest cluster's legacy CR is kept when this cluster has the same entity",
+			objs: []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				cleanupOwnedBy(newCleanupTestCVM("theirs-legacy", cleanupOtherGCUID, "data-0", "default",
+					pvcEntity, cleanupLegacyTKCAPIVersion), cleanupOtherGCName),
+				cleanupOwnedBy(newCleanupTestCVM("current", cleanupThisGCUID, "data-0", "default",
+					pvcEntity, cleanupCAPIV1beta2), cleanupThisGCName),
+			},
+			kept: []string{"theirs-legacy", "current"},
+		},
+		{
+			// With no cluster name configured an empty owner name must not match every CR.
+			name:        "no configured cluster name does not match leftovers by owner name",
+			emptyGCName: true,
+			objs: []*cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				cleanupOwnedBy(newCleanupTestCVM("leftover", cleanupLegacyGCUID, "data-0", "default",
+					pvcEntity, cleanupLegacyTKCAPIVersion), ""),
+				cleanupOwnedBy(newCleanupTestCVM("current", cleanupThisGCUID, "data-0", "default",
+					pvcEntity, cleanupCAPIV1beta2), cleanupThisGCName),
+			},
+			kept: []string{"leftover", "current"},
 		},
 		{
 			name: "legacy owner without a duplicate is kept",
@@ -2680,12 +2737,17 @@ func TestCleanUpCnsVolumeMetadata(t *testing.T) {
 				list.Items = append(list.Items, *o.DeepCopy())
 			}
 
+			gcName := cleanupThisGCName
+			if tt.emptyGCName {
+				gcName = ""
+			}
 			metadataSyncer := &metadataSyncInformer{
 				cnsOperatorClient: builder.Build(),
 				configInfo: &cnsconfig.ConfigurationInfo{
 					Cfg: &cnsconfig.Config{
 						GC: cnsconfig.GCConfig{
-							TanzuKubernetesClusterUID: cleanupThisGCUID,
+							TanzuKubernetesClusterUID:  cleanupThisGCUID,
+							TanzuKubernetesClusterName: gcName,
 						},
 					},
 				},
