@@ -51,6 +51,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/utils/ptr"
 )
 
 /*
@@ -176,7 +177,7 @@ func deleteAllStsAndPodsPVCsInNamespace(ctx context.Context, c clientset.Interfa
 		fss.WaitForStatusReplicas(ctx, c, ss, 0)
 		framework.Logf("Deleting statefulset %v", ss.Name)
 		if err := c.AppsV1().StatefulSets(ss.Namespace).Delete(context.TODO(), ss.Name,
-			metav1.DeleteOptions{OrphanDependents: new(bool)}); err != nil {
+			metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationBackground)}); err != nil {
 			errList = append(errList, fmt.Sprintf("%v", err))
 		}
 	}
