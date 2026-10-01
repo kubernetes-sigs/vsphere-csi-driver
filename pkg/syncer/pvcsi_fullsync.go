@@ -28,8 +28,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
@@ -184,30 +186,78 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	return nil
 }
 
+// isNonLegacyClusterOwner reports whether the owner reference points at a Cluster API
+// Cluster object, which marks the CnsVolumeMetadata as belonging to a non-legacy guest
+// cluster. It compares the API group only, so it holds for every served version of the
+// cluster.x-k8s.io group (v1beta1, v1beta2 and later). Legacy guest clusters are owned by a
+// TanzuKubernetesCluster in the run.tanzu.vmware.com group instead, so they do not match.
+func isNonLegacyClusterOwner(ownerRef metav1.OwnerReference) bool {
+	return schema.FromAPIVersionAndKind(ownerRef.APIVersion, ownerRef.Kind).Group == ccV1beta2.GroupVersion.Group
+}
+
+// cnsVolumeMetadataEntityKey identifies the guest cluster entity a CnsVolumeMetadata
+// describes, and is used to detect duplicates left behind by the legacy to non-legacy
+// migration. EntityType is part of the key so that a PVC and a Pod sharing a name in one
+// namespace are not mistaken for duplicates of each other, and the fields are separated so
+// that different field values cannot concatenate into the same key.
+func cnsVolumeMetadataEntityKey(spec cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec) string {
+	return string(spec.EntityType) + "/" + spec.EntityName + "/" + spec.Namespace
+}
+
+// belongsToThisGuestCluster reports whether the CnsVolumeMetadata was created by this guest
+// cluster. The guest cluster ID changes when a cluster moves from a legacy release to a
+// ClusterClass based one (the TanzuKubernetesCluster UID becomes the Cluster UID), so the
+// leftovers of the legacy release carry the old ID and cannot be recognised by ID alone.
+// The cluster name does not change, and the owner reference of a leftover names the legacy
+// TanzuKubernetesCluster, which has the same name as the migrated Cluster. Cluster names are
+// unique within a supervisor namespace, so another guest cluster never matches.
+func belongsToThisGuestCluster(cvm *cnsvolumemetadatav1alpha1.CnsVolumeMetadata,
+	guestClusterID, guestClusterName string) bool {
+	if cvm.Spec.GuestClusterID == guestClusterID {
+		return true
+	}
+	if guestClusterName == "" {
+		return false
+	}
+	for _, ownerRef := range cvm.OwnerReferences {
+		if ownerRef.Name == guestClusterName {
+			return true
+		}
+	}
+	return false
+}
+
 // cleanUpCnsVolumeMetadata deletes the cnsvolumemetadata created on legacy kubernetes releases,
-// which are left unused as customer have migrated to non-legacy kubernetes releases
+// which are left unused as customer have migrated to non-legacy kubernetes releases.
+// Only CRs belonging to this guest cluster are considered: the supervisor namespace can host
+// several guest clusters, and entity names are only unique within a guest cluster, so
+// counting duplicates across clusters would delete another cluster's live metadata.
 func cleanUpCnsVolumeMetadata(ctx context.Context, metadataSyncer *metadataSyncInformer,
 	cnsVolumeMetadataList *cnsvolumemetadatav1alpha1.CnsVolumeMetadataList) {
 	log := logger.GetLogger(ctx)
 	log.Info("cleanUpCnsVolumeMetadata: deleting the CnsVolumeMetadata CRs " +
 		"created on legacy vsphere kubernetes releases")
+	guestClusterID := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+	guestClusterName := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName
 	toDeleteCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
 	cnsVolMetadataMap := make(map[string]int)
-	for _, object := range cnsVolumeMetadataList.Items {
-		cnsVolMetadataMap[object.Spec.EntityName+object.Spec.Namespace]++
-		if object.ObjectMeta.OwnerReferences != nil {
-			for _, ownerRef := range object.ObjectMeta.OwnerReferences {
-				if ownerRef.APIVersion != cnsconfig.ClusterVersionv1beta1 {
-					log.Debugf("duplicate cnsvolumemetadata %s from namespace %s is marked for deletion",
-						object.Name, object.Namespace)
-					toDeleteCnsVolumeMetadataList.Items = append(toDeleteCnsVolumeMetadataList.Items, object)
-					break
-				}
+	for i := range cnsVolumeMetadataList.Items {
+		object := cnsVolumeMetadataList.Items[i]
+		if !belongsToThisGuestCluster(&object, guestClusterID, guestClusterName) {
+			continue
+		}
+		cnsVolMetadataMap[cnsVolumeMetadataEntityKey(object.Spec)]++
+		for _, ownerRef := range object.ObjectMeta.OwnerReferences {
+			if !isNonLegacyClusterOwner(ownerRef) {
+				log.Debugf("duplicate cnsvolumemetadata %s from namespace %s is marked for deletion",
+					object.Name, object.Namespace)
+				toDeleteCnsVolumeMetadataList.Items = append(toDeleteCnsVolumeMetadataList.Items, object)
+				break
 			}
 		}
 	}
 	for _, cvm := range toDeleteCnsVolumeMetadataList.Items {
-		if cnsVolMetadataMap[cvm.Spec.EntityName+cvm.Spec.Namespace] > 1 {
+		if cnsVolMetadataMap[cnsVolumeMetadataEntityKey(cvm.Spec)] > 1 {
 			if err := metadataSyncer.cnsOperatorClient.Delete(ctx, &cvm); err != nil {
 				log.Warnf("FullSync: Failed to delete CnsVolumeMetadata %v. Err: %v", cvm.Name, err)
 			}
