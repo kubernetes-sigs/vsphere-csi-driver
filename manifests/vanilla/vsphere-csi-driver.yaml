@@ -447,6 +447,16 @@ spec:
         role: vsphere-csi
     spec:
       priorityClassName: system-node-critical
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
       nodeSelector:
         kubernetes.io/os: linux
       serviceAccountName: vsphere-csi-node

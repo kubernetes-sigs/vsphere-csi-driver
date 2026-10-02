@@ -53,6 +53,9 @@ BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
 GOLANG_IMAGE=${CUSTOM_REPO_FOR_GOLANG:-}golang:1.26.7
 
 ARCH=amd64
+# ARCHS lists the linux architectures the driver image is built and published for.
+# Override with ARCHS_ENV="amd64 arm64" (space-separated) if needed.
+read -r -a ARCHS <<< "${ARCHS_ENV:-amd64 arm64}"
 OSVERSION=1809
 # OS Version for the Windows images: 1809, 20H2, ltsc2022
 OSVERSION_WIN=(1809 20H2 ltsc2022)
@@ -76,6 +79,8 @@ usage: ${0} [FLAGS]
   Honored environment variables:
   GCR_KEY_FILE
   GOPROXY
+  ARCHS_ENV   space-separated linux architectures to build/publish the driver image for
+              (defaults to \"amd64 arm64\")
 
 FLAGS
   -h    show this help and exit
@@ -131,40 +136,40 @@ function build_driver_images_windows() {
 }
 
 function build_driver_images_linux() {
-  echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux"
   docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
-  tag="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
-  docker buildx build \
-   --platform "linux/$ARCH" \
-   --output "${LINUX_IMAGE_OUTPUT}" \
-   --file images/driver/Dockerfile \
-   --tag "${tag}" \
-   --build-arg ARCH=amd64 \
-   --build-arg "VERSION=${VERSION}" \
-   --build-arg "GOPROXY=${GOPROXY}" \
-   --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
-   --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
-   --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
-   .
+  for arch in "${ARCHS[@]}"; do
+    echo "building ${CSI_IMAGE_NAME}:${VERSION} for linux/${arch}"
+    tag="${CSI_IMAGE_NAME}-linux-${arch}:${VERSION}"
+    docker buildx build \
+     --platform "linux/${arch}" \
+     --output "${LINUX_IMAGE_OUTPUT}" \
+     --file images/driver/Dockerfile \
+     --tag "${tag}" \
+     --build-arg "VERSION=${VERSION}" \
+     --build-arg "GOPROXY=${GOPROXY}" \
+     --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
+     --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
+     --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+     .
+  done
 }
 
 function build_syncer_image_linux() {
-  echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux"
-  docker buildx build --platform "linux/$ARCH"\
-      --output "${LINUX_IMAGE_OUTPUT}" \
-      -f images/syncer/Dockerfile \
-      -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
-      --build-arg "VERSION=${VERSION}" \
-      --build-arg "GOPROXY=${GOPROXY}" \
-      --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
-      --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
-      --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
-      .
-
-  if [ "${LATEST}" ]; then
-    echo "tagging image ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
-    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${SYNCER_IMAGE_NAME}":latest
-  fi
+  for arch in "${ARCHS[@]}"; do
+    echo "building ${SYNCER_IMAGE_NAME}:${VERSION} for linux/${arch}"
+    tag="${SYNCER_IMAGE_NAME}-linux-${arch}:${VERSION}"
+    docker buildx build \
+     --platform "linux/${arch}" \
+     --output "${LINUX_IMAGE_OUTPUT}" \
+     --file images/syncer/Dockerfile \
+     --tag "${tag}" \
+     --build-arg "VERSION=${VERSION}" \
+     --build-arg "GOPROXY=${GOPROXY}" \
+     --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
+     --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
+     --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+     .
+  done
 }
 
 function build_images() {
@@ -203,43 +208,49 @@ function push_manifest_driver() {
   IMAGE_TAG_LATEST="${CSI_IMAGE_NAME}":latest
 
   echo "creating manifest ${IMAGE_TAG}"
-  linux_tags="${CSI_IMAGE_NAME}-linux-${ARCH}:${VERSION}"
-  for OSVERSION in "${OSVERSION_WIN[@]}"
-  do 
-    osv=$(lcase "${OSVERSION}")
-    all_tags+=( "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}" )
+  for arch in "${ARCHS[@]}"; do
+    all_tags+=( "${CSI_IMAGE_NAME}-linux-${arch}:${VERSION}" )
   done
-  all_tags+=( "${linux_tags}" )
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    for OSVERSION in "${OSVERSION_WIN[@]}"
+    do
+      osv=$(lcase "${OSVERSION}")
+      all_tags+=( "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}" )
+    done
+  fi
   docker manifest create --amend "${IMAGE_TAG}" "${all_tags[@]}"
 
   # add "os.version" field to windows images (based on https://github.com/kubernetes/kubernetes/blob/master/build/pause/Makefile)
-  echo "adding os.version to manifest"
-  for OSVERSION in "${OSVERSION_WIN[@]}"
-  do 
-    osv=$(lcase "${OSVERSION}")
-    BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
-    full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
-    echo "fullversion for ${BASEIMAGE} : ${full_version}"
-    echo "annotating ${IMAGE_TAG} for ${OSVERSION}"
-    docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
-  done
+  if [ "$DO_WINDOWS_BUILD" = true ]; then
+    echo "adding os.version to manifest"
+    for OSVERSION in "${OSVERSION_WIN[@]}"
+    do
+      osv=$(lcase "${OSVERSION}")
+      BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION};
+      full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
+      echo "fullversion for ${BASEIMAGE} : ${full_version}"
+      echo "annotating ${IMAGE_TAG} for ${OSVERSION}"
+      docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
+    done
+  fi
   echo "pushing manifest for tag ${IMAGE_TAG}"
   docker manifest push --purge "${IMAGE_TAG}"
   docker manifest inspect "${IMAGE_TAG}"
   if [ "${LATEST}" ]; then
     echo "creating manifest for tag ${IMAGE_TAG_LATEST}"
     docker manifest create --amend "${IMAGE_TAG_LATEST}" "${all_tags[@]}"
-    echo "adding os.version to manifest"
-    
-    for OSVERSION in "${OSVERSION_WIN[@]}"
-    do 
-      osv=$(lcase "${OSVERSION}")
-      BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION}; 
-      full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
-      echo "fullversion for ${BASEIMAGE} : ${full_version}"      
-      echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
-      docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
-    done
+    if [ "$DO_WINDOWS_BUILD" = true ]; then
+      echo "adding os.version to manifest"
+      for OSVERSION in "${OSVERSION_WIN[@]}"
+      do
+        osv=$(lcase "${OSVERSION}")
+        BASEIMAGE=mcr.microsoft.com/windows/nanoserver:${OSVERSION};
+        full_version=$(docker manifest inspect "${BASEIMAGE}" | grep '"os.version"' | sed 's/.*"os.version": "\(.*\)".*/\1/')
+        echo "fullversion for ${BASEIMAGE} : ${full_version}"
+        echo "annotating ${IMAGE_TAG_LATEST} for ${OSVERSION}"
+        docker manifest annotate --os windows --arch "$ARCH" --os-version "${full_version}" "${IMAGE_TAG_LATEST}" "${CSI_IMAGE_NAME}-windows-${osv}-${ARCH}:${VERSION}";
+      done
+    fi
     echo "pushing manifest for tag ${IMAGE_TAG_LATEST}"
     docker manifest push --purge "${IMAGE_TAG_LATEST}"
     docker manifest inspect "${IMAGE_TAG_LATEST}"
@@ -253,27 +264,27 @@ function login() {
   fi
 }
 
-function push_syncer_images() {
+function push_manifest_syncer() {
   [ "${SYNCER_IMAGE_NAME}" ] || fatal "SYNCER_IMAGE_NAME not set"
 
-  echo "pushing ${SYNCER_IMAGE_NAME}:${VERSION}"
-  if [ "${REGISTRY}" ]
-  then
-    TAG="${REGISTRY}"syncer:"${VERSION}"
-    TAG_LATEST="${REGISTRY}"syncer:latest
-    docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${TAG}"
-    docker push "${TAG}"
-    if [ "${LATEST}" ]; then
-      docker tag "${SYNCER_IMAGE_NAME}":"${VERSION}" "${TAG_LATEST}"
-      echo "also pushing ${TAG_LATEST} as latest"
-      docker push "${TAG_LATEST}"
-    fi
-  else
-    docker push "${SYNCER_IMAGE_NAME}":"${VERSION}"
-    if [ "${LATEST}" ]; then
-      echo "also pushing ${SYNCER_IMAGE_NAME}:${VERSION} as latest"
-      docker push "${SYNCER_IMAGE_NAME}":latest
-    fi
+  IMAGE_TAG="${SYNCER_IMAGE_NAME}":"${VERSION}"
+  IMAGE_TAG_LATEST="${SYNCER_IMAGE_NAME}":latest
+
+  echo "creating manifest ${IMAGE_TAG}"
+  syncer_tags=()
+  for arch in "${ARCHS[@]}"; do
+    syncer_tags+=( "${SYNCER_IMAGE_NAME}-linux-${arch}:${VERSION}" )
+  done
+  docker manifest create --amend "${IMAGE_TAG}" "${syncer_tags[@]}"
+  echo "pushing manifest for tag ${IMAGE_TAG}"
+  docker manifest push --purge "${IMAGE_TAG}"
+  docker manifest inspect "${IMAGE_TAG}"
+  if [ "${LATEST}" ]; then
+    echo "creating manifest for tag ${IMAGE_TAG_LATEST}"
+    docker manifest create --amend "${IMAGE_TAG_LATEST}" "${syncer_tags[@]}"
+    echo "pushing manifest for tag ${IMAGE_TAG_LATEST}"
+    docker manifest push --purge "${IMAGE_TAG_LATEST}"
+    docker manifest inspect "${IMAGE_TAG_LATEST}"
   fi
 }
 
@@ -337,6 +348,7 @@ if [ "${PUSH}" ]; then
   # if registry is provided take that name
   if [ "${REGISTRY}" ]; then
     CSI_IMAGE_NAME="${REGISTRY}driver"
+    SYNCER_IMAGE_NAME="${REGISTRY}syncer"
   fi
 
   if [ "$DO_WINDOWS_BUILD" = true ]; then
@@ -351,11 +363,10 @@ if [ "${PUSH}" ]; then
   # tag linux images with linux and push them to registry
   LINUX_IMAGE_OUTPUT="type=registry"
   build_driver_images_linux
-  if [ "$DO_WINDOWS_BUILD" = true ]; then
-    #create and push manifest for driver
-    push_manifest_driver
-  fi
-  #push syncer images
-  push_syncer_images
+  #create and push a multi-arch/multi-os manifest for driver
+  push_manifest_driver
+  #rebuild syncer images for registry push and create/push a multi-arch manifest
+  build_syncer_image_linux
+  push_manifest_syncer
 fi
 
