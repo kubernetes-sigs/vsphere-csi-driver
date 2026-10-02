@@ -288,6 +288,26 @@ func TestValidateConfigWithValidUsername2(t *testing.T) {
 	}
 }
 
+func TestValidateConfigWithValidUPNUsername(t *testing.T) {
+	vcConfigValidUsername := map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("1.1.1.1"): {
+			User:         "user@example.org@example.com",
+			Password:     "Password",
+			VCenterPort:  "443",
+			Datacenters:  "dc1",
+			InsecureFlag: true,
+		},
+	}
+	cfg := &Config{
+		VirtualCenter: vcConfigValidUsername,
+	}
+
+	err := validateConfig(ctx, cfg)
+	if err != nil {
+		t.Errorf("Unexpected error, as valid UPN username is specified. Config given - %+v", *cfg)
+	}
+}
+
 func TestSensitiveConfigFieldsRedacted(t *testing.T) {
 	vc := VirtualCenterConfig{
 		User:         "Administrator@vsphere.local",
