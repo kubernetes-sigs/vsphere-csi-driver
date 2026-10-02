@@ -775,7 +775,7 @@ func TestMutateNewPVC_LinkedClone_Error_TopologyMismatch(t *testing.T) {
 
 	// Verify response - should be denied due to topology mismatch
 	assert.False(t, response.Allowed)
-	assert.Contains(t, response.Result.Message, "expected accessibility requirement to be a subset of")
+	assert.Contains(t, response.Result.Message, "expected accessibility requirement to overlap with")
 
 	mockCOInterface.AssertExpectations(t)
 }
@@ -1377,6 +1377,391 @@ func TestMutateNewPVC_PlainSnapshotRestore_SourcePVCUnresolvable_Allowed(t *test
 	response := webhook.mutateNewPVC(ctx, req)
 
 	// Allowed, with no topology annotation invented and no denial.
+	assert.True(t, response.Allowed)
+	assert.Empty(t, response.Patches)
+
+	mockCOInterface.AssertExpectations(t)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_NarrowsUnnarrowedCandidateList covers the regression
+// this test guards against: when a PVC has not yet been narrowed to a single zone (e.g. a
+// guest cluster restore PVC with no consuming pod scheduled yet), its requested-topology
+// annotation carries every zone from the StorageClass's allowedTopologies as a candidate
+// list, not a firm requirement that must hold for all of them simultaneously. The source
+// snapshot's single accessible zone only needs to be one of those candidates; the webhook
+// must then narrow the annotation down to that zone rather than deny the request or leave
+// the broader candidate list in place.
+func TestMutateNewPVC_PlainSnapshotRestore_NarrowsUnnarrowedCandidateList(t *testing.T) {
+	ctx := context.Background()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"az3"},` +
+					`{"topology.kubernetes.io/zone":"az1"},{"topology.kubernetes.io/zone":"az2"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "vs-1",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	// The source disk (and therefore the snapshot) only lives in a single zone.
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "src-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"az2"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "vs-1",
+		Namespace:  "default",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCryptoClient := &MockCryptoClient{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      mockCryptoClient,
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	// The candidate list contains az2, so the request must be allowed...
+	assert.True(t, response.Allowed)
+	assert.NotEmpty(t, response.Patches)
+
+	// ...and the requested-topology annotation must be narrowed down to just az2, matching
+	// the source PVC's accessible topology, instead of carrying forward az1/az3 as well.
+	patchJSON, err := json.Marshal(response.Patches)
+	assert.NoError(t, err)
+	assert.Contains(t, string(patchJSON), common.AnnGuestClusterRequestedTopology)
+	assert.Contains(t, string(patchJSON), "az2")
+	assert.NotContains(t, string(patchJSON), "az1")
+	assert.NotContains(t, string(patchJSON), "az3")
+
+	mockCOInterface.AssertExpectations(t)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_CandidateListMissingAccessibleZone_Denied verifies
+// that the request is still denied when none of the requested candidate zones can actually
+// reach the source snapshot's data.
+func TestMutateNewPVC_PlainSnapshotRestore_CandidateListMissingAccessibleZone_Denied(t *testing.T) {
+	ctx := context.Background()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"az3"},` +
+					`{"topology.kubernetes.io/zone":"az1"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "vs-1",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "src-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"az2"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "vs-1",
+		Namespace:  "default",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCryptoClient := &MockCryptoClient{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      mockCryptoClient,
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	assert.False(t, response.Allowed)
+	assert.Contains(t, response.Result.Message, "expected accessibility requirement to overlap with")
+
+	mockCOInterface.AssertExpectations(t)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_RequestedZonesFullyWithinMultiZoneSource_Allowed covers
+// a source that is accessible from more zones than were requested (e.g. a datastore shared
+// across zones). The requested zones are already fully covered by the source's accessible
+// zones, so the request must be allowed with no mutation -- narrowing to the overlap would be
+// a no-op here since the overlap already equals what was requested.
+func TestMutateNewPVC_PlainSnapshotRestore_RequestedZonesFullyWithinMultiZoneSource_Allowed(t *testing.T) {
+	ctx := context.Background()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone-a"},` +
+					`{"topology.kubernetes.io/zone":"zone-b"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "vs-1",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	// The source is on a datastore shared across three zones.
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "src-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-a"},` +
+					`{"topology.kubernetes.io/zone":"zone-b"},{"topology.kubernetes.io/zone":"zone-c"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "vs-1",
+		Namespace:  "default",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCryptoClient := &MockCryptoClient{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      mockCryptoClient,
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	// Requested zones (zone-a, zone-b) are fully within the source's accessible zones
+	// (zone-a, zone-b, zone-c), so the request is allowed and left untouched.
+	assert.True(t, response.Allowed)
+	assert.Empty(t, response.Patches)
+
+	mockCOInterface.AssertExpectations(t)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_NarrowRequestWithinMultiZoneSource_Allowed covers a
+// source accessible from multiple zones where the request asks for only one of them -- the
+// request must be allowed, since one zone from a multi-zone-accessible source is still a
+// valid placement.
+func TestMutateNewPVC_PlainSnapshotRestore_NarrowRequestWithinMultiZoneSource_Allowed(t *testing.T) {
+	ctx := context.Background()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone-a"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "vs-1",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "src-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone-a"},` +
+					`{"topology.kubernetes.io/zone":"zone-b"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "vs-1",
+		Namespace:  "default",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCryptoClient := &MockCryptoClient{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      mockCryptoClient,
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	// zone-a is one of the source's two accessible zones, so the narrower request is allowed
+	// and left untouched (it's already exactly the overlap).
 	assert.True(t, response.Allowed)
 	assert.Empty(t, response.Patches)
 
