@@ -466,6 +466,30 @@ func isZoneSubset(requested, accessible map[string]bool) bool {
 	return true
 }
 
+// narrowTopologyToZones returns the topology annotation value restricted to the segments
+// whose zone is in zones, preserving the original segment order. It returns "" when no
+// segment remains, i.e. the requested topology does not overlap the given zones at all.
+func narrowTopologyToZones(topologyAnnotation string, zones map[string]bool) (string, error) {
+	var segments []map[string]string
+	if err := json.Unmarshal([]byte(topologyAnnotation), &segments); err != nil {
+		return "", err
+	}
+	narrowed := make([]map[string]string, 0, len(segments))
+	for _, seg := range segments {
+		if zones[seg[corev1.LabelTopologyZone]] {
+			narrowed = append(narrowed, seg)
+		}
+	}
+	if len(narrowed) == 0 {
+		return "", nil
+	}
+	out, err := json.Marshal(narrowed)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
 	log := logger.GetLogger(ctx)
 
@@ -562,12 +586,32 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 						"skipping zone validation", newPVC.Namespace, newPVC.Name,
 						newPVCAccessibility, sourcePVCAccessibility)
 				} else if !isZoneSubset(requestedZones, accessibleZones) {
-					// accessibility requirement mismatch, deny the request and suggest the correct annotation
-					errMsg := fmt.Sprintf("expected accessibility requirement to be a subset of: %s but got %s, "+
-						"volumes restored from a snapshot must request a zone where the source snapshot is "+
-						"accessible, if unset, it will be automatically chosen", sourcePVCAccessibility,
-						newPVCAccessibility)
-					return admission.Denied(errMsg)
+					// For a plain restore the requested topology is usually not a deliberate choice:
+					// pvCSI stamps it from the guest CreateVolume request's Preferred topology, which
+					// for an Immediate-binding storage class spans every allowed zone. Narrow it to the
+					// zones where the snapshot is reachable, and deny only if none of them overlap.
+					// Linked clones keep the strict check.
+					narrowed := ""
+					if !isLinkedCloneReq {
+						narrowed, err = narrowTopologyToZones(newPVCAccessibility, accessibleZones)
+						if err != nil {
+							return admission.Denied("failed to parse " + common.AnnGuestClusterRequestedTopology +
+								". err:" + err.Error())
+						}
+					}
+					if narrowed == "" {
+						// accessibility requirement mismatch, deny the request and suggest the correct annotation
+						errMsg := fmt.Sprintf("expected accessibility requirement to be a subset of: %s but got %s, "+
+							"volumes restored from a snapshot must request a zone where the source snapshot is "+
+							"accessible, if unset, it will be automatically chosen", sourcePVCAccessibility,
+							newPVCAccessibility)
+						return admission.Denied(errMsg)
+					}
+					log.Infof("narrowing %s of PVC %s/%s from %s to %s, the zones where the source "+
+						"snapshot is accessible", common.AnnGuestClusterRequestedTopology, newPVC.Namespace,
+						newPVC.Name, newPVCAccessibility, narrowed)
+					newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = narrowed
+					wasMutated = true
 				}
 			} else {
 				// If not present, set it as the same as the source PVC

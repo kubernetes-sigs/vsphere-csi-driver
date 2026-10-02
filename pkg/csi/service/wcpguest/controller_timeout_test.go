@@ -1717,9 +1717,10 @@ func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.
 	}
 	guestClient := testclient.NewClientset(guestObjects...)
 
-	// Starting gate: block each of the first numVolumes Get calls - one per
+	// Starting gate: let each of the first numVolumes Get calls - one per
 	// goroutine, since Get is the first thing controllerPublishForBlockVolume
-	// does - until all of them have arrived, then release them together. This
+	// does - read the VirtualMachine and then block until all of them have
+	// read, then release them together. This
 	// guarantees every goroutine reads the same pre-patch VirtualMachine
 	// (same resourceVersion) before any of them patches it, so at least
 	// numVolumes-1 real conflicts on the first wave are certain, not just
@@ -1741,6 +1742,11 @@ func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cli ctrlclient.WithWatch, key ctrlclient.ObjectKey,
 				obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+				// Read first, then wait at the gate: the read must happen before any
+				// goroutine is released to patch, otherwise a released goroutine can
+				// patch before a slower one reads and that one sees the bumped
+				// resourceVersion, so no conflict occurs.
+				err := cli.Get(ctx, key, obj, opts...)
 				if getCalls.Add(1) <= int64(numVolumes) {
 					gate.Done()
 					select {
@@ -1749,7 +1755,7 @@ func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.
 						return errors.New("starting gate never opened: not every goroutine reached Get")
 					}
 				}
-				return cli.Get(ctx, key, obj, opts...)
+				return err
 			},
 			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
 				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {

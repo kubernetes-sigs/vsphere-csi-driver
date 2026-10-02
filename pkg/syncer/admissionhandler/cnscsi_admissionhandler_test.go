@@ -1301,6 +1301,196 @@ func TestMutateNewPVC_PlainSnapshotRestore_PropagatesTopology(t *testing.T) {
 	mockCOInterface.AssertExpectations(t)
 }
 
+// TestMutateNewPVC_PlainSnapshotRestore_PvCSIBroadRequestedTopology_Allowed reproduces
+// UBMCNS-2438. pvCSI always stamps csi.vsphere.volume-requested-topology on the supervisor
+// PVC from the guest CreateVolume request's Preferred topology. For an Immediate-binding
+// storage class allowed in every zone, that is ALL zones, not a deliberate user choice.
+// The snapshot's source volume is only accessible from zone3.
+//
+// Expected: the restore is not rejected, because the broad list is only a default and
+// zone3 is still a valid placement; the requested topology is narrowed to zone3. Before
+// the webhook narrowed plain restores, this was denied with "expected accessibility
+// requirement to be a subset of: [zone3] but got [zone1,zone2,zone3]", leaving the
+// restored PVC Pending.
+func TestMutateNewPVC_PlainSnapshotRestore_PvCSIBroadRequestedTopology_Allowed(t *testing.T) {
+	ctx := context.Background()
+
+	originalFeatureGate := featureIsLinkedCloneSupportEnabled
+	featureIsLinkedCloneSupportEnabled = true
+	defer func() {
+		featureIsLinkedCloneSupportEnabled = originalFeatureGate
+	}()
+
+	// Plain restore (no linked-clone annotation) carrying the topology pvCSI generated.
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "repro3-restored-pvc",
+			Namespace: "lin-vks1",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone1"},` +
+					`{"topology.kubernetes.io/zone":"zone2"},{"topology.kubernetes.io/zone":"zone3"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "repro2-snap",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+			StorageClassName: &[]string{"vsan-fprov"}[0],
+		},
+	}
+
+	// The snapshot's source volume lives in zone3 only.
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "repro2-source-pvc",
+			Namespace: "lin-vks1",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone3"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &[]string{"vsan-fprov"}[0],
+		},
+	}
+
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "repro2-snap",
+		Namespace:  "lin-vks1",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCryptoClient := &MockCryptoClient{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "lin-vks1", "repro2-snap").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      mockCryptoClient,
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	assert.True(t, response.Allowed, "plain snapshot restore with pvCSI's all-zones default must not be "+
+		"denied; webhook result: %v", response.Result)
+
+	// The requested topology is narrowed to the zone where the snapshot is accessible.
+	patchJSON, err := json.Marshal(response.Patches)
+	assert.NoError(t, err)
+	assert.Contains(t, string(patchJSON), common.AnnGuestClusterRequestedTopology)
+	assert.Contains(t, string(patchJSON), "zone3")
+	assert.NotContains(t, string(patchJSON), "zone1")
+	assert.NotContains(t, string(patchJSON), "zone2")
+
+	mockCOInterface.AssertExpectations(t)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_NoZoneOverlap_Denied verifies that a plain restore
+// whose requested zones share nothing with the source snapshot's accessible zones is still
+// denied: narrowing only applies when at least one requested zone can reach the snapshot.
+func TestMutateNewPVC_PlainSnapshotRestore_NoZoneOverlap_Denied(t *testing.T) {
+	ctx := context.Background()
+
+	originalFeatureGate := featureIsLinkedCloneSupportEnabled
+	featureIsLinkedCloneSupportEnabled = true
+	defer func() {
+		featureIsLinkedCloneSupportEnabled = originalFeatureGate
+	}()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restored-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnGuestClusterRequestedTopology: `[{"topology.kubernetes.io/zone":"zone1"},` +
+					`{"topology.kubernetes.io/zone":"zone2"}]`,
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			DataSource: &corev1.TypedLocalObjectReference{
+				Name:     "vs-1",
+				Kind:     "VolumeSnapshot",
+				APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+			},
+		},
+	}
+	sourcePVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "src-pvc",
+			Namespace: "default",
+			Annotations: map[string]string{
+				common.AnnVolumeAccessibleTopology: `[{"topology.kubernetes.io/zone":"zone3"}]`,
+			},
+		},
+	}
+	dataSourceRef := &corev1.ObjectReference{
+		Name:       "vs-1",
+		Namespace:  "default",
+		Kind:       "VolumeSnapshot",
+		APIVersion: common.VolumeSnapshotApiGroup,
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+	patches := gomonkey.ApplyFunc(
+		k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+			pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+			return dataSourceRef, nil
+		})
+	defer patches.Reset()
+
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      &MockCryptoClient{},
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	assert.False(t, response.Allowed)
+	assert.Contains(t, response.Result.Message, "expected accessibility requirement to be a subset of")
+	mockCOInterface.AssertExpectations(t)
+}
+
 // TestMutateNewPVC_PlainSnapshotRestore_SourcePVCUnresolvable_Allowed verifies that a plain
 // restore is allowed through when the source PVC cannot be resolved — the case for a
 // pre-provisioned snapshot, which is bound to a VolumeSnapshotContent and has no source PVC
@@ -1381,4 +1571,187 @@ func TestMutateNewPVC_PlainSnapshotRestore_SourcePVCUnresolvable_Allowed(t *test
 	assert.Empty(t, response.Patches)
 
 	mockCOInterface.AssertExpectations(t)
+}
+
+func TestNarrowTopologyToZones(t *testing.T) {
+	zoneSeg := func(z string) string { return `{"topology.kubernetes.io/zone":"` + z + `"}` }
+
+	tests := []struct {
+		name      string
+		annot     string
+		zones     map[string]bool
+		want      string
+		wantError bool
+	}{
+		{
+			name:  "keeps only the accessible zone",
+			annot: "[" + zoneSeg("zone1") + "," + zoneSeg("zone2") + "," + zoneSeg("zone3") + "]",
+			zones: map[string]bool{"zone3": true},
+			want:  "[" + zoneSeg("zone3") + "]",
+		},
+		{
+			name:  "keeps several accessible zones in the original order",
+			annot: "[" + zoneSeg("zone3") + "," + zoneSeg("zone1") + "," + zoneSeg("zone2") + "]",
+			zones: map[string]bool{"zone2": true, "zone3": true},
+			want:  "[" + zoneSeg("zone3") + "," + zoneSeg("zone2") + "]",
+		},
+		{
+			name:  "no overlap returns empty",
+			annot: "[" + zoneSeg("zone1") + "," + zoneSeg("zone2") + "]",
+			zones: map[string]bool{"zone3": true},
+			want:  "",
+		},
+		{
+			name:  "segments without a zone are dropped",
+			annot: `[{"kubernetes.io/hostname":"host-1"},` + zoneSeg("zone3") + "]",
+			zones: map[string]bool{"zone3": true},
+			want:  "[" + zoneSeg("zone3") + "]",
+		},
+		{
+			name:  "empty annotation array returns empty",
+			annot: "[]",
+			zones: map[string]bool{"zone3": true},
+			want:  "",
+		},
+		{
+			name:      "invalid JSON returns an error",
+			annot:     "zone3",
+			zones:     map[string]bool{"zone3": true},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := narrowTopologyToZones(tt.annot, tt.zones)
+			if tt.wantError {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_RequestedTopologyReconciliation covers how a plain
+// restore's pre-set requested topology is reconciled with the source PVC's accessible zones.
+func TestMutateNewPVC_PlainSnapshotRestore_RequestedTopologyReconciliation(t *testing.T) {
+	zoneSeg := func(z string) string { return `{"topology.kubernetes.io/zone":"` + z + `"}` }
+
+	tests := []struct {
+		name       string
+		requested  string
+		accessible string
+		wantPatch  bool
+		// wantZones/dontWantZones are checked against the patch when one is expected.
+		wantZones     []string
+		dontWantZones []string
+	}{
+		{
+			name:       "requested already a subset is left untouched",
+			requested:  "[" + zoneSeg("zone2") + "]",
+			accessible: "[" + zoneSeg("zone2") + "," + zoneSeg("zone3") + "]",
+		},
+		{
+			name:       "requested equal to accessible is left untouched",
+			requested:  "[" + zoneSeg("zone3") + "]",
+			accessible: "[" + zoneSeg("zone3") + "]",
+		},
+		{
+			name:          "requested partially overlapping is narrowed to the overlap",
+			requested:     "[" + zoneSeg("zone1") + "," + zoneSeg("zone2") + "," + zoneSeg("zone3") + "]",
+			accessible:    "[" + zoneSeg("zone2") + "," + zoneSeg("zone3") + "]",
+			wantPatch:     true,
+			wantZones:     []string{"zone2", "zone3"},
+			dontWantZones: []string{"zone1"},
+		},
+		{
+			name:       "reordered but equal zones are left untouched",
+			requested:  "[" + zoneSeg("zone3") + "," + zoneSeg("zone2") + "]",
+			accessible: "[" + zoneSeg("zone2") + "," + zoneSeg("zone3") + "]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			originalFeatureGate := featureIsLinkedCloneSupportEnabled
+			featureIsLinkedCloneSupportEnabled = true
+			defer func() {
+				featureIsLinkedCloneSupportEnabled = originalFeatureGate
+			}()
+
+			testPVC := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "restored-pvc",
+					Namespace:   "default",
+					Annotations: map[string]string{common.AnnGuestClusterRequestedTopology: tt.requested},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					DataSource: &corev1.TypedLocalObjectReference{
+						Name:     "vs-1",
+						Kind:     "VolumeSnapshot",
+						APIGroup: func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+					},
+				},
+			}
+			sourcePVC := &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "src-pvc",
+					Namespace:   "default",
+					Annotations: map[string]string{common.AnnVolumeAccessibleTopology: tt.accessible},
+				},
+			}
+			dataSourceRef := &corev1.ObjectReference{
+				Name:       "vs-1",
+				Namespace:  "default",
+				Kind:       "VolumeSnapshot",
+				APIVersion: common.VolumeSnapshotApiGroup,
+			}
+
+			pvcBytes, _ := json.Marshal(testPVC)
+			req := admission.Request{
+				AdmissionRequest: v1.AdmissionRequest{
+					Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+					Operation: v1.Create,
+					Object:    runtime.RawExtension{Raw: pvcBytes},
+				},
+			}
+
+			mockCOInterface := &MockCOCommonInterface{}
+			mockCOInterface.On("GetVolumeSnapshotPVCSource", ctx, "default", "vs-1").Return(sourcePVC, nil)
+
+			patches := gomonkey.ApplyFunc(
+				k8sorchestrator.GetPVCDataSource, func(ctx context.Context,
+					pvc *corev1.PersistentVolumeClaim) (*corev1.ObjectReference, error) {
+					return dataSourceRef, nil
+				})
+			defer patches.Reset()
+
+			webhook := &CSISupervisorMutationWebhook{
+				coCommonInterface: mockCOInterface,
+				CryptoClient:      &MockCryptoClient{},
+			}
+
+			response := webhook.mutateNewPVC(ctx, req)
+
+			assert.True(t, response.Allowed)
+			mockCOInterface.AssertExpectations(t)
+			if !tt.wantPatch {
+				assert.Empty(t, response.Patches)
+				return
+			}
+			assert.Equal(t, 1, len(response.Patches))
+			patchJSON, err := json.Marshal(response.Patches)
+			assert.NoError(t, err)
+			for _, z := range tt.wantZones {
+				assert.Contains(t, string(patchJSON), z)
+			}
+			for _, z := range tt.dontWantZones {
+				assert.NotContains(t, string(patchJSON), z)
+			}
+		})
+	}
 }
