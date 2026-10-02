@@ -1308,8 +1308,10 @@ func TestMutateNewPVC_PlainSnapshotRestore_PropagatesTopology(t *testing.T) {
 // The snapshot's source volume is only accessible from zone3.
 //
 // Expected: the restore is not rejected, because the broad list is only a default and
-// zone3 is still a valid placement. This test currently FAILS: the webhook denies with
-// "expected accessibility requirement to be a subset of: [zone3] but got [zone1,zone2,zone3]".
+// zone3 is still a valid placement; the requested topology is narrowed to zone3. Before
+// the webhook narrowed plain restores, this was denied with "expected accessibility
+// requirement to be a subset of: [zone3] but got [zone1,zone2,zone3]", leaving the
+// restored PVC Pending.
 func TestMutateNewPVC_PlainSnapshotRestore_PvCSIBroadRequestedTopology_Allowed(t *testing.T) {
 	ctx := context.Background()
 
@@ -1736,6 +1738,7 @@ func TestMutateNewPVC_PlainSnapshotRestore_RequestedTopologyReconciliation(t *te
 			response := webhook.mutateNewPVC(ctx, req)
 
 			assert.True(t, response.Allowed)
+			mockCOInterface.AssertExpectations(t)
 			if !tt.wantPatch {
 				assert.Empty(t, response.Patches)
 				return
@@ -1749,7 +1752,6 @@ func TestMutateNewPVC_PlainSnapshotRestore_RequestedTopologyReconciliation(t *te
 			for _, z := range tt.dontWantZones {
 				assert.NotContains(t, string(patchJSON), z)
 			}
-			mockCOInterface.AssertExpectations(t)
 		})
 	}
 }
