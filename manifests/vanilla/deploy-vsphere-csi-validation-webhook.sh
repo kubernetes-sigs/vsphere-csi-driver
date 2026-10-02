@@ -14,30 +14,42 @@
 # limitations under the License.
 set -e
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+usage() {
     cat <<EOF
 Usage: Generate self-signed certificate for validation webhook service.
 Patch validatingwebhook.yaml with CA_BUNDLE retrieved from self-signed certificate
 and create ValidatingWebhookConfiguration and vsphere-webhook-svc service using patched yaml file
 
 usage: ${0} [OPTIONS]
-The following flags are required.
-       --namespace        Namespace where webhook service and secret reside.
+OPTIONS
+       --namespace VALUE  Namespace where webhook service and secret reside.
+       -h, --help         Show this help message.
 EOF
-    exit 1
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    usage
+    exit 0
 fi
 
+namespace=""
 while [[ $# -gt 0 ]]; do
     case ${1} in
         --namespace)
+            if [[ $# -lt 2 || -z "${2}" ]]; then
+                echo "missing value for --namespace" >&2
+                usage >&2
+                exit 1
+            fi
             namespace="$2"
-            shift
+            shift 2
             ;;
         *)
-            usage
+            echo "unknown option: ${1}" >&2
+            usage >&2
+            exit 1
             ;;
     esac
-    shift
 done
 
 [ -z "${namespace}" ] && namespace=vmware-system-csi
