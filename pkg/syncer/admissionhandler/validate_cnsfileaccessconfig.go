@@ -238,7 +238,7 @@ func validateDeleteCnsFileAccessConfig(ctx context.Context, clientConfig *rest.C
 		return &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("User %s is not allowed to delete this CnsFileAccesConfig.",
+				Message: fmt.Sprintf("User %s is not allowed to delete this CnsFileAccessConfig.",
 					req.UserInfo.Username),
 			},
 		}

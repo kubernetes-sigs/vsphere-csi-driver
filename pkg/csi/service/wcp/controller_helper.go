@@ -304,7 +304,7 @@ func getVCDatacentersFromConfig(cfg *cnsconfig.Config) (map[string][]string, err
 		}
 	}
 	if len(vcdcMap) == 0 {
-		err = errors.New("unable get vCenter datacenters from vsphere config")
+		err = errors.New("unable to get vCenter datacenters from vsphere config")
 	}
 	return vcdcMap, err
 }
@@ -1042,7 +1042,7 @@ func GetZonesFromAccessibilityRequirements(ctx context.Context,
 	topologyRequirement *csi.TopologyRequirement) ([]string, error) {
 	log := logger.GetLogger(ctx)
 	if topologyRequirement == nil {
-		return nil, fmt.Errorf("topologyRequirement can't we nil")
+		return nil, fmt.Errorf("topologyRequirement can't be nil")
 	}
 	zoneKey := "topology.kubernetes.io/zone"
 	var zones []string

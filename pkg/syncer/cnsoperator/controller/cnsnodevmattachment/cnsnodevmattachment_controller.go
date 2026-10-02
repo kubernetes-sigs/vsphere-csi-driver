@@ -1020,7 +1020,7 @@ func getVCDatacentersFromConfig(cfg *config.Config) (map[string][]string, error)
 		}
 	}
 	if len(vcdcMap) == 0 {
-		err = errors.New("unable get vCenter datacenters from vsphere config")
+		err = errors.New("unable to get vCenter datacenters from vsphere config")
 	}
 	return vcdcMap, err
 }

@@ -427,7 +427,7 @@ func (rc *volumeHealthReconciler) updateTKGPVC(ctx context.Context,
 	tkgPVCObj, err := rc.tkgKubeClient.CoreV1().PersistentVolumeClaims(tkgPV.Spec.ClaimRef.Namespace).
 		Get(ctx, tkgPV.Spec.ClaimRef.Name, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("error get pvc %s/%s from api server: %v",
+		return fmt.Errorf("error getting pvc %s/%s from api server: %v",
 			tkgPV.Spec.ClaimRef.Namespace, tkgPV.Spec.ClaimRef.Name, err)
 	}
 	log.Debugf("updateTKGPVC: Found Tanzu Kubernetes Grid PVC %s/%s", tkgPVCObj.Namespace, tkgPVCObj.Name)
