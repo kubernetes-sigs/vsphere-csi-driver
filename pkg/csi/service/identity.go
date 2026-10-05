@@ -27,7 +27,11 @@ import (
 )
 
 // Version of the driver. This should be set via ldflags.
-var Version string
+var (
+	Version string
+	Commit  string
+	Branch  string
+)
 
 func (driver *vsphereCSIDriver) Probe(
 	ctx context.Context,

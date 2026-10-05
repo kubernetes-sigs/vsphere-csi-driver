@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -94,13 +95,13 @@ var (
 func main() {
 	flag.Parse()
 	if *printVersion {
-		fmt.Printf("%s\n", syncer.Version)
+		fmt.Printf("Version : %s\n", service.Version)
 		return
 	}
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Infof("Version : %s", syncer.Version)
+	log.Infof("Vsphere Syncer BuildInfo: %s-%s-%s", service.Version, service.Branch, service.Commit)
 
 	// Log GOMEMLIMIT if set for memory management visibility
 	if goMemLimit := os.Getenv("GOMEMLIMIT"); goMemLimit != "" {

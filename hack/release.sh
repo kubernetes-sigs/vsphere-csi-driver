@@ -42,7 +42,7 @@ if [[ "$(git rev-parse --abbrev-ref HEAD)" =~ "master" ]]; then
 else
   VERSION="$(git describe --always 2>/dev/null)"
 fi
-GIT_COMMIT="$(git log -1 --format=%H)"
+
 GCR_KEY_FILE="${GCR_KEY_FILE:-}"
 GOPROXY="${GOPROXY:-https://proxy.golang.org}"
 BUILD_RELEASE_TYPE="${BUILD_RELEASE_TYPE:-}"
@@ -121,10 +121,11 @@ function build_driver_images_windows() {
    --output "${WINDOWS_IMAGE_OUTPUT}" \
    --file images/windows/driver/Dockerfile \
    --tag "${tag}" \
-   --build-arg "VERSION=${VERSION}" \
    --build-arg "OSVERSION=${OSVERSION}" \
+   --build-arg "VERSION=$(git describe --tags --always)" \
+   --build-arg "GIT_COMMIT=$(git rev-parse HEAD)" \
+   --build-arg "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" \
    --build-arg "GOPROXY=${GOPROXY}" \
-   --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
    --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
    .
    docker buildx rm vsphere-csi-builder-win || echo "builder instance not found, safe to proceed"
@@ -140,9 +141,10 @@ function build_driver_images_linux() {
    --file images/driver/Dockerfile \
    --tag "${tag}" \
    --build-arg ARCH=amd64 \
-   --build-arg "VERSION=${VERSION}" \
+   --build-arg "VERSION=$(git describe --tags --always)" \
+   --build-arg "GIT_COMMIT=$(git rev-parse HEAD)" \
+   --build-arg "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" \
    --build-arg "GOPROXY=${GOPROXY}" \
-   --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
    --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
    --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
    .
@@ -154,9 +156,10 @@ function build_syncer_image_linux() {
       --output "${LINUX_IMAGE_OUTPUT}" \
       -f images/syncer/Dockerfile \
       -t "${SYNCER_IMAGE_NAME}":"${VERSION}" \
-      --build-arg "VERSION=${VERSION}" \
+      --build-arg "VERSION=$(git describe --tags --always)" \
+      --build-arg "GIT_COMMIT=$(git rev-parse HEAD)" \
+      --build-arg "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" \
       --build-arg "GOPROXY=${GOPROXY}" \
-      --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
       --build-arg "GOLANG_IMAGE=${GOLANG_IMAGE}" \
       --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
       .
