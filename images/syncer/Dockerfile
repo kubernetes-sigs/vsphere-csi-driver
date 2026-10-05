@@ -26,6 +26,9 @@ FROM ${GOLANG_IMAGE} AS builder
 
 # This build arg is the version to embed in the CSI binary
 ARG VERSION=unknown
+# Add Git commit and branch args with default "unknown"
+ARG GIT_COMMIT=unknown
+ARG GIT_BRANCH=unknown
 
 ARG GOPROXY
 
@@ -45,18 +48,27 @@ ENV GOFIPS=1
 
 ENV GOEXPERIMENT="boringcrypto"
 
-RUN go build -a -ldflags="-w -s -extldflags=static -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer.Version=${VERSION}" -o vsphere-syncer ./cmd/syncer
+# Inject Version, Commit, and Branch into the binary via ldflags
+RUN go build -a -ldflags="-w -s -extldflags=static \
+    -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Version=${VERSION} \
+    -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Commit=${GIT_COMMIT} \
+    -X sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service.Branch=${GIT_BRANCH}" \
+    -o vsphere-syncer ./cmd/syncer
 
 ################################################################################
 ##                               MAIN STAGE                                   ##
 ################################################################################
 FROM ${BASE_IMAGE}
 
-# This build arg is the git commit to embed in the CSI binary
+# Re-declare build args for MAIN stage to receive passed values from hack/release.sh
+ARG VERSION
 ARG GIT_COMMIT
+ARG GIT_BRANCH
 
-# This label will be overridden from driver base image
+# These labels will be overridden from driver base image
+LABEL version=$VERSION
 LABEL git_commit=$GIT_COMMIT
+LABEL git_branch=$GIT_BRANCH
 
 RUN tdnf -y upgrade
 

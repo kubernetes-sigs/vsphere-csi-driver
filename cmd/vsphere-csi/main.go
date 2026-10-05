@@ -50,13 +50,13 @@ var (
 func main() {
 	flag.Parse()
 	if *printVersion {
-		fmt.Printf("%s\n", service.Version)
+		fmt.Printf("Version : %s\n", service.Version)
 		return
 	}
 	logType := logger.LogLevel(os.Getenv(logger.EnvLoggerLevel))
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
-	log.Infof("Version : %s", service.Version)
+	log.Infof("Vsphere CSI Driver BuildInfo : %s-%s-%s", service.Version, service.Branch, service.Commit)
 
 	// Log GOMEMLIMIT if set for memory management visibility
 	if goMemLimit := os.Getenv("GOMEMLIMIT"); goMemLimit != "" {
