@@ -1741,6 +1741,13 @@ func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cli ctrlclient.WithWatch, key ctrlclient.ObjectKey,
 				obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+				// Read first, then wait at the gate: the object each goroutine
+				// returns must be snapshotted BEFORE the gate opens. If the
+				// read happened after release, a goroutine scheduled first
+				// (e.g. with GOMAXPROCS=1) could finish its Get and patch
+				// before the others read, handing them the bumped
+				// resourceVersion and producing no conflicts at all.
+				err := cli.Get(ctx, key, obj, opts...)
 				if getCalls.Add(1) <= int64(numVolumes) {
 					gate.Done()
 					select {
@@ -1749,7 +1756,7 @@ func TestControllerPublishForBlockVolumeConcurrentAttachesToSameNode(t *testing.
 						return errors.New("starting gate never opened: not every goroutine reached Get")
 					}
 				}
-				return cli.Get(ctx, key, obj, opts...)
+				return err
 			},
 			Patch: func(ctx context.Context, cli ctrlclient.WithWatch, obj ctrlclient.Object,
 				patch ctrlclient.Patch, opts ...ctrlclient.PatchOption) error {
