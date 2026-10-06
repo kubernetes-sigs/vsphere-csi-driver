@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
@@ -453,17 +454,49 @@ func pvcTopologyZones(topologyAnnotation string) (map[string]bool, error) {
 	return zones, nil
 }
 
-// isZoneSubset returns true if every zone in requested is also present in accessible,
-// i.e. the PVC can only be scheduled somewhere the source volume can actually be reached
-// from. Callers must only use this when both sets are non-empty; a topology carrying no
-// zone segments at all (e.g. a purely host-scoped one) has no zone constraint to compare.
-func isZoneSubset(requested, accessible map[string]bool) bool {
-	for zone := range requested {
-		if !accessible[zone] {
+// zoneIntersection returns the zones present in both accessibleZones and requestedZones.
+func zoneIntersection(accessibleZones, requestedZones map[string]bool) map[string]bool {
+	intersection := make(map[string]bool)
+	for zone := range accessibleZones {
+		if requestedZones[zone] {
+			intersection[zone] = true
+		}
+	}
+	return intersection
+}
+
+// zoneSetsEqual returns true if validZones and requestedZones contain exactly the same zones.
+func zoneSetsEqual(validZones, requestedZones map[string]bool) bool {
+	if len(validZones) != len(requestedZones) {
+		return false
+	}
+	for zone := range validZones {
+		if !requestedZones[zone] {
 			return false
 		}
 	}
 	return true
+}
+
+// zonesToTopologyAnnotation serializes a set of zones back into the JSON array-of-segments
+// shape used by the csi.vsphere.volume-*-topology annotations, e.g.
+// [{"topology.kubernetes.io/zone":"az1"},{"topology.kubernetes.io/zone":"az2"}].
+func zonesToTopologyAnnotation(zones map[string]bool) (string, error) {
+	zoneNames := make([]string, 0, len(zones))
+	for zone := range zones {
+		zoneNames = append(zoneNames, zone)
+	}
+	sort.Strings(zoneNames)
+
+	segments := make([]map[string]string, 0, len(zoneNames))
+	for _, zone := range zoneNames {
+		segments = append(segments, map[string]string{corev1.LabelTopologyZone: zone})
+	}
+	raw, err := json.Marshal(segments)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req admission.Request) admission.Response {
@@ -536,8 +569,13 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 			// Best-effort for a plain restore: no accessibility info available to propagate.
 		} else {
 			// Case-1: If the PVC has "csi.vsphere.volume-requested-topology" annotation:
-			// - Validate that its zones are a subset of the source PVC's accessible zones,
-			//   fail the request if not.
+			// - Validate that it overlaps with the source PVC's accessible zones, fail the
+			//   request if not; otherwise narrow the annotation down to just the overlap.
+			//   Neither side is necessarily a single zone: the requested annotation may
+			//   legitimately list more zones than the source is accessible from (e.g. an
+			//   unnarrowed candidate list), and the source may legitimately be accessible
+			//   from more zones than were requested (e.g. a datastore shared across zones).
+			//   Only the overlap is guaranteed to be both requested and reachable.
 			// Case-2: If the PVC does NOT have "csi.vsphere.volume-requested-topology" annotation:
 			// - Add the source PVC's accessible topology as-is, so the consuming VM can only
 			//   be placed where the snapshot's data is reachable.
@@ -561,13 +599,26 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 					log.Infof("no zone segments to compare for PVC %s/%s (requested: %s, accessible: %s), "+
 						"skipping zone validation", newPVC.Namespace, newPVC.Name,
 						newPVCAccessibility, sourcePVCAccessibility)
-				} else if !isZoneSubset(requestedZones, accessibleZones) {
-					// accessibility requirement mismatch, deny the request and suggest the correct annotation
-					errMsg := fmt.Sprintf("expected accessibility requirement to be a subset of: %s but got %s, "+
-						"volumes restored from a snapshot must request a zone where the source snapshot is "+
-						"accessible, if unset, it will be automatically chosen", sourcePVCAccessibility,
-						newPVCAccessibility)
+				} else if validZones := zoneIntersection(accessibleZones, requestedZones); len(validZones) == 0 {
+					// No zone satisfies both what was requested and where the source snapshot
+					// is actually accessible.
+					errMsg := fmt.Sprintf("expected accessibility requirement to overlap with the source "+
+						"snapshot's accessible zones: %s but got %s, volumes restored from a snapshot must "+
+						"request a zone where the source snapshot is accessible, if unset, it will be "+
+						"automatically chosen", sourcePVCAccessibility, newPVCAccessibility)
 					return admission.Denied(errMsg)
+				} else if !zoneSetsEqual(validZones, requestedZones) {
+					// The requested zones included some the source isn't actually accessible
+					// from (e.g. an unnarrowed candidate list); narrow the annotation down to
+					// just the overlap so downstream CreateVolume pins to a zone that is both
+					// requested and reachable.
+					narrowedTopology, err := zonesToTopologyAnnotation(validZones)
+					if err != nil {
+						return admission.Denied("failed to construct narrowed " +
+							common.AnnGuestClusterRequestedTopology + ". err:" + err.Error())
+					}
+					newPVC.Annotations[common.AnnGuestClusterRequestedTopology] = narrowedTopology
+					wasMutated = true
 				}
 			} else {
 				// If not present, set it as the same as the source PVC
