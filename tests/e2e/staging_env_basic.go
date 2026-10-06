@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		defer func() {
 			framework.Logf("Deleting statefulset %v", statefulset.Name)
 			err := client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-				statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+				statefulset.Name, backgroundDeleteOptions())
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+			statefulset.Name, backgroundDeleteOptions())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is fully deleted")
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		defer func() {
 			framework.Logf("Deleting statefulset %v", statefulset.Name)
 			err := client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-				statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+				statefulset.Name, backgroundDeleteOptions())
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -595,7 +595,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+			statefulset.Name, backgroundDeleteOptions())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is fully deleted")
@@ -678,7 +678,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		defer func() {
 			framework.Logf("Deleting statefulset %v", statefulset.Name)
 			err := client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-				statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+				statefulset.Name, backgroundDeleteOptions())
 			if !apierrors.IsNotFound(err) {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
@@ -734,9 +734,8 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 			}
 		}
 		ginkgo.By("Delete statefulset with cascade = false")
-		cascade := false
 		err = client.AppsV1().StatefulSets(namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: &cascade})
+			statefulset.Name, backgroundDeleteOptions())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
@@ -802,7 +801,7 @@ var _ = ginkgo.Describe("[csi-supervisor-staging] Tests for WCP env with minimal
 		framework.Logf("Deleting statefulset %v", statefulset.Name)
 		fss.WaitForStatusReadyReplicas(ctx, client, statefulset, 0)
 		err = client.AppsV1().StatefulSets(statefulset.Namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+			statefulset.Name, backgroundDeleteOptions())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Wait and verify PVC is fully deleted")

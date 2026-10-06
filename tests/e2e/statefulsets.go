@@ -734,9 +734,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}
 		ginkgo.By("Delete statefulset with cascade = false")
-		cascade := false
 		err = client.AppsV1().StatefulSets(namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: &cascade})
+			statefulset.Name, backgroundDeleteOptions())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		statefulset = GetResizedStatefulSetFromManifest(namespace)

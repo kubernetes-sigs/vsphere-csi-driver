@@ -1598,7 +1598,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", ginkg
 				gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 					"Number of Pods in the statefulset should match with number of replicas")
 				err = client.AppsV1().StatefulSets(ns.Name).Delete(ctx,
-					statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+					statefulset.Name, backgroundDeleteOptions())
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

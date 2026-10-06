@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"reflect"
 
-	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 
@@ -40,7 +40,7 @@ func getVirtualMachine(ctx context.Context, vmOperatorClient client.Client,
 		Namespace: namespace,
 		Name:      vmName,
 	}
-	virtualMachine, apiVersion, err := utils.GetVirtualMachineAllApiVersions(ctx,
+	virtualMachine, apiVersion, err := utils.GetVirtualMachine(ctx,
 		vmKey, vmOperatorClient)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtualmachine instance for the VM with name: %q. Error: %+v", vmName, err)

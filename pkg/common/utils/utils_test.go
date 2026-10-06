@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,27 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	vmoperatorv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	vmoperatorv1alpha2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
-	vmoperatorv1alpha3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
-	vmoperatorv1alpha4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
-	vmoperatorv1alpha5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
+	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnssim "github.com/vmware/govmomi/cns/simulator"
-	"github.com/vmware/govmomi/cns/types"
+	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/simulator"
 	_ "github.com/vmware/govmomi/vapi/simulator"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
-	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
 const (
@@ -170,15 +164,15 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	// Create context
 	commonUtilsTestInstance := getCommonUtilsTest(t)
 
-	queryFilter := types.CnsSnapshotQueryFilter{
+	queryFilter := cnstypes.CnsSnapshotQueryFilter{
 		SnapshotQuerySpecs: nil,
-		Cursor: &types.CnsCursor{
+		Cursor: &cnstypes.CnsCursor{
 			Offset: 0,
 			Limit:  10,
 		},
 	}
-	queryResultEntries, _, err := QuerySnapshotsUtil(ctx, commonUtilsTestInstance.volumeManager, queryFilter,
-		DefaultQuerySnapshotLimit)
+	queryResultEntries, _, err := QuerySnapshotsUtil(ctx, commonUtilsTestInstance.volumeManager,
+		queryFilter, DefaultQuerySnapshotLimit)
 	if err != nil {
 		t.Error(err)
 	}
@@ -189,548 +183,845 @@ func TestQuerySnapshotsUtil(t *testing.T) {
 	}
 }
 
+// TestListVirtualMachines tests the ListVirtualMachines function
 func TestListVirtualMachines(t *testing.T) {
-	getLatestCRDVersionOriginal := getLatestCRDVersion
-	defer func() {
-		getLatestCRDVersion = getLatestCRDVersionOriginal
-	}()
+	ctx := context.Background()
 
-	t.Run("WhenLatestCRDVersionIsNotAvailable", func(tt *testing.T) {
-		// Setup
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "", fmt.Errorf("CRD version not available")
-		}
+	tests := []struct {
+		name          string
+		namespace     string
+		vms           []client.Object
+		expectedCount int
+		expectError   bool
+		clientError   error
+	}{
+		{
+			name:          "Successfully list multiple VMs",
+			namespace:     "test-namespace",
+			vms:           createTestVMs("test-namespace", 3),
+			expectedCount: 3,
+			expectError:   false,
+		},
+		{
+			name:          "Successfully list single VM",
+			namespace:     "test-namespace",
+			vms:           createTestVMs("test-namespace", 1),
+			expectedCount: 1,
+			expectError:   false,
+		},
+		{
+			name:          "Successfully list empty namespace",
+			namespace:     "empty-namespace",
+			vms:           []client.Object{},
+			expectedCount: 0,
+			expectError:   false,
+		},
+		{
+			name:          "Filter VMs by namespace",
+			namespace:     "namespace-1",
+			vms:           append(createTestVMs("namespace-1", 2), createTestVMs("namespace-2", 2)...),
+			expectedCount: 2,
+			expectError:   false,
+		},
+	}
 
-		// Execute
-		_, err := ListVirtualMachines(context.Background(), fake.NewFakeClient(), "")
-
-		// Assert
-		assert.NotNil(tt, err)
-	})
-
-	t.Run("WhenLatestCRDVersionIsV1Alpha1", func(tt *testing.T) {
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "v1alpha1", nil
-		}
-		tt.Run("WhenListFails", func(ttt *testing.T) {
-			// Setup
-			clientBuilder := fake.NewClientBuilder()
-			clientBuilder.WithInterceptorFuncs(
-				interceptor.Funcs{
-					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
-						opts ...client.ListOption) error {
-						return fmt.Errorf("failing list for testing purposes")
-					}})
-
-			// Execute
-			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
-
-			// Assert
-			assert.NotNil(ttt, err)
-		})
-		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
-			// Setup
-			namespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			otherNamespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "other-namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			vm1 := &vmoperatorv1alpha1.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			vm2 := &vmoperatorv1alpha1.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			vm3 := &vmoperatorv1alpha1.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm3",
-					Namespace: "other-namespace",
-				},
-			}
-			clientBuilder := fake.NewClientBuilder()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
-			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
-				v1.AddToScheme,
-				vmoperatorv1alpha1.AddToScheme,
-			})
-			clientBuilder.WithRuntimeObjects(namespace, otherNamespace, vm1, vm2, vm3)
-			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			exp := vmoperatorv1alpha5.VirtualMachineList{
-				TypeMeta: metav1.TypeMeta{},
-				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha5.VirtualMachine{
-					v1Alpha4VM1,
-					v1Alpha4VM2,
-				},
+			err := vmoperatortypes.AddToScheme(scheme)
+			if err != nil {
+				t.Fatalf("Failed to add vmoperator scheme: %v", err)
 			}
 
-			// Execute
-			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
+			clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+			if len(tt.vms) > 0 {
+				clientBuilder = clientBuilder.WithObjects(tt.vms...)
+			}
 
-			// Assert
-			assert.Nil(tt, err)
-			assert.NotNil(tt, actual)
-			assert.True(tt, compareVirtualMachineLists(exp, *actual))
+			// Create a client that returns an error if clientError is set
+			var fakeClient client.Client
+			if tt.clientError != nil {
+				// For error testing, we'll use a custom client that returns errors
+				fakeClient = &errorClient{
+					Client: clientBuilder.Build(),
+					err:    tt.clientError,
+				}
+			} else {
+				fakeClient = clientBuilder.Build()
+			}
+
+			vmList, err := ListVirtualMachines(ctx, fakeClient, tt.namespace)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				if vmList != nil {
+					t.Errorf("Expected nil vmList on error, but got %v", vmList)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if vmList == nil {
+					t.Fatal("Expected vmList but got nil")
+				}
+				if len(vmList.Items) != tt.expectedCount {
+					t.Errorf("Expected %d VMs, but got %d", tt.expectedCount, len(vmList.Items))
+				}
+				// Verify all VMs are in the correct namespace
+				for _, vm := range vmList.Items {
+					if vm.Namespace != tt.namespace {
+						t.Errorf("VM %s is in namespace %s, expected %s", vm.Name,
+							vm.Namespace, tt.namespace)
+					}
+				}
+			}
 		})
-	})
-
-	t.Run("WhenLatestCRDVersionIsV1Alpha2", func(tt *testing.T) {
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "v1alpha2", nil
-		}
-		tt.Run("WhenListFails", func(ttt *testing.T) {
-			// Setup
-			clientBuilder := fake.NewClientBuilder()
-			clientBuilder.WithInterceptorFuncs(
-				interceptor.Funcs{
-					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
-						opts ...client.ListOption) error {
-						return fmt.Errorf("failing list for testing purposes")
-					}})
-
-			// Execute
-			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
-
-			// Assert
-			assert.NotNil(ttt, err)
-		})
-		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
-			// Setup
-			namespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			vm1 := &vmoperatorv1alpha2.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha2",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			vm2 := &vmoperatorv1alpha2.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha2",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			clientBuilder := fake.NewClientBuilder()
-			scheme := runtime.NewScheme()
-			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
-				v1.AddToScheme,
-				vmoperatorv1alpha2.AddToScheme,
-			})
-			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			exp := vmoperatorv1alpha5.VirtualMachineList{
-				TypeMeta: metav1.TypeMeta{},
-				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha5.VirtualMachine{
-					v1Alpha4VM1,
-					v1Alpha4VM2,
-				},
-			}
-
-			// Execute
-			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
-
-			// Assert
-			assert.Nil(tt, err)
-			assert.NotNil(tt, actual)
-			assert.True(tt, compareVirtualMachineLists(exp, *actual))
-		})
-	})
-
-	t.Run("WhenLatestCRDVersionIsV1Alpha3", func(tt *testing.T) {
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "v1alpha3", nil
-		}
-		tt.Run("WhenListFails", func(ttt *testing.T) {
-			// Setup
-			clientBuilder := fake.NewClientBuilder()
-			clientBuilder.WithInterceptorFuncs(
-				interceptor.Funcs{
-					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
-						opts ...client.ListOption) error {
-						return fmt.Errorf("failing list for testing purposes")
-					}})
-
-			// Execute
-			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
-
-			// Assert
-			assert.NotNil(ttt, err)
-		})
-		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
-			// Setup
-			namespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			vm1 := &vmoperatorv1alpha3.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha3",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			vm2 := &vmoperatorv1alpha3.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha3",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			clientBuilder := fake.NewClientBuilder()
-			scheme := runtime.NewScheme()
-			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
-				v1.AddToScheme,
-				vmoperatorv1alpha3.AddToScheme,
-			})
-			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			exp := vmoperatorv1alpha5.VirtualMachineList{
-				TypeMeta: metav1.TypeMeta{},
-				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha5.VirtualMachine{
-					v1Alpha4VM1,
-					v1Alpha4VM2,
-				},
-			}
-
-			// Execute
-			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
-
-			// Assert
-			assert.Nil(tt, err)
-			assert.NotNil(tt, actual)
-			assert.True(tt, compareVirtualMachineLists(exp, *actual))
-		})
-	})
-	t.Run("WhenLatestCRDVersionIsV1Alpha4", func(tt *testing.T) {
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "v1alpha4", nil
-		}
-		tt.Run("WhenListFails", func(ttt *testing.T) {
-			// Setup
-			clientBuilder := fake.NewClientBuilder()
-			clientBuilder.WithInterceptorFuncs(
-				interceptor.Funcs{
-					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
-						opts ...client.ListOption) error {
-						return fmt.Errorf("failing list for testing purposes")
-					}})
-
-			// Execute
-			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
-
-			// Assert
-			assert.NotNil(ttt, err)
-		})
-		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
-			// Setup
-			namespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			vm1 := &vmoperatorv1alpha4.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha4",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			vm2 := &vmoperatorv1alpha4.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha4",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			clientBuilder := fake.NewClientBuilder()
-			scheme := runtime.NewScheme()
-			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
-				v1.AddToScheme,
-				vmoperatorv1alpha4.AddToScheme,
-			})
-			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			v1Alpha4VM1 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			v1Alpha4VM2 := vmoperatorv1alpha5.VirtualMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			exp := vmoperatorv1alpha5.VirtualMachineList{
-				TypeMeta: metav1.TypeMeta{},
-				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha5.VirtualMachine{
-					v1Alpha4VM1,
-					v1Alpha4VM2,
-				},
-			}
-
-			// Execute
-			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
-
-			// Assert
-			assert.Nil(tt, err)
-			assert.NotNil(tt, actual)
-			assert.True(tt, compareVirtualMachineLists(exp, *actual))
-		})
-	})
-	t.Run("WhenLatestCRDVersionIsV1Alpha5OrAbove", func(tt *testing.T) {
-		getLatestCRDVersion = func(ctx context.Context, crdName string) (string, error) {
-			return "v1alpha5", nil
-		}
-		tt.Run("WhenListFails", func(ttt *testing.T) {
-			// Setup
-			clientBuilder := fake.NewClientBuilder()
-			clientBuilder.WithInterceptorFuncs(
-				interceptor.Funcs{
-					List: func(ctx context.Context, client client.WithWatch, list client.ObjectList,
-						opts ...client.ListOption) error {
-						return fmt.Errorf("failing list for testing purposes")
-					}})
-
-			// Execute
-			_, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), "")
-
-			// Assert
-			assert.NotNil(ttt, err)
-		})
-		tt.Run("WhenListSucceeds", func(ttt *testing.T) {
-			// Setup
-			namespace := &v1.Namespace{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Namespace",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "namespace",
-				},
-				Spec: v1.NamespaceSpec{
-					Finalizers: []v1.FinalizerName{
-						v1.FinalizerKubernetes,
-					},
-				},
-				Status: v1.NamespaceStatus{
-					Phase: v1.NamespaceActive,
-				},
-			}
-			vm1 := &vmoperatorv1alpha5.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha5",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm1",
-					Namespace: namespace.Name,
-				},
-			}
-			vm2 := &vmoperatorv1alpha5.VirtualMachine{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "VirtualMachine",
-					APIVersion: "vmoperator.vmware.com/v1alpha5",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "vm2",
-					Namespace: namespace.Name,
-				},
-			}
-			clientBuilder := fake.NewClientBuilder()
-			scheme := runtime.NewScheme()
-			clientBuilder = registerSchemes(context.Background(), clientBuilder, scheme, runtime.SchemeBuilder{
-				v1.AddToScheme,
-				vmoperatorv1alpha5.AddToScheme,
-			})
-			clientBuilder.WithRuntimeObjects(namespace, vm1, vm2)
-			exp := vmoperatorv1alpha5.VirtualMachineList{
-				TypeMeta: metav1.TypeMeta{},
-				ListMeta: metav1.ListMeta{},
-				Items: []vmoperatorv1alpha5.VirtualMachine{
-					*vm1,
-					*vm2,
-				},
-			}
-
-			// Execute
-			actual, err := ListVirtualMachines(context.Background(), clientBuilder.Build(), namespace.Name)
-
-			// Assert
-			assert.Nil(tt, err)
-			assert.NotNil(tt, actual)
-			assert.True(tt, compareVirtualMachineLists(exp, *actual))
-		})
-	})
+	}
 }
 
-func registerSchemes(ctx context.Context, clientBuilder *fake.ClientBuilder, scheme *runtime.Scheme,
-	schemeBuilder runtime.SchemeBuilder) *fake.ClientBuilder {
-	l := logger.GetLogger(ctx)
-	if err := schemeBuilder.AddToScheme(scheme); err != nil {
-		l.Fatalf("Failed to add scheme: %v", err)
+// TestListVirtualMachinesError tests error handling in ListVirtualMachines
+func TestListVirtualMachinesError(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
 	}
 
-	clientBuilder.WithScheme(scheme)
-	return clientBuilder
+	// Create a client that always returns an error on List
+	expectedError := errors.New("failed to list virtual machines")
+	errorClient := &errorClient{
+		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		err:    expectedError,
+	}
+
+	vmList, err := ListVirtualMachines(ctx, errorClient, "test-namespace")
+
+	if err == nil {
+		t.Error("Expected error but got none")
+	}
+	if err != nil && err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, but got %v", expectedError, err)
+	}
+	if vmList != nil {
+		t.Errorf("Expected nil vmList on error, but got %v", vmList)
+	}
 }
 
-func compareVirtualMachineLists(exp, actual vmoperatorv1alpha5.VirtualMachineList) bool {
-	// since the list output may not be in the same order, we will compare the items
-	// using brute force.
-	if len(exp.Items) != len(actual.Items) {
-		return false
+// TestListVirtualMachinesAllNamespaces tests the ListVirtualMachinesAllNamespaces function
+func TestListVirtualMachinesAllNamespaces(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		vms           []client.Object
+		expectedCount int
+		expectError   bool
+		clientError   error
+	}{
+		{
+			name: "Successfully list VMs from multiple namespaces",
+			vms: append(createTestVMs("namespace-1", 2), append(createTestVMs("namespace-2", 3),
+				createTestVMs("namespace-3", 1)...)...),
+			expectedCount: 6,
+			expectError:   false,
+		},
+		{
+			name:          "Successfully list VMs from single namespace",
+			vms:           createTestVMs("test-namespace", 3),
+			expectedCount: 3,
+			expectError:   false,
+		},
+		{
+			name:          "Successfully list empty result",
+			vms:           []client.Object{},
+			expectedCount: 0,
+			expectError:   false,
+		},
+		{
+			name:          "Successfully list single VM",
+			vms:           createTestVMs("test-namespace", 1),
+			expectedCount: 1,
+			expectError:   false,
+		},
 	}
 
-	for _, expItem := range exp.Items {
-		found := false
-		for _, actualItem := range actual.Items {
-			if expItem.Name == actualItem.Name && expItem.Namespace == actualItem.Namespace {
-				found = true
-				break
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			err := vmoperatortypes.AddToScheme(scheme)
+			if err != nil {
+				t.Fatalf("Failed to add vmoperator scheme: %v", err)
 			}
-		}
-		if !found {
-			return false
-		}
+
+			clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+			if len(tt.vms) > 0 {
+				clientBuilder = clientBuilder.WithObjects(tt.vms...)
+			}
+
+			// Create a client that returns an error if clientError is set
+			var fakeClient client.Client
+			if tt.clientError != nil {
+				// For error testing, we'll use a custom client that returns errors
+				fakeClient = &errorClient{
+					Client: clientBuilder.Build(),
+					err:    tt.clientError,
+				}
+			} else {
+				fakeClient = clientBuilder.Build()
+			}
+
+			vmList, err := ListVirtualMachinesAllNamespaces(ctx, fakeClient)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				if vmList != nil {
+					t.Errorf("Expected nil vmList on error, but got %v", vmList)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if vmList == nil {
+					t.Fatal("Expected vmList but got nil")
+				}
+				if len(vmList.Items) != tt.expectedCount {
+					t.Errorf("Expected %d VMs, but got %d", tt.expectedCount, len(vmList.Items))
+				}
+			}
+		})
+	}
+}
+
+// TestListVirtualMachinesAllNamespacesError tests error handling in ListVirtualMachinesAllNamespaces
+func TestListVirtualMachinesAllNamespacesError(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
 	}
 
-	return true
+	// Create a client that always returns an error on List
+	expectedError := errors.New("failed to list virtual machines from all namespaces")
+	errorClient := &errorClient{
+		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		err:    expectedError,
+	}
+
+	vmList, err := ListVirtualMachinesAllNamespaces(ctx, errorClient)
+
+	if err == nil {
+		t.Error("Expected error but got none")
+	}
+	if err != nil && err.Error() != expectedError.Error() {
+		t.Errorf("Expected error %v, but got %v", expectedError, err)
+	}
+	if vmList != nil {
+		t.Errorf("Expected nil vmList on error, but got %v", vmList)
+	}
+}
+
+// TestListVirtualMachinesAllNamespacesMultipleNamespaces tests that VMs from all namespaces are returned
+func TestListVirtualMachinesAllNamespacesMultipleNamespaces(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
+	}
+
+	// Create VMs in different namespaces
+	vms := append(
+		createTestVMs("namespace-1", 2),
+		append(
+			createTestVMs("namespace-2", 3),
+			createTestVMs("namespace-3", 1)...,
+		)...,
+	)
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vms...).Build()
+
+	vmList, err := ListVirtualMachinesAllNamespaces(ctx, fakeClient)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if vmList == nil {
+		t.Fatal("Expected vmList but got nil")
+	}
+
+	expectedCount := 6
+	if len(vmList.Items) != expectedCount {
+		t.Errorf("Expected %d VMs, but got %d", expectedCount, len(vmList.Items))
+	}
+
+	// Verify VMs from all namespaces are present
+	namespaceCounts := make(map[string]int)
+	for _, vm := range vmList.Items {
+		namespaceCounts[vm.Namespace]++
+	}
+
+	if namespaceCounts["namespace-1"] != 2 {
+		t.Errorf("Expected 2 VMs in namespace-1, but got %d", namespaceCounts["namespace-1"])
+	}
+	if namespaceCounts["namespace-2"] != 3 {
+		t.Errorf("Expected 3 VMs in namespace-2, but got %d", namespaceCounts["namespace-2"])
+	}
+	if namespaceCounts["namespace-3"] != 1 {
+		t.Errorf("Expected 1 VM in namespace-3, but got %d", namespaceCounts["namespace-3"])
+	}
+}
+
+// createTestVMs creates a slice of test VirtualMachine objects
+func createTestVMs(namespace string, count int) []client.Object {
+	vms := make([]client.Object, count)
+	for i := 0; i < count; i++ {
+		vms[i] = &vmoperatortypes.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("test-vm-%d", i),
+				Namespace: namespace,
+			},
+			Spec: vmoperatortypes.VirtualMachineSpec{
+				ImageName: "test-image",
+			},
+		}
+	}
+	return vms
+}
+
+// errorClient is a wrapper around a fake client that returns errors on List operations
+type errorClient struct {
+	client.Client
+	err error
+}
+
+func (e *errorClient) List(ctx context.Context, list client.ObjectList,
+	opts ...client.ListOption) error {
+	return e.err
+}
+
+// patchErrorClient is a wrapper around a fake client that returns errors on Patch operations
+type patchErrorClient struct {
+	client.Client
+	err error
+}
+
+func (e *patchErrorClient) Patch(ctx context.Context, obj client.Object,
+	patch client.Patch, opts ...client.PatchOption) error {
+	return e.err
+}
+
+// TestPatchVirtualMachine tests the PatchVirtualMachine function
+func TestPatchVirtualMachine(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		vm          *vmoperatortypes.VirtualMachine
+		oldVM       *vmoperatortypes.VirtualMachine
+		expectError bool
+		clientError error
+		setupClient func(*testing.T, *vmoperatortypes.VirtualMachine) client.Client
+	}{
+		{
+			name: "Successfully patch VM with spec change",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-vm",
+					Namespace:       "test-namespace",
+					ResourceVersion: "1",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "updated-image",
+					ClassName: "updated-class",
+				},
+			},
+			oldVM: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-vm",
+					Namespace:       "test-namespace",
+					ResourceVersion: "1",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "original-image",
+					ClassName: "original-class",
+				},
+			},
+			expectError: false,
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				return fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+			},
+		},
+		{
+			name: "Successfully patch VM with metadata change",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-namespace",
+					Labels: map[string]string{
+						"new-label": "new-value",
+					},
+					ResourceVersion: "2",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+				},
+			},
+			oldVM: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-vm",
+					Namespace:       "test-namespace",
+					ResourceVersion: "1",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+				},
+			},
+			expectError: false,
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				return fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+			},
+		},
+		{
+			name: "Error when patch fails",
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-vm",
+					Namespace:       "test-namespace",
+					ResourceVersion: "1",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "updated-image",
+				},
+			},
+			oldVM: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-vm",
+					Namespace:       "test-namespace",
+					ResourceVersion: "1",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "original-image",
+				},
+			},
+			expectError: true,
+			clientError: errors.New("failed to patch virtual machine"),
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				baseClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+				return &patchErrorClient{
+					Client: baseClient,
+					err:    errors.New("failed to patch virtual machine"),
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create the initial VM in the client
+			initialVM := tt.oldVM.DeepCopy()
+			fakeClient := tt.setupClient(t, initialVM)
+
+			err := PatchVirtualMachine(ctx, fakeClient, tt.vm, tt.oldVM)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				if tt.clientError != nil && err.Error() != tt.clientError.Error() {
+					t.Errorf("Expected error %v, but got %v", tt.clientError, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				// Verify the VM was patched by getting it from the client
+				patchedVM := &vmoperatortypes.VirtualMachine{}
+				err = fakeClient.Get(ctx, client.ObjectKey{
+					Name:      tt.vm.Name,
+					Namespace: tt.vm.Namespace,
+				}, patchedVM)
+				if err != nil {
+					t.Errorf("Failed to get patched VM: %v", err)
+				}
+				// Verify the spec was updated
+				if patchedVM.Spec.ImageName != tt.vm.Spec.ImageName {
+					t.Errorf("Expected ImageName %s, but got %s", tt.vm.Spec.ImageName,
+						patchedVM.Spec.ImageName)
+				}
+			}
+		})
+	}
+}
+
+// TestPatchVirtualMachineOptimisticLocking tests that optimistic locking is used
+func TestPatchVirtualMachineOptimisticLocking(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
+	}
+
+	// Create initial VM
+	oldVM := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-vm",
+			Namespace:       "test-namespace",
+			ResourceVersion: "1",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "original-image",
+		},
+	}
+
+	// Create updated VM
+	newVM := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-vm",
+			Namespace:       "test-namespace",
+			ResourceVersion: "2",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "updated-image",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(oldVM).Build()
+
+	err = PatchVirtualMachine(ctx, fakeClient, newVM, oldVM)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	// Verify the patch was applied
+	patchedVM := &vmoperatortypes.VirtualMachine{}
+	err = fakeClient.Get(ctx, client.ObjectKey{
+		Name:      newVM.Name,
+		Namespace: newVM.Namespace,
+	}, patchedVM)
+	if err != nil {
+		t.Fatalf("Failed to get patched VM: %v", err)
+	}
+
+	if patchedVM.Spec.ImageName != "updated-image" {
+		t.Errorf("Expected ImageName 'updated-image', but got %s", patchedVM.Spec.ImageName)
+	}
+}
+
+// TestPatchVirtualMachinePartialUpdate tests that only changed fields are updated
+func TestPatchVirtualMachinePartialUpdate(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
+	}
+
+	// Create initial VM with multiple fields
+	oldVM := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-vm",
+			Namespace:       "test-namespace",
+			ResourceVersion: "1",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "original-image",
+			ClassName: "original-class",
+		},
+	}
+
+	// Create updated VM - only ImageName changed
+	newVM := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-vm",
+			Namespace:       "test-namespace",
+			ResourceVersion: "2",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "updated-image",
+			ClassName: "original-class", // This should remain unchanged
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(oldVM).Build()
+
+	err = PatchVirtualMachine(ctx, fakeClient, newVM, oldVM)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	// Verify the patch was applied correctly
+	patchedVM := &vmoperatortypes.VirtualMachine{}
+	err = fakeClient.Get(ctx, client.ObjectKey{
+		Name:      newVM.Name,
+		Namespace: newVM.Namespace,
+	}, patchedVM)
+	if err != nil {
+		t.Fatalf("Failed to get patched VM: %v", err)
+	}
+
+	// Verify ImageName was updated
+	if patchedVM.Spec.ImageName != "updated-image" {
+		t.Errorf("Expected ImageName 'updated-image', but got %s", patchedVM.Spec.ImageName)
+	}
+
+	// Verify ClassName remained unchanged
+	if patchedVM.Spec.ClassName != "original-class" {
+		t.Errorf("Expected ClassName 'original-class', but got %s", patchedVM.Spec.ClassName)
+	}
+}
+
+// getErrorClient is a wrapper around a fake client that returns errors on Get operations
+type getErrorClient struct {
+	client.Client
+	err error
+}
+
+func (e *getErrorClient) Get(ctx context.Context, key client.ObjectKey,
+	obj client.Object, opts ...client.GetOption) error {
+	return e.err
+}
+
+// TestGetVirtualMachine tests the GetVirtualMachine function
+func TestGetVirtualMachine(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		vmKey          types.NamespacedName
+		vm             *vmoperatortypes.VirtualMachine
+		expectError    bool
+		clientError    error
+		expectedVMName string
+		setupClient    func(*testing.T, *vmoperatortypes.VirtualMachine) client.Client
+	}{
+		{
+			name: "Successfully get VM",
+			vmKey: types.NamespacedName{
+				Name:      "test-vm",
+				Namespace: "test-namespace",
+			},
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-namespace",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+					ClassName: "test-class",
+				},
+			},
+			expectError:    false,
+			expectedVMName: "test-vm",
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				return fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+			},
+		},
+		{
+			name: "Error when VM does not exist",
+			vmKey: types.NamespacedName{
+				Name:      "non-existent-vm",
+				Namespace: "test-namespace",
+			},
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-namespace",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+				},
+			},
+			expectError: true,
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				// Create client with a different VM, so the requested one doesn't exist
+				return fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+			},
+		},
+		{
+			name: "Error when client returns error",
+			vmKey: types.NamespacedName{
+				Name:      "test-vm",
+				Namespace: "test-namespace",
+			},
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "test-namespace",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+				},
+			},
+			expectError: true,
+			clientError: errors.New("client error"),
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				baseClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+				return &getErrorClient{
+					Client: baseClient,
+					err:    errors.New("client error"),
+				}
+			},
+		},
+		{
+			name: "Successfully get VM with different namespace",
+			vmKey: types.NamespacedName{
+				Name:      "test-vm",
+				Namespace: "namespace-2",
+			},
+			vm: &vmoperatortypes.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-vm",
+					Namespace: "namespace-2",
+				},
+				Spec: vmoperatortypes.VirtualMachineSpec{
+					ImageName: "test-image",
+					ClassName: "test-class",
+				},
+			},
+			expectError:    false,
+			expectedVMName: "test-vm",
+			setupClient: func(t *testing.T, vm *vmoperatortypes.VirtualMachine) client.Client {
+				scheme := runtime.NewScheme()
+				err := vmoperatortypes.AddToScheme(scheme)
+				if err != nil {
+					t.Fatalf("Failed to add vmoperator scheme: %v", err)
+				}
+				return fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := tt.setupClient(t, tt.vm)
+
+			vm, apiVersion, err := GetVirtualMachine(ctx, tt.vmKey, fakeClient)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				if vm != nil {
+					t.Errorf("Expected nil VM on error, but got %v", vm)
+				}
+				if tt.clientError != nil && err.Error() != tt.clientError.Error() {
+					// For NotFound errors, we don't check the exact error message
+					// as the fake client may return a different error format
+					if tt.clientError.Error() == "client error" {
+						t.Errorf("Expected error %v, but got %v", tt.clientError, err)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if vm == nil {
+					t.Fatal("Expected VM but got nil")
+				}
+				if vm.Name != tt.expectedVMName {
+					t.Errorf("Expected VM name %s, but got %s", tt.expectedVMName, vm.Name)
+				}
+				if vm.Namespace != tt.vmKey.Namespace {
+					t.Errorf("Expected VM namespace %s, but got %s", tt.vmKey.Namespace, vm.Namespace)
+				}
+				// Verify apiVersion is correct
+				expectedAPIVersion := "vmoperator.vmware.com/v1alpha2"
+				if apiVersion != expectedAPIVersion {
+					t.Errorf("Expected apiVersion %s, but got %s", expectedAPIVersion, apiVersion)
+				}
+			}
+		})
+	}
+}
+
+// TestGetVirtualMachineAPIVersion tests that the correct API version is returned
+func TestGetVirtualMachineAPIVersion(t *testing.T) {
+	ctx := context.Background()
+
+	scheme := runtime.NewScheme()
+	err := vmoperatortypes.AddToScheme(scheme)
+	if err != nil {
+		t.Fatalf("Failed to add vmoperator scheme: %v", err)
+	}
+
+	vm := &vmoperatortypes.VirtualMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-vm",
+			Namespace: "test-namespace",
+		},
+		Spec: vmoperatortypes.VirtualMachineSpec{
+			ImageName: "test-image",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vm).Build()
+
+	vmKey := types.NamespacedName{
+		Name:      "test-vm",
+		Namespace: "test-namespace",
+	}
+
+	retrievedVM, apiVersion, err := GetVirtualMachine(ctx, vmKey, fakeClient)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if retrievedVM == nil {
+		t.Fatal("Expected VM but got nil")
+	}
+
+	expectedAPIVersion := "vmoperator.vmware.com/v1alpha2"
+	if apiVersion != expectedAPIVersion {
+		t.Errorf("Expected apiVersion %s, but got %s", expectedAPIVersion, apiVersion)
+	}
+
+	// Verify the VM data is correct
+	if retrievedVM.Name != "test-vm" {
+		t.Errorf("Expected VM name 'test-vm', but got %s", retrievedVM.Name)
+	}
+	if retrievedVM.Spec.ImageName != "test-image" {
+		t.Errorf("Expected ImageName 'test-image', but got %s", retrievedVM.Spec.ImageName)
+	}
 }
