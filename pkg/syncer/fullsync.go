@@ -772,6 +772,9 @@ func patchVolumeAccessibleTopologyToPVC(ctx context.Context, k8sClient clientset
 		return err
 	}
 	newPVC := pvc.DeepCopy()
+	if newPVC.Annotations == nil {
+		newPVC.Annotations = make(map[string]string)
+	}
 	newPVC.Annotations[annCSIvSphereVolumeAccessibleTopology] = annCSIvSphereVolumeAccessibleTopologyValue
 	newData, err := json.Marshal(newPVC)
 	if err != nil {
@@ -828,6 +831,9 @@ func setFileShareAnnotationsOnPVC(ctx context.Context, k8sClient clientset.Inter
 	}
 	vSANFileBackingDetails := volume.BackingObjectDetails.(*cnstypes.CnsVsanFileShareBackingDetails)
 	accessPoints := make(map[string]string)
+	if pvc.Annotations == nil {
+		pvc.Annotations = make(map[string]string)
+	}
 	for _, kv := range vSANFileBackingDetails.AccessPoints {
 		if kv.Key == common.Nfsv3AccessPointKey {
 			pvc.Annotations[common.Nfsv3ExportPathAnnotationKey] = kv.Value
