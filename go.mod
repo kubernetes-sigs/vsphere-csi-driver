@@ -1,9 +1,9 @@
 module sigs.k8s.io/vsphere-csi-driver/v3
 
-go 1.26.7
+go 1.27.1
 
 require (
-	github.com/agiledragon/gomonkey/v2 v2.14.0
+	github.com/agiledragon/gomonkey/v2 v2.14.3
 	github.com/akutz/gofsutil v0.1.2
 	github.com/cert-manager/cert-manager v1.20.3
 	github.com/container-storage-interface/spec v1.12.1-0.20260720052920-cd9e7ad1ae09
@@ -21,7 +21,7 @@ require (
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.6.0
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
-	github.com/prometheus/client_golang v1.24.0
+	github.com/prometheus/client_golang v1.24.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260423003402-51227659e236
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20260626202036-4f3bb257838c
@@ -32,13 +32,13 @@ require (
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/gcfg.v1 v1.2.3
-	k8s.io/api v0.37.0
-	k8s.io/apiextensions-apiserver v0.37.0
-	k8s.io/apimachinery v0.37.0
-	k8s.io/client-go v0.37.0
-	k8s.io/kubernetes v1.37.0
-	k8s.io/mount-utils v0.37.0
-	k8s.io/sample-controller v0.37.0
+	k8s.io/api v0.37.1
+	k8s.io/apiextensions-apiserver v0.37.1
+	k8s.io/apimachinery v0.37.1
+	k8s.io/client-go v0.37.1
+	k8s.io/kubernetes v1.37.1
+	k8s.io/mount-utils v0.37.1
+	k8s.io/sample-controller v0.37.1
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	sigs.k8s.io/cluster-api v1.13.3
 	sigs.k8s.io/controller-runtime v0.24.1
@@ -83,7 +83,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.70.0 // indirect
+	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -110,10 +110,10 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.37.0 // indirect
-	k8s.io/component-base v0.37.0 // indirect
-	k8s.io/controller-manager v0.37.0 // indirect
-	k8s.io/csi-translation-lib v0.37.0 // indirect
+	k8s.io/apiserver v0.37.1 // indirect
+	k8s.io/component-base v0.37.1 // indirect
+	k8s.io/controller-manager v0.37.1 // indirect
+	k8s.io/csi-translation-lib v0.37.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	sigs.k8s.io/gateway-api v1.6.0 // indirect
@@ -126,36 +126,36 @@ require (
 // replace directives. Consumers must supply their own replaces to real
 // published versions.
 replace (
-	k8s.io/api => k8s.io/api v0.37.0
-	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.37.0
-	k8s.io/apimachinery => k8s.io/apimachinery v0.37.0
-	k8s.io/apiserver => k8s.io/apiserver v0.37.0
-	k8s.io/cli-runtime => k8s.io/cli-runtime v0.37.0
-	k8s.io/client-go => k8s.io/client-go v0.37.0
-	k8s.io/cloud-provider => k8s.io/cloud-provider v0.37.0
-	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.37.0
-	k8s.io/code-generator => k8s.io/code-generator v0.37.0
-	k8s.io/component-base => k8s.io/component-base v0.37.0
-	k8s.io/component-helpers => k8s.io/component-helpers v0.37.0
-	k8s.io/controller-manager => k8s.io/controller-manager v0.37.0
-	k8s.io/cri-api => k8s.io/cri-api v0.37.0
-	k8s.io/cri-client => k8s.io/cri-client v0.37.0
-	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.37.0
-	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.37.0
-	k8s.io/endpointslice => k8s.io/endpointslice v0.37.0
-	k8s.io/externaljwt => k8s.io/externaljwt v0.37.0
-	k8s.io/kms => k8s.io/kms v0.37.0
-	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.37.0
-	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.37.0
-	k8s.io/kube-proxy => k8s.io/kube-proxy v0.37.0
-	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.37.0
-	k8s.io/kubectl => k8s.io/kubectl v0.37.0
-	k8s.io/kubelet => k8s.io/kubelet v0.37.0
-	k8s.io/kubernetes => k8s.io/kubernetes v1.37.0
-	k8s.io/metrics => k8s.io/metrics v0.37.0
-	k8s.io/mount-utils => k8s.io/mount-utils v0.37.0
-	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.37.0
-	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.37.0
-	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.37.0
-	k8s.io/sample-controller => k8s.io/sample-controller v0.37.0
+	k8s.io/api => k8s.io/api v0.37.1
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.37.1
+	k8s.io/apimachinery => k8s.io/apimachinery v0.37.1
+	k8s.io/apiserver => k8s.io/apiserver v0.37.1
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.37.1
+	k8s.io/client-go => k8s.io/client-go v0.37.1
+	k8s.io/cloud-provider => k8s.io/cloud-provider v0.37.1
+	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.37.1
+	k8s.io/code-generator => k8s.io/code-generator v0.37.1
+	k8s.io/component-base => k8s.io/component-base v0.37.1
+	k8s.io/component-helpers => k8s.io/component-helpers v0.37.1
+	k8s.io/controller-manager => k8s.io/controller-manager v0.37.1
+	k8s.io/cri-api => k8s.io/cri-api v0.37.1
+	k8s.io/cri-client => k8s.io/cri-client v0.37.1
+	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.37.1
+	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation v0.37.1
+	k8s.io/endpointslice => k8s.io/endpointslice v0.37.1
+	k8s.io/externaljwt => k8s.io/externaljwt v0.37.1
+	k8s.io/kms => k8s.io/kms v0.37.1
+	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.37.1
+	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.37.1
+	k8s.io/kube-proxy => k8s.io/kube-proxy v0.37.1
+	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.37.1
+	k8s.io/kubectl => k8s.io/kubectl v0.37.1
+	k8s.io/kubelet => k8s.io/kubelet v0.37.1
+	k8s.io/kubernetes => k8s.io/kubernetes v1.37.1
+	k8s.io/metrics => k8s.io/metrics v0.37.1
+	k8s.io/mount-utils => k8s.io/mount-utils v0.37.1
+	k8s.io/pod-security-admission => k8s.io/pod-security-admission v0.37.1
+	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.37.1
+	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.37.1
+	k8s.io/sample-controller => k8s.io/sample-controller v0.37.1
 )
