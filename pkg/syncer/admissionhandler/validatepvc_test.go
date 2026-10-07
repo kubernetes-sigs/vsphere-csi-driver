@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientset "k8s.io/client-go/kubernetes"
+	k8stesting "k8s.io/client-go/testing"
 	snapshotclientfake "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fakesnapshot"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 )
@@ -1376,9 +1377,22 @@ func TestValidateGuestPVCVACChange(t *testing.T) {
 	}
 
 	origVACPolicyMutabilityEnabled := featureIsVACPolicyMutabilityEnabled
+	origK8sClient := newK8sClient
 	defer func() {
 		featureIsVACPolicyMutabilityEnabled = origVACPolicyMutabilityEnabled
+		newK8sClient = origK8sClient
 	}()
+	// Non file volume VAC changes also run the host local compatibility check, which reads
+	// the live PVC and both VACs. Serve non host local ones.
+	fakeClient := fake.NewClientset(
+		&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+			Spec:       corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: &oldVACName},
+		},
+		&storagev1.VolumeAttributesClass{ObjectMeta: metav1.ObjectMeta{Name: oldVACName}},
+		&storagev1.VolumeAttributesClass{ObjectMeta: metav1.ObjectMeta{Name: newVACName}},
+	)
+	newK8sClient = func(ctx context.Context) (clientset.Interface, error) { return fakeClient, nil }
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1501,4 +1515,245 @@ func TestIsVolumeAttributesClassServed(t *testing.T) {
 			assert.Equal(t, test.expectedServed, served)
 		})
 	}
+}
+
+// useFakeK8sClient makes the webhook use a fake clientset seeded with objects for the test.
+func useFakeK8sClient(t *testing.T, objects ...runtime.Object) *fake.Clientset {
+	client := fake.NewClientset(objects...)
+	orig := newK8sClient
+	newK8sClient = func(ctx context.Context) (clientset.Interface, error) { return client, nil }
+	t.Cleanup(func() { newK8sClient = orig })
+	return client
+}
+
+func testVAC(name string, hostLocal bool) *storagev1.VolumeAttributesClass {
+	vac := &storagev1.VolumeAttributesClass{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if hostLocal {
+		vac.Annotations = map[string]string{hostLocalStorageClassAnn: "true"}
+	}
+	return vac
+}
+
+func testSC(name string, hostLocal bool) *storagev1.StorageClass {
+	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if hostLocal {
+		sc.Annotations = map[string]string{hostLocalStorageClassAnn: "true"}
+	}
+	return sc
+}
+
+// testPVC returns a PVC as it exists in the API server. Pass nil to leave a field unset.
+func testPVC(vacName, scName *string) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			VolumeAttributesClassName: vacName,
+			StorageClassName:          scName,
+		},
+	}
+}
+
+func TestValidateVACCompatibility(t *testing.T) {
+	ctx := context.Background()
+	oldVAC, oldSC, newVAC := "old-vac", "old-sc", "new-vac"
+	modifiedPVC := *testPVC(&newVAC, nil)
+
+	t.Run("WhenCreatingClientFails", func(t *testing.T) {
+		// Setup
+		orig := newK8sClient
+		defer func() { newK8sClient = orig }()
+		newK8sClient = func(ctx context.Context) (clientset.Interface, error) { return nil, errors.New("no client") }
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.Error(t, err)
+	})
+
+	t.Run("WhenGettingPVCFails", func(t *testing.T) {
+		// Setup
+		client := useFakeK8sClient(t)
+		client.PrependReactor("get", "persistentvolumeclaims",
+			func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, nil, errors.New("API server error")
+			})
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.Error(t, err)
+	})
+
+	t.Run("WhenPVCDoesNotExist", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t)
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenExistingVACDoesNotExist", func(t *testing.T) {
+		// Setup - the PVC refers to a VAC that is missing
+		useFakeK8sClient(t, testPVC(&oldVAC, nil), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenExistingVACIsHostLocal", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(&oldVAC, nil), testVAC(oldVAC, true), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenExistingSCDoesNotExist", func(t *testing.T) {
+		// Setup - the PVC has no VAC and refers to a StorageClass that is missing
+		useFakeK8sClient(t, testPVC(nil, &oldSC), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenExistingSCIsHostLocal", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(nil, &oldSC), testSC(oldSC, true), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenPVCHasNeitherVACNorSC", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(nil, nil), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.Error(t, err)
+	})
+
+	t.Run("WhenNewVACDoesNotExist", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(nil, &oldSC), testSC(oldSC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenNewVACIsHostLocal", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(nil, &oldSC), testSC(oldSC, false), testVAC(newVAC, true))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.False(t, compatible)
+		assert.NoError(t, err)
+	})
+
+	t.Run("WhenCompatible", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(&oldVAC, nil), testVAC(oldVAC, false), testVAC(newVAC, false))
+
+		// Execute
+		compatible, err := validateVACCompatibility(ctx, modifiedPVC)
+
+		// Assert
+		assert.True(t, compatible)
+		assert.NoError(t, err)
+	})
+}
+
+func TestValidateGuestPVCVACChangeHostLocal(t *testing.T) {
+	oldVAC, newVAC := "old-vac", "new-vac"
+
+	// An update request for a RWO PVC whose VAC changes from old-vac to new-vac.
+	pvcRaw := func(vac *string) runtime.RawExtension {
+		raw, err := json.Marshal(&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace, Name: testFirstPVCName},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes:               []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				VolumeAttributesClassName: vac,
+			},
+		})
+		assert.NoError(t, err)
+		return runtime.RawExtension{Raw: raw}
+	}
+	req := &admissionv1.AdmissionRequest{
+		Operation: admissionv1.Update,
+		OldObject: pvcRaw(&oldVAC),
+		Object:    pvcRaw(&newVAC),
+	}
+
+	origFeature := featureIsVACPolicyMutabilityEnabled
+	defer func() { featureIsVACPolicyMutabilityEnabled = origFeature }()
+	featureIsVACPolicyMutabilityEnabled = true
+
+	t.Run("WhenVACChangeIsCompatible", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(&oldVAC, nil), testVAC(oldVAC, false), testVAC(newVAC, false))
+
+		// Execute
+		resp := validateGuestPVCVACChange(context.Background(), req)
+
+		// Assert
+		assert.True(t, resp.Allowed)
+	})
+
+	t.Run("WhenNewVACIsHostLocal", func(t *testing.T) {
+		// Setup
+		useFakeK8sClient(t, testPVC(&oldVAC, nil), testVAC(oldVAC, false), testVAC(newVAC, true))
+
+		// Execute
+		resp := validateGuestPVCVACChange(context.Background(), req)
+
+		// Assert
+		assert.False(t, resp.Allowed)
+		assert.Equal(t, metav1.StatusReason(VACChangeHostLocalErrorMessage), resp.Result.Reason)
+	})
+
+	t.Run("WhenCompatibilityCheckFails", func(t *testing.T) {
+		// Setup - the PVC has neither a VAC nor a StorageClass
+		useFakeK8sClient(t, testPVC(nil, nil), testVAC(newVAC, false))
+
+		// Execute
+		resp := validateGuestPVCVACChange(context.Background(), req)
+
+		// Assert
+		assert.False(t, resp.Allowed)
+		assert.Equal(t, metav1.StatusReason(VACChangeCompatibilityCheckFailedErrorMessage), resp.Result.Reason)
+	})
 }
