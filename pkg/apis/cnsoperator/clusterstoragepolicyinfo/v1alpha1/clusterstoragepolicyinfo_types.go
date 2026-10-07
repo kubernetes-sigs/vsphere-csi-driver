@@ -24,6 +24,13 @@ import (
 // +kubebuilder:validation:Enum=vm-encryption;vsan-encryption
 type EncryptionType string
 
+const (
+	// EncryptionTypeVM indicates that the storage policy supports VM encryption.
+	EncryptionTypeVM EncryptionType = "vm-encryption"
+	// EncryptionTypeVSAN indicates that the storage policy supports vSAN encryption.
+	EncryptionTypeVSAN EncryptionType = "vsan-encryption"
+)
+
 // ClusterStoragePolicyInfoStatus defines the observed state of ClusterStoragePolicyInfo.
 // +k8s:openapi-gen=true
 type ClusterStoragePolicyInfoStatus struct {

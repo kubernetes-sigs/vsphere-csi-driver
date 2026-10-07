@@ -1490,7 +1490,7 @@ func TestAnalyzeEncryptionCapabilities(t *testing.T) {
 				},
 			},
 			expectedEncryption: true,
-			expectedTypes:      []clusterspiv1alpha1.EncryptionType{"vsan-encryption"},
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{clusterspiv1alpha1.EncryptionTypeVSAN},
 		},
 		{
 			name: "policy without data-at-rest encryption",
@@ -1531,7 +1531,7 @@ func TestAnalyzeEncryptionCapabilities(t *testing.T) {
 				},
 			},
 			expectedEncryption: true,
-			expectedTypes:      []clusterspiv1alpha1.EncryptionType{"vm-encryption"},
+			expectedTypes:      []clusterspiv1alpha1.EncryptionType{clusterspiv1alpha1.EncryptionTypeVM},
 		},
 		{
 			name: "policy with both vSAN and VM encryption",
@@ -1558,8 +1558,8 @@ func TestAnalyzeEncryptionCapabilities(t *testing.T) {
 			},
 			expectedEncryption: true,
 			expectedTypes: []clusterspiv1alpha1.EncryptionType{
-				"vsan-encryption",
-				"vm-encryption",
+				clusterspiv1alpha1.EncryptionTypeVSAN,
+				clusterspiv1alpha1.EncryptionTypeVM,
 			},
 		},
 	}
@@ -3991,33 +3991,36 @@ func TestPopulateVolumeCapabilities_MarkerPolicy(t *testing.T) {
 			// We pass nil for vc, zoneCompatibleDS and zoneClusters since we only want to test the logic
 			err := populateVolumeCapabilities(ctx, infraSPI, nil, "test-profile-id", nil, nil, false)
 
-			// For marker policies, there should be no error since we skip the HPLC check
-			// For non-marker policies, there may be an error due to nil parameters, but capabilities should still be set
-			if tt.isMarkerPolicy {
-				assert.NoError(t, err, "Marker policies should not cause errors")
+			// Marker policies skip the LinkedClone checks, so there is no error. For non-marker
+			// policies the nil vCenter makes those checks fail; capabilities are all-or-nothing, so
+			// nothing is written to the status.
+			if !tt.isMarkerPolicy {
+				assert.Error(t, err, "nil vCenter should fail the LinkedClone check")
+				assert.Nil(t, infraSPI.Status.VolumeCapabilities,
+					"volume capabilities must not be partially set when a check fails")
+				return
 			}
+			assert.NoError(t, err, "Marker policies should not cause errors")
 
 			// Verify that the volume capabilities are set
-			assert.NotNil(t, infraSPI.Status.VolumeCapabilities)
+			caps := infraSPI.Status.VolumeCapabilities
+			require.NotNil(t, caps)
 
 			// Check SupportsVolumeModeFilesystem is always true
-			assert.True(t, infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeFilesystem])
+			assert.True(t, caps.SupportsVolumeModeFilesystem)
 
 			// Check SupportsVolumeModeBlock matches expected value
-			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeBlock]
-			assert.True(t, exists, "SupportsVolumeModeBlock should be set")
-			assert.Equal(t, tt.expectedSupportsVolumeBlock, actual,
+			assert.Equal(t, tt.expectedSupportsVolumeBlock, caps.SupportsVolumeModeBlock,
 				"SupportsVolumeModeBlock should be %v for k8sCompliantName %s",
 				tt.expectedSupportsVolumeBlock, tt.k8sCompliantName)
 
-			// No zone supports LinkedClone/HighPerformanceLinkedClone: marker policies never do, and
-			// non-marker policies have no zones with compatible datastores in this test. Both
-			// capabilities are still reported, each with an empty zone list.
-			assert.Equal(t, map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
-				infraspiv1alpha1.ZonesSupportingLinkedClone:                {},
-				infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {},
-			}, infraSPI.Status.ZonalVolumeCapabilities,
-				"empty zonal capabilities expected for k8sCompliantName %s", tt.k8sCompliantName)
+			// SupportsHostLocal is always determined; false here since isHostLocal is false.
+			assert.False(t, caps.SupportsHostLocal)
+
+			// Marker policies never support LinkedClone/HighPerformanceLinkedClone, so both are
+			// reported with an empty (non-nil) zone list.
+			assert.Equal(t, []string{}, caps.ZonesSupportingLinkedClone)
+			assert.Equal(t, []string{}, caps.ZonesSupportingHighPerformanceLinkedClone)
 		})
 	}
 }
@@ -4055,9 +4058,8 @@ func TestPopulateVolumeCapabilities_HostLocal(t *testing.T) {
 			err := populateVolumeCapabilities(ctx, infraSPI, stubVC, "test-policy", nil, nil, tt.isHostLocal)
 			assert.NoError(t, err)
 
-			actual, exists := infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsHostLocal]
-			assert.True(t, exists, "SupportsHostLocal should be set")
-			assert.Equal(t, tt.expectedSupports, actual)
+			require.NotNil(t, infraSPI.Status.VolumeCapabilities)
+			assert.Equal(t, tt.expectedSupports, infraSPI.Status.VolumeCapabilities.SupportsHostLocal)
 		})
 	}
 }
@@ -4581,11 +4583,11 @@ func TestPopulateVolumeCapabilities_MixedZones(t *testing.T) {
 	infraSPI.Name = "some-regular-policy"
 	err := populateVolumeCapabilities(ctx, infraSPI, vc, "test-policy", zoneCompatibleDS, zoneClusters, false)
 	require.NoError(t, err)
-	assert.Equal(t, map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
-		infraspiv1alpha1.ZonesSupportingLinkedClone:                {"zone-b", "zone-c"},
-		infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {"zone-b"},
-	}, infraSPI.Status.ZonalVolumeCapabilities)
-	assert.True(t, infraSPI.Status.VolumeCapabilities[infraspiv1alpha1.SupportsVolumeModeBlock])
+	caps := infraSPI.Status.VolumeCapabilities
+	require.NotNil(t, caps)
+	assert.Equal(t, []string{"zone-b", "zone-c"}, caps.ZonesSupportingLinkedClone)
+	assert.Equal(t, []string{"zone-b"}, caps.ZonesSupportingHighPerformanceLinkedClone)
+	assert.True(t, caps.SupportsVolumeModeBlock)
 }
 
 // TestMapFVSNamespaceToClusterMarkerSPI verifies that any FVS instance namespace event maps to

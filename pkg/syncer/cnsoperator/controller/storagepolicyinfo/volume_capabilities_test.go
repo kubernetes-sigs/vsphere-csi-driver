@@ -326,22 +326,57 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesBlockAndFilesystemCapabilities
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi"},
 		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
-			VolumeCapabilities: map[infraspiv1alpha1.VolumeCapability]bool{
-				infraspiv1alpha1.SupportsVolumeModeBlock: true,
-			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
 		},
 	}
 
 	r := &ReconcileStoragePolicyInfo{zonesProvider: &mockZonesProvider{}}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
 	require.NoError(t, err)
-	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeFilesystem],
+	caps := instance.Status.VolumeCapabilities
+	require.NotNil(t, caps)
+	assert.True(t, caps.SupportsVolumeModeFilesystem,
 		"SupportsVolumeModeFilesystem is always true, independent of InfraSPI")
-	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeBlock])
-	assert.Equal(t, emptyZonalVolumeCapabilities(), instance.Status.ZonalVolumeCapabilities,
-		"a zoneless policy reports every zonal capability with no zones")
-	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHostLocal],
-		"SupportsHostLocal is copied as-is from InfraSPI, which did not set it here")
+	assert.True(t, caps.SupportsVolumeModeBlock)
+	assert.False(t, caps.SupportsHostLocal,
+		"SupportsHostLocal is copied as-is from InfraSPI")
+	assert.Equal(t, []string{}, caps.ZonesSupportingLinkedClone,
+		"a zoneless policy reports no LinkedClone zones")
+	assert.Equal(t, []string{}, caps.ZonesSupportingHighPerformanceLinkedClone,
+		"a zoneless policy reports no HighPerformanceLinkedClone zones")
+}
+
+// TestSyncVolumeCapabilitiesFromInfraSPI_UndeterminedInfraCapabilitiesReturnsError verifies that
+// when InfraSPI has not determined its volume capabilities (e.g. its own
+// reconcile failed), an error is returned rather than reporting the capability as unsupported.
+func TestSyncVolumeCapabilitiesFromInfraSPI_UndeterminedInfraCapabilitiesReturnsError(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	tests := []struct {
+		name      string
+		infraCaps *infraspiv1alpha1.VolumeCapabilities
+	}{
+		{name: "nil capabilities", infraCaps: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := &spiv1alpha1.StoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-undetermined"},
+				Status: spiv1alpha1.StoragePolicyInfoStatus{
+					Topology: &spiv1alpha1.Topology{},
+				},
+			}
+			infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-undetermined"},
+				Status:     infraspiv1alpha1.InfraStoragePolicyInfoStatus{VolumeCapabilities: tt.infraCaps},
+			}
+
+			r := &ReconcileStoragePolicyInfo{zonesProvider: &mockZonesProvider{}}
+			err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
+			assert.Error(t, err)
+			assert.Nil(t, instance.Status.VolumeCapabilities,
+				"SPI volume capabilities must not be set from undetermined InfraSPI capabilities")
+		})
+	}
 }
 
 // TestSyncVolumeCapabilitiesFromInfraSPI_CopiesHostLocalCapability verifies that
@@ -357,16 +392,15 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_CopiesHostLocalCapability(t *testing
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: "policy-svcfi-hostlocal"},
 		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
-			VolumeCapabilities: map[infraspiv1alpha1.VolumeCapability]bool{
-				infraspiv1alpha1.SupportsHostLocal: true,
-			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, true),
 		},
 	}
 
 	r := &ReconcileStoragePolicyInfo{zonesProvider: &mockZonesProvider{}}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
 	require.NoError(t, err)
-	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsHostLocal])
+	require.NotNil(t, instance.Status.VolumeCapabilities)
+	assert.True(t, instance.Status.VolumeCapabilities.SupportsHostLocal)
 }
 
 // setupPolicyZoneWithHPLCHost primes the cache so LC/HPLC over zone-a would compute true.
@@ -386,8 +420,8 @@ func setupPolicyZoneWithHPLCHost(t *testing.T, policyName, dsID, hostID, cluster
 }
 
 // TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyReportsNoZonalCapabilities verifies Block mode
-// is forced false and no LC/HPLC zones are reported for the marker policy, even when InfraSPI reports Block
-// mode support and the cache would otherwise compute LC/HPLC true.
+// and HostLocal are forced false and no LC/HPLC zones are reported for the marker policy, even when
+// InfraSPI reports them supported and the cache would otherwise compute LC/HPLC true.
 func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyReportsNoZonalCapabilities(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	markerPolicy := common.StorageClassVsanFileServicePolicy
@@ -402,28 +436,31 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyReportsNoZonalCapabiliti
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
 		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy},
 		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
-			VolumeCapabilities: map[infraspiv1alpha1.VolumeCapability]bool{
-				infraspiv1alpha1.SupportsVolumeModeBlock: true,
-			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, true),
 		},
 	}
 
 	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: true}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, nil)
 	require.NoError(t, err)
-	assert.True(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeFilesystem])
-	assert.False(t, instance.Status.VolumeCapabilities[spiv1alpha1.SupportsVolumeModeBlock],
-		"marker policy must have Block mode forced false even when InfraSPI reports it true")
-	assert.Equal(t, emptyZonalVolumeCapabilities(), instance.Status.ZonalVolumeCapabilities,
-		"marker policy must report no LinkedClone/HighPerformanceLinkedClone zones even when the cache would compute them")
+	assert.Equal(t, &spiv1alpha1.VolumeCapabilities{
+		SupportsVolumeModeFilesystem:              true,
+		SupportsVolumeModeBlock:                   false,
+		SupportsHostLocal:                         false,
+		ZonesSupportingLinkedClone:                []string{},
+		ZonesSupportingHighPerformanceLinkedClone: []string{},
+	}, instance.Status.VolumeCapabilities,
+		"marker policy must have Block mode and HostLocal forced false and report no LinkedClone/"+
+			"HighPerformanceLinkedClone zones, even when InfraSPI and the cache would report them")
 }
 
-// emptyZonalVolumeCapabilities is the ZonalVolumeCapabilities expected when no zone supports any
-// zonal capability: every capability is present with an empty zone list.
-func emptyZonalVolumeCapabilities() map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList {
-	return map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList{
-		spiv1alpha1.ZonesSupportingLinkedClone:                {},
-		spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {},
+// determinedInfraVolumeCapabilities returns InfraSPI volume capabilities with every
+// namespace-independent capability determined, as a successful InfraSPI reconcile reports them.
+func determinedInfraVolumeCapabilities(block, hostLocal bool) *infraspiv1alpha1.VolumeCapabilities {
+	return &infraspiv1alpha1.VolumeCapabilities{
+		SupportsVolumeModeFilesystem: true,
+		SupportsVolumeModeBlock:      block,
+		SupportsHostLocal:            hostLocal,
 	}
 }
 
@@ -440,17 +477,21 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MarkerPolicyFSSDisabledComputes(t *t
 			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: markerPolicy}}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: markerPolicy},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
+		},
+	}
 
 	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: false}
 	activeClustersByZone := map[string]map[string]bool{"zone-a": {"cluster-marker-fssoff": true}}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
 	require.NoError(t, err)
-	assert.Equal(t, spiv1alpha1.ZoneList{"zone-a"},
-		instance.Status.ZonalVolumeCapabilities[spiv1alpha1.ZonesSupportingLinkedClone],
+	require.NotNil(t, instance.Status.VolumeCapabilities)
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingLinkedClone,
 		"with the marker FSS off, LinkedClone is computed normally (zone-a here)")
-	assert.Equal(t, spiv1alpha1.ZoneList{"zone-a"},
-		instance.Status.ZonalVolumeCapabilities[spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone],
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingHighPerformanceLinkedClone,
 		"with the marker FSS off, HighPerformanceLinkedClone is computed normally (zone-a here)")
 }
 
@@ -467,17 +508,21 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_NonMarkerPolicyComputes(t *testing.T
 			Topology: &spiv1alpha1.Topology{TopologyType: "zonal", AccessibleZones: []string{"zone-a"}},
 		},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
+		},
+	}
 
 	r := &ReconcileStoragePolicyInfo{IsVsanFileVolumeService: true}
 	activeClustersByZone := map[string]map[string]bool{"zone-a": {"cluster-nonmarker": true}}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
 	require.NoError(t, err)
-	assert.Equal(t, spiv1alpha1.ZoneList{"zone-a"},
-		instance.Status.ZonalVolumeCapabilities[spiv1alpha1.ZonesSupportingLinkedClone],
+	require.NotNil(t, instance.Status.VolumeCapabilities)
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingLinkedClone,
 		"non-marker policy is unaffected by the marker short-circuit")
-	assert.Equal(t, spiv1alpha1.ZoneList{"zone-a"},
-		instance.Status.ZonalVolumeCapabilities[spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone],
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingHighPerformanceLinkedClone,
 		"non-marker policy is unaffected by the marker short-circuit")
 }
 
@@ -542,7 +587,12 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MixedZones(t *testing.T) {
 				AccessibleZones: []string{"zone-a", "zone-b", "zone-c"}},
 		},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
+		},
+	}
 	activeClustersByZone := map[string]map[string]bool{
 		"zone-a": {"cluster-mixed-a": true},
 		"zone-b": {"cluster-mixed-b": true},
@@ -552,10 +602,9 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_MixedZones(t *testing.T) {
 	r := &ReconcileStoragePolicyInfo{}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
 	require.NoError(t, err)
-	assert.Equal(t, map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList{
-		spiv1alpha1.ZonesSupportingLinkedClone:                {"zone-b", "zone-c"},
-		spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {"zone-c"},
-	}, instance.Status.ZonalVolumeCapabilities)
+	require.NotNil(t, instance.Status.VolumeCapabilities)
+	assert.Equal(t, []string{"zone-b", "zone-c"}, instance.Status.VolumeCapabilities.ZonesSupportingLinkedClone)
+	assert.Equal(t, []string{"zone-c"}, instance.Status.VolumeCapabilities.ZonesSupportingHighPerformanceLinkedClone)
 }
 
 // TestSyncVolumeCapabilitiesFromInfraSPI_ZoneNotActiveForNamespaceExcluded verifies that a zone
@@ -576,15 +625,19 @@ func TestSyncVolumeCapabilitiesFromInfraSPI_ZoneNotActiveForNamespaceExcluded(t 
 				AccessibleZones: []string{"zone-a", "zone-b"}},
 		},
 	}
-	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: policyName}}
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		Status: infraspiv1alpha1.InfraStoragePolicyInfoStatus{
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
+		},
+	}
 	// The namespace is only active on zone-a.
 	activeClustersByZone := map[string]map[string]bool{"zone-a": {"cluster-inactive-a": true}}
 
 	r := &ReconcileStoragePolicyInfo{}
 	err := r.syncVolumeCapabilitiesFromInfraSPI(ctx, instance, infraSPI, activeClustersByZone)
 	require.NoError(t, err)
-	assert.Equal(t, map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList{
-		spiv1alpha1.ZonesSupportingLinkedClone:                {"zone-a"},
-		spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: {"zone-a"},
-	}, instance.Status.ZonalVolumeCapabilities)
+	require.NotNil(t, instance.Status.VolumeCapabilities)
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingLinkedClone)
+	assert.Equal(t, []string{"zone-a"}, instance.Status.VolumeCapabilities.ZonesSupportingHighPerformanceLinkedClone)
 }
