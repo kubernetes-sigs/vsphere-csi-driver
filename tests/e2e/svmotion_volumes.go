@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("[csi-block-vanilla] [csi-block-vanilla-parallelized] Re
 	   CnsRelocateVolume API and verify the datastore of fcd after migration and volume compliance.
 	6. Delete pod,pvc and sc.
 	*/
-	ginkgo.It("[cf-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block]  Online relocation of volume "+
+	ginkgo.It("[cf-f-vanilla-block][pq-f-n1-vanilla-block][pq-f-n2-vanilla-block]  Online relocation of volume "+
 		"using cnsRelocate Volume API", ginkgo.Label(p0,
 		vanilla, block, core, vc70), func() {
 		ginkgo.By("Invoking Test for offline relocation")
