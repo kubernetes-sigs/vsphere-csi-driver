@@ -102,6 +102,10 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 			msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
 				volumeID, c.supervisorNamespace, patchErr)
 			log.Error(msg)
+			if isStorageQuotaWebhookDenial(patchErr) {
+				return nil, csifault.CSIInternalFault, c.expansionQuotaDenied(ctx, svPVC,
+					gcPvcRequestSize.String(), patchErr)
+			}
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 		// Wait for the FVS controller to reflect the new size in status.capacity.
@@ -141,6 +145,9 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 
 	log.Infof("ControllerExpandVolume: FVS file volume %s expanded to %s; NodeExpansionRequired=false",
 		volumeID, gcPvcRequestSize.String())
+	// Volume is expanded, remove the error recorded by an earlier attempt, if any.
+	guestPVCNamespace, guestPVCName := guestPVCFromSupervisorPVC(svPVC)
+	clearGuestPVCProvisioningError(ctx, c.guestClient, guestPVCNamespace, guestPVCName)
 	return &csi.ControllerExpandVolumeResponse{
 		CapacityBytes:         volSizeBytes,
 		NodeExpansionRequired: false,
