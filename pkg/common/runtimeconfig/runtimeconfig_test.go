@@ -392,7 +392,7 @@ func TestStartTriggersReloads(t *testing.T) {
 
 	secret := credSecret("s1", "csi", "sddc-1", "u@vsphere.local", "pw")
 	client := fake.NewSimpleClientset(secret, fileVolumeConfigMap(map[string]string{}))
-	vc := &config.VirtualCenterConfig{SDDCName: "sddc-1"}
+	vc := &config.VirtualCenterConfig{SDDCName: "sddc-1", User: "u@vsphere.local", Password: "pw"}
 	creds, fileVolume := make(chan struct{}, 10), make(chan struct{}, 10)
 	failures := 1
 	err := start(ctx, client, ns, newConfig("csi", vc),
@@ -525,7 +525,7 @@ func TestStartReloadingMapsChangesToReloads(t *testing.T) {
 	secret := credSecret("s1", "csi", "sddc-1", "u@vsphere.local", "pw")
 	client := fake.NewSimpleClientset(secret, fileVolumeConfigMap(map[string]string{}))
 	r := fakeReloader{calls: make(chan bool, 10)}
-	cfg := newConfig("csi", &config.VirtualCenterConfig{SDDCName: "sddc-1"})
+	cfg := newConfig("csi", &config.VirtualCenterConfig{SDDCName: "sddc-1", User: "u@vsphere.local", Password: "pw"})
 	if err := startReloading(ctx, client, ns, cfg, r); err != nil {
 		t.Fatal(err)
 	}
@@ -699,4 +699,22 @@ func TestHandleCAFileEventDoesNotBlockAndCoalesces(t *testing.T) {
 	if got := calls.Load(); got != 2 {
 		t.Errorf("reconnect ran %d times, want 2 (one, plus one for the rotations that arrived meanwhile)", got)
 	}
+}
+
+func TestStartReloadsWhenTheSourcesChangedBeforeTheWatchStarted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The driver read the configuration before the Secret was rotated and the ConfigMap changed.
+	secret := credSecret("s1", "csi", "sddc-1", "u@vsphere.local", "rotated")
+	cm := fileVolumeConfigMap(map[string]string{"sddc-1.fileVolumeActivated": "true"})
+	vc := &config.VirtualCenterConfig{SDDCName: "sddc-1", User: "u@vsphere.local", Password: "old"}
+	creds, fileVolume := make(chan struct{}, 10), make(chan struct{}, 10)
+	err := start(ctx, fake.NewSimpleClientset(secret, cm), ns, newConfig("csi", vc),
+		func() error { creds <- struct{}{}; return nil },
+		func() error { fileVolume <- struct{}{}; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, creds, true, "credentials changed before the watch started")
+	waitFor(t, fileVolume, true, "file volume settings changed before the watch started")
 }
