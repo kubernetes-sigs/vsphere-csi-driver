@@ -118,23 +118,58 @@ func IsCAFileRotation(ctx context.Context, name string, op fsnotify.Op) bool {
 		filepath.Base(name) == caFileDataLink && Enabled(ctx)
 }
 
+// caReload coalesces CA rotations: while a reconnect is running or retrying, further rotations only
+// mark it to run once more.
+var caReload struct {
+	sync.Mutex
+	running, again bool
+}
+
 // HandleCAFileEvent reconnects to vCenter, through reconnect, when event is a rotation of the CA
-// bundle (see IsCAFileRotation). A failed reconnect is retried until it succeeds, as the callers'
-// file watchers always did.
+// bundle (see IsCAFileRotation). The reconnect runs in the background, so the caller's file watcher
+// keeps handling events, and a failed reconnect is retried until it succeeds or ctx is done.
 func HandleCAFileEvent(ctx context.Context, event fsnotify.Event, reconnect func() error) {
 	if !IsCAFileRotation(ctx, event.Name, event.Op) {
 		return
 	}
+	logger.GetLogger(ctx).Infof("Observed ca file rotation at: %q", event.Name)
+	caReload.Lock()
+	defer caReload.Unlock()
+	if caReload.running {
+		caReload.again = true
+		return
+	}
+	caReload.running = true
+	go runCAReconnects(ctx, reconnect)
+}
+
+func runCAReconnects(ctx context.Context, reconnect func() error) {
 	log := logger.GetLogger(ctx)
-	log.Infof("Observed ca file rotation at: %q", event.Name)
 	for {
-		err := reconnect()
-		if err == nil {
-			log.Infof("Successfully re-established connection with VC from: %q", config.SupervisorCAFilePath)
+		for {
+			err := reconnect()
+			if err == nil {
+				log.Infof("Successfully re-established connection with VC from: %q", config.SupervisorCAFilePath)
+				break
+			}
+			log.Errorf("failed to re-establish VC connection. Will retry again in %v. err: %+v", retryInterval, err)
+			select {
+			case <-ctx.Done():
+				caReload.Lock()
+				caReload.running, caReload.again = false, false
+				caReload.Unlock()
+				return
+			case <-time.After(retryInterval):
+			}
+		}
+		caReload.Lock()
+		if !caReload.again {
+			caReload.running = false
+			caReload.Unlock()
 			return
 		}
-		log.Errorf("failed to re-establish VC connection. Will retry again in %v. err: %+v", retryInterval, err)
-		time.Sleep(retryInterval)
+		caReload.again = false
+		caReload.Unlock()
 	}
 }
 
