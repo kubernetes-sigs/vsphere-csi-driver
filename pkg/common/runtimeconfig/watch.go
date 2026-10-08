@@ -176,10 +176,16 @@ func runReloads(ctx context.Context, what string, trigger <-chan struct{}, reloa
 			}
 			log.Errorf("failed to reload the configuration after a change of the %s, will retry in %v. err: %+v",
 				what, retryInterval, err)
+			// A new change may fix what failed, so it ends the wait instead of queuing behind it.
+			timer := time.NewTimer(retryInterval)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-time.After(retryInterval):
+			case <-trigger:
+				timer.Stop()
+				log.Infof("Observed another change of the %s, retrying now", what)
+			case <-timer.C:
 			}
 		}
 	}

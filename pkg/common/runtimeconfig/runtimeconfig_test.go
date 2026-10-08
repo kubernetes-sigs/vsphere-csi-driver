@@ -608,3 +608,36 @@ func TestApplyIgnoresABadFileVolumeConfigMap(t *testing.T) {
 		t.Errorf("got %+v", vc)
 	}
 }
+
+func TestRunReloadsRetriesImmediatelyOnANewTrigger(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	previous := retryInterval
+	retryInterval = time.Hour
+	defer func() { retryInterval = previous }()
+
+	trigger := make(chan struct{}, 1)
+	calls := make(chan int, 4)
+	n := 0
+	go runReloads(ctx, "test", trigger, func() error {
+		n++
+		calls <- n
+		if n == 1 {
+			return context.DeadlineExceeded
+		}
+		return nil
+	})
+	trigger <- struct{}{}
+	if got := <-calls; got != 1 {
+		t.Fatalf("first call = %d", got)
+	}
+	trigger <- struct{}{} // the first reload failed and is now waiting an hour
+	select {
+	case got := <-calls:
+		if got != 2 {
+			t.Fatalf("second call = %d", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a new trigger did not end the retry wait")
+	}
+}
