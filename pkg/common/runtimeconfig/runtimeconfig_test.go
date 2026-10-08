@@ -20,6 +20,8 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -559,4 +561,29 @@ func watches(client *fake.Clientset) int {
 		}
 	}
 	return n
+}
+
+func TestLockReloadSerializes(t *testing.T) {
+	var running, maxRunning int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer LockReload()()
+			n := atomic.AddInt32(&running, 1)
+			for {
+				m := atomic.LoadInt32(&maxRunning)
+				if n <= m || atomic.CompareAndSwapInt32(&maxRunning, m, n) {
+					break
+				}
+			}
+			time.Sleep(2 * time.Millisecond)
+			atomic.AddInt32(&running, -1)
+		}()
+	}
+	wg.Wait()
+	if maxRunning != 1 {
+		t.Fatalf("%d reloads ran at once, want 1", maxRunning)
+	}
 }
