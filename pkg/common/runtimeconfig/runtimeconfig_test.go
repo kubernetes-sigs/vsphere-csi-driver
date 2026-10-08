@@ -735,3 +735,45 @@ func TestRegisterLatchesTheFeatureState(t *testing.T) {
 		t.Error("the decision changed after the feature state flipped")
 	}
 }
+
+func TestStartIsIdempotent(t *testing.T) {
+	useFSS(t, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	client := fake.NewSimpleClientset(fileVolumeConfigMap(map[string]string{}))
+	previousClient, previousCached := newClient, cachedClient
+	newClient = func(context.Context) (kubernetes.Interface, error) { return client, nil }
+	cachedClient = nil
+	t.Cleanup(func() { newClient, cachedClient = previousClient, previousCached })
+
+	cfg := newConfig("", &config.VirtualCenterConfig{SDDCName: "sddc-1"})
+	nop := func() error { return nil }
+	for i := 0; i < 3; i++ {
+		if err := Start(ctx, cfg, nop, nop); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for watches(client) < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := watches(client); got != 1 {
+		t.Errorf("%d watches after three Start calls, want 1", got)
+	}
+
+	// Once the watches have ended, Start may watch again.
+	cancel()
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		startedMu.Lock()
+		s := started
+		startedMu.Unlock()
+		if !s {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Start still considers the watches running after ctx is done")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

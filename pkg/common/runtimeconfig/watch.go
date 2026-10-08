@@ -19,6 +19,7 @@ package runtimeconfig
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -71,12 +72,35 @@ func Start(ctx context.Context, cfg *config.Config, onCredentialsChange, onFileV
 	if !Enabled(ctx) {
 		return nil
 	}
+	// Init runs again when a replica wins a leader election after losing it, and a second set of
+	// informers would reload every change twice.
+	startedMu.Lock()
+	defer startedMu.Unlock()
+	if started {
+		logger.GetLogger(ctx).Info("The runtime configuration sources are already being watched")
+		return nil
+	}
 	client, err := getClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create a Kubernetes client: %w", err)
 	}
-	return start(ctx, client, config.GetCSINamespace(), cfg, onCredentialsChange, onFileVolumeChange)
+	if err := start(ctx, client, config.GetCSINamespace(), cfg, onCredentialsChange, onFileVolumeChange); err != nil {
+		return err
+	}
+	started = true
+	go func() {
+		<-ctx.Done()
+		startedMu.Lock()
+		started = false
+		startedMu.Unlock()
+	}()
+	return nil
 }
+
+var (
+	startedMu sync.Mutex
+	started   bool
+)
 
 func start(ctx context.Context, client kubernetes.Interface, namespace string, cfg *config.Config,
 	onCredentialsChange, onFileVolumeChange func() error) error {
