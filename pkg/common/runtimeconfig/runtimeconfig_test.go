@@ -276,6 +276,7 @@ func useFSS(t *testing.T, enabled bool) {
 		t.Fatal(err)
 	}
 	commonco.ContainerOrchestratorUtility = co
+	latched.Store(stateUnset)
 	if enabled {
 		if err := co.EnableFSS(context.Background(), common.VSphereCSIRuntimeConfig); err != nil {
 			t.Fatal(err)
@@ -717,4 +718,20 @@ func TestStartReloadsWhenTheSourcesChangedBeforeTheWatchStarted(t *testing.T) {
 	}
 	waitFor(t, creds, true, "credentials changed before the watch started")
 	waitFor(t, fileVolume, true, "file volume settings changed before the watch started")
+}
+
+func TestRegisterLatchesTheFeatureState(t *testing.T) {
+	ctx := context.Background()
+	useFSS(t, true)
+	t.Cleanup(func() { latched.Store(stateUnset) })
+	Register()
+	if !Enabled(ctx) {
+		t.Fatal("not enabled after Register with the FSS on")
+	}
+	if err := commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.VSphereCSIRuntimeConfig); err != nil {
+		t.Skipf("the fake cannot disable a feature state: %v", err)
+	}
+	if !Enabled(ctx) {
+		t.Error("the decision changed after the feature state flipped")
+	}
 }
