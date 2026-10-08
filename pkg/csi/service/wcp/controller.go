@@ -533,6 +533,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 // reload, the function resets config, reloads VC connection when credentials
 // are changed and returns appropriate error.
 func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
+	defer runtimeconfig.LockReload()()
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := cnsconfig.GetConfig(ctx)

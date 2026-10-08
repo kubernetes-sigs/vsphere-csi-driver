@@ -2783,6 +2783,7 @@ func (r syncerReloader) ReloadConfiguration(reconnectToVC bool) error {
 // config, reloads VC connection when credentials are changed and returns
 // appropriate error.
 func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFromNewConfig bool) error {
+	defer runtimeconfig.LockReload()()
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	var cfg *cnsconfig.Config

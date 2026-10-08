@@ -63,6 +63,18 @@ const (
 	caFileDataLink = "..data"
 )
 
+// reloadMu serializes configuration reloads. The config secret, credentials, file volume and CA
+// watchers each run in their own goroutine and would otherwise reload, and reconnect to vCenter,
+// concurrently.
+var reloadMu sync.Mutex
+
+// LockReload takes the lock every ReloadConfiguration implementation holds for its whole run.
+// The returned function releases it.
+func LockReload() (unlock func()) {
+	reloadMu.Lock()
+	return reloadMu.Unlock
+}
+
 var (
 	clientMu     sync.Mutex
 	cachedClient kubernetes.Interface
