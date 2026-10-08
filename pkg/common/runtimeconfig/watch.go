@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
 
@@ -87,7 +88,10 @@ func start(ctx context.Context, client kubernetes.Interface, namespace string, c
 			informers.WithTweakListOptions(func(o *metav1.ListOptions) { o.LabelSelector = selector }))
 		informer := factory.Core().V1().Secrets().Informer()
 		trigger := make(chan struct{}, 1)
-		if err := addTrigger(informer, trigger); err != nil {
+		drifted := func() bool {
+			return driftedFrom(cfg, func(c *config.Config) error { return applyCredentials(ctx, client, namespace, c) })
+		}
+		if err := addTrigger(informer, trigger, drifted); err != nil {
 			return err
 		}
 		factory.Start(ctx.Done())
@@ -101,7 +105,10 @@ func start(ctx context.Context, client kubernetes.Interface, namespace string, c
 			informers.WithTweakListOptions(func(o *metav1.ListOptions) { o.FieldSelector = selector }))
 		informer := factory.Core().V1().ConfigMaps().Informer()
 		trigger := make(chan struct{}, 1)
-		if err := addTrigger(informer, trigger); err != nil {
+		drifted := func() bool {
+			return driftedFrom(cfg, func(c *config.Config) error { return applyFileVolumeConfig(ctx, client, namespace, c) })
+		}
+		if err := addTrigger(informer, trigger, drifted); err != nil {
 			return err
 		}
 		factory.Start(ctx.Done())
@@ -120,9 +127,32 @@ func hasSDDCName(cfg *config.Config) bool {
 	return false
 }
 
-// addTrigger signals trigger for every change to an object seen by informer. The objects present
-// at start-up are not changes, and neither are periodic resyncs.
-func addTrigger(informer cache.SharedIndexInformer, trigger chan<- struct{}) error {
+// driftedFrom reports whether apply, run on a copy of cfg, would change the credentials or the vSAN
+// file-share settings that cfg holds.
+func driftedFrom(cfg *config.Config, apply func(*config.Config) error) bool {
+	probe := &config.Config{Global: cfg.Global, VirtualCenter: map[types.FQDN]*config.VirtualCenterConfig{}}
+	for host, vc := range cfg.VirtualCenter {
+		c := *vc
+		probe.VirtualCenter[host] = &c
+	}
+	if err := apply(probe); err != nil {
+		return false // the reload would fail the same way; the next change retries it
+	}
+	for host, vc := range cfg.VirtualCenter {
+		p := probe.VirtualCenter[host]
+		if p.User != vc.User || p.Password != vc.Password || p.FileVolumeActivated != vc.FileVolumeActivated ||
+			p.TargetvSANFileShareClusters != vc.TargetvSANFileShareClusters {
+			return true
+		}
+	}
+	return false
+}
+
+// addTrigger signals trigger for every change to an object seen by informer. Periodic resyncs are
+// not changes. Neither are the objects present at start-up, unless drifted says the configuration
+// the driver started with no longer matches them: they may have changed between reading the
+// configuration and the informer's first list.
+func addTrigger(informer cache.SharedIndexInformer, trigger chan<- struct{}, drifted func() bool) error {
 	fire := func() {
 		select {
 		case trigger <- struct{}{}:
@@ -131,7 +161,7 @@ func addTrigger(informer cache.SharedIndexInformer, trigger chan<- struct{}) err
 	}
 	_, err := informer.AddEventHandler(cache.ResourceEventHandlerDetailedFuncs{
 		AddFunc: func(_ interface{}, isInInitialList bool) {
-			if !isInInitialList {
+			if !isInInitialList || drifted() {
 				fire()
 			}
 		},
