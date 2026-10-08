@@ -255,6 +255,14 @@ func TestApplyFileVolumeConfig(t *testing.T) {
 			t.Errorf("err = %v", err)
 		}
 	})
+	t.Run("a malformed ConfigMap leaves the config untouched", func(t *testing.T) {
+		vc := newVC()
+		cm := fileVolumeConfigMap(map[string]string{"sddc-1.fileVolumeActivated": "maybe"})
+		_ = applyFileVolumeConfig(ctx, fake.NewSimpleClientset(cm), ns, newConfig("csi", vc))
+		if !vc.FileVolumeActivated || vc.TargetvSANFileShareClusters != "from-ini" {
+			t.Errorf("got %+v", vc)
+		}
+	})
 }
 
 // useFSS makes Enabled report the given state for a Supervisor.
@@ -585,5 +593,18 @@ func TestLockReloadSerializes(t *testing.T) {
 	wg.Wait()
 	if maxRunning != 1 {
 		t.Fatalf("%d reloads ran at once, want 1", maxRunning)
+	}
+}
+
+func TestApplyIgnoresABadFileVolumeConfigMap(t *testing.T) {
+	ctx := context.Background()
+	vc := &config.VirtualCenterConfig{SDDCName: "sddc-1", FileVolumeActivated: true}
+	secret := credSecret("s", "csi", "sddc-1", "user@vsphere.local", "pw")
+	cm := fileVolumeConfigMap(map[string]string{"sddc-1.fileVolumeActivated": "maybe"})
+	if err := apply(ctx, fake.NewSimpleClientset(secret, cm), ns, newConfig("csi", vc)); err != nil {
+		t.Fatal(err)
+	}
+	if vc.User != "user@vsphere.local" || vc.Password != "pw" || !vc.FileVolumeActivated {
+		t.Errorf("got %+v", vc)
 	}
 }
