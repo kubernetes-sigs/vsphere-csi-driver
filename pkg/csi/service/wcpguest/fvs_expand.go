@@ -50,6 +50,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
@@ -102,6 +103,11 @@ func controllerExpandForFVSFileVolume(ctx context.Context,
 			msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
 				volumeID, c.supervisorNamespace, patchErr)
 			log.Error(msg)
+			if isStorageQuotaWebhookDenial(patchErr) {
+				return nil, csifault.CSIInternalFault, storageQuotaDeniedError("Volume expansion",
+					"supervisor PVC "+volumeID, c.supervisorNamespace, ptr.Deref(svPVC.Spec.StorageClassName, ""),
+					gcPvcRequestSize.String(), patchErr)
+			}
 			return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 		}
 		// Wait for the FVS controller to reflect the new size in status.capacity.
