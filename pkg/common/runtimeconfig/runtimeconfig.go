@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -88,12 +89,41 @@ var (
 // once, after the container orchestrator utility is initialized and before the first
 // GetConfig whose result is used to connect to vCenter.
 func Register() {
+	ctx, log := logger.GetNewContextWithLogger()
+	latched.Store(boolState(enabled(ctx)))
+	log.Infof("Runtime configuration sources enabled: %t", latched.Load() == stateOn)
 	config.SetPostProcessor(process)
 }
 
+const (
+	stateUnset int32 = iota
+	stateOff
+	stateOn
+)
+
+// latched is the decision Register took. A feature state can flip while the driver runs, but the
+// credentials, the file volume settings and the CA rotation handling are wired up once, so the
+// decision must not change underneath them.
+var latched atomic.Int32
+
+func boolState(on bool) int32 {
+	if on {
+		return stateOn
+	}
+	return stateOff
+}
+
 // Enabled reports whether the runtime sources are in use: a Supervisor with the
-// vsphere-csi-runtime-config FSS on.
+// vsphere-csi-runtime-config FSS on. The answer is fixed by Register; before it is called the
+// feature state is read each time.
 func Enabled(ctx context.Context) bool {
+	if state := latched.Load(); state != stateUnset {
+		return state == stateOn
+	}
+	return enabled(ctx)
+}
+
+func enabled(ctx context.Context) bool {
 	if commonco.ContainerOrchestratorUtility == nil {
 		return false
 	}
