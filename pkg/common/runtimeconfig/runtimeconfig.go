@@ -42,6 +42,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -171,7 +172,14 @@ func apply(ctx context.Context, client kubernetes.Interface, namespace string, c
 	if err := applyCredentials(ctx, client, namespace, cfg); err != nil {
 		return err
 	}
-	return applyFileVolumeConfig(ctx, client, namespace, cfg)
+	// The vSAN settings are optional. A ConfigMap that cannot be read or parsed must not stop the
+	// credentials from being applied, so the values from the config secret stay and the failure is
+	// only logged.
+	if err := applyFileVolumeConfig(ctx, client, namespace, cfg); err != nil {
+		logger.GetLogger(ctx).Warnf("ignoring the file volume ConfigMap, keeping the vSAN file-share settings from "+
+			"the config secret. err: %+v", err)
+	}
+	return nil
 }
 
 // applyCredentials fills the user and password of every vCenter from the Secret of the
@@ -229,23 +237,34 @@ func applyFileVolumeConfig(ctx context.Context, client kubernetes.Interface, nam
 		}
 		return fmt.Errorf("failed to get ConfigMap %s/%s: %w", namespace, FileVolumeConfigMapName, err)
 	}
+	// Parse everything before assigning anything, so an error leaves cfg as it was.
+	type settings struct {
+		activated bool
+		clusters  string
+	}
+	parsed := map[types.FQDN]settings{}
 	for host, vc := range cfg.VirtualCenter {
 		if vc.SDDCName == "" {
 			continue
 		}
-		vc.FileVolumeActivated = false
-		vc.TargetvSANFileShareClusters = ""
+		var st settings
 		if v, ok := cm.Data[vc.SDDCName+fileVolumeActivatedSuffix]; ok {
 			activated, err := strconv.ParseBool(strings.TrimSpace(v))
 			if err != nil {
 				return fmt.Errorf("ConfigMap %s/%s key %q for vCenter %q is not a boolean: %w", namespace,
 					FileVolumeConfigMapName, vc.SDDCName+fileVolumeActivatedSuffix, host, err)
 			}
-			vc.FileVolumeActivated = activated
+			st.activated = activated
 		}
 		if v, ok := cm.Data[vc.SDDCName+targetvSANFileShareClustersSufx]; ok {
-			vc.TargetvSANFileShareClusters = strings.TrimSpace(v)
+			st.clusters = strings.TrimSpace(v)
 		}
+		parsed[host] = st
+	}
+	for host, st := range parsed {
+		vc := cfg.VirtualCenter[host]
+		vc.FileVolumeActivated = st.activated
+		vc.TargetvSANFileShareClusters = st.clusters
 	}
 	return nil
 }
