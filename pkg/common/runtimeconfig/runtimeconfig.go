@@ -283,6 +283,12 @@ func applyFileVolumeConfig(ctx context.Context, client kubernetes.Interface, nam
 			continue
 		}
 		var st settings
+		_, hasActivated := cm.Data[vc.SDDCName+fileVolumeActivatedSuffix]
+		_, hasClusters := cm.Data[vc.SDDCName+targetvSANFileShareClustersSufx]
+		if !hasActivated && !hasClusters {
+			logger.GetLogger(ctx).Warnf("ConfigMap %s/%s has no keys for SDDC %q, so vSAN file volumes are off for "+
+				"vCenter %q", namespace, FileVolumeConfigMapName, vc.SDDCName, host)
+		}
 		if v, ok := cm.Data[vc.SDDCName+fileVolumeActivatedSuffix]; ok {
 			activated, err := strconv.ParseBool(strings.TrimSpace(v))
 			if err != nil {
