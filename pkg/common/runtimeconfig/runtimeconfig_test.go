@@ -476,15 +476,21 @@ func TestHandleCAFileEvent(t *testing.T) {
 
 	run := func(fssOn bool, file string, op fsnotify.Op, failures int) int {
 		useFSS(t, fssOn)
-		calls := 0
+		var calls atomic.Int32
+		done := make(chan struct{})
 		HandleCAFileEvent(ctx, fsnotify.Event{Name: file, Op: op}, func() error {
-			calls++
-			if calls <= failures {
+			if int(calls.Add(1)) <= failures {
 				return context.DeadlineExceeded
 			}
+			close(done)
 			return nil
 		})
-		return calls
+		select {
+		case <-done:
+		case <-time.After(100 * time.Millisecond): // an ignored event never reconnects
+		}
+		waitCAIdle(t)
+		return int(calls.Load())
 	}
 	for name, tc := range map[string]struct {
 		fssOn    bool
@@ -639,5 +645,58 @@ func TestRunReloadsRetriesImmediatelyOnANewTrigger(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a new trigger did not end the retry wait")
+	}
+}
+
+// waitCAIdle waits for the background reconnect to finish.
+func waitCAIdle(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		caReload.Lock()
+		running := caReload.running
+		caReload.Unlock()
+		if !running {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the CA reconnect did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestHandleCAFileEventDoesNotBlockAndCoalesces(t *testing.T) {
+	useFSS(t, false)
+	ctx := context.Background()
+	event := fsnotify.Event{Name: config.SupervisorCAFilePath, Op: fsnotify.Create}
+	var calls atomic.Int32
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	reconnect := func() error {
+		calls.Add(1)
+		started <- struct{}{}
+		<-release
+		return nil
+	}
+	returned := make(chan struct{})
+	go func() {
+		HandleCAFileEvent(ctx, event, reconnect)
+		HandleCAFileEvent(ctx, event, reconnect) // arrives while the first is running
+		HandleCAFileEvent(ctx, event, reconnect) // coalesces with the second
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("HandleCAFileEvent blocked on a running reconnect")
+	}
+	<-started
+	release <- struct{}{} // finishes the first run
+	<-started
+	close(release)
+	waitCAIdle(t)
+	if got := calls.Load(); got != 2 {
+		t.Errorf("reconnect ran %d times, want 2 (one, plus one for the rotations that arrived meanwhile)", got)
 	}
 }
