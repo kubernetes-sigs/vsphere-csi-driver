@@ -825,6 +825,7 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 				TopologyType:    "zonal",
 				AccessibleZones: []string{"az1"},
 			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
 		},
 	}
 	recorder := record.NewFakeRecorder(10)
@@ -1077,6 +1078,7 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 				TopologyType:    "zonal",
 				AccessibleZones: []string{"az1", "az2", "az3"},
 			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
 		},
 	}
 	// Namespace "ns1" is only assigned to az1 and az3; az2 should be filtered out.
@@ -1125,6 +1127,7 @@ func TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones(t *testing.T) {
 				TopologyType:    "zonal",
 				AccessibleZones: []string{"az1", "az2"},
 			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
@@ -1175,6 +1178,7 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 				TopologyType:    "zonal",
 				AccessibleZones: []string{"az1", "az2"},
 			},
+			VolumeCapabilities: determinedInfraVolumeCapabilities(true, false),
 		},
 	}
 	recorder := record.NewFakeRecorder(10)

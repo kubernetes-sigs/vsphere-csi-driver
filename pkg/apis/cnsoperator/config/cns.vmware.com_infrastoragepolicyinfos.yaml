@@ -99,21 +99,47 @@ spec:
                 - accessibleZones
                 type: object
               volumeCapabilities:
-                additionalProperties:
-                  type: boolean
                 description: VolumeCapabilities describes the supported volume capabilities.
-                type: object
-              zonalVolumeCapabilities:
-                additionalProperties:
-                  description: ZoneList is a sorted set of zone names.
-                  items:
-                    minLength: 1
-                    type: string
-                  type: array
-                  x-kubernetes-list-type: set
-                description: |-
-                  ZonalVolumeCapabilities maps each zonal volume capability to the sorted list of zones where
-                  it is supported. See ZonalVolumeCapability.
+                properties:
+                  supportsHostLocal:
+                    description: SupportsHostLocal indicates that the policy carries
+                      the host-local storage capability.
+                    type: boolean
+                  supportsVolumeModeBlock:
+                    description: SupportsVolumeModeBlock indicates that the policy
+                      supports PersistentVolume with Block volume mode.
+                    type: boolean
+                  supportsVolumeModeFilesystem:
+                    description: |-
+                      SupportsVolumeModeFilesystem indicates that the policy supports PersistentVolume with Filesystem
+                      volume mode.
+                    type: boolean
+                  zonesSupportingHighPerformanceLinkedClone:
+                    description: |-
+                      ZonesSupportingHighPerformanceLinkedClone is the set of zones in the cluster
+                      where high-performance linked clones are supported (zones having at least one ESXi 9.1+ host
+                      in a vSAN-ESA enabled cluster). An empty list means no zone supports it.
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  zonesSupportingLinkedClone:
+                    description: |-
+                      ZonesSupportingLinkedClone is the set of zones in the cluster where linked
+                      clones are supported (zones having at least one ESXi 9.1+ host that mounts a datastore
+                      compatible with the policy). An empty list means no zone supports it.
+                    items:
+                      minLength: 1
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                required:
+                - supportsHostLocal
+                - supportsVolumeModeBlock
+                - supportsVolumeModeFilesystem
+                - zonesSupportingHighPerformanceLinkedClone
+                - zonesSupportingLinkedClone
                 type: object
             type: object
         type: object

@@ -313,7 +313,8 @@ func populateEncryptionCapabilities(ctx context.Context,
 	hasVsanEncryption := checkVsanEncryption(policyContent)
 	if hasVsanEncryption {
 		encryptionStatus.SupportsEncryption = true
-		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes, "vsan-encryption")
+		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes,
+			clusterspiv1alpha1.EncryptionTypeVSAN)
 		log.Infof("Storage policy %s supports vSAN encryption", profileID)
 	} else {
 		log.Infof("Storage policy %s does not support vSAN encryption", profileID)
@@ -326,7 +327,8 @@ func populateEncryptionCapabilities(ctx context.Context,
 	}
 	if hasVmEncrypt {
 		encryptionStatus.SupportsEncryption = true
-		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes, "vm-encryption")
+		encryptionStatus.EncryptionTypes = append(encryptionStatus.EncryptionTypes,
+			clusterspiv1alpha1.EncryptionTypeVM)
 		log.Infof("Storage policy %s supports VM encryption", profileID)
 	}
 
@@ -513,13 +515,14 @@ func findStoragePolicyProfile(ctx context.Context,
 }
 
 // populateVolumeCapabilities computes volume capabilities for the given storage policy and
-// writes them into infraSPI.Status.VolumeCapabilities and infraSPI.Status.ZonalVolumeCapabilities.
+// writes them into infraSPI.Status.VolumeCapabilities.
 //
 // SupportsVolumeModeFilesystem is always true.
 //
 // SupportsVolumeModeBlock is always true except when the policy is a marker policy
 // (k8scompliantname is "vsan-file-service-policy").
-// For marker policies, SupportsHostLocal is also false and no zonal capabilities are reported.
+// For marker policies, SupportsHostLocal is also false and no zone supports LinkedClone or
+// HighPerformanceLinkedClone.
 //
 // ZonesSupportingLinkedClone lists every zone with compatible datastores that has at least one
 // mounting host running ESXi 9.1 or above.
@@ -531,6 +534,11 @@ func findStoragePolicyProfile(ctx context.Context,
 // SPBM profile fetched for policyContent (via VirtualCenter.PbmRetrieveContentRaw and
 // ProfilesContainHostLocal), so no separate PBM call is made here to determine it.
 //
+// The capabilities are all-or-nothing: infraSPI.Status.VolumeCapabilities is only assigned once every
+// capability has been computed, because the zone lists are required in the CRD schema and a partial
+// struct would be rejected by the API server (which would also prevent the error from being
+// recorded in the status). If any check fails, the error is returned and the status is left unchanged.
+//
 // This function accepts an optional cache from topology calculation to avoid redundant vCenter calls.
 func populateVolumeCapabilities(ctx context.Context,
 	infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
@@ -539,71 +547,52 @@ func populateVolumeCapabilities(ctx context.Context,
 	zoneClusters map[string][]string, isHostLocal bool) error {
 	log := logger.GetLogger(ctx)
 
-	caps := map[infraspiv1alpha1.VolumeCapability]bool{
-		infraspiv1alpha1.SupportsVolumeModeFilesystem: true,
-	}
-
 	// Check if this is a marker policy
 	// A marker policy is one where k8scompliantname is "vsan-file-service-policy"
 	k8sCompliantName := infraSPI.Name
 	isMarkerPolicy := k8sCompliantName == common.StorageClassVsanFileServicePolicy
 
-	// SupportsVolumeModeBlock is always true except when policy is marker policy
-	caps[infraspiv1alpha1.SupportsVolumeModeBlock] = !isMarkerPolicy
-	log.Infof("Storage policy %s SupportsVolumeModeBlock=%v (isMarkerPolicy=%v)",
-		profileID, !isMarkerPolicy, isMarkerPolicy)
+	// SupportsVolumeModeBlock is always true except when policy is marker policy, and marker
+	// policies never carry the host-local capability.
+	caps := &infraspiv1alpha1.VolumeCapabilities{
+		SupportsVolumeModeFilesystem: true,
+		SupportsVolumeModeBlock:      !isMarkerPolicy,
+		SupportsHostLocal:            isHostLocal && !isMarkerPolicy,
+		// Marker policies never support linked clones; a non-nil empty list means no zone does.
+		ZonesSupportingLinkedClone:                []string{},
+		ZonesSupportingHighPerformanceLinkedClone: []string{},
+	}
+	log.Infof("Storage policy %s SupportsVolumeModeBlock=%v (isMarkerPolicy=%v), SupportsHostLocal=%v",
+		profileID, caps.SupportsVolumeModeBlock, isMarkerPolicy, caps.SupportsHostLocal)
 
-	// For marker policies, linked clone and host-local capabilities are never supported.
 	if isMarkerPolicy {
-		caps[infraspiv1alpha1.SupportsHostLocal] = false
-		log.Infof("Storage policy %s is a marker policy - no linked clone zones, SupportsHostLocal=false",
-			profileID)
-
+		log.Infof("Storage policy %s is a marker policy - no linked clone zones", profileID)
 		infraSPI.Status.VolumeCapabilities = caps
-		infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(nil, nil)
 		return nil
 	}
 
 	lcZones, esxi91HostsPerZone, err := checkLinkedClone(ctx, vc, profileID, zoneCompatibleDS, zoneClusters)
 	if err != nil {
 		log.Errorf("Failed to check LinkedClone zones for policy %s: %v", profileID, err)
-		infraSPI.Status.VolumeCapabilities = caps
-		infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(nil, nil)
 		return err
 	}
+	caps.ZonesSupportingLinkedClone = append(caps.ZonesSupportingLinkedClone, lcZones...)
 
 	// HighPerformanceLinkedClone is only evaluated for zones that support LinkedClone.
-	var hplcZones []string
 	if len(lcZones) > 0 {
-		hplcZones, err = checkHighPerformanceLinkedClone(ctx, vc, esxi91HostsPerZone)
+		hplcZones, err := checkHighPerformanceLinkedClone(ctx, vc, esxi91HostsPerZone)
 		if err != nil {
 			log.Errorf("Failed to check HighPerformanceLinkedClone zones for policy %s: %v", profileID, err)
-			infraSPI.Status.VolumeCapabilities = caps
-			infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(lcZones, nil)
 			return err
 		}
+		caps.ZonesSupportingHighPerformanceLinkedClone = append(caps.ZonesSupportingHighPerformanceLinkedClone,
+			hplcZones...)
 	}
 	log.Infof("Storage policy %s ZonesSupportingLinkedClone=%v, ZonesSupportingHighPerformanceLinkedClone=%v",
-		profileID, lcZones, hplcZones)
-
-	caps[infraspiv1alpha1.SupportsHostLocal] = isHostLocal
-	log.Infof("Storage policy %s SupportsHostLocal=%v", profileID, isHostLocal)
+		profileID, caps.ZonesSupportingLinkedClone, caps.ZonesSupportingHighPerformanceLinkedClone)
 
 	infraSPI.Status.VolumeCapabilities = caps
-	infraSPI.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(lcZones, hplcZones)
 	return nil
-}
-
-// buildZonalVolumeCapabilities returns the ZonalVolumeCapabilities map for the given sorted
-// LinkedClone and HighPerformanceLinkedClone zone lists. Every zonal capability is always
-// present; a capability supported in no zone maps to an empty (non-nil) list so it serializes
-// as [] rather than being dropped.
-func buildZonalVolumeCapabilities(lcZones, hplcZones []string,
-) map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList {
-	return map[infraspiv1alpha1.ZonalVolumeCapability]infraspiv1alpha1.ZoneList{
-		infraspiv1alpha1.ZonesSupportingLinkedClone:                append(infraspiv1alpha1.ZoneList{}, lcZones...),
-		infraspiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: append(infraspiv1alpha1.ZoneList{}, hplcZones...),
-	}
 }
 
 // checkLinkedClone returns the sorted zones that support LinkedClone and the per-zone ESXi 9.1+

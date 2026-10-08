@@ -815,24 +815,31 @@ func (r *ReconcileStoragePolicyInfo) syncTopologyFromInfraSPI(ctx context.Contex
 // InfraStoragePolicyInfo, with no additional vCenter calls.
 // SupportsVolumeModeFilesystem is always true, independent of InfraSPI.
 // SupportsVolumeModeBlock and SupportsHostLocal are copied as-is from InfraSPI, since neither
-// varies by namespace.
+// varies by namespace. If InfraSPI has not determined its volume capabilities yet, an error is
+// returned rather than reporting them as unsupported.
 // ZonesSupportingLinkedClone and ZonesSupportingHighPerformanceLinkedClone are recomputed for just
 // the zones accessible to this namespace, except for the marker policy, which is file-only and
-// forces SupportsVolumeModeBlock false and reports no zonal capabilities.
+// forces SupportsVolumeModeBlock and SupportsHostLocal false and reports no linked clone zones.
 func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx context.Context,
 	instance *spiv1alpha1.StoragePolicyInfo, infraSPI *infraspiv1alpha1.InfraStoragePolicyInfo,
 	activeClustersByZone map[string]map[string]bool) error {
-	infraCaps := infraSPI.Status.VolumeCapabilities
-
-	// The marker policy is file-only: Block volume mode, LinkedClone and
+	// The marker policy is file-only: Block volume mode, HostLocal, LinkedClone and
 	// HighPerformanceLinkedClone never apply to it, regardless of what InfraSPI reports.
 	if r.IsVsanFileVolumeService && common.IsvSANFileServiceMarkerPolicyName(instance.Name) {
-		instance.Status.VolumeCapabilities = map[spiv1alpha1.VolumeCapability]bool{
-			spiv1alpha1.SupportsVolumeModeFilesystem: true,
-			spiv1alpha1.SupportsVolumeModeBlock:      false,
+		instance.Status.VolumeCapabilities = &spiv1alpha1.VolumeCapabilities{
+			SupportsVolumeModeFilesystem:              true,
+			SupportsVolumeModeBlock:                   false,
+			SupportsHostLocal:                         false,
+			ZonesSupportingLinkedClone:                []string{},
+			ZonesSupportingHighPerformanceLinkedClone: []string{},
 		}
-		instance.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(nil, nil)
 		return nil
+	}
+
+	infraCaps := infraSPI.Status.VolumeCapabilities
+	if infraCaps == nil {
+		return fmt.Errorf("InfraStoragePolicyInfo %q has not determined its volume capabilities yet",
+			infraSPI.Name)
 	}
 
 	lcZones, hplcZones, err := linkedCloneZonesForNamespace(ctx, r.zonesProvider, activeClustersByZone,
@@ -841,25 +848,14 @@ func (r *ReconcileStoragePolicyInfo) syncVolumeCapabilitiesFromInfraSPI(ctx cont
 		return err
 	}
 
-	instance.Status.VolumeCapabilities = map[spiv1alpha1.VolumeCapability]bool{
-		spiv1alpha1.SupportsVolumeModeFilesystem: true,
-		spiv1alpha1.SupportsVolumeModeBlock:      infraCaps[infraspiv1alpha1.SupportsVolumeModeBlock],
-		spiv1alpha1.SupportsHostLocal:            infraCaps[infraspiv1alpha1.SupportsHostLocal],
+	instance.Status.VolumeCapabilities = &spiv1alpha1.VolumeCapabilities{
+		SupportsVolumeModeFilesystem:              true,
+		SupportsVolumeModeBlock:                   infraCaps.SupportsVolumeModeBlock,
+		SupportsHostLocal:                         infraCaps.SupportsHostLocal,
+		ZonesSupportingLinkedClone:                append([]string{}, lcZones...),
+		ZonesSupportingHighPerformanceLinkedClone: append([]string{}, hplcZones...),
 	}
-	instance.Status.ZonalVolumeCapabilities = buildZonalVolumeCapabilities(lcZones, hplcZones)
 	return nil
-}
-
-// buildZonalVolumeCapabilities returns the ZonalVolumeCapabilities map for the given sorted
-// LinkedClone and HighPerformanceLinkedClone zone lists. Every zonal capability is always
-// present; a capability supported in no namespace zone maps to an empty (non-nil) list so it
-// serializes as [] rather than being dropped.
-func buildZonalVolumeCapabilities(lcZones, hplcZones []string,
-) map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList {
-	return map[spiv1alpha1.ZonalVolumeCapability]spiv1alpha1.ZoneList{
-		spiv1alpha1.ZonesSupportingLinkedClone:                append(spiv1alpha1.ZoneList{}, lcZones...),
-		spiv1alpha1.ZonesSupportingHighPerformanceLinkedClone: append(spiv1alpha1.ZoneList{}, hplcZones...),
-	}
 }
 
 // linkedCloneZonesForNamespace determines ZonesSupportingLinkedClone and
