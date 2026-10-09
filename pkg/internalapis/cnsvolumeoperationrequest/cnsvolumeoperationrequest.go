@@ -210,6 +210,15 @@ func (or *operationRequestStore) StoreRequestDetails(
 	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
 	instanceKey := client.ObjectKey{Name: operationToStore.Name, Namespace: csiNamespace}
 
+	// If the caller's context has expired (cancelled or deadline exceeded), renew it so that
+	// the operation details can still be persisted. WithoutCancel retains the context values
+	// (e.g. logger/trace ID) while dropping the cancellation and deadline.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		log.Infof("Context expired with error: %v. Renewing context to store CnsVolumeOperationRequest instance %s/%s",
+			ctxErr, instanceKey.Namespace, instanceKey.Name)
+		ctx = context.WithoutCancel(ctx)
+	}
+
 	if err := or.k8sclient.Get(ctx, instanceKey, instance); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Create new instance on API server if it doesnt exist.
