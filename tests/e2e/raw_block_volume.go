@@ -1335,4 +1335,134 @@ var _ = ginkgo.Describe("raw block volume support", func() {
 			volumeSnapshot, pandoraSyncWaitTime, volumeID, snapshotId, true)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
+
+	/*
+		Test multiple pods on the same node sharing a single RWO raw block PVC.
+
+		Steps
+		1. Create a raw block PVC.
+		2. Create pod1 and wait for it to become ready.
+		3. Create pod2 on the same node using the same PVC.
+		4. Verify both pods are running and the volume is attached once.
+		5. Write data from pod1 and verify it from pod2.
+		6. Delete pod1 and verify pod2 still has access.
+		7. Delete pod2 and verify the volume is detached.
+	*/
+	ginkgo.It("[ef-vanilla-block][pq-n1-vanilla-block][pq-n2-vanilla-block][cf-vks][csi-block-vanilla]"+
+		"[csi-block-vanilla-parallelized][csi-guest]Multiple pods on the same node can use a single "+
+		"raw block volume", ginkgo.Label(p1, block, vanilla, tkg, vc70), func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		if vanillaCluster {
+			ginkgo.By("CNS_TEST: Running for vanilla k8s setup")
+		} else if guestCluster {
+			ginkgo.By("CNS_TEST: Running for GC setup")
+			scParameters[svStorageClassName] = storagePolicyName
+		}
+
+		ginkgo.By("Creating Storage Class and PVC")
+		sc, err := createStorageClass(client, scParameters, nil, "", "", false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			err := adminClient.StorageV1().StorageClasses().Delete(ctx, sc.Name, *metav1.NewDeleteOptions(0))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating raw block PVC")
+		pvcspec := getPersistentVolumeClaimSpecWithStorageClass(namespace, "", sc, nil, "")
+		pvcspec.Spec.VolumeMode = &rawBlockVolumeMode
+		pvc, err = fpv.CreatePVC(ctx, client, namespace, pvcspec)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Waiting for claim %s to be in bound phase", pvc.Name))
+		pvs, err := WaitForPVClaimBoundPhase(ctx, client, []*corev1.PersistentVolumeClaim{pvc},
+			framework.ClaimProvisionTimeout)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pvs).NotTo(gomega.BeEmpty())
+		pv := pvs[0]
+		volumeID := pv.Spec.CSI.VolumeHandle
+		if guestCluster {
+			svcPVCName = volumeID
+			volumeID = getVolumeIDFromSupervisorCluster(svcPVCName)
+			gomega.Expect(volumeID).NotTo(gomega.BeEmpty())
+		}
+		defer func() {
+			err := fpv.DeletePersistentVolumeClaim(ctx, client, pvc.Name, namespace)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = fpv.WaitForPersistentVolumeDeleted(ctx, adminClient, pv.Name, poll, pollTimeoutShort)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = e2eVSphere.waitForCNSVolumeToBeDeleted(volumeID)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By("Creating first pod")
+		pod1, err := createPod(ctx, client, namespace, nil, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		nodeName := pod1.Spec.NodeName
+		gomega.Expect(nodeName).NotTo(gomega.BeEmpty())
+
+		var vmUUID string
+		if vanillaCluster {
+			vmUUID = getNodeUUID(ctx, client, nodeName)
+		} else if guestCluster {
+			vmUUID, err = getVMUUIDFromNodeName(nodeName)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			verifyCRDInSupervisorWithWait(ctx, f, nodeName+"-"+svcPVCName,
+				crdCNSNodeVMAttachment, crdVersion, crdGroup, true)
+		}
+		ginkgo.By(fmt.Sprintf("Verify volume: %s is attached to the node: %s", volumeID, nodeName))
+		isDiskAttached, err := e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		ginkgo.By("Creating second pod on the same node using the same PVC")
+		nodeSelector := map[string]string{"kubernetes.io/hostname": nodeName}
+		pod2, err := createPod(ctx, client, namespace, nodeSelector, []*corev1.PersistentVolumeClaim{pvc}, false, "")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(pod2.Spec.NodeName).To(gomega.Equal(nodeName))
+
+		ginkgo.By("Verify volume remains attached once with two pods on the same node")
+		isDiskAttached, err = e2eVSphere.isVolumeAttachedToVM(client, volumeID, vmUUID)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskAttached).To(gomega.BeTrue(), "Volume is not attached to the node")
+
+		volumeIndex := 1
+		devicePath := fmt.Sprintf("%v%v", pod_devicePathPrefix, volumeIndex)
+		rand.New(rand.NewSource(time.Now().Unix()))
+		testdataFile := fmt.Sprintf("/tmp/testdata_%v_%v", time.Now().Unix(), rand.Intn(1000))
+		ginkgo.By(fmt.Sprintf("Creating a 1mb test data file %v", testdataFile))
+		op, err := exec.Command("dd", "if=/dev/urandom", fmt.Sprintf("of=%v", testdataFile),
+			"bs=1M", "count=1").Output()
+		fmt.Println(op)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer func() {
+			op, err = exec.Command("rm", "-f", testdataFile).Output()
+			fmt.Println(op)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}()
+
+		ginkgo.By(fmt.Sprintf("Write data from pod %s", pod1.Name))
+		verifyIOOnRawBlockVolume(namespace, pod1.Name, devicePath, testdataFile, 0, 1)
+
+		ginkgo.By(fmt.Sprintf("Read data from pod %s", pod2.Name))
+		verifyDataFromRawBlockVolume(namespace, pod2.Name, devicePath, testdataFile, 0, 1)
+
+		ginkgo.By(fmt.Sprintf("Deleting pod %s while pod %s keeps using the volume", pod1.Name, pod2.Name))
+		err = fpod.DeletePodWithWait(ctx, client, pod1)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By(fmt.Sprintf("Verify pod %s can still write to the volume", pod2.Name))
+		verifyIOOnRawBlockVolume(namespace, pod2.Name, devicePath, testdataFile, 0, 1)
+
+		ginkgo.By(fmt.Sprintf("Deleting pod %s", pod2.Name))
+		err = fpod.DeletePodWithWait(ctx, client, pod2)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.By("Waiting for volume to be detached after all pods are deleted")
+		isDiskDetached, err := e2eVSphere.waitForVolumeDetachedFromNode(client, volumeID, nodeName)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(isDiskDetached).To(gomega.BeTrue(), "Volume is still attached to the node")
+	})
 })
