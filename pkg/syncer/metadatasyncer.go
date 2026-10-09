@@ -107,8 +107,8 @@ var (
 	clusterComputeResourceMoIds = make([]string, 0)
 	clusterIDforVolumeMetadata  string
 
-	// isSharedDiskEabled is true if shared disks are supported on the supervisor cluster
-	isSharedDiskEabled bool
+	// isSharedDiskEnabled is true if shared disks are supported on the supervisor cluster
+	isSharedDiskEnabled bool
 
 	// cnsvolumeoperationrequestInitialSyncComplete tracks whether the initial cache sync
 	// for CnsVolumeOperationRequest informer is complete. This prevents quota double-counting
@@ -305,7 +305,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 	metadataSyncer.clusterFlavor = clusterFlavor
 	clusterIDforVolumeMetadata = configInfo.Cfg.Global.ClusterID
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-		isSharedDiskEabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
+		isSharedDiskEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss)
 		if !configInfo.Cfg.Global.InsecureFlag && configInfo.Cfg.Global.CAFile != cnsconfig.SupervisorCAFilePath {
 			log.Warnf("Invalid CA file: %q is set in the vSphere Config Secret. "+
 				"Setting correct CA file: %q", configInfo.Cfg.Global.CAFile, cnsconfig.SupervisorCAFilePath)
@@ -413,7 +413,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.HostLocalStorageSupport, "", "")
 		}
-		if !isSharedDiskEabled {
+		if !isSharedDiskEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")
 		}

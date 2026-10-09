@@ -362,11 +362,34 @@ func IsFileVolume(pv *v1.PersistentVolume) bool {
 	}
 	for _, accessMode := range pv.Spec.AccessModes {
 		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
-			if isSharedDiskEabled {
-				if *pv.Spec.VolumeMode != v1.PersistentVolumeBlock {
+			if isSharedDiskEnabled {
+				// According to Kubernetes API, if VolumeMode is nil, it is implied to be Filesystem.
+				if pv.Spec.VolumeMode == nil || *pv.Spec.VolumeMode != v1.PersistentVolumeBlock {
 					return true
 				}
 			} else {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsSharedDiskVolume returns true for block PVs that have accessMode as RWX or ROM.
+func IsSharedDiskVolume(pv *v1.PersistentVolume) bool {
+	if !isSharedDiskEnabled {
+		return false
+	}
+	if pv == nil {
+		return false
+	}
+	if len(pv.Spec.AccessModes) == 0 {
+		return false
+	}
+	for _, accessMode := range pv.Spec.AccessModes {
+		if accessMode == v1.ReadWriteMany || accessMode == v1.ReadOnlyMany {
+			// A nil VolumeMode implies Filesystem, so it must be explicitly set to Block.
+			if pv.Spec.VolumeMode != nil && *pv.Spec.VolumeMode == v1.PersistentVolumeBlock {
 				return true
 			}
 		}

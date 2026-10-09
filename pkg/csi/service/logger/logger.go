@@ -162,7 +162,7 @@ func RedactCSIRequest(req interface{}) interface{} {
 	// then zero out the Secrets field on the copy via reflection since the
 	// concrete type is only known through the secretsGetter interface.
 	v := reflect.ValueOf(req)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return req
 	}
 	cp := reflect.New(v.Elem().Type())

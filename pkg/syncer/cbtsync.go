@@ -445,8 +445,7 @@ func resolvePVCToVolumeID(ctx context.Context,
 	if pv.Spec.CSI == nil || pv.Spec.CSI.Driver != common.VSphereCSIDriverName {
 		return "", false
 	}
-	if pv.Spec.CSI.VolumeAttributes == nil ||
-		pv.Spec.CSI.VolumeAttributes[common.AttributeDiskType] != common.DiskTypeBlockVolume {
+	if IsFileVolume(pv) || IsSharedDiskVolume(pv) {
 		return "", false
 	}
 	if pv.Spec.CSI.VolumeHandle == "" {
@@ -857,7 +856,7 @@ func mergeMismatchedPVCs(ctx context.Context, namespace string,
 		}
 	}
 
-	log.Infof("syncPvcCBTLabel: namespace %q merged %d updated PVC(s) into %d mismatched PVC(s)",
+	log.Infof("mergeMismatchedPVCs: namespace %q merged %d updated PVC(s) into %d mismatched PVC(s)",
 		namespace, len(updatedPVCs), len(mismatched))
 	return mismatched
 }
