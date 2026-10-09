@@ -22,6 +22,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/types"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
 
@@ -54,4 +58,58 @@ func TestGetVirtualCenterNormalizesMixedCaseHost(t *testing.T) {
 	assert.NotNil(t, retrieved, "GetVirtualCenter should return the registered vCenter")
 	assert.Equal(t, normalizedHost, retrieved.Config.Host,
 		"Retrieved vCenter should have the normalized host")
+}
+
+func TestIsCnsTransactionSupported(t *testing.T) {
+	tests := []struct {
+		name       string
+		version    string
+		apiVersion string
+		want       bool
+		wantErr    bool
+	}{
+		{name: "vCenter 9.1 with API 9.0", version: "9.1.0.0", apiVersion: "9.0.0.0"},
+		{name: "older API", version: "9.1.0.0", apiVersion: "8.0.3.0"},
+		{name: "API 9.1 with two components", version: "9.1.0.0", apiVersion: "9.1", want: true},
+		{name: "API 9.1", version: "9.1.0.0", apiVersion: "9.1.0", want: true},
+		{name: "API 9.1 with fourth component", version: "9.1.0.0", apiVersion: "9.1.0.0", want: true},
+		{name: "newer minor API", version: "9.2.0.0", apiVersion: "9.2.0.0", want: true},
+		{name: "multi-digit minor API", version: "9.10.0.0", apiVersion: "9.10.0.0", want: true},
+		{name: "newer major API", version: "10.0.0.0", apiVersion: "10.0.0.0", want: true},
+		{name: "product version is not used", version: "invalid", apiVersion: "9.1.0.0", want: true},
+		{name: "missing API version", version: "9.1.0.0", wantErr: true},
+		{name: "API version without minor", version: "9.1.0.0", apiVersion: "9", wantErr: true},
+		{name: "invalid major API version", version: "9.1.0.0", apiVersion: "x.1.0.0", wantErr: true},
+		{name: "invalid minor API version", version: "9.1.0.0", apiVersion: "9.x.0.0", wantErr: true},
+		{name: "invalid patch API version", version: "9.1.0.0", apiVersion: "9.1.x.0", wantErr: true},
+		{name: "minor version with suffix", version: "9.1.0.0", apiVersion: "9.1invalid", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &defaultVirtualCenterManager{}
+			host := commontypes.NewFQDN("vc.example.com")
+			manager.virtualCenters.Store(host, &VirtualCenter{
+				Client: &govmomi.Client{Client: &vim25.Client{
+					ServiceContent: types.ServiceContent{About: types.AboutInfo{
+						Version: tt.version, ApiVersion: tt.apiVersion,
+					}},
+				}},
+			})
+
+			got, err := manager.IsCnsTransactionSupported(context.Background(), host)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestIsCnsTransactionSupportedUnregisteredVCenter(t *testing.T) {
+	manager := &defaultVirtualCenterManager{}
+	supported, err := manager.IsCnsTransactionSupported(context.Background(), commontypes.NewFQDN("missing-vc"))
+	require.ErrorIs(t, err, ErrVCNotFound)
+	assert.False(t, supported)
 }
