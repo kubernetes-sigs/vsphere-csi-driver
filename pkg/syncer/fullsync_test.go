@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi"
@@ -1128,6 +1129,56 @@ func TestSetFileShareAnnotationsOnPVC_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
 	assert.Equal(t, "192.168.1.100:/nfs/v4/path", pvc.Annotations[common.Nfsv4ExportPathAnnotationKey])
+}
+
+func TestSetFileShareAnnotationsOnPVC_NilAnnotations(t *testing.T) {
+	ctx := context.Background()
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: "test-namespace"},
+		Spec:       v1.PersistentVolumeClaimSpec{VolumeName: "test-pv"},
+	}
+	pv := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pv"},
+		Spec: v1.PersistentVolumeSpec{
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				CSI: &v1.CSIPersistentVolumeSource{VolumeHandle: "test-volume-handle"},
+			},
+		},
+	}
+	k8sClient := k8sfake.NewClientset(pv, pvc)
+	swapQueryVolumeByIDFn(t, func(_ context.Context, _ volumes.Manager,
+		_ string, _ *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+		return makeTestVolume([]types.KeyValue{
+			{Key: common.Nfsv3AccessPointKey, Value: "192.168.1.100:/nfs/v3/path"},
+		}), nil
+	})
+
+	assert.NotPanics(t, func() {
+		err := setFileShareAnnotationsOnPVC(ctx, k8sClient, nil, pvc)
+		assert.NoError(t, err)
+	})
+	assert.Equal(t, "192.168.1.100:/nfs/v3/path", pvc.Annotations[common.Nfsv3ExportPathAnnotationKey])
+}
+
+func TestPatchVolumeAccessibleTopologyToPVC_NilAnnotations(t *testing.T) {
+	ctx := context.Background()
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pvc", Namespace: "test-namespace"},
+	}
+	k8sClient := k8sfake.NewClientset(pvc)
+	topology := []*csi.Topology{{Segments: map[string]string{v1.LabelTopologyZone: "zone-1"}}}
+
+	assert.NotPanics(t, func() {
+		err := patchVolumeAccessibleTopologyToPVC(ctx, k8sClient, pvc, topology)
+		assert.NoError(t, err)
+	})
+
+	updated, err := k8sClient.CoreV1().PersistentVolumeClaims("test-namespace").Get(ctx, "test-pvc",
+		metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Contains(t, updated.Annotations, annCSIvSphereVolumeAccessibleTopology)
 }
 
 func TestSetFileShareAnnotationsOnPVC_PVNotFound(t *testing.T) {
