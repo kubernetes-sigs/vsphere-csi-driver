@@ -58,6 +58,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -704,6 +705,14 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 					msg := fmt.Sprintf("failed to create pvc with name: %s on namespace: %s in supervisorCluster. Error: %+v",
 						supervisorPVCName, c.supervisorNamespace, err)
 					log.Error(msg)
+					if isStorageQuotaWebhookDenial(err) {
+						quotaErr := storageQuotaDeniedError("Volume creation", "PVC "+pvcNamespace+"/"+pvcName,
+							c.supervisorNamespace, supervisorStorageClass, diskSize, err)
+						// Events are best effort, so also record the reason on the guest PVC.
+						setGuestPVCProvisioningError(ctx, c.guestClient, pvcNamespace, pvcName,
+							status.Convert(quotaErr).Message())
+						return nil, csifault.CSIInternalFault, quotaErr
+					}
 					return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 				}
 			} else {
@@ -840,6 +849,8 @@ func (c *controller) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequ
 				resp.Volume.AccessibleTopology = append(resp.Volume.AccessibleTopology, volumeTopology)
 			}
 		}
+		// Volume is created, remove the provisioning error recorded by an earlier attempt, if any.
+		clearGuestPVCProvisioningError(ctx, c.guestClient, pvcNamespace, pvcName)
 		return resp, "", nil
 	}
 	resp, faultType, err := createVolumeInternal()
@@ -1957,6 +1968,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				msg := fmt.Sprintf("failed to patch supervisor PVC %q in %q namespace. Error: %+v",
 					volumeID, c.supervisorNamespace, err)
 				log.Error(msg)
+				if isStorageQuotaWebhookDenial(err) {
+					return nil, csifault.CSIInternalFault, storageQuotaDeniedError("Volume expansion",
+						"supervisor PVC "+volumeID, c.supervisorNamespace, ptr.Deref(svPVC.Spec.StorageClassName, ""),
+						gcPvcRequestSize.String(), err)
+				}
 				return nil, csifault.CSIInternalFault, status.Error(codes.Internal, msg)
 			}
 			svPVC = svPvcClone
@@ -2141,7 +2157,7 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 		// Search for supervisor PVC and ensure it exists
 		supervisorPVCName := req.SourceVolumeId
 		log.Infof("Checking if supervisor PVC %s/%s exists..", c.supervisorNamespace, supervisorPVCName)
-		_, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
+		supervisorPVC, err := c.supervisorClient.CoreV1().PersistentVolumeClaims(c.supervisorNamespace).Get(
 			ctx, supervisorPVCName, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -2211,6 +2227,14 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					msg := fmt.Sprintf("failed to create volumesnapshot with name: %s on namespace: %s "+
 						"in supervisorCluster. Error: %+v", supervisorVolumeSnapshotName, c.supervisorNamespace, err)
 					log.Error(msg)
+					if isStorageQuotaWebhookDenial(err) {
+						// VolumeSnapshot status.error in the guest cluster retains this message, so no
+						// additional annotation is needed.
+						sourceSize := supervisorPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+						return nil, storageQuotaDeniedError("Snapshot creation",
+							"VolumeSnapshot "+volumeSnapshotNamespace+"/"+volumeSnapshotName, c.supervisorNamespace,
+							ptr.Deref(supervisorPVC.Spec.StorageClassName, ""), sourceSize.String(), err)
+					}
 					return nil, status.Error(codes.Internal, msg)
 				}
 				log.Infof("Successfully created VolumeSnapshot %s/%s on the supervisor cluster",

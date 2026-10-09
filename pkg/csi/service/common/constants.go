@@ -464,6 +464,11 @@ const (
 	// AnnKeyGuestClusterSnapshot is the guest cluster annotation containing JSON with cluster info, PVC name and namespace
 	AnnKeyGuestClusterSnapshot = "csi.vsphere.volume/guest-cluster-snapshot"
 
+	// AnnKeyProvisioningError is set by pvCSI on the guest cluster PVC when the supervisor rejects
+	// the volume creation request (e.g. by the storage quota webhook). It is removed once the
+	// volume is created successfully.
+	AnnKeyProvisioningError = "csi.vsphere.volume/provisioning-error"
+
 	// The following constants are the field keys inside the JSON value stored under
 	// the guest-cluster annotations on supervisor resources: AnnKeyGuestClusterPvc
 	// on a supervisor PVC and AnnKeyGuestClusterSnapshot on a supervisor
