@@ -59,8 +59,7 @@ type VirtualCenterManager interface {
 	// IsCnsSnapshotSupported checks if cns volume snapshot is supported
 	// or not on the vCenter Host.
 	IsCnsSnapshotSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
-	// IsCnsTransactionSupported checks if cns transaction is supported
-	// or not on the vCenter Host.
+	// IsCnsTransactionSupported checks whether the vCenter API supports CNS transactions.
 	IsCnsTransactionSupported(ctx context.Context, host commontypes.FQDN) (bool, error)
 }
 
@@ -219,7 +218,7 @@ func (m *defaultVirtualCenterManager) IsCnsSnapshotSupported(ctx context.Context
 	return false, nil
 }
 
-// IsCnsTransactionSupported checks if cns transaction is supported or not.
+// IsCnsTransactionSupported checks whether the vCenter API is 9.1 or higher.
 func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Context,
 	host commontypes.FQDN) (bool, error) {
 	log := logger.GetLogger(ctx)
@@ -230,15 +229,17 @@ func (m *defaultVirtualCenterManager) IsCnsTransactionSupported(ctx context.Cont
 		log.Errorf("Failed to get vCenter. Err: %v", err)
 		return false, err
 	}
-	vcVersion := vcenter.Client.ServiceContent.About.Version
-	isvSphereVersion91orAbove, err := IsvSphereVersion91orAbove(ctx, vcenter.Client.ServiceContent.About)
+	// The product version can be newer than the advertised API version. Supplying
+	// VolumeId requires API 9.1, even if the vCenter product version is already 9.1.
+	apiVersion := vcenter.Client.ServiceContent.About.ApiVersion
+	err = CheckAPI(ctx, apiVersion, 9, 1, 0)
 	if err != nil {
-		return false, logger.LogNewErrorf(log, "Error while checking the vSphere Version %q , Err= %+v",
-			vcVersion, err)
+		var unsupportedVersion *UnsupportedAPIVersionError
+		if !errors.As(err, &unsupportedVersion) {
+			return false, err
+		}
+		log.Infof("CNS Transaction feature is not supported on vCenter API version %q", apiVersion)
+		return false, nil
 	}
-	if isvSphereVersion91orAbove {
-		return true, nil
-	}
-	log.Infof("CNS Transaction feature is not supported on vCenter version %q", vcVersion)
-	return false, nil
+	return true, nil
 }
