@@ -1,0 +1,23 @@
+# Guest-cluster (VKS) RWX volumes served entirely locally by the vendored NFS driver
+# (pkg/csi/service/wcpguest/nfsdriver, ported from kubernetes-csi/csi-driver-nfs). The
+# provisioner is still csi.vsphere.vmware.com — this is NOT a second CSI driver — the
+# "server" parameter alone selects this backend, dispatched inside
+# pkg/csi/service/wcpguest/controller.go. No Supervisor PVC is ever created for these volumes.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-csi
+provisioner: csi.vsphere.vmware.com
+parameters:
+  server: 10.162.91.187
+  share: /test-nfs-cv
+  # Optional: override the subdirectory permissions nfsdriver.GetOrCreateDriver() defaults to
+  # (0777, see pkg/csi/service/wcpguest/nfsdriver/glue.go) — needed because fsGroup is not
+  # applied by kubelet to RWX/multi-writer CSI volumes, so non-root pods mounting this PVC
+  # need the subdirectory to already be writable by everyone.
+  # mountPermissions: "0755"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  - nfsvers=4.1
