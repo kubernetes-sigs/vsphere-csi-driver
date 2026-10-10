@@ -566,10 +566,14 @@ func (r *Reconciler) processBatchAttach(ctx context.Context, k8sClient kubernete
 	// Manage CBT for each volume before batch attach.
 	batchVolumeIDs := make([]string, 0, len(batchAttachRequest))
 	for _, req := range batchAttachRequest {
-		batchVolumeIDs = append(batchVolumeIDs, req.VolumeID)
+		if req.SharingMode != string(v1alpha1.SharingMultiWriter) {
+			batchVolumeIDs = append(batchVolumeIDs, req.VolumeID)
+		} else {
+			log.Infof("Skipping CBT state sync for shared disk volume %s", req.VolumeID)
+		}
 	}
 
-	if isCSIBackupAPIEnabled && r.cbtClient != nil {
+	if len(batchVolumeIDs) > 0 && isCSIBackupAPIEnabled && r.cbtClient != nil {
 		common.SyncVolumeCBTState(ctx, r.cbtClient, instance.Namespace,
 			r.volumeManager, batchVolumeIDs...)
 	}
