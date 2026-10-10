@@ -21,6 +21,44 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 )
 
+func TestIsSharedRawBlockRequest(t *testing.T) {
+	ctx := context.Background()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+
+	for _, enabled := range []bool{false, true} {
+		orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+		assert.NoError(t, err)
+		commonco.ContainerOrchestratorUtility = orchestrator
+		if enabled {
+			assert.NoError(t, orchestrator.EnableFSS(ctx, common.SharedDiskFss))
+		}
+		for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
+			csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY,
+			csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER,
+			csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+		} {
+			block := &csi.VolumeCapability{
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: mode},
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			}
+			mount := &csi.VolumeCapability{
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: mode},
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			}
+			want := enabled && mode != csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
+			assert.Equal(t, want, isSharedRawBlockRequest(ctx, []*csi.VolumeCapability{block}),
+				"block mode=%s shared disk enabled=%t", mode, enabled)
+			assert.False(t, isSharedRawBlockRequest(ctx, []*csi.VolumeCapability{mount}),
+				"mount mode=%s shared disk enabled=%t", mode, enabled)
+			assert.Equal(t, want, isSharedRawBlockRequest(ctx, []*csi.VolumeCapability{mount, block}),
+				"mixed capabilities mode=%s shared disk enabled=%t", mode, enabled)
+		}
+		assert.False(t, isSharedRawBlockRequest(ctx, nil))
+	}
+}
+
 func TestGetPodVMUUID(t *testing.T) {
 	containerOrchOriginal := commonco.ContainerOrchestratorUtility
 	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
