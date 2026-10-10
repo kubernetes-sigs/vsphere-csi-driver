@@ -2266,6 +2266,100 @@ func (m *batchTrackingMockVolumeManager) ClearVolumeControlFlags(ctx context.Con
 	return nil
 }
 
+type sharedDiskBatchVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	enabledIDs  []string
+	disabledIDs []string
+	attachedIDs []string
+}
+
+func (m *sharedDiskBatchVolumeManager) SetVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.enabledIDs = append(m.enabledIDs, volumeID)
+	return nil
+}
+
+func (m *sharedDiskBatchVolumeManager) ClearVolumeControlFlags(ctx context.Context,
+	volumeID string, controlFlags []string) error {
+	m.disabledIDs = append(m.disabledIDs, volumeID)
+	return nil
+}
+
+func (m *sharedDiskBatchVolumeManager) BatchAttachVolumes(ctx context.Context,
+	vm *cnsvsphere.VirtualMachine, requests []volumes.BatchAttachRequest) ([]volumes.BatchAttachResult, string, error) {
+	for _, request := range requests {
+		m.attachedIDs = append(m.attachedIDs, request.VolumeID)
+	}
+	return nil, "", nil
+}
+
+func TestProcessBatchAttachSkipsCBTForSharedDisks(t *testing.T) {
+	ctx := context.Background()
+	originalCO := commonco.ContainerOrchestratorUtility
+	originalBackupEnabled := isCSIBackupAPIEnabled
+	t.Cleanup(func() {
+		commonco.ContainerOrchestratorUtility = originalCO
+		isCSIBackupAPIEnabled = originalBackupEnabled
+	})
+	isCSIBackupAPIEnabled = true
+
+	for _, state := range []cbtconfigv1alpha1.CBTState{
+		cbtconfigv1alpha1.CBTStateActive, cbtconfigv1alpha1.CBTStateInactive,
+	} {
+		for _, sharingModes := range [][]v1alpha1.SharingMode{
+			{v1alpha1.SharingMultiWriter, v1alpha1.SharingMultiWriter},
+			{v1alpha1.SharingMultiWriter, v1alpha1.SharingNone},
+			{v1alpha1.SharingNone, ""},
+		} {
+			t.Run(fmt.Sprintf("%s/%v", state, sharingModes), func(t *testing.T) {
+				instance := setupTestCnsNodeVMBatchAttachment()
+				orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+				require.NoError(t, err)
+				commonco.ContainerOrchestratorUtility = orchestrator
+				var pvcs []*v1.PersistentVolumeClaim
+				toAttach := make(map[string]string)
+				var expectedCBTIDs, expectedAttachIDs []string
+				for i := range instance.Spec.Volumes {
+					claim := &instance.Spec.Volumes[i].PersistentVolumeClaim
+					claim.SharingMode = sharingModes[i]
+					volumeID := fmt.Sprintf("vol-%d", i)
+					toAttach[claim.ClaimName] = volumeID
+					pvcs = append(pvcs, &v1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+						Name: claim.ClaimName, Namespace: instance.Namespace,
+					}})
+					expectedAttachIDs = append(expectedAttachIDs, volumeID)
+					if sharingModes[i] != v1alpha1.SharingMultiWriter {
+						expectedCBTIDs = append(expectedCBTIDs, volumeID)
+					}
+				}
+				orchestrator.(*unittestcommon.FakeK8SOrchestrator).SetPVCs(pvcs)
+				s := runtime.NewScheme()
+				require.NoError(t, vmoperatortypes.AddToScheme(s))
+				vm := &vmoperatortypes.VirtualMachine{
+					ObjectMeta: metav1.ObjectMeta{Name: instance.Name, Namespace: instance.Namespace},
+					Status:     vmoperatortypes.VirtualMachineStatus{InstanceUUID: instance.Spec.InstanceUUID},
+				}
+				manager := &sharedDiskBatchVolumeManager{}
+				r := &Reconciler{
+					vmOperatorClient: fake.NewClientBuilder().WithScheme(s).WithObjects(vm).Build(),
+					volumeManager:    manager,
+					cbtClient: newBatchCBTTestClient(t,
+						batchCBTConfigObject("default", instance.Namespace, &state)),
+				}
+				require.NoError(t, r.processBatchAttach(ctx, k8sFake.NewSimpleClientset(), nil, &instance, toAttach))
+				assert.ElementsMatch(t, expectedAttachIDs, manager.attachedIDs)
+				if state == cbtconfigv1alpha1.CBTStateActive {
+					assert.ElementsMatch(t, expectedCBTIDs, manager.enabledIDs)
+					assert.Empty(t, manager.disabledIDs)
+				} else {
+					assert.ElementsMatch(t, expectedCBTIDs, manager.disabledIDs)
+					assert.Empty(t, manager.enabledIDs)
+				}
+			})
+		}
+	}
+}
+
 // newBatchCBTTestClient returns a crclient.Client pre-populated with the given CBTConfig objects.
 func newBatchCBTTestClient(t *testing.T, objs ...crclient.Object) crclient.Client {
 	t.Helper()
