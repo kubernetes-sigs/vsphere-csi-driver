@@ -47,8 +47,8 @@ func affectsSnapshotUsage(u *unstructured.Unstructured) bool {
 	return t != "" && t != "0001-01-01T00:00:00Z"
 }
 
-// spuSnapshotIndexers returns the indexers to be registered on the CnsVolumeInfo informer, before it starts.
-func spuSnapshotIndexers() cache.Indexers {
+// SPUSnapshotIndexers returns the indexers to be registered on the CnsVolumeInfo informer, before it starts.
+func SPUSnapshotIndexers() cache.Indexers {
 	return cache.Indexers{
 		SPUSnapshotIndex: func(obj interface{}) ([]string, error) {
 			u, ok := obj.(*unstructured.Unstructured)

@@ -45,7 +45,7 @@ func TestSPUSnapshotKey(t *testing.T) {
 }
 
 func TestSPUSnapshotIndex(t *testing.T) {
-	idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, spuSnapshotIndexers())
+	idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, SPUSnapshotIndexers())
 	base := func() map[string]interface{} {
 		return map[string]interface{}{"namespace": "ns1", "storageClassName": "gold"}
 	}

@@ -122,7 +122,7 @@ func InitVolumeInfoService(ctx context.Context) (VolumeInfoService, error) {
 		}
 		volumeInfoServiceInstance.volumeInfoInformer = informer.Informer()
 		// Indexers can only be added before the informer starts.
-		if err = volumeInfoServiceInstance.volumeInfoInformer.AddIndexers(spuSnapshotIndexers()); err != nil {
+		if err = volumeInfoServiceInstance.volumeInfoInformer.AddIndexers(SPUSnapshotIndexers()); err != nil {
 			volumeInfoServiceInstance = nil
 			return nil, logger.LogNewErrorf(log, "failed to add indexers on cnsvolumeinfoes informer. Err: %v", err)
 		}
