@@ -18,15 +18,21 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"flag"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -303,4 +309,46 @@ func TestGetPreferredVersionFromDiscovery_ResourceNotInMatchingGroup(t *testing.
 	if got != "" {
 		t.Errorf("expected empty string on error, got %q", got)
 	}
+}
+
+func TestGetRestClientConfigForSupervisor(t *testing.T) {
+	ctx := context.Background()
+	var gotAuth string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	tokenFile := filepath.Join(dir, "token")
+	caFile := filepath.Join(dir, "ca.crt")
+	assert.NoError(t, os.WriteFile(tokenFile, []byte("token-v1"), 0600))
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	assert.NoError(t, os.WriteFile(caFile, caPEM, 0600))
+
+	u, err := url.Parse(srv.URL)
+	assert.NoError(t, err)
+
+	cfg := getRestClientConfigForSupervisor(ctx, u.Hostname(), u.Port(), tokenFile, caFile)
+	assert.NotNil(t, cfg)
+	// The token file must be set so that client-go re-reads rotated tokens.
+	assert.Equal(t, tokenFile, cfg.BearerTokenFile)
+	assert.Equal(t, "token-v1", cfg.BearerToken)
+
+	rt, err := restclient.TransportFor(cfg)
+	assert.NoError(t, err)
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	assert.NoError(t, err)
+	resp, err := rt.RoundTrip(req)
+	assert.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, "Bearer token-v1", gotAuth)
+
+	t.Run("MissingTokenFile", func(t *testing.T) {
+		assert.Nil(t, getRestClientConfigForSupervisor(ctx, "h", "1", filepath.Join(dir, "none"), caFile))
+	})
+	t.Run("InvalidCA", func(t *testing.T) {
+		assert.Nil(t, getRestClientConfigForSupervisor(ctx, "h", "1", tokenFile, filepath.Join(dir, "none")))
+	})
 }
