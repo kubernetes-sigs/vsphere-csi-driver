@@ -37,6 +37,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clientset "k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -453,6 +454,8 @@ func (f *fakeVolumeInfoServiceImpl) DeleteVolumeInfo(_ context.Context, _ string
 }
 
 func (f *fakeVolumeInfoServiceImpl) ListAllVolumeInfos() []interface{} { return nil }
+
+func (f *fakeVolumeInfoServiceImpl) Informer() cache.SharedIndexInformer { return nil }
 
 func (f *fakeVolumeInfoServiceImpl) VolumeInfoCrExistsForVolume(
 	_ context.Context, _ string) (bool, error) {
