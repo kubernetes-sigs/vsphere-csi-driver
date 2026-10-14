@@ -788,8 +788,12 @@ func isFileVolumeRequestInWcp(ctx context.Context, capabilities []*csi.VolumeCap
 }
 
 // IsSharedRawBlockRequest returns true if the given volume has Block capability and
-// can be accessed by multiple nodes.
+// can be accessed by multiple nodes when the shared disk feature is enabled.
 func isSharedRawBlockRequest(ctx context.Context, capabilities []*csi.VolumeCapability) bool {
+	if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
+		return false
+	}
+
 	for _, capability := range capabilities {
 		if capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_READER_ONLY ||
 			capability.AccessMode.Mode == csi.VolumeCapability_AccessMode_MULTI_NODE_SINGLE_WRITER ||
@@ -811,8 +815,7 @@ func isValidVolumeCapabilitiesInWcp(ctx context.Context, volCaps []*csi.VolumeCa
 	}
 
 	// Raw block volume
-	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) &&
-		isSharedRawBlockRequest(ctx, volCaps) {
+	if isSharedRawBlockRequest(ctx, volCaps) {
 		return validateVolumeCapabilitiesInWcp(ctx, volCaps, common.MultiNodeVolumeCaps, common.BlockVolumeType)
 	}
 

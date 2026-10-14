@@ -1491,10 +1491,13 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	}
 
 	if isCSIBackupAPIEnabled {
-		// It's the best effort scenario to enable the CBT before create volume.
+		// Enable CBT on a best-effort basis after volume creation.
 		// If any error occurs during CBT enablement, it may be deferred to attachment or
 		// periodic reconciler in syncer.
-		if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
+		if isSharedRawBlockRequest(ctx, req.GetVolumeCapabilities()) {
+			log.Infof("Skipping CBT enablement for shared disk volume %s: CBT is not supported for shared disks",
+				volumeInfo.VolumeID.Id)
+		} else if pvcNamespace, ok := req.Parameters[common.AttributePvcNamespace]; ok && pvcNamespace != "" {
 			// Volumes are created with CBT off by default; only enable when the
 			// namespace has CBT active. active is true only when configured.
 			active, _, err := common.CBTStateForNamespace(ctx, c.cbtClient, pvcNamespace)
@@ -2398,17 +2401,13 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
-		if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SharedDiskFss) {
-			// Cannot be nil as it is already verified in validateWCPControllerPublishVolumeRequest
-			volCap := req.GetVolumeCapability()
-			caps := []*csi.VolumeCapability{volCap}
-			if isSharedRawBlockRequest(ctx, caps) {
-				// Shared Disk feature is not supported for PodVMs.
-				err := fmt.Errorf("shared disks are not supportd for PodVMs. Invalid request %+v",
-					logger.RedactCSIRequest(req))
-				log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
-				return nil, csifault.CSIInvalidArgumentFault, err
-			}
+		// Cannot be nil as it is already verified in validateWCPControllerPublishVolumeRequest.
+		if isSharedRawBlockRequest(ctx, []*csi.VolumeCapability{req.GetVolumeCapability()}) {
+			// Shared Disk feature is not supported for PodVMs.
+			err := fmt.Errorf("shared disks are not supported for PodVMs. Invalid request %+v",
+				logger.RedactCSIRequest(req))
+			log.Errorf("failed to verify if volume is a shared disk. Err: %+v", err)
+			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
 		volumeType = prometheus.PrometheusBlockVolumeType
