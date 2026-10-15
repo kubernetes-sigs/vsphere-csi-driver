@@ -92,15 +92,15 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		if *vs.Spec.VolumeSnapshotClassName != "" {
 			snapshotterClient, err := newSnapshotterClient(ctx)
 			if err != nil {
-				reason := fmt.Sprintf("failed to get snapshotterClient with error: %v. for class %s",
-					err, *vs.Spec.VolumeSnapshotClassName)
+				reason := fmt.Sprintf("failed to get snapshotterClient for class %s with error: %v",
+					*vs.Spec.VolumeSnapshotClassName, err)
 				log.Warn(reason)
 				return admission.Denied(reason)
 			}
 			vsclass, err := snapshotterClient.SnapshotV1().VolumeSnapshotClasses().Get(ctx,
 				*vs.Spec.VolumeSnapshotClassName, metav1.GetOptions{})
 			if err != nil {
-				reason := fmt.Sprintf("failed to Get VolumeSnapshotclass %s with error: %v.",
+				reason := fmt.Sprintf("failed to get VolumeSnapshotClass %s with error: %v",
 					*vs.Spec.VolumeSnapshotClassName, err)
 				log.Warn(reason)
 				return admission.Denied(reason)
