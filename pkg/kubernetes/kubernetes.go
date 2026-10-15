@@ -163,13 +163,20 @@ func NewSnapshotterClient(ctx context.Context) (snapshotterClientSet.Interface, 
 
 // GetRestClientConfigForSupervisor returns restclient config for given
 // endpoint, port, certificate and token.
+//
+// The Supervisor token is short-lived and rotated in the pvcsi-provider-creds
+// secret, so besides the initial BearerToken the config also sets
+// BearerTokenFile. client-go then re-reads the file periodically, which lets
+// every long-lived client, informer and reflector built from this config
+// pick up rotated tokens without a pod restart.
 func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port string) *restclient.Config {
+	return getRestClientConfigForSupervisor(ctx, endpoint, port,
+		cnsconfig.DefaultpvCSIProviderPath+"/token", cnsconfig.DefaultpvCSIProviderPath+"/ca.crt")
+}
+
+func getRestClientConfigForSupervisor(ctx context.Context, endpoint, port, tokenFile,
+	rootCAFile string) *restclient.Config {
 	log := logger.GetLogger(ctx)
-	var config *restclient.Config
-	const (
-		tokenFile  = cnsconfig.DefaultpvCSIProviderPath + "/token"
-		rootCAFile = cnsconfig.DefaultpvCSIProviderPath + "/ca.crt"
-	)
 	token, err := os.ReadFile(tokenFile)
 	if err != nil {
 		return nil
@@ -178,12 +185,13 @@ func GetRestClientConfigForSupervisor(ctx context.Context, endpoint string, port
 		log.Errorf("Expected to load root CA config from %s, but got err: %v", rootCAFile, err)
 		return nil
 	}
-	config = &restclient.Config{
+	config := &restclient.Config{
 		Host: "https://" + net.JoinHostPort(endpoint, port),
 		TLSClientConfig: restclient.TLSClientConfig{
 			CAFile: rootCAFile,
 		},
-		BearerToken: string(token),
+		BearerToken:     string(token),
+		BearerTokenFile: tokenFile,
 	}
 	config.QPS, config.Burst = getClientThroughput(ctx, true)
 	return config
