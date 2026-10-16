@@ -49,6 +49,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fssh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	"k8s.io/utils/ptr"
 
 	admissionapi "k8s.io/pod-security-admission/api"
 
@@ -1597,7 +1598,7 @@ var _ = ginkgo.Describe("[csi-vcp-mig] VCP to CSI migration syncer tests", func(
 				gomega.Expect(len(ssPodsAfterScaleDown2.Items) == 0).To(gomega.BeTrue(),
 					"Number of Pods in the statefulset should match with number of replicas")
 				err = client.AppsV1().StatefulSets(ns.Name).Delete(ctx,
-					statefulset.Name, metav1.DeleteOptions{OrphanDependents: new(bool)})
+					statefulset.Name, metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationBackground)})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}

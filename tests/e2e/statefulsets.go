@@ -39,6 +39,7 @@ import (
 	fpv "k8s.io/kubernetes/test/e2e/framework/pv"
 	fss "k8s.io/kubernetes/test/e2e/framework/statefulset"
 	admissionapi "k8s.io/pod-security-admission/api"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -716,9 +717,8 @@ var _ = ginkgo.Describe("statefulset", func() {
 			}
 		}
 		ginkgo.By("Delete statefulset with cascade = false")
-		cascade := false
 		err = client.AppsV1().StatefulSets(namespace).Delete(context.TODO(),
-			statefulset.Name, metav1.DeleteOptions{OrphanDependents: &cascade})
+			statefulset.Name, metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationBackground)})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		statefulset = GetResizedStatefulSetFromManifest(namespace)
