@@ -110,6 +110,8 @@ func main() {
 		log.Infof("GOMEMLIMIT is not set, using Go default memory management")
 	}
 
+	utils.StartMemoryWatcher(ctx)
+
 	if *enableProfileServer {
 		go func() {
 			log.Info("Starting the http server to expose profiling metrics..")
