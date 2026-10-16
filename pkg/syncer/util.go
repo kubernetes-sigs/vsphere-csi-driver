@@ -970,6 +970,35 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 	}
 }
 
+// patchStoragePolicyUsageStatusOnce sends a single merge patch of the status of the StoragePolicyUsage CR.
+// Unlike PatchStoragePolicyUsage it does not retry the same patch, so that the caller can re-read
+// the CR and recompute before trying again. The patch has no resourceVersion, it only carries the
+// changed fields, so concurrent patches of other fields (e.g. Reserved) do not conflict.
+func patchStoragePolicyUsageStatusOnce(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj, newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) error {
+	patch, err := getPatchData(oldObj, newObj)
+	if err != nil {
+		return err
+	}
+	return cnsOperatorClient.Status().Patch(ctx, oldObj.DeepCopy(), client.RawPatch(apitypes.MergePatchType, patch))
+}
+
+// patchMissingSnapshotCapacityAnnotation sets or removes the missing snapshot aggregated capacity
+// annotation on the StoragePolicyUsage CR with a single merge patch.
+func patchMissingSnapshotCapacityAnnotation(ctx context.Context, cnsOperatorClient client.Client,
+	spu *storagepolicyusagev1alpha3.StoragePolicyUsage, missing bool) error {
+	var value interface{}
+	if missing {
+		value = "true"
+	}
+	patch, err := json.Marshal(map[string]interface{}{"metadata": map[string]interface{}{
+		"annotations": map[string]interface{}{common.MissingSnapshotAggregatedCapacity: value}}})
+	if err != nil {
+		return err
+	}
+	return cnsOperatorClient.Patch(ctx, spu.DeepCopy(), client.RawPatch(apitypes.MergePatchType, patch))
+}
+
 // addResourceVersion sets the resource version for the patch obj
 func addResourceVersion(patchBytes []byte, resourceVersion string) ([]byte, error) {
 	var patchMap map[string]interface{}

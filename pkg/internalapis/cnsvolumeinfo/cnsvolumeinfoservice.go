@@ -80,6 +80,10 @@ type VolumeInfoService interface {
 
 	// PatchVolumeInfoStatus patches the status of CNSVolumeInfo instance associated with volumeID.
 	PatchVolumeInfoStatus(ctx context.Context, volumeID string, patchBytes []byte, retries int) error
+
+	// Informer returns the shared informer of the CnsVolumeInfo CRs in the CSI namespace.
+	// It has the SPUSnapshotIndex index registered.
+	Informer() cache.SharedIndexInformer
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
@@ -117,6 +121,11 @@ func InitVolumeInfoService(ctx context.Context) (VolumeInfoService, error) {
 				"CRD. Err: %v", err)
 		}
 		volumeInfoServiceInstance.volumeInfoInformer = informer.Informer()
+		// Indexers can only be added before the informer starts.
+		if err = volumeInfoServiceInstance.volumeInfoInformer.AddIndexers(SPUSnapshotIndexers()); err != nil {
+			volumeInfoServiceInstance = nil
+			return nil, logger.LogNewErrorf(log, "failed to add indexers on cnsvolumeinfoes informer. Err: %v", err)
+		}
 		go func() {
 			stopCh := make(chan struct{})
 			informer.Informer().Run(stopCh)
@@ -124,6 +133,11 @@ func InitVolumeInfoService(ctx context.Context) (VolumeInfoService, error) {
 		log.Info("volumeInfo service initialized")
 	}
 	return volumeInfoServiceInstance, nil
+}
+
+// Informer returns the shared informer of the CnsVolumeInfo CRs.
+func (volumeInfo *volumeInfo) Informer() cache.SharedIndexInformer {
+	return volumeInfo.volumeInfoInformer
 }
 
 // ListAllVolumeInfos lists all the VolumeInfo CRs present in the cluster
