@@ -243,7 +243,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 	}
 	// Check vCenter API Version
 	for _, vc := range vCenters {
-		err = common.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
+		err = cnsvsphere.CheckAPI(ctx, vc.Client.ServiceContent.About.ApiVersion, common.MinSupportedVCenterMajor,
 			common.MinSupportedVCenterMinor, common.MinSupportedVCenterPatch)
 		if err != nil {
 			return logger.LogNewErrorf(log, "checkAPI failed for vcenter API version: %s for vCenter %s, err=%v",
