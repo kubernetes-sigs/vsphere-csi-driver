@@ -44,6 +44,12 @@ const (
 	// EnvCSINamespace represents the environment variable which
 	// stores the namespace in which the CSI driver is running.
 	EnvCSINamespace = "CSI_NAMESPACE"
+	// staleInProgressWarningThreshold is the age past which an instance still
+	// showing TaskInvocationStatusInProgress is flagged as a likely-orphaned
+	// CnsVolumeOperationRequest. Legitimate CNS tasks complete well within this
+	// window, so an instance older than this has very likely stopped receiving
+	// task-completion updates and will never be cleaned up by this loop.
+	staleInProgressWarningThreshold = 24 * time.Hour
 )
 
 // VolumeOperationRequest is an interface that supports handling idempotency
@@ -445,6 +451,15 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 				if latestOperationDetailsLength != 0 &&
 					instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].TaskStatus ==
 						TaskInvocationStatusInProgress {
+					if time.Since(instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].
+						TaskInvocationTimestamp.Time) > staleInProgressWarningThreshold {
+						log.Warnf("CnsVolumeOperationRequest instance %q has been stuck at TaskStatus "+
+							"InProgress for over %s (since %s). It will never be cleaned up by this loop; "+
+							"this likely indicates a lost task-completion notification and needs manual "+
+							"investigation.", instance.Name, staleInProgressWarningThreshold,
+							instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].
+								TaskInvocationTimestamp.Time)
+					}
 					continue
 				}
 				// Delete instance if TaskInvocationTimestamp is older than 15 minutes
