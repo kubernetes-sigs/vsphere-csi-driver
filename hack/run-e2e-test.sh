@@ -18,6 +18,20 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# TEMPORARY DIAGNOSTICS -- remove after confirming the k8s.io/kubernetes
+# version mismatch seen in the 2026-09-07 CI run (build resolved v1.36.2
+# despite tests/e2e/go.mod pinning v1.36.0 via a replace directive).
+echo "=== DEBUG: go env ==="
+go version
+go env GOFLAGS GOPROXY GOSUMDB GOPATH GOMODCACHE
+echo "=== DEBUG: go.mod pin for k8s.io/kubernetes ==="
+grep -n "k8s.io/kubernetes " tests/e2e/go.mod || true
+echo "=== DEBUG: module cache entries for k8s.io/kubernetes ==="
+ls -la "$(go env GOMODCACHE)"/k8s.io/*ubernetes* 2>/dev/null || echo "(no cache entries found)"
+echo "=== DEBUG: resolved module versions (tests/e2e) ==="
+(cd tests/e2e && go list -m k8s.io/kubernetes github.com/container-storage-interface/spec) || true
+echo "=== END DEBUG ==="
+
 # Fetching ginkgo for running the test
 export GO111MODULE=on
 export ACK_GINKGO_DEPRECATIONS=2.27.3

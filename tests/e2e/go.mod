@@ -8,8 +8,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-version v1.6.0
 	github.com/kubernetes-csi/external-snapshotter/client/v8 v8.4.0
-	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/ginkgo/v2 v2.28.3
+	github.com/onsi/gomega v1.40.0
 	github.com/pkg/sftp v1.13.6
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260423003402-51227659e236
 	github.com/vmware-tanzu/vm-operator/external/byok v0.0.0-20260423003402-51227659e236
@@ -24,7 +24,7 @@ require (
 	k8s.io/kubernetes v1.36.0
 	k8s.io/pod-security-admission v0.36.0
 	k8s.io/utils v0.0.0-20260319190234-28399d86e0b5
-	sigs.k8s.io/controller-runtime v0.23.3
+	sigs.k8s.io/controller-runtime v0.24.0
 	sigs.k8s.io/vsphere-csi-driver/v3 v3.0.0-00010101000000-000000000000
 )
 
@@ -185,7 +185,7 @@ require (
 	k8s.io/sample-controller v0.36.0 // indirect
 	k8s.io/streaming v0.36.0 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect
-	sigs.k8s.io/cluster-api v1.13.0 // indirect
+	sigs.k8s.io/cluster-api v1.13.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect

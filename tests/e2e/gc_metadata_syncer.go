@@ -30,6 +30,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fnodes "k8s.io/kubernetes/test/e2e/framework/node"
 	fpod "k8s.io/kubernetes/test/e2e/framework/pod"
@@ -1215,8 +1216,19 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		// Changing the reclaim policy of the pv to retain.
 		ginkgo.By("Changing the volume reclaim policy")
-		pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestPv, getErr := client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+			latestPv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+			updatedPv, updateErr := client.CoreV1().PersistentVolumes().Update(ctx, latestPv, metav1.UpdateOptions{})
+			if updateErr != nil {
+				return updateErr
+			}
+			pv = updatedPv
+			return nil
+		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete the PVC")
@@ -1440,8 +1452,19 @@ var _ = ginkgo.Describe("[csi-guest] pvCSI metadata syncer tests", func() {
 
 		// Changing the reclaim policy of the pv to retain.
 		ginkgo.By("Changing the volume reclaim policy")
-		pv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
-		pv, err = client.CoreV1().PersistentVolumes().Update(ctx, pv, metav1.UpdateOptions{})
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestPv, getErr := client.CoreV1().PersistentVolumes().Get(ctx, pv.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+			latestPv.Spec.PersistentVolumeReclaimPolicy = v1.PersistentVolumeReclaimRetain
+			updatedPv, updateErr := client.CoreV1().PersistentVolumes().Update(ctx, latestPv, metav1.UpdateOptions{})
+			if updateErr != nil {
+				return updateErr
+			}
+			pv = updatedPv
+			return nil
+		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Delete the PVC")
