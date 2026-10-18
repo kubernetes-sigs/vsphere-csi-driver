@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	testclient "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cnsoperatorv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
@@ -1891,7 +1892,7 @@ func TestHandleVACChangeForVolumeInfo(t *testing.T) {
 			expectSnapshotIO: false,
 		},
 		{
-			name:             "with AggregatedSnapshotSize: both PVC and snapshot SPUs are rebalanced",
+			name:             "with AggregatedSnapshotSize: PVC SPUs are rebalanced, snapshot SPUs are left to the reconciler",
 			oldVAC:           oldVAC,
 			expectedOldSPU:   "vac-" + oldVAC + "-" + storagepolicyv1alpha3.NameSuffixForPVC,
 			newVAC:           newVAC,
@@ -1984,26 +1985,20 @@ func TestHandleVACChangeForVolumeInfo(t *testing.T) {
 			}
 
 			if tc.expectSnapshotIO {
-				gotOldSnap := &storagepolicyv1alpha3.StoragePolicyUsage{}
-				if err := fakeClient.Get(ctx, client.ObjectKey{
-					Namespace: namespace, Name: oldSnapSPU.Name,
-				}, gotOldSnap); err != nil {
-					t.Fatalf("failed to read OLD snapshot SPU: %v", err)
-				}
-				if gotOldSnap.Status.ResourceTypeLevelQuotaUsage.Used.Value() != 0 {
-					t.Errorf("OLD snap SPU used=%s want 0",
-						gotOldSnap.Status.ResourceTypeLevelQuotaUsage.Used.String())
-				}
-				gotNewSnap := &storagepolicyv1alpha3.StoragePolicyUsage{}
-				if err := fakeClient.Get(ctx, client.ObjectKey{
-					Namespace: namespace, Name: newSnapSPU.Name,
-				}, gotNewSnap); err != nil {
-					t.Fatalf("failed to read NEW snapshot SPU: %v", err)
-				}
-				if gotNewSnap.Status.ResourceTypeLevelQuotaUsage.Used.Value() != snapCap.Value() {
-					t.Errorf("NEW snap SPU used=%s want %s",
-						gotNewSnap.Status.ResourceTypeLevelQuotaUsage.Used.String(),
-						snapCap.String())
+				// Snapshot SPUs are recomputed by the snapshot reconciler, not moved by this helper.
+				for _, snapSPU := range []*storagepolicyv1alpha3.StoragePolicyUsage{oldSnapSPU, newSnapSPU} {
+					got := &storagepolicyv1alpha3.StoragePolicyUsage{}
+					if err := fakeClient.Get(ctx, client.ObjectKey{
+						Namespace: namespace, Name: snapSPU.Name,
+					}, got); err != nil {
+						t.Fatalf("failed to read snapshot SPU %q: %v", snapSPU.Name, err)
+					}
+					if got.Status.ResourceTypeLevelQuotaUsage.Used.Value() !=
+						snapSPU.Status.ResourceTypeLevelQuotaUsage.Used.Value() {
+						t.Errorf("snapshot SPU %q used=%s want unchanged %s", snapSPU.Name,
+							got.Status.ResourceTypeLevelQuotaUsage.Used.String(),
+							snapSPU.Status.ResourceTypeLevelQuotaUsage.Used.String())
+					}
 				}
 			}
 		})
@@ -2687,7 +2682,7 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 
 	mkSPU := func(name, scName, vacName, policyID, resourceKind string,
 		used resource.Quantity) *storagepolicyv1alpha3.StoragePolicyUsage {
-		return &storagepolicyv1alpha3.StoragePolicyUsage{
+		spu := &storagepolicyv1alpha3.StoragePolicyUsage{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: storagepolicyv1alpha3.StoragePolicyUsageSpec{
 				StoragePolicyId:           policyID,
@@ -2701,6 +2696,11 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 				},
 			},
 		}
+		if resourceKind == ResourceKindSnapshot {
+			spu.Spec.ResourceAPIgroup = &ResourceAPIgroupSnapshot
+			spu.Spec.ResourceExtensionName = SnapQuotaExtensionServiceName
+		}
+		return spu
 	}
 
 	mkPV := func(name, namespace, volumeHandle string) *v1.PersistentVolume {
@@ -2753,8 +2753,7 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
 			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*spu}},
 			map[string][]*v1.PersistentVolume{},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{})
 
 		assert.Equal(t, int64(0), getUsed(t, fakeClient, spu.Name),
 			"stale Used must be reset to 0 when the SPU's namespace has no remaining Bound PVs")
@@ -2775,8 +2774,7 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
 			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*spu}},
 			map[string][]*v1.PersistentVolume{namespace: {pv}},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{})
 
 		assert.Equal(t, cap10Gi.Value(), getUsed(t, fakeClient, spu.Name),
 			"Used must be left untouched (not reset to 0) when Bound PVs exist but cnsVolumeInfoMap "+
@@ -2796,8 +2794,7 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 				Items: []storagepolicyv1alpha3.StoragePolicyUsage{*scSPU, *vacSPU},
 			},
 			map[string][]*v1.PersistentVolume{},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{})
 
 		assert.Equal(t, int64(0), getUsed(t, fakeClient, scSPU.Name))
 		assert.Equal(t, int64(0), getUsed(t, fakeClient, vacSPU.Name))
@@ -2814,8 +2811,7 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
 			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*vacSPU}},
 			map[string][]*v1.PersistentVolume{namespace: {pv}},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi})
 
 		assert.Equal(t, cap10Gi.Value(), getUsed(t, fakeClient, vacSPU.Name))
 	})
@@ -2833,53 +2829,90 @@ func TestSyncStoragePolicyUsageUsedValues(t *testing.T) {
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
 			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*vacSPU}},
 			map[string][]*v1.PersistentVolume{namespace: {pv}},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{"csi-handle-1": cvi})
 
 		assert.Equal(t, int64(0), getUsed(t, fakeClient, vacSPU.Name),
 			"VAC-keyed SPU must reset to 0 when the deleted volume was its only member, "+
 				"even though an unrelated PV remains Bound in the namespace")
 	})
 
-	t.Run("snapshot SPU: aggregated sum drives Used, resets to 0 with no snapshots left", func(t *testing.T) {
+	t.Run("snapshot SPU: is enqueued for the snapshot reconciler and not written by the sync", func(t *testing.T) {
 		origM2 := isStorageQuotaM2FSSEnabled
 		isStorageQuotaM2FSSEnabled = true
-		defer func() { isStorageQuotaM2FSSEnabled = origM2 }()
+		origQueue := spuSnapshotQueue
+		q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+		spuSnapshotQueue = q
+		defer func() {
+			isStorageQuotaM2FSSEnabled = origM2
+			spuSnapshotQueue = origQueue
+			q.ShutDown()
+		}()
 
 		cap3Gi := resource.MustParse("3Gi")
 		snapSPU := mkSPU("sc-old-snapshot-usage", "sc-old", "", "policy-uuid", ResourceKindSnapshot, cap3Gi.DeepCopy())
 		fakeClient := newFakeClient(t, snapSPU)
 
-		// No entry in spuAggregatedSumMap for this SPU's key - simulating that the last
-		// snapshot under it was deleted - must still reset stale Used to 0, not leave it be.
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
 			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU}},
 			map[string][]*v1.PersistentVolume{},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
-			map[string]*resource.Quantity{})
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{})
 
-		assert.Equal(t, int64(0), getUsed(t, fakeClient, snapSPU.Name),
-			"stale snapshot Used must be reset to 0 when spuAggregatedSumMap has no entry for its key")
+		assert.Equal(t, 1, q.Len())
+		key, _ := q.Get()
+		assert.Equal(t, namespace+"/"+snapSPU.Name, key)
+		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, snapSPU.Name),
+			"the full sync must not write the snapshot SPU, only the reconciler does")
 	})
 
-	t.Run("snapshot SPU: matching aggregated sum keeps Used at its correct total", func(t *testing.T) {
-		origM2 := isStorageQuotaM2FSSEnabled
-		isStorageQuotaM2FSSEnabled = true
-		defer func() { isStorageQuotaM2FSSEnabled = origM2 }()
+	t.Run("snapshot SPU: incomplete PVC inventory does not suppress enqueue", func(t *testing.T) {
+		origM2, origQueue := isStorageQuotaM2FSSEnabled, spuSnapshotQueue
+		q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+		isStorageQuotaM2FSSEnabled, spuSnapshotQueue = true, q
+		t.Cleanup(func() {
+			isStorageQuotaM2FSSEnabled, spuSnapshotQueue = origM2, origQueue
+			q.ShutDown()
+		})
 
 		cap3Gi := resource.MustParse("3Gi")
 		snapSPU := mkSPU("sc-old-snapshot-usage", "sc-old", "", "policy-uuid", ResourceKindSnapshot, cap3Gi.DeepCopy())
-		fakeClient := newFakeClient(t, snapSPU)
-
-		spuKey := generateSPUKey(mkCVI("sc-old", "", "policy-uuid", cap3Gi))
-		sum := cap3Gi.DeepCopy()
-
+		pvcSPU := mkSPU("sc-old-pvc-usage", "sc-old", "", "policy-uuid", ResourceKindPVC, cap3Gi.DeepCopy())
+		fakeClient := newFakeClient(t, snapSPU, pvcSPU)
 		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient,
-			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU}},
-			map[string][]*v1.PersistentVolume{},
-			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{},
-			map[string]*resource.Quantity{spuKey: &sum})
+			&storagepolicyv1alpha3.StoragePolicyUsageList{Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU, *pvcSPU}},
+			map[string][]*v1.PersistentVolume{namespace: {mkPV("pv-1", namespace, "csi-handle-1")}},
+			map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo{})
 
+		assert.Equal(t, 1, q.Len(), "snapshot repair uses its own cache readiness checks")
+		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, snapSPU.Name), "full sync must not write snapshot Used")
+		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, pvcSPU.Name), "PVC's incomplete inventory guard is retained")
+	})
+
+	t.Run("snapshot SPU: full sync only schedules enabled CSI snapshot accounting", func(t *testing.T) {
+		origM2, origQueue := isStorageQuotaM2FSSEnabled, spuSnapshotQueue
+		q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+		spuSnapshotQueue = q
+		t.Cleanup(func() {
+			isStorageQuotaM2FSSEnabled, spuSnapshotQueue = origM2, origQueue
+			q.ShutDown()
+		})
+
+		cap3Gi := resource.MustParse("3Gi")
+		snapSPU := mkSPU("sc-old-snapshot-usage", "sc-old", "", "policy-uuid", ResourceKindSnapshot, cap3Gi.DeepCopy())
+		foreignSPU := snapSPU.DeepCopy()
+		foreignSPU.Name = "other-snapshot-usage"
+		foreignSPU.Spec.ResourceExtensionName = "other-snapshot-controller"
+		fakeClient := newFakeClient(t, snapSPU, foreignSPU)
+		spus := &storagepolicyv1alpha3.StoragePolicyUsageList{
+			Items: []storagepolicyv1alpha3.StoragePolicyUsage{*snapSPU, *foreignSPU},
+		}
+
+		isStorageQuotaM2FSSEnabled = false
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient, spus, nil, nil)
+		assert.Zero(t, q.Len(), "disabled feature does not schedule snapshot reconciliation")
+		isStorageQuotaM2FSSEnabled = true
+		syncStoragePolicyUsageUsedValues(context.Background(), fakeClient, spus, nil, nil)
+		assert.Equal(t, 1, q.Len(), "other extensions' SPUs are excluded")
 		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, snapSPU.Name))
+		assert.Equal(t, cap3Gi.Value(), getUsed(t, fakeClient, foreignSPU.Name))
 	})
 }
