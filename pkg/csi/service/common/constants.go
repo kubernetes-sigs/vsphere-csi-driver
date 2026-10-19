@@ -688,6 +688,13 @@ const (
 	// visibility of the guest cluster resources in the supervisor.
 	ImprovedVolumeVisibility = "improved-volume-visibility"
 
+	// GuestNFSVolume is the pvCSI FSS that gates guest-local NFS volumes in guest clusters:
+	// when enabled, a StorageClass "server" parameter routes volume operations to the
+	// vendored NFS driver (pkg/csi/service/wcpguest/nfsdriver) instead of the Supervisor.
+	// It has no Supervisor or CNS dependency, so the guest does not consult any Supervisor
+	// FSS or capability for it.
+	GuestNFSVolume = "guest-nfs-volume"
+
 	// VMPVCStoragePolicyMutability is the WCP capability for the DevOps storage-policy
 	// change feature on VMs and PVCs. When enabled on the supervisor, the CSI driver
 	// will advertise the CSI MODIFY_VOLUME capability and accept ControllerModifyVolume
