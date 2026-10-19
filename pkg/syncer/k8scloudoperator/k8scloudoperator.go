@@ -380,7 +380,7 @@ func (k8sCloudOperator *k8sCloudOperator) getPod(ctx context.Context, pvcName st
 		return nil, logger.LogNewErrorf(log, "Cannot find pod with namespace: %s running on node: %s with error %+v",
 			pvcNamespace, nodeName, err)
 	}
-	log.Debugf("Returned pods: %+v with namespace: %s running on node: %s", spew.Sdump(pods), pvcNamespace, nodeName)
+	log.Debugw("Returned pods running on node", "pods", pods, "namespace", pvcNamespace, "nodeName", nodeName)
 
 	// Identify the pod that a volume with name "pvcName" associated with it.
 	for _, pod := range pods.Items {
