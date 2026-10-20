@@ -18,9 +18,11 @@ package k8sorchestrator
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -696,5 +698,83 @@ func TestGetTopologyInfoFromNodes_CnsRegisterVolumeFailsWhenClusterRemovedFromZo
 	}
 	if !strings.Contains(err.Error(), "could not find the topology of the volume provisioned on datastore") {
 		t.Fatalf("expected static-provision / CnsRegisterVolume style topology error, got: %v", err)
+	}
+}
+
+// TestGetAZClustersMap_ReturnsCopy verifies that GetAZClustersMap returns a copy, so that callers
+// mutating or iterating over the result do not touch the shared azClustersMap cache.
+func TestGetAZClustersMap_ReturnsCopy(t *testing.T) {
+	origAzs := azClustersMap
+	defer func() {
+		azClustersMap = origAzs
+	}()
+
+	zoneName := "zone-a"
+	azClustersMap = map[string][]string{
+		zoneName: {"domain-c1", "domain-c2"},
+	}
+
+	volTopology := &wcpControllerVolumeTopology{}
+	got := volTopology.GetAZClustersMap(context.Background())
+	got[zoneName][0] = "mutated"
+	got["zone-b"] = []string{"domain-c3"}
+
+	if want := []string{"domain-c1", "domain-c2"}; !slices.Equal(azClustersMap[zoneName], want) {
+		t.Fatalf("azClustersMap[%q] = %v, want %v", zoneName, azClustersMap[zoneName], want)
+	}
+	if _, exists := azClustersMap["zone-b"]; exists {
+		t.Fatalf("azClustersMap unexpectedly contains zone-b after mutating the returned map")
+	}
+}
+
+// TestAZClustersMap_ConcurrentReadWrite exercises concurrent AvailabilityZone informer writes against
+// readers of azClusterMap and azClustersMap. Run with -race to detect unsynchronized access.
+func TestAZClustersMap_ConcurrentReadWrite(t *testing.T) {
+	for _, podVMEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("isPodVMOnStretchedSupervisorEnabled=%t", podVMEnabled), func(t *testing.T) {
+			origPodVM := isPodVMOnStretchedSupervisorEnabled
+			origAz := azClusterMap
+			origAzs := azClustersMap
+			defer func() {
+				isPodVMOnStretchedSupervisorEnabled = origPodVM
+				azClusterMap = origAz
+				azClustersMap = origAzs
+			}()
+
+			isPodVMOnStretchedSupervisorEnabled = podVMEnabled
+			azClusterMap = make(map[string]string)
+			azClustersMap = make(map[string][]string)
+
+			ctx := context.Background()
+			volTopology := &wcpControllerVolumeTopology{}
+			const iterations = 500
+			var wg sync.WaitGroup
+			wg.Add(3)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < iterations; i++ {
+					zone := fmt.Sprintf("zone-%d", i%10)
+					addToAZClusterMap(ctx, zone, []string{fmt.Sprintf("domain-c%d", i)})
+					if i%3 == 0 {
+						removeFromAZClusterMap(ctx, zone)
+					}
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				for i := 0; i < iterations; i++ {
+					for range volTopology.GetAZClustersMap(ctx) {
+					}
+					_ = volTopology.ZonesWithMultipleClustersExist(ctx)
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				for i := 0; i < iterations; i++ {
+					_, _ = volTopology.getClustersMatchingTopologySegment(ctx, fmt.Sprintf("zone-%d", i%10))
+				}
+			}()
+			wg.Wait()
+		})
 	}
 }
