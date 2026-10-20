@@ -621,6 +621,18 @@ func validateGuestPVCOperation(ctx context.Context, req *admissionv1.AdmissionRe
 		}
 	}
 
+	// spec.dataSourceRef.namespace is user-controlled and is not authorized by a
+	// ReferenceGrant at this point. Reject cross-namespace sources before reading anything
+	// from that namespace, so the error messages below cannot leak its metadata.
+	if dataSource.Namespace != pvc.Namespace {
+		return &admissionv1.AdmissionResponse{
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: "linked clone PVC data source must be in the same namespace as the PVC",
+			},
+		}
+	}
+
 	k8sClient, err := newK8sClient(ctx)
 	if err != nil {
 		return &admissionv1.AdmissionResponse{

@@ -544,6 +544,14 @@ func (h *CSISupervisorMutationWebhook) mutateNewPVC(ctx context.Context, req adm
 	// lets vm-operator (via csi.vsphere.volume-requested-topology) constrain the consuming
 	// VM's placement to a zone where the snapshot's data is actually reachable, instead of
 	// only discovering the mismatch when CreateVolume later fails against CNS.
+	if dataSource != nil && dataSource.Kind == "VolumeSnapshot" && dataSource.Namespace != newPVC.Namespace {
+		// spec.dataSourceRef.namespace is user-controlled and is not authorized by a
+		// ReferenceGrant at this point. Never read objects from another namespace on the
+		// requester's behalf, otherwise the deny messages and the propagated topology
+		// annotation leak metadata about that namespace.
+		return admission.Denied("VolumeSnapshot data source must be in the same namespace as the PVC")
+	}
+
 	if dataSource != nil && dataSource.Kind == "VolumeSnapshot" {
 		volumeSnapshotNamespace, volumeSnapshotName := dataSource.Namespace, dataSource.Name
 		// Retrieve the source PVC
