@@ -87,7 +87,7 @@ func validateSnapshotOperationGuestRequest(ctx context.Context, req *admissionv1
 		// Disallow any operation on VolumeSnapshot object if block-volume-snapshot feature is not enable
 		// If no volume snapshot class mentioned i.e. default volume snapshot class to be used, then
 		// following checks are skipped. Currently vSphere driver snapshot class is not marked default.
-		if *vs.Spec.VolumeSnapshotClassName != "" {
+		if vs.Spec.VolumeSnapshotClassName != nil && *vs.Spec.VolumeSnapshotClassName != "" {
 			snapshotterClient, err := newSnapshotterClient(ctx)
 			if err != nil {
 				reason := fmt.Sprintf("failed to get snapshotterClient for class %s with error: %v",
