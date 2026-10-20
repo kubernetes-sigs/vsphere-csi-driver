@@ -45,6 +45,8 @@ var (
 	//	  "zone-1": {"vc1": [{Type:ClusterComputeResource Value:domain-c12}] },
 	//	  "zone-2": {"vc2": [{Type:ClusterComputeResource Value:domain-c8] },}
 	tagVCEntityMoRefMap = make(map[string]map[commontypes.FQDN][]mo.Reference)
+	// tagVCEntityMoRefMapLock guards the tagVCEntityMoRefMap from concurrent read-write access.
+	tagVCEntityMoRefMapLock = &sync.RWMutex{}
 )
 
 // DiscoverTagEntities populates tagVCEntityMoRefMap with tagName -> VC -> associated MoRefs mapping.
@@ -104,16 +106,43 @@ func DiscoverTagEntities(ctx context.Context) error {
 				if len(objMORs) == 0 {
 					continue
 				}
-				if _, exists := tagVCEntityMoRefMap[tag.Name]; !exists {
-					tagVCEntityMoRefMap[tag.Name] = map[commontypes.FQDN][]mo.Reference{vcenterCfg.Host: objMORs}
-				} else {
-					tagVCEntityMoRefMap[tag.Name][vcenterCfg.Host] = objMORs
-				}
+				setTagVCEntityMoRefs(tag.Name, vcenterCfg.Host, objMORs)
 			}
 		}
 	}
+	tagVCEntityMoRefMapLock.RLock()
 	log.Debugf("tagVCEntityMoRefMap: %+v", tagVCEntityMoRefMap)
+	tagVCEntityMoRefMapLock.RUnlock()
 	return nil
+}
+
+// setTagVCEntityMoRefs records the entities attached to the tag in the given VC.
+// The per-tag inner map is replaced rather than mutated so that it is never
+// modified after being published to readers.
+func setTagVCEntityMoRefs(tagName string, vcHost commontypes.FQDN, objMORs []mo.Reference) {
+	tagVCEntityMoRefMapLock.Lock()
+	defer tagVCEntityMoRefMapLock.Unlock()
+	vcMap := make(map[commontypes.FQDN][]mo.Reference, len(tagVCEntityMoRefMap[tagName])+1)
+	for vc, morefs := range tagVCEntityMoRefMap[tagName] {
+		vcMap[vc] = morefs
+	}
+	vcMap[vcHost] = objMORs
+	tagVCEntityMoRefMap[tagName] = vcMap
+}
+
+// getVCsForTag returns the VCs on which the tag has entities attached.
+func getVCsForTag(tag string) ([]commontypes.FQDN, bool) {
+	tagVCEntityMoRefMapLock.RLock()
+	defer tagVCEntityMoRefMapLock.RUnlock()
+	vcMap, exists := tagVCEntityMoRefMap[tag]
+	if !exists {
+		return nil, false
+	}
+	vcs := make([]commontypes.FQDN, 0, len(vcMap))
+	for vc := range vcMap {
+		vcs = append(vcs, vc)
+	}
+	return vcs, true
 }
 
 // GetHostsForSegment retrieves the list of hosts for a topology segment by first
@@ -359,6 +388,8 @@ func filterMaintenanceModeHosts(ctx context.Context, hostList []*cnsvsphere.Host
 // areEntityMorefsPresentForTag retrieves the entities in given VC which have the
 // input tag associated with them.
 func areEntityMorefsPresentForTag(tag string, vcHost commontypes.FQDN) ([]mo.Reference, bool) {
+	tagVCEntityMoRefMapLock.RLock()
+	defer tagVCEntityMoRefMapLock.RUnlock()
 	vcEntityMap, exists := tagVCEntityMoRefMap[tag]
 	if !exists {
 		return nil, false
@@ -413,7 +444,7 @@ func getVCForTopologySegments(ctx context.Context,
 	// We go over the vcCountMap to check which VC has a count equal to
 	// the len(topologySegment), in this case 2 and return that VC.
 	for topologyKey, label := range topologySegments {
-		vcMap, exists := tagVCEntityMoRefMap[label]
+		vcs, exists := getVCsForTag(label)
 		if !exists {
 			// Refresh cache to see if the tag has been added recently.
 			err := DiscoverTagEntities(ctx)
@@ -421,10 +452,10 @@ func getVCForTopologySegments(ctx context.Context,
 				return commontypes.FQDN{}, logger.LogNewErrorf(log,
 					"failed to update cache with tag to VC to MoRef mapping. Error: %+v", err)
 			}
-			vcMap, exists = tagVCEntityMoRefMap[label]
+			vcs, exists = getVCsForTag(label)
 		}
 		if exists {
-			for vc := range vcMap {
+			for _, vc := range vcs {
 				vcCountMap[vc] = vcCountMap[vc] + 1
 			}
 		} else {
