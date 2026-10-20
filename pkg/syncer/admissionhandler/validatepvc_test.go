@@ -660,6 +660,9 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 		pvc                    *corev1.PersistentVolumeClaim
 		expectedAllowed        bool
 		expectedMessageContain string
+		// expectNoClientActions asserts that no API calls were made, e.g. to verify a
+		// request is rejected before any object in a foreign namespace is read.
+		expectNoClientActions bool
 	}{
 		{
 			name: "LinkedClone with matching svStorageClass should succeed",
@@ -1091,6 +1094,84 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 			expectedAllowed:        false,
 			expectedMessageContain: "does not have svstorageclass parameter",
 		},
+		{
+			name: "LinkedClone with cross-namespace dataSourceRef should be rejected",
+			kubeObjs: []runtime.Object{
+				&storagev1.StorageClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: testStorageClassA,
+					},
+					Provisioner: "csi.vsphere.vmware.com",
+					Parameters: map[string]string{
+						common.AttributeSupervisorStorageClass: testSvStorageClass1,
+					},
+				},
+				// Source PVC lives in a namespace the requester has no access to
+				&corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testSourcePVCName,
+						Namespace: "other-ns",
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						StorageClassName: stringPtr(testStorageClassA),
+						AccessModes: []corev1.PersistentVolumeAccessMode{
+							corev1.ReadWriteOnce,
+						},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("5Gi"),
+							},
+						},
+					},
+				},
+			},
+			snapshotObjs: []runtime.Object{
+				&snapshotv1.VolumeSnapshot{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      testSnapshotName,
+						Namespace: "other-ns",
+					},
+					Spec: snapshotv1.VolumeSnapshotSpec{
+						Source: snapshotv1.VolumeSnapshotSource{
+							PersistentVolumeClaimName: stringPtr(testSourcePVCName),
+						},
+						VolumeSnapshotClassName: stringPtr(testLinkedCloneSnapshotClass),
+					},
+					Status: &snapshotv1.VolumeSnapshotStatus{
+						ReadyToUse: boolPtr(true),
+					},
+				},
+			},
+			pvc: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testLinkedClonePVCName,
+					Namespace: testLinkedCloneNamespace,
+					Annotations: map[string]string{
+						common.AnnKeyLinkedClone: "true",
+					},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: stringPtr(testStorageClassA),
+					AccessModes: []corev1.PersistentVolumeAccessMode{
+						corev1.ReadWriteOnce,
+					},
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("5Gi"),
+						},
+					},
+					DataSourceRef: &corev1.TypedObjectReference{
+						APIGroup:  stringPtr("snapshot.storage.k8s.io"),
+						Kind:      "VolumeSnapshot",
+						Name:      testSnapshotName,
+						Namespace: stringPtr("other-ns"),
+					},
+				},
+			},
+			expectedAllowed:        false,
+			expectedMessageContain: "must be in the same namespace as the PVC",
+			expectNoClientActions:  true,
+		},
 	}
 
 	for _, test := range tests {
@@ -1142,6 +1223,11 @@ func TestValidateGuestPVCOperation_LinkedClone_StorageClass(t *testing.T) {
 				assert.Contains(t, response.Result.Message, test.expectedMessageContain,
 					"Expected error message to contain '%s' but got: %s",
 					test.expectedMessageContain, response.Result.Message)
+			}
+
+			if test.expectNoClientActions {
+				assert.Empty(t, kubeClient.Actions(), "expected no k8s API calls")
+				assert.Empty(t, snapshotClient.Actions(), "expected no snapshot API calls")
 			}
 		})
 	}

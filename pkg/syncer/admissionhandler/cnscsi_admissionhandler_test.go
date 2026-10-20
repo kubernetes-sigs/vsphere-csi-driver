@@ -1767,3 +1767,114 @@ func TestMutateNewPVC_PlainSnapshotRestore_NarrowRequestWithinMultiZoneSource_Al
 
 	mockCOInterface.AssertExpectations(t)
 }
+
+// TestMutateNewPVC_LinkedClone_CrossNamespaceDataSource_Denied verifies that a linked clone
+// whose spec.dataSourceRef points at a VolumeSnapshot in another namespace is denied without
+// the webhook reading anything from that namespace, so no foreign metadata can leak.
+func TestMutateNewPVC_LinkedClone_CrossNamespaceDataSource_Denied(t *testing.T) {
+	ctx := context.Background()
+
+	originalFeatureGate := featureIsLinkedCloneSupportEnabled
+	featureIsLinkedCloneSupportEnabled = true
+	defer func() {
+		featureIsLinkedCloneSupportEnabled = originalFeatureGate
+	}()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "linked-clone-pvc",
+			Namespace: "tenant-a",
+			Annotations: map[string]string{
+				common.AnnKeyLinkedClone: "true",
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSourceRef: &corev1.TypedObjectReference{
+				Name:      "victim-snap",
+				Kind:      "VolumeSnapshot",
+				APIGroup:  func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+				Namespace: func() *string { s := "tenant-b"; return &s }(),
+			},
+			StorageClassName: &[]string{"wcpglobal-storage-profile"}[0],
+		},
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      &MockCryptoClient{},
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	assert.False(t, response.Allowed)
+	assert.Contains(t, response.Result.Message, "must be in the same namespace as the PVC")
+	assert.NotContains(t, response.Result.Message, "tenant-b")
+	mockCOInterface.AssertNotCalled(t, "GetVolumeSnapshotPVCSource", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestMutateNewPVC_PlainSnapshotRestore_CrossNamespaceDataSource_Denied verifies that a plain
+// restore referencing a VolumeSnapshot in another namespace is denied, consistent with linked
+// clones, without the webhook reading anything from that namespace.
+func TestMutateNewPVC_PlainSnapshotRestore_CrossNamespaceDataSource_Denied(t *testing.T) {
+	ctx := context.Background()
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-pvc",
+			Namespace: "tenant-a",
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			DataSourceRef: &corev1.TypedObjectReference{
+				Name:      "victim-snap",
+				Kind:      "VolumeSnapshot",
+				APIGroup:  func() *string { s := common.VolumeSnapshotApiGroup; return &s }(),
+				Namespace: func() *string { s := "tenant-b"; return &s }(),
+			},
+			StorageClassName: &[]string{"zonal-ds-policy"}[0],
+		},
+	}
+
+	pvcBytes, _ := json.Marshal(testPVC)
+	req := admission.Request{
+		AdmissionRequest: v1.AdmissionRequest{
+			Kind:      metav1.GroupVersionKind{Kind: "PersistentVolumeClaim"},
+			Operation: v1.Create,
+			Object:    runtime.RawExtension{Raw: pvcBytes},
+		},
+	}
+
+	mockCOInterface := &MockCOCommonInterface{}
+	webhook := &CSISupervisorMutationWebhook{
+		coCommonInterface: mockCOInterface,
+		CryptoClient:      &MockCryptoClient{},
+	}
+
+	response := webhook.mutateNewPVC(ctx, req)
+
+	assert.False(t, response.Allowed)
+	assert.Contains(t, response.Result.Message, "must be in the same namespace as the PVC")
+	assert.NotContains(t, response.Result.Message, "tenant-b")
+	mockCOInterface.AssertNotCalled(t, "GetVolumeSnapshotPVCSource", mock.Anything, mock.Anything, mock.Anything)
+}
