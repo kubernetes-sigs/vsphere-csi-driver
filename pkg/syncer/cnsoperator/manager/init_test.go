@@ -18,6 +18,8 @@ package manager
 
 import (
 	"context"
+	"net"
+	"os"
 	"sync"
 	"testing"
 
@@ -191,4 +193,33 @@ func BenchmarkGetGlobalSchemeConcurrent(b *testing.B) {
 			getGlobalScheme(ctx)
 		}
 	})
+}
+
+// TestMetricsServerOptionsDefaultIsLoopback verifies the controller-runtime
+// metrics server binds to loopback only by default. The endpoint is
+// unauthenticated plain HTTP and the Supervisor controller runs with
+// hostNetwork, so binding all interfaces would expose it on the node IP.
+func TestMetricsServerOptionsDefaultIsLoopback(t *testing.T) {
+	t.Setenv(metricsBindAddressEnv, "")
+	assert.NoError(t, os.Unsetenv(metricsBindAddressEnv))
+
+	addr := metricsServerOptions().BindAddress
+	host, port, err := net.SplitHostPort(addr)
+	assert.NoError(t, err)
+	assert.Equal(t, "8383", port)
+	ip := net.ParseIP(host)
+	if assert.NotNilf(t, ip, "metrics host %q should be an IP literal", host) {
+		assert.Truef(t, ip.IsLoopback(), "metrics host %q should be a loopback address", host)
+	}
+}
+
+// TestMetricsServerOptionsEnvOverride verifies the metrics bind address can be
+// overridden, including disabling the metrics server with "0".
+func TestMetricsServerOptionsEnvOverride(t *testing.T) {
+	for _, addr := range []string{"0.0.0.0:8383", ":9090", "0"} {
+		t.Run(addr, func(t *testing.T) {
+			t.Setenv(metricsBindAddressEnv, addr)
+			assert.Equal(t, addr, metricsServerOptions().BindAddress)
+		})
+	}
 }
