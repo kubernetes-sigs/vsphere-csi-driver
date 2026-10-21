@@ -19,6 +19,7 @@ package admissionhandler
 import (
 	"context"
 	"os"
+	"time"
 
 	"gopkg.in/gcfg.v1"
 
@@ -29,6 +30,21 @@ const (
 	envWebHookConfigPath     = "WEBHOOK_CONFIG_PATH"
 	defaultWebHookConfigPath = "/etc/webhook/webhook.config"
 	defaultWebhookServerPort = "8443"
+
+	// Timeouts for the webhook http server, to bound how long a client can
+	// hold a connection open (e.g. Slowloris-style slow headers or body).
+	webhookReadHeaderTimeout = 10 * time.Second
+	webhookReadTimeout       = 30 * time.Second
+	webhookWriteTimeout      = 30 * time.Second
+	webhookIdleTimeout       = 120 * time.Second
+
+	// maxAdmissionReviewBodyBytes caps the size of an AdmissionReview request
+	// body read by the webhook. An UPDATE review carries both the new and the
+	// old object, and each can be up to ~3 MiB once JSON-encoded (objects are
+	// limited to ~1.5 MiB in etcd, and JSON escaping can roughly double that).
+	// Allowing ~1 MiB for the rest of the review gives 7 MiB, which matches the
+	// limit used by the controller-runtime webhook server.
+	maxAdmissionReviewBodyBytes = 7 << 20 // 7 MiB
 )
 
 // config holds webhook configuration and FeatureStatesConfig
