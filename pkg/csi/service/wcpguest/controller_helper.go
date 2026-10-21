@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/utils/ptr"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -551,6 +552,125 @@ func patchSupervisorPVCAnnotation(ctx context.Context, client clientset.Interfac
 	log.Infof("Successfully patched guest-cluster annotation on supervisor PVC %s/%s with patch %s",
 		supervisorNamespace, supervisorPVCName)
 	return nil
+}
+
+// isStorageQuotaWebhookDenial returns true if err is a Forbidden error returned by the
+// supervisor storage quota admission webhooks (validate-quota-on-create.k8s.io /
+// validate-quota-on-update.k8s.io), i.e. the request was rejected due to storage quota.
+func isStorageQuotaWebhookDenial(err error) bool {
+	if err == nil || !apierrors.IsForbidden(err) {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "validate-quota-on-") && strings.Contains(msg, "denied the request")
+}
+
+// storageQuotaDeniedError builds a user facing error for a request rejected by the supervisor
+// storage quota admission webhook. The webhook also rejects requests for reasons other than
+// insufficient quota (e.g. StorageClass not associated with the namespace, missing StorageClass,
+// StoragePolicyReservation validation failure), so ResourceExhausted is returned only when the
+// rejection is due to insufficient quota and FailedPrecondition is returned otherwise.
+func storageQuotaDeniedError(operation, object, supervisorNamespace, storageClass, size string,
+	err error) error {
+	// The original webhook error is logged by the caller and is not included here to keep the
+	// message short, except for the webhook's reason when it is not insufficient quota.
+	if strings.Contains(strings.ToLower(err.Error()), "insufficient storage quota") {
+		return status.Errorf(codes.ResourceExhausted, "%s for %q (StorageClass: %q, "+
+			"requested size: %s) was rejected due to insufficient storage quota in vSphere Namespace %q. "+
+			"Please contact the vSphere administrator to increase the storage quota.",
+			operation, object, storageClass, size, supervisorNamespace)
+	}
+	reason := err.Error()
+	if _, after, found := strings.Cut(reason, "denied the request: "); found {
+		reason = after
+	}
+	return status.Errorf(codes.FailedPrecondition, "%s for %q (StorageClass: %q, "+
+		"requested size: %s) was rejected by the storage quota validation in vSphere Namespace %q. "+
+		"Reason: %s", operation, object, storageClass, size, supervisorNamespace, reason)
+}
+
+// storageQuotaDeniedAnnotation returns the short, user facing AnnKeyProvisioningError annotation
+// value for a request rejected by the supervisor storage quota admission webhook. The descriptive
+// message for support is returned by storageQuotaDeniedError.
+func storageQuotaDeniedAnnotation(err error) string {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "insufficient storage quota"):
+		return "InsufficientQuota: The storage quota for this cluster's vSphere Namespace is exhausted. " +
+			"Contact the vSphere administrator to increase the quota."
+	case strings.Contains(msg, "is not associated with"):
+		return "StorageClassNotAssociated: This StorageClass is not assigned to this cluster's vSphere " +
+			"Namespace. Contact the vSphere administrator to assign it, or use a different StorageClass."
+	default:
+		return "QuotaValidationFailed: The storage quota validation rejected this request. Contact the " +
+			"vSphere administrator and include this PVC's name and namespace."
+	}
+}
+
+// setGuestPVCProvisioningError sets the AnnKeyProvisioningError annotation with the given
+// message on the guest cluster PVC. Errors are only logged as this is best effort.
+func setGuestPVCProvisioningError(ctx context.Context, guestClient clientset.Interface,
+	pvcNamespace, pvcName, message string) {
+	patchGuestPVCProvisioningError(ctx, guestClient, pvcNamespace, pvcName, &message)
+}
+
+// clearGuestPVCProvisioningError removes the AnnKeyProvisioningError annotation from the guest
+// cluster PVC, if present. Errors are only logged as this is best effort.
+func clearGuestPVCProvisioningError(ctx context.Context, guestClient clientset.Interface,
+	pvcNamespace, pvcName string) {
+	patchGuestPVCProvisioningError(ctx, guestClient, pvcNamespace, pvcName, nil)
+}
+
+// guestPVCFromSupervisorPVC returns the guest cluster PVC namespace and name recorded in the
+// AnnKeyGuestClusterPvc annotation of the supervisor PVC, or empty strings if not available.
+func guestPVCFromSupervisorPVC(svPVC *v1.PersistentVolumeClaim) (string, string) {
+	var guestPvcAnnot map[string]string
+	if err := json.Unmarshal([]byte(svPVC.Annotations[common.AnnKeyGuestClusterPvc]), &guestPvcAnnot); err != nil {
+		return "", ""
+	}
+	return guestPvcAnnot[common.GuestClusterAnnotKeyNamespace], guestPvcAnnot[common.GuestClusterAnnotKeyName]
+}
+
+// expansionQuotaDenied returns the error for a supervisor PVC expansion rejected by the storage
+// quota webhook and records it on the guest cluster PVC, as the external-resizer only reports it
+// in an event.
+func (c *controller) expansionQuotaDenied(ctx context.Context, svPVC *v1.PersistentVolumeClaim,
+	size string, err error) error {
+	quotaErr := storageQuotaDeniedError("Volume expansion", "volume "+svPVC.Name, c.supervisorNamespace,
+		ptr.Deref(svPVC.Spec.StorageClassName, ""), size, err)
+	guestPVCNamespace, guestPVCName := guestPVCFromSupervisorPVC(svPVC)
+	setGuestPVCProvisioningError(ctx, c.guestClient, guestPVCNamespace, guestPVCName,
+		storageQuotaDeniedAnnotation(err))
+	return quotaErr
+}
+
+// patchGuestPVCProvisioningError sets (message != nil) or removes (message == nil) the
+// AnnKeyProvisioningError annotation on the guest cluster PVC using a JSON merge patch.
+func patchGuestPVCProvisioningError(ctx context.Context, guestClient clientset.Interface,
+	pvcNamespace, pvcName string, message *string) {
+	log := logger.GetLogger(ctx)
+	if guestClient == nil || pvcNamespace == "" || pvcName == "" {
+		return
+	}
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": map[string]interface{}{
+				common.AnnKeyProvisioningError: message,
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		log.Errorf("failed to marshal %s annotation patch for guest PVC %s/%s. Error: %+v",
+			common.AnnKeyProvisioningError, pvcNamespace, pvcName, err)
+		return
+	}
+	_, err = guestClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Patch(ctx, pvcName,
+		types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		log.Errorf("failed to update %s annotation on guest PVC %s/%s. Error: %+v",
+			common.AnnKeyProvisioningError, pvcNamespace, pvcName, err)
+	}
 }
 
 // getProvisionTimeoutInMin() return the timeout for volume provision.
