@@ -439,10 +439,9 @@ func patchMigrationConditionsType(ctx context.Context, pvcNamespace, pvcName, co
 //     NOT touched because a PVC's storage class is immutable.
 //  2. PATCHes CNSVolumeInfo.Status.MigrationConditions = Complete with a
 //     "from -> to" message.
-//  3. Calls migrationHandleStoragePolicyChange() directly so that the
-//     StoragePolicyUsage CRs (PVC capacity + AggregatedSnapshotSize) are moved
-//     from the OLD policy's SPU (keyed by old VAC, or StorageClassName when
-//     there was no old VAC) to the NEW policy's SPU (keyed by new VAC).
+//  3. Calls migrationHandleStoragePolicyChange() directly to move PVC capacity
+//     from the old policy's SPU to the new policy's SPU. The CNSVolumeInfo informer
+//     update separately schedules recomputation of snapshot Used for both SPUs.
 func propagateMigrationSuccess(ctx context.Context, metadataSyncer *metadataSyncInformer,
 	pvcNamespace, pvcName string, migrationCR *unstructured.Unstructured) error {
 	log := logger.GetLogger(ctx)

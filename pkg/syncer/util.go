@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clientset "k8s.io/client-go/kubernetes"
@@ -968,6 +969,34 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// patchSnapshotUsedOnce writes only Used, including when quotaUsage was absent at
+// the earlier GET. Retry belongs to the caller so it can re-read and recompute.
+func patchSnapshotUsedOnce(ctx context.Context, cnsOperatorClient client.Client,
+	spu *storagepolicyusagev1alpha3.StoragePolicyUsage, used *resource.Quantity) error {
+	patch, err := json.Marshal(map[string]interface{}{"status": map[string]interface{}{
+		"quotaUsage": map[string]interface{}{"used": used.String()}}})
+	if err != nil {
+		return err
+	}
+	return cnsOperatorClient.Status().Patch(ctx, spu.DeepCopy(), client.RawPatch(apitypes.MergePatchType, patch))
+}
+
+// patchMissingSnapshotCapacityAnnotation sets or removes the missing snapshot aggregated capacity
+// annotation on the StoragePolicyUsage CR with a single merge patch.
+func patchMissingSnapshotCapacityAnnotation(ctx context.Context, cnsOperatorClient client.Client,
+	spu *storagepolicyusagev1alpha3.StoragePolicyUsage, missing bool) error {
+	var value interface{}
+	if missing {
+		value = "true"
+	}
+	patch, err := json.Marshal(map[string]interface{}{"metadata": map[string]interface{}{
+		"annotations": map[string]interface{}{common.MissingSnapshotAggregatedCapacity: value}}})
+	if err != nil {
+		return err
+	}
+	return cnsOperatorClient.Patch(ctx, spu.DeepCopy(), client.RawPatch(apitypes.MergePatchType, patch))
 }
 
 // addResourceVersion sets the resource version for the patch obj

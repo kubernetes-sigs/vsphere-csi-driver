@@ -629,11 +629,10 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 			isStorageQuotaM2Enabled := metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.StorageQuotaM2)
 			if isStorageQuotaM2Enabled {
-				// Create informer to watch on update events of CnsVolumeInfo CRs
-				cnsVolumeInfoCRInformerErr := startCnsVolumeInfoCRInformer(ctx, k8sConfig, metadataSyncer)
-				if cnsVolumeInfoCRInformerErr != nil {
-					log.Errorf("failed to start informer on %q instances. Error: %v",
-						cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, cnsVolumeInfoCRInformerErr)
+				// Start snapshot Used reconciliation from the shared CnsVolumeInfo informer.
+				if err := startSnapshotSPUReconciler(ctx); err != nil {
+					log.Errorf("failed to start snapshot %s Used reconciler. Error: %v",
+						storagepolicyv1alpha3.CRDSingular, err)
 					os.Exit(1)
 				}
 			}
@@ -2221,20 +2220,8 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				patchedStoragePolicyUsageCR.Name, cnsVolumeOperationRequestName)
 			return
 		} else {
-			// This is a case where, the storagePolicyUsage CR does not have Status field.
-			// The else{} block is usually executed for the 1st CreateVolume call after the
-			// podVMOnStretchedSupervisor FSS is enabled
-			var (
-				usedQty     resource.Quantity
-				reservedQty resource.Quantity
-			)
-			reservedQty = *cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved
-			patchedStoragePolicyUsageCR.Status = storagepolicyv1alpha3.StoragePolicyUsageStatus{
-				ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
-					Reserved: &reservedQty,
-					Used:     &usedQty,
-				},
-			}
+			initializeStoragePolicyUsageReservation(patchedStoragePolicyUsageCR,
+				*cnsvolumeoperationrequestObj.Status.StorageQuotaDetails.Reserved, isSnapshot)
 			err := PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
 				patchedStoragePolicyUsageCR)
 			if err != nil {
@@ -2246,6 +2233,26 @@ func cnsvolumeoperationrequestCRAdded(obj interface{}) {
 				patchedStoragePolicyUsageCR.Name)
 			return
 		}
+	}
+}
+
+// initializeStoragePolicyUsageReservation initializes the reservation when quotaUsage or Reserved
+// is absent. Snapshot Used has an independent writer, so its value must be preserved, including when
+// it is absent in this read but is written before the reservation patch reaches the API server.
+// PVC initialization retains its existing behavior.
+func initializeStoragePolicyUsageReservation(spu *storagepolicyv1alpha3.StoragePolicyUsage,
+	reserved resource.Quantity, isSnapshot bool) {
+	reserved = reserved.DeepCopy()
+	if isSnapshot {
+		if spu.Status.ResourceTypeLevelQuotaUsage == nil {
+			spu.Status.ResourceTypeLevelQuotaUsage = &storagepolicyv1alpha3.QuotaUsageDetails{}
+		}
+		spu.Status.ResourceTypeLevelQuotaUsage.Reserved = &reserved
+		return
+	}
+	used := resource.Quantity{}
+	spu.Status = storagepolicyv1alpha3.StoragePolicyUsageStatus{
+		ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{Reserved: &reserved, Used: &used},
 	}
 }
 
@@ -4931,7 +4938,6 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 	}
 	volumeInfoCRList := volumeInfoService.ListAllVolumeInfos()
 	cnsVolumeInfoMap := make(map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo)
-	spuAggregatedSumMap := make(map[string]*resource.Quantity)
 	for _, volumeInfo := range volumeInfoCRList {
 		cnsVolumeInfoObj := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
 		err = runtime.DefaultUnstructuredConverter.FromUnstructured(volumeInfo.(*unstructured.Unstructured).Object,
@@ -4942,17 +4948,9 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 			continue
 		}
 		cnsVolumeInfoMap[cnsVolumeInfoObj.Name] = cnsVolumeInfoObj.DeepCopy()
-		if isStorageQuotaM2FSSEnabled && cnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-			spuKey := generateSPUKey(cnsVolumeInfoObj)
-			if usedQty := spuAggregatedSumMap[spuKey]; usedQty == nil {
-				spuAggregatedSumMap[spuKey] = cnsVolumeInfoObj.Spec.AggregatedSnapshotSize
-			} else {
-				spuAggregatedSumMap[spuKey].Add(*cnsVolumeInfoObj.Spec.AggregatedSnapshotSize)
-			}
-		}
 	}
 	syncStoragePolicyUsageUsedValues(ctx, cnsOperatorClient, storagePolicyUsageList,
-		namespaceToK8sVolumesMap, cnsVolumeInfoMap, spuAggregatedSumMap)
+		namespaceToK8sVolumesMap, cnsVolumeInfoMap)
 }
 
 // syncStoragePolicyUsageUsedValues recomputes and patches the "Used" field for every
@@ -4965,15 +4963,25 @@ func storagePolicyUsageCRSync(ctx context.Context, metadataSyncer *metadataSyncI
 // that SPU was deleted) - so that stale "Used" values left behind by other code paths (e.g.
 // volume deletion decrementing the wrong SPU after a storage-policy migration) get reset to 0
 // instead of being silently skipped. Map lookups below are safe when
-// namespaceToK8sVolumesMap/cnsVolumeInfoMap/spuAggregatedSumMap have no entry for the key: a
+// namespaceToK8sVolumesMap/cnsVolumeInfoMap have no entry for the key: a
 // missing map key yields the zero value (nil slice/pointer, false for ok), and ranging over a
 // nil slice is simply zero iterations.
 func syncStoragePolicyUsageUsedValues(ctx context.Context, cnsOperatorClient client.Client,
 	storagePolicyUsageList *storagepolicyv1alpha3.StoragePolicyUsageList,
 	namespaceToK8sVolumesMap map[string][]*v1.PersistentVolume,
-	cnsVolumeInfoMap map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo,
-	spuAggregatedSumMap map[string]*resource.Quantity) {
+	cnsVolumeInfoMap map[string]*cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 	log := logger.GetLogger(ctx)
+
+	// Snapshot Used has its own cache synchronization and validation. Enqueue it before the PVC
+	// inventory guard below, so an incomplete PVC census does not suppress snapshot repair.
+	if isStorageQuotaM2FSSEnabled {
+		for i := range storagePolicyUsageList.Items {
+			usage := &storagePolicyUsageList.Items[i]
+			if isCSISnapshotSPU(usage) {
+				enqueueSnapshotSPU(usage.Namespace + "/" + usage.Name)
+			}
+		}
+	}
 
 	// Guard against a transient CNSVolumeInfo informer cache that hasn't synced yet: if there
 	// are Bound PVs anywhere but cnsVolumeInfoMap has no entries at all, that is far more likely
@@ -5031,29 +5039,6 @@ func syncStoragePolicyUsageUsedValues(ctx context.Context, cnsOperatorClient cli
 				}
 			}
 			updateSpu = true
-		} else if isStorageQuotaM2FSSEnabled && storagePolicyUsage.Spec.ResourceKind == ResourceKindSnapshot {
-			// Generate SPU key - use StorageClassName for SC-based SPUs, "vac-" + VolumeAttributesClassName
-			// for VAC-based SPUs (prefix avoids collisions when a StorageClass and VolumeAttributesClass
-			// share the same name; must match generateSPUKey).
-			var keyComponent string
-			if storagePolicyUsage.Spec.StorageClassName != "" {
-				keyComponent = storagePolicyUsage.Spec.StorageClassName
-			} else {
-				keyComponent = "vac-" + storagePolicyUsage.Spec.VolumeAttributesClassName
-			}
-			spuKey := strings.Join([]string{keyComponent,
-				storagePolicyUsage.Spec.StoragePolicyId, storagePolicyUsage.Namespace}, "-")
-			// Same as the PVC branch above: always recompute (and patch) this snapshot SPU,
-			// even when spuAggregatedSumMap has no entry for its key (e.g. the last snapshot
-			// under it was deleted) - totalUsedQty naturally stays 0 in that case, resetting
-			// stale Used instead of leaving it untouched.
-			if usedQty, ok := spuAggregatedSumMap[spuKey]; ok {
-				log.Infof("storagePolicyUsageCRSync: The used capacity field for StoragepolicyUsage CR: %s "+
-					"in namespace: %s Total AggregatedSnapshotSize Sum is: %s", storagePolicyUsage.Name,
-					storagePolicyUsage.Namespace, usedQty.String())
-				totalUsedQty = usedQty
-			}
-			updateSpu = true
 		}
 		if updateSpu {
 			patchedStoragePolicyUsage := *storagePolicyUsage.DeepCopy()
@@ -5103,164 +5088,32 @@ func syncStoragePolicyUsageUsedValues(ctx context.Context, cnsOperatorClient cli
 	}
 }
 
-func generateSPUKey(cnsVolumeInfoObj *cnsvolumeinfov1alpha1.CNSVolumeInfo) string {
-	// Generate SPU key. VAC-based volumes use a "vac-" prefix to avoid key collisions with
-	// StorageClass-based volumes when the names happen to be identical. SC-based volumes use
-	// the StorageClassName directly. Must remain consistent with the snapshot aggregation
-	// map key in storagePolicyUsageCRSync.
-	var keyComponent string
-	if cnsVolumeInfoObj.Spec.VolumeAttributeClassName != "" {
-		keyComponent = "vac-" + cnsVolumeInfoObj.Spec.VolumeAttributeClassName
-	} else {
-		keyComponent = cnsVolumeInfoObj.Spec.StorageClassName
-	}
-	return strings.Join([]string{keyComponent, cnsVolumeInfoObj.Spec.StoragePolicyID,
-		cnsVolumeInfoObj.Spec.Namespace}, "-")
-}
-
-// startCnsVolumeInfoCRInformer creates and starts an informer for CnsVolumeInfo custom resource.
-func startCnsVolumeInfoCRInformer(ctx context.Context, cfg *restclient.Config,
-	metadataSyncer *metadataSyncInformer) error {
+// startSnapshotSPUReconciler starts the reconciler of the snapshot StoragePolicyUsage CRs. It uses the
+// CnsVolumeInfo informer of the volumeInfoService, the same store which the full sync reads. Event handlers
+// and the full sync only enqueue StoragePolicyUsage keys; the reconciler owns CSI updates to snapshot Used.
+func startSnapshotSPUReconciler(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
-	// Create an informer for CnsVolumeInfo instances.
-	dynInformer, err := k8s.GetDynamicInformer(ctx, cnsvolumeinfov1alpha1.GroupName,
-		cnsvolumeinfov1alpha1.Version, cnsvolumeinfov1alpha1.CnsVolumeInfoPlural, metav1.NamespaceAll, cfg, true)
-	if err != nil {
-		return logger.LogNewErrorf(log, "failed to create dynamic informer for %s CR. Error: %+v",
-			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+	if volumeInfoService == nil {
+		return logger.LogNewErrorf(log, "volumeInfoService is not initialized")
 	}
-	cnsVolumeInformer := dynInformer.Informer()
-	_, err = cnsVolumeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			cnsVolumeInfoCRUpdated(oldObj, newObj, metadataSyncer)
-		},
-	})
+	informer := volumeInfoService.Informer()
+	spuClient, err := newSPUSnapshotClient(ctx)
+	if err != nil {
+		return logger.LogNewErrorf(log, "failed to create client for snapshot %s reconciler. Error: %v",
+			storagepolicyv1alpha3.CRDSingular, err)
+	}
+	queue := workqueue.NewTypedRateLimitingQueueWithConfig(workqueue.DefaultTypedControllerRateLimiter[string](),
+		workqueue.TypedRateLimitingQueueConfig[string]{Name: "snapshot-spu-used"})
+	reconciler, err := newSPUSnapshotReconciler(spuClient, informer, queue)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
 			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
 	}
-	// Start informer.
-	go func() {
-		log.Infof("Informer to watch on %s CR starting..", cnsvolumeinfov1alpha1.CnsVolumeInfoSingular)
-		cnsVolumeInformer.Run(make(chan struct{}))
-	}()
+	spuSnapshotQueue = queue
+	go reconciler.run(ctx, spuSnapshotWorkers)
+	log.Infof("Reconciler of snapshot %s CRs started with %d workers", storagepolicyv1alpha3.CRDSingular,
+		spuSnapshotWorkers)
 	return nil
-}
-
-// cnsVolumeInfoCRUpdated updates the VolumeSnapshot StoragePolicyUsage "used" capacity. This is used to track
-// snapshot aggregated capacity usage per volume basis.
-func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSyncer *metadataSyncInformer) {
-	ctx, log := logger.GetNewContextWithLogger()
-	// Verify both objects received.
-	var (
-		oldCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo
-		newCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo
-	)
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(
-		newObj.(*unstructured.Unstructured).Object, &newCnsVolumeInfoObj)
-	if err != nil {
-		log.Errorf("cnsVolumeInfoCRUpdated: failed to cast new object %+v to %s. Error: %+v", newObj,
-			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
-		return
-	}
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(
-		oldObj.(*unstructured.Unstructured).Object, &oldCnsVolumeInfoObj)
-	if err != nil {
-		log.Errorf("cnsVolumeInfoCRUpdated: failed to cast old object %+v to %s. Error: %+v", oldObj,
-			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
-		return
-	}
-	log.Debugf("cnsVolumeInfoCRUpdated: Old CnsVolumeInfo: +%v, Updated CnsVolumeInfo: +%+v",
-		oldCnsVolumeInfoObj, newCnsVolumeInfoObj)
-
-	// Fetch StoragePolicyUsage instance for StorageClass associated with the snapshot.
-	restConfig, err := config.GetConfig()
-	if err != nil {
-		log.Errorf("cnsVolumeInfoCRUpdated: failed to get Kubernetes config. Err: %+v", err)
-		return
-	}
-	cnsOperatorClient, err := k8s.NewClientForGroup(ctx, restConfig, cnsoperatorv1alpha1.GroupName)
-	if err != nil {
-		log.Errorf("cnsVolumeInfoCRUpdated: Failed to create CnsOperator client. Err: %+v", err)
-		return
-	}
-
-	storagePolicyUsageInstanceName := newCnsVolumeInfoObj.Spec.StorageClassName + "-" +
-		storagepolicyv1alpha3.NameSuffixForSnapshot
-	storagePolicyUsageCR := &storagepolicyv1alpha3.StoragePolicyUsage{}
-	err = cnsOperatorClient.Get(ctx, k8stypes.NamespacedName{
-		Namespace: newCnsVolumeInfoObj.Spec.Namespace,
-		Name:      storagePolicyUsageInstanceName},
-		storagePolicyUsageCR)
-	if err != nil {
-		log.Errorf("failed to fetch %s instance with name %q from supervisor namespace %q. Error: %+v",
-			storagepolicyv1alpha3.CRDSingular, storagePolicyUsageInstanceName,
-			newCnsVolumeInfoObj.Spec.Namespace, err)
-		return
-	}
-	var diffSnapshotSize resource.Quantity
-	patchedStoragePolicyUsageCR := storagePolicyUsageCR.DeepCopy()
-	if !newCnsVolumeInfoObj.Spec.ValidAggregatedSnapshotSize &&
-		!newCnsVolumeInfoObj.Spec.SnapshotLatestOperationCompleteTime.IsZero() {
-		// If ValidAggregatedSnapshotSize field of new CnsVolumeInfo CR is false and volume has snapshot(s), then add
-		// annotation "csi.vsphere.missing-snapshot-aggregated-capacity: true" on StoragePolicyUsage CR.
-		log.Infof("Couldn't retrieve aggregated snapshot size for volume %q, adding annotation %s on "+
-			"StoragePolicyUsage CR", common.MissingSnapshotAggregatedCapacity, newCnsVolumeInfoObj.Spec.VolumeID)
-		patchAnnotation := common.MergeMaps(newCnsVolumeInfoObj.Annotations,
-			map[string]string{common.MissingSnapshotAggregatedCapacity: "true"})
-		patchedStoragePolicyUsageCR.Annotations = patchAnnotation
-	} else if newCnsVolumeInfoObj.Spec.ValidAggregatedSnapshotSize &&
-		newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-		// Delete annotation "csi.vsphere.missing-snapshot-aggregated-capacity: true" on StoragePolicyUsage CR
-		// if it was present, since ValidAggregatedSnapshotSize is true.
-		delete(patchedStoragePolicyUsageCR.Annotations, common.MissingSnapshotAggregatedCapacity)
-
-		var oldAggregatedSnapshotSize resource.Quantity
-		if oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-			oldAggregatedSnapshotSize = *oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
-		} else {
-			oldAggregatedSnapshotSize = *resource.NewQuantity(0, resource.BinarySI)
-		}
-
-		if oldAggregatedSnapshotSize.Value() != newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize.Value() {
-			if storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage != nil &&
-				storagePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used != nil {
-				// Patch StoragePolicyUsage Used field when Status->QuotaUsage->Used are not nil
-				diffSnapshotSize = *newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
-				diffSnapshotSize.Sub(oldAggregatedSnapshotSize)
-				patchedStoragePolicyUsageCR.Status.ResourceTypeLevelQuotaUsage.Used.Add(diffSnapshotSize)
-			} else {
-				// This is a case where, the StoragePolicyUsage CR does not have Status->QuotaUsage field.
-				// The block is usually executed for the 1st CreateSnapshot call.
-				usedQty := *newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize
-				patchedStoragePolicyUsageCR.Status = storagepolicyv1alpha3.StoragePolicyUsageStatus{
-					ResourceTypeLevelQuotaUsage: &storagepolicyv1alpha3.QuotaUsageDetails{
-						Used: &usedQty,
-					},
-				}
-			}
-		} else {
-			log.Infof("cnsVolumeInfoCRUpdated: there is no difference in aggregated snapshot size, skipping "+
-				"update of StoragePolicyUsage CR: %q", patchedStoragePolicyUsageCR.Name)
-			return
-		}
-	}
-
-	// Patch StoragePolicyUsage CR
-	err = PatchStoragePolicyUsage(ctx, cnsOperatorClient, storagePolicyUsageCR,
-		patchedStoragePolicyUsageCR)
-	if err != nil {
-		log.Errorf("error occurred while patching StoragePolicyUsage CR %q, err: %v",
-			patchedStoragePolicyUsageCR.Name, err)
-		return
-	}
-	if diffSnapshotSize.Value() > 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size increased by %s, increased Used "+
-			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
-	} else if diffSnapshotSize.Value() < 0 {
-		log.Infof("cnsVolumeInfoCRUpdated: aggregated snapshot size decreased by %s, decreased Used "+
-			"field for storagepolicyusage CR: %s", diffSnapshotSize.String(), patchedStoragePolicyUsageCR.Name)
-	}
 }
 
 // handleVACChangeForVolumeInfo rebalances StoragePolicyUsage quotas after a
@@ -5276,6 +5129,9 @@ func cnsVolumeInfoCRUpdated(oldObj interface{}, newObj interface{}, metadataSync
 //
 // The migration watcher (storage_policy_migration_watcher.go) calls this
 // helper directly after PATCHing CNSVolumeInfo.
+//
+// Snapshot StoragePolicyUsage CRs are not handled here: the snapshot reconciler enqueues both the
+// old and the new snapshot SPU on a CNSVolumeInfo update and recomputes their Used values.
 func handleVACChangeForVolumeInfo(ctx context.Context, cnsOperatorClient client.Client,
 	oldCnsVolumeInfoObj, newCnsVolumeInfoObj cnsvolumeinfov1alpha1.CNSVolumeInfo) {
 
@@ -5307,17 +5163,6 @@ func handleVACChangeForVolumeInfo(ctx context.Context, cnsOperatorClient client.
 		updateStoragePolicyUsageQuota(ctx, cnsOperatorClient, newKey,
 			newCnsVolumeInfoObj.Spec.Namespace, storagepolicyv1alpha3.NameSuffixForPVC,
 			newCnsVolumeInfoObj.Spec.Capacity, false)
-	}
-
-	if oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-		updateStoragePolicyUsageQuota(ctx, cnsOperatorClient, oldKey,
-			oldCnsVolumeInfoObj.Spec.Namespace, storagepolicyv1alpha3.NameSuffixForSnapshot,
-			oldCnsVolumeInfoObj.Spec.AggregatedSnapshotSize, true)
-	}
-	if newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize != nil {
-		updateStoragePolicyUsageQuota(ctx, cnsOperatorClient, newKey,
-			newCnsVolumeInfoObj.Spec.Namespace, storagepolicyv1alpha3.NameSuffixForSnapshot,
-			newCnsVolumeInfoObj.Spec.AggregatedSnapshotSize, false)
 	}
 }
 
