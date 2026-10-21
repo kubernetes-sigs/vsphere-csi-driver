@@ -19,6 +19,7 @@ package storagepool
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/vmware/govmomi/object"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -62,8 +63,10 @@ type DiskDecommController struct {
 	// Stores the current disk decommission mode ("ensureAccessibility"/
 	// "evacuateAll"/none) of a SP to evaluate whether or not a new event is a
 	// request for disk decommissioning of a SP. Keys are SP name and values
-	// are disk decomm mode.
-	diskDecommMode map[string]string
+	// are disk decomm mode. It is accessed from both the init flow and the
+	// StoragePool watch goroutine, so it must be guarded by diskDecommModeLock.
+	diskDecommMode     map[string]string
+	diskDecommModeLock sync.Mutex
 	// 1 weighted semaphore to make sure only one disk decomm request is being
 	// executed.
 	execSemaphore *semaphore.Weighted
@@ -335,7 +338,6 @@ func initDiskDecommController(ctx context.Context, migrationCntlr *migrationCont
 	if err != nil {
 		return w, err
 	}
-	go w.watchStoragePool(ctx)
 
 	// Get all sp resource.
 	spList := &v1alpha1.StoragePoolList{}
@@ -347,11 +349,15 @@ func initDiskDecommController(ctx context.Context, migrationCntlr *migrationCont
 	// Make progress on StoragePool which are under disk decommission.
 	for _, sp := range spList.Items {
 		spName := sp.GetName()
-		if w.shouldEnterDiskDecommission(ctx, sp) && spName != "" {
-			maintenanceMode := w.diskDecommMode[spName]
+		if ok, maintenanceMode := w.shouldEnterDiskDecommission(ctx, sp); ok && spName != "" {
 			go w.DecommissionDisk(ctx, spName, maintenanceMode)
 		}
 	}
+
+	// Start processing watch events only after the initial StoragePool list
+	// has been handled. The watch was established before the list, so no
+	// events are missed in the meantime.
+	go w.watchStoragePool(ctx)
 	return w, nil
 }
 
@@ -424,8 +430,7 @@ func (w *DiskDecommController) watchStoragePool(ctx context.Context) {
 				continue
 			}
 
-			if ok := w.shouldEnterDiskDecommission(ctx, *sp); ok {
-				maintenanceMode := w.diskDecommMode[spName]
+			if ok, maintenanceMode := w.shouldEnterDiskDecommission(ctx, *sp); ok {
 				log.Infof("Got enter disk decommission request for StoragePool %v with MM %v", spName, maintenanceMode)
 				go w.DecommissionDisk(ctx, spName, maintenanceMode)
 			}
@@ -434,14 +439,20 @@ func (w *DiskDecommController) watchStoragePool(ctx context.Context) {
 	log.Info("watchStoragePool ends")
 }
 
-func (w *DiskDecommController) shouldEnterDiskDecommission(ctx context.Context, sp v1alpha1.StoragePool) bool {
+// shouldEnterDiskDecommission returns true along with the disk decommission
+// mode if the given StoragePool should enter disk decommission. It also
+// records the StoragePool's current decommission mode in diskDecommMode.
+func (w *DiskDecommController) shouldEnterDiskDecommission(ctx context.Context,
+	sp v1alpha1.StoragePool) (bool, string) {
 	log := logger.GetLogger(ctx)
 	if sp.Spec.Driver != csitypes.Name {
 		log.Warnf("StoragePool watch event for %s does not correspond to %s driver.", sp.Name, csitypes.Name)
-		return false
+		return false, ""
 	}
 
 	drainMode, found := sp.Spec.Parameters[drainModeField]
+	w.diskDecommModeLock.Lock()
+	defer w.diskDecommModeLock.Unlock()
 	defer func() {
 		if !found {
 			delete(w.diskDecommMode, sp.Name)
@@ -457,8 +468,8 @@ func (w *DiskDecommController) shouldEnterDiskDecommission(ctx context.Context, 
 		if !ok || (drainStatus != drainFailStatus && drainStatus != drainSuccessStatus) {
 			// Should enter disk decommission mode if either
 			// the drainMode is not present in the status(just started) or the drain is unfinished.
-			return true
+			return true, drainMode
 		}
 	}
-	return false
+	return false, ""
 }
