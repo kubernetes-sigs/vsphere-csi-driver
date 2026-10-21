@@ -369,6 +369,78 @@ func TestReconcileWithDeletionTimestampWhenDetachFails(t *testing.T) {
 	})
 }
 
+// detachTrackingMockVolumeManager records DetachVolume calls.
+type detachTrackingMockVolumeManager struct {
+	unittestcommon.MockVolumeManager
+	detachedIDs []string
+}
+
+func (m *detachTrackingMockVolumeManager) DetachVolume(ctx context.Context, vm *cnsvsphere.VirtualMachine,
+	volumeID string) (string, error) {
+	m.detachedIDs = append(m.detachedIDs, volumeID)
+	return "", nil
+}
+
+func TestProcessDetachRejectsVmNotInSameNamespace(t *testing.T) {
+	tests := []struct {
+		name         string
+		instanceName string
+		instanceUUID string
+	}{
+		{
+			// VM CR with the instance name exists in the namespace but has a different InstanceUUID,
+			// e.g. InstanceUUID belongs to a VM in another namespace.
+			name:         "InstanceUUIDMismatch",
+			instanceName: testCnsNodeVMBatchAttachmentName,
+			instanceUUID: "uuid-of-vm-in-other-namespace",
+		},
+		{
+			// No VM CR with the instance name exists in the namespace.
+			name:         "VmCrNotFound",
+			instanceName: "vm-not-in-namespace",
+			instanceUUID: "test-uuid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+			testCnsNodeVMBatchAttachment.Name = tt.instanceName
+			testCnsNodeVMBatchAttachment.Spec.InstanceUUID = tt.instanceUUID
+			r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+			mockVolumeManager := &detachTrackingMockVolumeManager{}
+			r.volumeManager = mockVolumeManager
+			commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+			volumesToDetach := map[string]string{
+				"pvc-1": "123-456",
+			}
+			vm := &cnsvsphere.VirtualMachine{}
+			clientset := getClientSetWithPvc()
+
+			err := r.processDetach(context.TODO(), clientset, vm, &testCnsNodeVMBatchAttachment, volumesToDetach)
+			expectedError := fmt.Errorf("failed to find VM with instance UUID %s in namespace %s",
+				tt.instanceUUID, testNamespace)
+			assert.EqualError(t, err, expectedError.Error())
+			assert.Empty(t, mockVolumeManager.detachedIDs, "DetachVolume must not be called")
+		})
+	}
+}
+
+func TestProcessDetachWithNoVolumesSkipsNamespaceCheck(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	// No VM CR exists for this instance; with nothing to detach the namespace check must not run.
+	testCnsNodeVMBatchAttachment.Name = "vm-not-in-namespace"
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	mockVolumeManager := &detachTrackingMockVolumeManager{}
+	r.volumeManager = mockVolumeManager
+
+	err := r.processDetach(context.TODO(), getClientSetWithPvc(), &cnsvsphere.VirtualMachine{},
+		&testCnsNodeVMBatchAttachment, map[string]string{})
+	assert.NoError(t, err)
+	assert.Empty(t, mockVolumeManager.detachedIDs)
+}
+
 func TestReconcileWithoutDeletionTimestamp(t *testing.T) {
 
 	t.Run("TestReconcileWithoutDeletionTimestamp", func(t *testing.T) {
