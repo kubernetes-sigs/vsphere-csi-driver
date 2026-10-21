@@ -29,7 +29,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -158,7 +157,6 @@ func main() {
 		}
 	} else if *operationMode == operationModeMetaDataSync {
 		log.Infof("Starting container with operation mode: %v", operationModeMetaDataSync)
-		var err error
 
 		// run will be executed if this instance is elected as the leader
 		// or if leader election is not enabled.
@@ -192,8 +190,7 @@ func main() {
 			prometheus.SyncerInfo.WithLabelValues(syncer.Version).Set(1)
 			for {
 				log.Info("Starting the http server to expose Prometheus metrics..")
-				http.Handle("/metrics", promhttp.Handler())
-				err = http.ListenAndServe(":2113", nil)
+				err := prometheus.NewMetricsServer(":2113").ListenAndServe()
 				if err != nil {
 					log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
 				}
