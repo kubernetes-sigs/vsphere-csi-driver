@@ -2078,7 +2078,6 @@ func startTopologyCRInformer(ctx context.Context, cfg *restclient.Config) error 
 			csinodetopology.CRDSingular, err)
 	}
 	csiNodeTopologyInformer := dynInformer.Informer()
-	// TODO: Multi-VC: Use a RWLock to guard simultaneous updates to topologyVCMap
 	_, err = csiNodeTopologyInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			topoCRAdded(obj)
@@ -2115,6 +2114,8 @@ func addLabelsToTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopologyv1
 	log.Infof("Topology labels %+v belong to %q VC", nodeTopoObj.Status.TopologyLabels,
 		nodeVM.VirtualCenterHost)
 	// Update MetadataSyncer.topologyVCMap with topology label and associated VC host.
+	MetadataSyncer.topologyVCMapLock.Lock()
+	defer MetadataSyncer.topologyVCMapLock.Unlock()
 	for _, label := range nodeTopoObj.Status.TopologyLabels {
 		if _, exists := MetadataSyncer.topologyVCMap[label.Value]; !exists {
 			MetadataSyncer.topologyVCMap[label.Value] = map[commontypes.FQDN]struct{}{nodeVM.VirtualCenterHost: {}}
@@ -2650,6 +2651,8 @@ func removeLabelsFromTopologyVCMap(ctx context.Context, nodeTopoObj csinodetopol
 	}
 	log.Infof("Removing VC %q mapping for TopologyLabels %+v.", nodeVM.VirtualCenterHost,
 		nodeTopoObj.Status.TopologyLabels)
+	MetadataSyncer.topologyVCMapLock.Lock()
+	defer MetadataSyncer.topologyVCMapLock.Unlock()
 	for _, label := range nodeTopoObj.Status.TopologyLabels {
 		delete(MetadataSyncer.topologyVCMap[label.Value], nodeVM.VirtualCenterHost)
 	}
@@ -2672,6 +2675,8 @@ func getVCForTopologySegments(ctx context.Context, topologySegments map[string][
 	// We go over the vcCountMap to check which VC has a count equal to the len(topologySegment).
 	// If we get a single VC match, we return this VC.
 	numTopoLabels := 0
+	MetadataSyncer.topologyVCMapLock.RLock()
+	defer MetadataSyncer.topologyVCMapLock.RUnlock()
 	for topologyKey, labelList := range topologySegments {
 		for _, label := range labelList {
 			if vcList, exists := MetadataSyncer.topologyVCMap[label]; exists {

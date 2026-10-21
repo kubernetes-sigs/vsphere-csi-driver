@@ -148,8 +148,11 @@ type metadataSyncInformer struct {
 	// The vCenter IP/FQDN under each tag are maintained as a map of string with nil values to improve
 	// retrieval and deletion performance.
 	topologyVCMap map[string]map[commontypes.FQDN]struct{}
-	clusterFlavor cnstypes.CnsClusterFlavor
-	host          commontypes.FQDN
+	// topologyVCMapLock guards topologyVCMap, which is updated by the CSINodeTopology
+	// informer and read concurrently by full sync.
+	topologyVCMapLock sync.RWMutex
+	clusterFlavor     cnstypes.CnsClusterFlavor
+	host              commontypes.FQDN
 	// Snapshot clients cached after first initialization so the event-handler path
 	// (pvcsiSnapshotDeleted) and full sync do not construct fresh HTTP clients per call.
 	// Access them via getCachedSnapshotClients, which lazily creates and caches them under
