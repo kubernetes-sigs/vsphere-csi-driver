@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -147,6 +148,62 @@ type controller struct {
 	csi.UnimplementedControllerServer
 	csi.UnimplementedSnapshotMetadataServer
 	topologyCalc TopologyCalculatorInterface
+	// snapshotLockMgr serializes snapshot operations per source volume.
+	snapshotLockMgr snapshotLockManager
+}
+
+// volumeLock represents a lock for a specific volume with reference counting.
+type volumeLock struct {
+	mutex    sync.Mutex
+	refCount int
+}
+
+// snapshotLockManager manages per-volume locks for snapshot operations.
+// The zero value is ready to use.
+type snapshotLockManager struct {
+	locks    map[string]*volumeLock
+	mapMutex sync.Mutex
+}
+
+// acquireSnapshotLock acquires the lock for the given volume ID, creating it if needed.
+// The caller must call releaseSnapshotLock when done.
+func (c *controller) acquireSnapshotLock(ctx context.Context, volumeID string) {
+	log := logger.GetLogger(ctx)
+	c.snapshotLockMgr.mapMutex.Lock()
+	if c.snapshotLockMgr.locks == nil {
+		c.snapshotLockMgr.locks = make(map[string]*volumeLock)
+	}
+	vLock, exists := c.snapshotLockMgr.locks[volumeID]
+	if !exists {
+		vLock = &volumeLock{}
+		c.snapshotLockMgr.locks[volumeID] = vLock
+	}
+	vLock.refCount++
+	c.snapshotLockMgr.mapMutex.Unlock()
+
+	// Acquire the volume lock without holding the map mutex to avoid blocking other volumes.
+	vLock.mutex.Lock()
+	log.Debugf("Acquired snapshot lock for volume %q", volumeID)
+}
+
+// releaseSnapshotLock releases the lock for the given volume ID and removes it
+// once no other caller holds or is waiting on it.
+func (c *controller) releaseSnapshotLock(ctx context.Context, volumeID string) {
+	log := logger.GetLogger(ctx)
+	c.snapshotLockMgr.mapMutex.Lock()
+	defer c.snapshotLockMgr.mapMutex.Unlock()
+
+	vLock, exists := c.snapshotLockMgr.locks[volumeID]
+	if !exists {
+		log.Warnf("Attempted to release non-existent snapshot lock for volume %q", volumeID)
+		return
+	}
+	vLock.mutex.Unlock()
+	vLock.refCount--
+	if vLock.refCount == 0 {
+		delete(c.snapshotLockMgr.locks, volumeID)
+	}
+	log.Debugf("Released snapshot lock for volume %q", volumeID)
 }
 
 var (
@@ -2470,6 +2527,11 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 					"overridden by the granular maximum (%v).", datastoreUrl, maxSnapshotsPerBlockVolume)
 			}
 		}
+
+		// Serialize snapshot operations on this volume so that the limit check below and
+		// the snapshot creation are atomic with respect to concurrent CreateSnapshot calls.
+		c.acquireSnapshotLock(ctx, volumeID)
+		defer c.releaseSnapshotLock(ctx, volumeID)
 
 		// Check if snapshots number of this volume reaches the limit
 		snapshotList, _, err := common.QueryVolumeSnapshotsByVolumeID(ctx, volumeManager, volumeID,
