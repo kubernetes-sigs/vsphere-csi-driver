@@ -163,6 +163,33 @@ func TestValidateVolumeSnapshotInGuestWithFSSDisabled(t *testing.T) {
 	}
 }
 
+// TestValidateVolumeSnapshotWithoutClassNameInGuest is the unit test for
+// validating admissionReview request containing a VolumeSnapshot that does not
+// specify a VolumeSnapshotClassName (i.e. default snapshot class is used).
+// The request must be allowed and must not panic.
+func TestValidateVolumeSnapshotWithoutClassNameInGuest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	featureGateBlockVolumeSnapshotEnabled = false
+
+	req := &v1.AdmissionRequest{
+		Kind: metav1.GroupVersionKind{
+			Kind: "VolumeSnapshot",
+		},
+		Object: runtime.RawExtension{
+			Raw: []byte("{\n  \"kind\": \"VolumeSnapshot\",\n  \"apiVersion\": \"snapshot.storage.k8s.io/v1\",\n " +
+				"\"metadata\": {\n    \"name\": \"test-vs\",\n    \"creationTimestamp\": \"2023-08-29T20:20:00Z\"\n  },\n  " +
+				"\"spec\": {\n  \"source\": {\n    \"persistentVolumeClaimName\": \"test-pvc\"\n } \n} \n}"),
+		},
+	}
+
+	admissionResponse := validateSnapshotOperationGuestRequest(ctx, req)
+	if !admissionResponse.Allowed {
+		t.Fatalf("TestValidateVolumeSnapshotWithoutClassNameInGuest failed. "+
+			"request: %v, admissionResponse: %v", req, admissionResponse)
+	}
+}
+
 // TestValidateVolumeSnapshotContentInGuestWithFSSDisabled is the unit test for
 // validating admissionReview request containing VolumeSnapshotContent with
 // CSI snapshot FSS set to false. (Static provisioning case)
