@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,7 +37,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	snapshotmetadataapi "github.com/kubernetes-csi/external-snapshot-metadata/pkg/api"
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc"
@@ -364,15 +362,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 	// Go module to keep the metrics http server running all the time.
 	go func() {
 		prometheus.CsiInfo.WithLabelValues(version).Set(1)
-		for {
-			log.Info("Starting the http server to expose Prometheus metrics..")
-			http.Handle("/metrics", promhttp.Handler())
-			err = http.ListenAndServe(":2112", nil)
-			if err != nil {
-				log.Warnf("Http server that exposes the Prometheus exited with err: %+v", err)
-			}
-			log.Info("Restarting http server to expose Prometheus metrics..")
-		}
+		prometheus.RunMetricsServer(ctx, ":2112")
 	}()
 	return nil
 }
