@@ -27,6 +27,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	csiconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -81,6 +82,7 @@ type VolumeOperationRequest interface {
 // layer involved.
 type operationRequestStore struct {
 	k8sclient client.Client
+	pvcClient clientset.Interface
 }
 
 var (
@@ -130,6 +132,11 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 			log.Errorf("failed to create k8sClient with error: %v", err)
 			return nil, err
 		}
+		pvcClient, err := clientset.NewForConfig(config)
+		if err != nil {
+			log.Errorf("failed to create PVC client with error: %v", err)
+			return nil, err
+		}
 
 		// Initialize the operationRequestStoreOnETCD implementation of
 		// VolumeOperationRequest interface.
@@ -137,6 +144,7 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 		// interface. Future implementations will need modify this step.
 		operationRequestStoreInstance = &operationRequestStore{
 			k8sclient: k8sclient,
+			pvcClient: pvcClient,
 		}
 		go operationRequestStoreInstance.cleanupStaleInstances(cleanupInterval)
 	}
@@ -439,6 +447,11 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 		cutoffTime := time.Now().Add(-15 * time.Minute)
 		continueToken := ""
 		log.Infof("Cleaning up stale CnsVolumeOperationRequest instances.")
+		pvcOperationNames, pvcListErr := or.listPVCOperationNames(ctx)
+		if pvcListErr != nil {
+			log.Errorf("failed to list PVCs while cleaning up CnsVolumeOperationRequests: %v. "+
+				"InProgress instances will be retained for this cleanup cycle", pvcListErr)
+		}
 		for {
 			listOptions := &client.ListOptions{
 				Limit:    5000,
@@ -453,11 +466,20 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 			}
 			for _, instance := range cnsVolumeOperationRequestList.Items {
 				latestOperationDetailsLength := len(instance.Status.LatestOperationDetails)
-				// Skip if task is still in progress
+				// In-progress create requests without a PVC fall through to the age check.
 				if latestOperationDetailsLength != 0 &&
 					instance.Status.LatestOperationDetails[latestOperationDetailsLength-1].TaskStatus ==
 						TaskInvocationStatusInProgress {
-					continue
+					// CVORs for only CreateVolume operation start with "pvc-".
+					if !strings.HasPrefix(instance.Name, "pvc-") || pvcListErr != nil {
+						continue
+					}
+					// Ignore this In-Porgress CVOR only if there exists a PVC corresponding to it.
+					// This is to avoid skipping deletion of CVORs whose PVC got deleted while it was
+					// still pending. The stale CVOR ends up reserving quota on SPU.
+					if _, exists := pvcOperationNames[instance.Name]; exists {
+						continue
+					}
 				}
 				// Delete instance if TaskInvocationTimestamp is older than 15 minutes
 				if latestOperationDetailsLength != 0 &&
@@ -484,6 +506,29 @@ func (or *operationRequestStore) cleanupStaleInstances(cleanupInterval int) {
 			}
 		}
 		log.Infof("Clean up of stale CnsVolumeOperationRequest complete.")
+	}
+}
+
+// listPVCOperationNames returns the create-volume request names corresponding
+// to PVCs currently present in the cluster.
+func (or *operationRequestStore) listPVCOperationNames(ctx context.Context) (map[string]struct{}, error) {
+	names := make(map[string]struct{})
+	continueToken := ""
+	for {
+		pvcList, err := or.pvcClient.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(ctx,
+			metav1.ListOptions{Limit: 5000, Continue: continueToken})
+		if err != nil {
+			return nil, err
+		}
+		for _, pvc := range pvcList.Items {
+			// The name of the CVOR is the same as the PV name which in turn is
+			// the same as pvc-<pvc.UID>
+			names["pvc-"+string(pvc.UID)] = struct{}{}
+		}
+		continueToken = pvcList.Continue
+		if continueToken == "" {
+			return names, nil
+		}
 	}
 }
 
