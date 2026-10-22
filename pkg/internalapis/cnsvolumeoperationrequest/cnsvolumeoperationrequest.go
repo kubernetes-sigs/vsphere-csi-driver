@@ -44,6 +44,8 @@ const (
 	// EnvCSINamespace represents the environment variable which
 	// stores the namespace in which the CSI driver is running.
 	EnvCSINamespace = "CSI_NAMESPACE"
+	// storeRequestDetailsTimeout bounds persistence after the caller's context has expired.
+	storeRequestDetailsTimeout = 30 * time.Second
 )
 
 // VolumeOperationRequest is an interface that supports handling idempotency
@@ -209,6 +211,16 @@ func (or *operationRequestStore) StoreRequestDetails(
 	operationDetailsToStore := convertToCnsVolumeOperationRequestDetails(*operationToStore.OperationDetails)
 	instance := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{}
 	instanceKey := client.ObjectKey{Name: operationToStore.Name, Namespace: csiNamespace}
+
+	// If the caller's context has expired (cancelled or deadline exceeded), renew it so that
+	// the operation details can still be persisted.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		log.Infof("Context expired with error: %v. Renewing context to store CnsVolumeOperationRequest instance %s/%s",
+			ctxErr, instanceKey.Namespace, instanceKey.Name)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), storeRequestDetailsTimeout)
+		defer cancel()
+	}
 
 	if err := or.k8sclient.Get(ctx, instanceKey, instance); err != nil {
 		if apierrors.IsNotFound(err) {

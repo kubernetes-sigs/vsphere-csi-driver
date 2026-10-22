@@ -2,16 +2,72 @@ package cnsvolumeoperationrequest
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 )
+
+func TestStoreRequestDetailsBoundsRenewedContext(t *testing.T) {
+	type contextKey string
+	const key contextKey = "test-key"
+
+	scheme := runtime.NewScheme()
+	if err := cnsvolumeoprequestv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed to add scheme: %v", err)
+	}
+
+	expectedErr := errors.New("stop after inspecting context")
+	var requestCtx context.Context
+	fakeClient := fakeclient.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object,
+				_ ...client.GetOption) error {
+				requestCtx = ctx
+				if err := ctx.Err(); err != nil {
+					t.Errorf("renewed context is already done: %v", err)
+				}
+				if got := ctx.Value(key); got != "test-value" {
+					t.Errorf("renewed context value = %v, want test-value", got)
+				}
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Error("renewed context has no deadline")
+				} else if remaining := time.Until(deadline); remaining <= 0 || remaining > storeRequestDetailsTimeout {
+					t.Errorf("renewed context deadline remaining = %v, want within (0, %v]", remaining,
+						storeRequestDetailsTimeout)
+				}
+				return expectedErr
+			},
+		}).
+		Build()
+
+	store := &operationRequestStore{k8sclient: fakeClient}
+	csiNamespace = "vmware-system-csi"
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key, "test-value"))
+	cancel()
+
+	err := store.StoreRequestDetails(ctx, createTestVolumeOperationDetails(
+		"test-volume", "volume-id", "", "task-id", TaskInvocationStatusSuccess, "", nil))
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("StoreRequestDetails() error = %v, want %v", err, expectedErr)
+	}
+	if requestCtx == nil {
+		t.Fatal("Kubernetes client did not receive a context")
+	}
+	if err := requestCtx.Err(); !errors.Is(err, context.Canceled) {
+		t.Errorf("renewed context was not canceled after persistence: %v", err)
+	}
+}
 
 // setupTestEnvironment creates a test environment with fake clients
 func setupTestEnvironment(t *testing.T, csiTransactionEnabled bool) (*operationRequestStore, context.Context) {
