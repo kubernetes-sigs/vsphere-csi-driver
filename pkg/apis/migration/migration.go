@@ -620,7 +620,7 @@ func (volumeMigration *volumeMigration) cleanupStaleCRDInstances() {
 			log.Debugf("No volumes found in Query Volume Result")
 			continue
 		}
-		log.Debugf("QueryVolumeInfo successfully returned with result:  %v:", spew.Sdump(queryAllResult))
+		log.Debugw("QueryVolumeInfo returned result", "result", queryAllResult)
 		cnsVolumesMap := make(map[string]bool)
 		for _, vol := range queryAllResult.Volumes {
 			cnsVolumesMap[vol.VolumeId.Id] = true

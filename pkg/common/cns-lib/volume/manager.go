@@ -2683,7 +2683,7 @@ func (m *defaultManager) QueryVolumeAsync(ctx context.Context, queryFilter cnsty
 	}
 	queryVolumeAsyncResult := interface{}(queryVolumeAsyncTaskResult).(*cnstypes.CnsAsyncQueryResult)
 	log.Infof("QueryVolumeAsync successfully returned CnsQueryResult, opId: %q", queryVolumeAsyncTaskInfo.ActivationId)
-	log.Debugf("QueryVolumeAsync returned CnsQueryResult: %+v", spew.Sdump(queryVolumeAsyncResult.QueryResult))
+	log.Debugw("QueryVolumeAsync returned CnsQueryResult", "queryResult", queryVolumeAsyncResult.QueryResult)
 	return &queryVolumeAsyncResult.QueryResult, nil
 }
 
