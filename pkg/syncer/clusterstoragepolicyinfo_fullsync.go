@@ -80,6 +80,7 @@ func ensureClusterStoragePolicyInfoCRsExist(ctx context.Context, cnsOperatorClie
 		existing := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
 		err := cnsOperatorClient.Get(ctx, apitypes.NamespacedName{Name: name}, existing)
 		if err == nil {
+			setClusterSPIVolumeClassName(ctx, cnsOperatorClient, existing, name)
 			continue
 		}
 		if !apierrors.IsNotFound(err) {
@@ -105,7 +106,24 @@ func ensureClusterStoragePolicyInfoCRsExist(ctx context.Context, cnsOperatorClie
 				name, err)
 			continue
 		}
+		setClusterSPIVolumeClassName(ctx, cnsOperatorClient, instance, name)
 		log.Infof("clusterStoragePolicyInfoFullSync: created ClusterStoragePolicyInfo %q for storage policy %q "+
 			"(ID %s) ahead of any StorageClass", name, profile.Name, profile.ID)
+	}
+}
+
+// setClusterSPIVolumeClassName publishes identity through the status subresource,
+// including after creation because Kubernetes ignores status in create requests.
+func setClusterSPIVolumeClassName(ctx context.Context, c client.Client,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, name string) {
+	if instance.Status.VolumeClassName == name && !instance.Status.StoragePolicyDeleted {
+		return
+	}
+	base := instance.DeepCopy()
+	instance.Status.VolumeClassName = name
+	instance.Status.StoragePolicyDeleted = false
+	if err := c.Status().Patch(ctx, instance, client.MergeFrom(base)); err != nil {
+		logger.GetLogger(ctx).Errorf("clusterStoragePolicyInfoFullSync: failed to update identity for "+
+			"ClusterStoragePolicyInfo %q. Err: %v", instance.Name, err)
 	}
 }

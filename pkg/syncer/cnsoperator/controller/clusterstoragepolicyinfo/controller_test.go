@@ -2196,7 +2196,56 @@ func (m *mockControllerTopologyService) GetAccessibleZonesForDatastore(ctx conte
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
-// TestGetStorageClassForPolicy tests the getStorageClassForPolicy function
+func TestStoragePolicyIDFromBackingResources(t *testing.T) {
+	sc := func(id string) *storagev1.StorageClass {
+		return &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+			Parameters: map[string]string{"StoragePolicyID": id}}
+	}
+	vac := func(id string) *storagev1.VolumeAttributesClass {
+		return &storagev1.VolumeAttributesClass{ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+			Parameters: map[string]string{"storagepolicyid": id}}
+	}
+	for _, tc := range []struct {
+		name string
+		sc   *storagev1.StorageClass
+		vac  *storagev1.VolumeAttributesClass
+		want string
+		err  string
+	}{
+		{name: "neither resource", err: "not set"},
+		{name: "both empty", sc: sc(""), vac: vac(""), err: "not set"},
+		{name: "SC missing ID", sc: sc(""), err: "not set"},
+		{name: "VAC missing ID", vac: vac(""), err: "not set"},
+		{name: "SC only", sc: sc("p1"), want: "p1"},
+		{name: "VAC only", vac: vac("p1"), want: "p1"},
+		{name: "SC empty VAC populated", sc: sc(""), vac: vac("p1"), want: "p1"},
+		{name: "VAC empty SC populated", sc: sc("p1"), vac: vac(""), want: "p1"},
+		{name: "matching", sc: sc("p1"), vac: vac("p1"), want: "p1"},
+		{name: "conflicting", sc: sc("p1"), vac: vac("p2"), err: "different storage policy IDs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := storagePolicyIDFromBackingResources(tc.sc, tc.vac)
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.want, id)
+		})
+	}
+}
+
+func TestGetStorageClassForPolicy_AliasOnly(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "alias"},
+		Parameters: map[string]string{"storagepolicyid": "p1"}}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc).Build()
+	got, err := getStorageClassForPolicy(ctx, cli, "p1", "canonical")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
 func TestGetStorageClassForPolicy(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, storagev1.AddToScheme(scheme))
@@ -2248,7 +2297,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 			},
 		},
 		{
-			name:      "Multiple StorageClasses with same policy ID should error",
+			name:      "Multiple StorageClasses with same policy ID select canonical name",
 			profileID: "duplicate-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2264,9 +2313,10 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple StorageClasses ([test-sc-1 test-sc-2]) found referencing storage policy ID " +
-				"\"duplicate-policy\", expected exactly one",
-			expectedErrType: fmt.Errorf(""),
+			expectedSC: &storagev1.StorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-sc-2"},
+				Parameters: map[string]string{"storagePolicyId": "duplicate-policy"},
+			},
 		},
 		{
 			name:      "No matching StorageClass returns nil, no error",
@@ -2373,7 +2423,13 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			result, err := getStorageClassForPolicy(ctx, k8sClient, tt.profileID)
+			canonicalName := "absent-canonical-sc"
+			if tt.expectedSC != nil {
+				canonicalName = tt.expectedSC.Name
+			} else if len(tt.storageClasses) > 0 {
+				canonicalName = tt.storageClasses[0].Name
+			}
+			result, err := getStorageClassForPolicy(ctx, k8sClient, tt.profileID, canonicalName)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)
@@ -2775,7 +2831,7 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 	log := logger.GetLogger(ctx)
 
 	// Get StorageClass that references this policy
-	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
+	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID, clusterSPI.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
@@ -2952,7 +3008,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 				"\"invalid-topology-sc\", must be an empty string or \"zonal\"",
 		},
 		{
-			name:      "Multiple StorageClasses with same policy error",
+			name:      "Multiple StorageClasses with same policy select canonical class",
 			profileID: "duplicate-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2972,8 +3028,10 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			mockVCConfig: &mockVirtualCenter{
 				compatibleHubs: []pbmtypes.PbmPlacementHub{},
 			},
-			expectedError: "failed to get StorageClass for policy: multiple StorageClasses ([sc-1 sc-2]) " +
-				"found referencing storage policy ID \"duplicate-policy\", expected exactly one",
+			expectedTopology: &infraspiv1alpha1.Topology{
+				TopologyType:    "",
+				AccessibleZones: []string{},
+			},
 		},
 		{
 			name:      "Error with nil topology manager",
@@ -3066,6 +3124,13 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			}
 
 			// Call the function under test
+			for _, sc := range tt.storageClasses {
+				if storagePolicyIDFromParameters(sc.Parameters) == tt.profileID &&
+					!storageClassIsWaitForFirstConsumer(sc) {
+					clusterSPI.Name = sc.Name
+					break
+				}
+			}
 			err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, tt.profileID, tt.mockVCConfig,
 				tt.policyContent)
 
@@ -3140,6 +3205,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-infra-spi"},
 		}
 
+		clusterSPI.Name = sc.Name
 		// Execute - use the test wrapper to avoid VirtualCenter issues
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-id", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
@@ -3191,6 +3257,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 		}
 
 		// Execute - use the test wrapper to avoid VirtualCenter issues
+		clusterSPI.Name = sc.Name
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-no-topo", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
 		}, nil)
