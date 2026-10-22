@@ -17,10 +17,12 @@ limitations under the License.
 package crypto
 
 import (
+	"context"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/crypto/internal"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
 )
@@ -95,4 +97,35 @@ func IsVACPolicyEffective(pvc *corev1.PersistentVolumeClaim) bool {
 	}
 	return pvc.Status.CurrentVolumeAttributesClassName != nil &&
 		*pvc.Status.CurrentVolumeAttributesClassName == *pvc.Spec.VolumeAttributesClassName
+}
+
+// IsEncryptedStoragePolicyForPVC determines whether the storage policy currently backing
+// the PVC's volume supports encryption. If vacPolicyMutabilityEnabled is true and the PVC's
+// VolumeAttributesClass has taken effect (IsVACPolicyEffective), its policy takes precedence
+// over the StorageClass's, consistent with CSI ModifyVolume semantics. Otherwise the
+// StorageClass's policy is used, since a ModifyVolume switching the PVC to the VAC's policy
+// may still be pending or in progress. The VolumeAttributesClass is read using reader.
+func IsEncryptedStoragePolicyForPVC(
+	ctx context.Context,
+	cryptoClient Client,
+	reader ctrlclient.Reader,
+	pvc *corev1.PersistentVolumeClaim,
+	vacPolicyMutabilityEnabled bool,
+) (bool, string, error) {
+	if vacPolicyMutabilityEnabled && IsVACPolicyEffective(pvc) {
+		vac := &storagev1.VolumeAttributesClass{}
+		if err := reader.Get(ctx, ctrlclient.ObjectKey{Name: *pvc.Spec.VolumeAttributesClassName}, vac); err != nil {
+			return false, "", ctrlclient.IgnoreNotFound(err)
+		}
+
+		profileID := GetStoragePolicyIDFromVAC(vac)
+		if profileID == "" {
+			return false, "", nil
+		}
+
+		encrypted, err := cryptoClient.IsEncryptedStorageProfile(ctx, profileID)
+		return encrypted, profileID, err
+	}
+
+	return cryptoClient.IsEncryptedStorageClass(ctx, *pvc.Spec.StorageClassName)
 }
