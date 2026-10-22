@@ -23,15 +23,73 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
+
+func TestSPIEnqueuePeriodicResyncIncludesQuotas(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		failQuotas bool
+		want       []apitypes.NamespacedName
+	}{
+		{name: "only assigned policies preserving namespaces", want: []apitypes.NamespacedName{
+			{Namespace: "ns-a", Name: "gold"}, {Namespace: "ns-b", Name: "gold"},
+		}},
+		{name: "quota list failure enqueues nothing", failQuotas: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			cli := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(
+				&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns-a", Name: "gold"}},
+				&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns-a", Name: "orphan"}},
+				testSPQ("ns-a", "gold"), testSPQ("ns-b", "gold"), testSPQ("ns-a", "backed-off"),
+				&storagepolicyv1alpha2.StoragePolicyQuota{ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns-a", Name: "invalid-name",
+				}},
+			).WithInterceptorFuncs(interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+					opts ...client.ListOption) error {
+					switch list.(type) {
+					case *spiv1alpha1.StoragePolicyInfoList:
+						t.Error("slow sync must not list SPIs")
+						return assert.AnError
+					case *storagepolicyv1alpha2.StoragePolicyQuotaList:
+						if tc.failQuotas {
+							return assert.AnError
+						}
+					}
+					return c.List(ctx, list, opts...)
+				},
+			}).Build()
+			r := &ReconcileStoragePolicyInfo{backOffDuration: map[apitypes.NamespacedName]time.Duration{
+				{Namespace: "ns-a", Name: "backed-off"}: 2 * time.Second,
+			}}
+			ch := make(chan event.GenericEvent, 10)
+			enqueuePeriodicResync(ctx, cli, ch, r)
+			close(ch)
+			var got []apitypes.NamespacedName
+			for e := range ch {
+				got = append(got, apitypes.NamespacedName{Namespace: e.Object.GetNamespace(), Name: e.Object.GetName()})
+			}
+			assert.ElementsMatch(t, tc.want, got)
+			// Queueing an absent SPI must not create it directly.
+			err := cli.Get(ctx, apitypes.NamespacedName{Namespace: "ns-b", Name: "gold"},
+				&spiv1alpha1.StoragePolicyInfo{})
+			require.True(t, apierrors.IsNotFound(err))
+		})
+	}
+}
 
 func TestSPIGetSlowSyncInterval(t *testing.T) {
 	ctx, _ := logger.GetNewContextWithLogger()
@@ -60,9 +118,7 @@ func TestSPIStartPeriodicResyncEnqueues(t *testing.T) {
 	const n = 3
 	objs := make([]client.Object, n)
 	for i := 0; i < n; i++ {
-		objs[i] = &spiv1alpha1.StoragePolicyInfo{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("policy-%d", i), Namespace: "ns-a"},
-		}
+		objs[i] = testSPQ("ns-a", fmt.Sprintf("policy-%d", i))
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 
@@ -91,8 +147,8 @@ func TestSPIStartPeriodicResyncEnqueues(t *testing.T) {
 func TestSPIStartPeriodicResyncSkipsBackedOffInstances(t *testing.T) {
 	scheme := testScheme(t)
 	objs := []client.Object{
-		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "backed-off", Namespace: "ns-a"}},
-		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "eligible", Namespace: "ns-a"}},
+		testSPQ("ns-a", "backed-off"),
+		testSPQ("ns-a", "eligible"),
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 
@@ -128,7 +184,7 @@ func TestSPIStartPeriodicResyncSkipsBackedOffInstances(t *testing.T) {
 func TestSPIStartPeriodicResyncEnqueuesBaselineBackoffInstances(t *testing.T) {
 	scheme := testScheme(t)
 	objs := []client.Object{
-		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "baseline", Namespace: "ns-a"}},
+		testSPQ("ns-a", "baseline"),
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 
@@ -157,8 +213,8 @@ func TestSPIStartPeriodicResyncEnqueuesBaselineBackoffInstances(t *testing.T) {
 func TestSPIStartPeriodicResyncSkipsWhenChannelFull(t *testing.T) {
 	scheme := testScheme(t)
 	objs := []client.Object{
-		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "policy-0", Namespace: "ns-a"}},
-		&spiv1alpha1.StoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "policy-1", Namespace: "ns-a"}},
+		testSPQ("ns-a", "policy-0"),
+		testSPQ("ns-a", "policy-1"),
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 
