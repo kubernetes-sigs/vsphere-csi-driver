@@ -254,10 +254,10 @@ var (
 	// read/write on manager instance.
 	managerInstanceLock sync.Mutex
 	volumeTaskMap       = make(map[string]*createVolumeTaskDetails)
-	// volumeTaskMapLock is used to serialize writes to volumeTaskMap.
+	// volumeTaskMapLock guards all reads and writes of volumeTaskMap.
 	volumeTaskMapLock sync.Mutex
 	snapshotTaskMap   = make(map[string]*createSnapshotTaskDetails)
-	// snapshotTaskMapLock is used to serialize writes to snapshotTaskMap.
+	// snapshotTaskMapLock guards all reads and writes of snapshotTaskMap.
 	// Alternatively, we may use Sync.Map for snapshotTaskMap without using a lock explicitly
 	snapshotTaskMapLock sync.Mutex
 	// Alias for CreateVolumeOperationRequestDetails function declaration.
@@ -339,49 +339,43 @@ type defaultManager struct {
 // ClearTaskInfoObjects is a go routine which runs in the background to clean
 // up expired taskInfo objects from volumeTaskMap.
 func ClearTaskInfoObjects() {
-	log := logger.GetLoggerWithNoContext()
 	// At a frequency of every 1 minute, check if there are expired taskInfo
 	// objects and delete them from the volumeTaskMap.
 	ticker := time.NewTicker(time.Duration(defaultTaskCleanupIntervalInMinutes) * time.Minute)
 	for range ticker.C {
-		for pvc, taskDetails := range volumeTaskMap {
-			// Get the time difference between current time and the expiration
-			// time from the volumeTaskMap.
-			diff := time.Until(taskDetails.expirationTime)
-			// Checking if the expiration time has elapsed.
-			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
-				// If one of the parameters in the time object is negative, it means
-				// the entry has to be deleted.
-				log.Debugf("Found an expired taskInfo: %+v for volume %q. Deleting it from task map",
-					volumeTaskMap[pvc].task, pvc)
-				func() {
-					volumeTaskMapLock.Lock()
-					defer volumeTaskMapLock.Unlock()
-					delete(volumeTaskMap, pvc)
-				}()
-			}
-		}
-		// clear task info objects for CreateSnapshot task
-		for snapshotTaskKey, taskDetails := range snapshotTaskMap {
-			// Get the time difference between current time and the expiration
-			// time from the snapshotTaskMap.
-			diff := time.Until(taskDetails.expirationTime)
-			// Checking if the expiration time has elapsed.
-			if int(diff.Hours()) < 0 || int(diff.Minutes()) < 0 || int(diff.Seconds()) < 0 {
-				// If one of the parameters in the time object is negative, it means
-				// the entry has to be deleted.
-				log.Debugf("Found an expired taskInfo: %+v for snapshot %q. Deleting it from task map",
-					snapshotTaskMap[snapshotTaskKey].task, snapshotTaskKey)
-				func() {
-					// put the snapshotTaskMap update operation with locking into an anonymous func
-					// to ensure the deferred unlock is called right after the update.
-					snapshotTaskMapLock.Lock()
-					defer snapshotTaskMapLock.Unlock()
-					delete(snapshotTaskMap, snapshotTaskKey)
-				}()
-			}
-		}
+		clearExpiredTaskInfoObjects()
 	}
+}
+
+// clearExpiredTaskInfoObjects deletes expired entries from volumeTaskMap and
+// snapshotTaskMap. Each map's lock is held for the whole iteration so that a
+// concurrent write cannot trigger "concurrent map iteration and map write".
+func clearExpiredTaskInfoObjects() {
+	log := logger.GetLoggerWithNoContext()
+	func() {
+		volumeTaskMapLock.Lock()
+		defer volumeTaskMapLock.Unlock()
+		for pvc, taskDetails := range volumeTaskMap {
+			if time.Until(taskDetails.expirationTime) < 0 {
+				log.Debugf("Found an expired taskInfo: %+v for volume %q. Deleting it from task map",
+					taskDetails.task, pvc)
+				// Deleting from a map during its own range is safe in Go.
+				delete(volumeTaskMap, pvc)
+			}
+		}
+	}()
+	// clear task info objects for CreateSnapshot task
+	func() {
+		snapshotTaskMapLock.Lock()
+		defer snapshotTaskMapLock.Unlock()
+		for snapshotTaskKey, taskDetails := range snapshotTaskMap {
+			if time.Until(taskDetails.expirationTime) < 0 {
+				log.Debugf("Found an expired taskInfo: %+v for snapshot %q. Deleting it from task map",
+					taskDetails.task, snapshotTaskKey)
+				delete(snapshotTaskMap, snapshotTaskKey)
+			}
+		}
+	}()
 }
 
 func ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled bool) {
@@ -1005,16 +999,15 @@ func (m *defaultManager) createVolume(ctx context.Context, spec *cnstypes.CnsVol
 			// Remove the taskInfo object associated with the volume name when the
 			// current task fails. This is needed to ensure the sub-sequent create
 			// volume call from the external provisioner invokes Create Volume.
-			_, ok := volumeTaskMap[volNameFromInputSpec]
-			if ok {
-				func() {
-					volumeTaskMapLock.Lock()
-					defer volumeTaskMapLock.Unlock()
+			func() {
+				volumeTaskMapLock.Lock()
+				defer volumeTaskMapLock.Unlock()
+				if _, ok := volumeTaskMap[volNameFromInputSpec]; ok {
 					log.Debugf("Deleted task for %s from volumeTaskMap because the task has failed",
 						volNameFromInputSpec)
 					delete(volumeTaskMap, volNameFromInputSpec)
-				}()
-			}
+				}
+			}()
 			log.Errorf("failed to create cns volume %s. createSpec: %q, fault: %q",
 				volNameFromInputSpec, spew.Sdump(spec), spew.Sdump(volumeOperationRes.Fault))
 		}
@@ -3011,18 +3004,17 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				"", createSnapshotsTaskInfo.ActivationId, taskInvocationStatusError, errMsg, "")
 		} else {
 			// Remove the task details from map when the current task fails
-			_, ok := snapshotTaskMap[instanceName]
-			if ok {
-				func() {
-					// put the snapshotTaskMap update operation with locking into an anonymous func
-					// to ensure the deferred unlock is called right after the update.
-					snapshotTaskMapLock.Lock()
-					defer snapshotTaskMapLock.Unlock()
+			func() {
+				// put the snapshotTaskMap update operation with locking into an anonymous func
+				// to ensure the deferred unlock is called right after the update.
+				snapshotTaskMapLock.Lock()
+				defer snapshotTaskMapLock.Unlock()
+				if _, ok := snapshotTaskMap[instanceName]; ok {
 					log.Debugf("Deleted task for %s from snapshotTaskMap because the task has failed",
 						instanceName)
 					delete(snapshotTaskMap, instanceName)
-				}()
-			}
+				}
+			}()
 		}
 
 		return nil, logger.LogNewError(log, errMsg)

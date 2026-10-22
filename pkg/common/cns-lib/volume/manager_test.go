@@ -973,3 +973,69 @@ func TestDefaultVslmHooksDisconnectedVC(t *testing.T) {
 	_, err = defaultRetrieveSnapshotDetailsHook(ctx, &cnsvsphere.VirtualCenter{}, vim25types.ID{}, vim25types.ID{})
 	assert.Error(t, err)
 }
+
+// TestClearExpiredTaskInfoObjects verifies that expired entries are removed
+// from volumeTaskMap and snapshotTaskMap while unexpired ones are kept, and
+// that cleanup is safe to run concurrently with map writers and readers
+// (run with -race to detect unsynchronized access).
+func TestClearExpiredTaskInfoObjects(t *testing.T) {
+	ctx := context.Background()
+	// Initialize the singleton logger up front so its lazy initialization
+	// does not race between the goroutines below.
+	_ = logger.GetLoggerWithNoContext()
+	func() {
+		volumeTaskMapLock.Lock()
+		defer volumeTaskMapLock.Unlock()
+		volumeTaskMap = make(map[string]*createVolumeTaskDetails)
+		volumeTaskMap["expired-vol"] = &createVolumeTaskDetails{expirationTime: time.Now().Add(-time.Minute)}
+		volumeTaskMap["live-vol"] = &createVolumeTaskDetails{expirationTime: time.Now().Add(time.Hour)}
+	}()
+	func() {
+		snapshotTaskMapLock.Lock()
+		defer snapshotTaskMapLock.Unlock()
+		snapshotTaskMap = make(map[string]*createSnapshotTaskDetails)
+		snapshotTaskMap["expired-snap"] = &createSnapshotTaskDetails{
+			createVolumeTaskDetails{expirationTime: time.Now().Add(-time.Minute)}}
+		snapshotTaskMap["live-snap"] = &createSnapshotTaskDetails{
+			createVolumeTaskDetails{expirationTime: time.Now().Add(time.Hour)}}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			func() {
+				volumeTaskMapLock.Lock()
+				defer volumeTaskMapLock.Unlock()
+				volumeTaskMap[fmt.Sprintf("vol-%d", i)] = &createVolumeTaskDetails{
+					expirationTime: time.Now().Add(time.Hour)}
+			}()
+			func() {
+				snapshotTaskMapLock.Lock()
+				defer snapshotTaskMapLock.Unlock()
+				snapshotTaskMap[fmt.Sprintf("snap-%d", i)] = &createSnapshotTaskDetails{
+					createVolumeTaskDetails{expirationTime: time.Now().Add(time.Hour)}}
+			}()
+			_ = getPendingCreateVolumeTaskFromMap(ctx, "live-vol")
+			_ = getPendingCreateSnapshotTaskFromMap(ctx, "live-snap")
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		clearExpiredTaskInfoObjects()
+	}
+	<-done
+
+	volumeTaskMapLock.Lock()
+	_, expiredVol := volumeTaskMap["expired-vol"]
+	_, liveVol := volumeTaskMap["live-vol"]
+	volumeTaskMapLock.Unlock()
+	snapshotTaskMapLock.Lock()
+	_, expiredSnap := snapshotTaskMap["expired-snap"]
+	_, liveSnap := snapshotTaskMap["live-snap"]
+	snapshotTaskMapLock.Unlock()
+
+	assert.False(t, expiredVol, "expired volume task should have been removed")
+	assert.True(t, liveVol, "unexpired volume task should be kept")
+	assert.False(t, expiredSnap, "expired snapshot task should have been removed")
+	assert.True(t, liveSnap, "unexpired snapshot task should be kept")
+}

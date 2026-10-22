@@ -241,7 +241,9 @@ func setupConnection(ctx context.Context, virtualCenter *cnsvsphere.VirtualCente
 func getPendingCreateVolumeTaskFromMap(ctx context.Context, volNameFromInputSpec string) *object.Task {
 	var task *object.Task
 	log := logger.GetLogger(ctx)
+	volumeTaskMapLock.Lock()
 	taskDetailsInMap, ok := volumeTaskMap[volNameFromInputSpec]
+	volumeTaskMapLock.Unlock()
 	if ok {
 		task = taskDetailsInMap.task
 		log.Infof("CreateVolume task still pending for Volume: %q, with taskInfo: %+v",
@@ -490,7 +492,9 @@ func invokeCNSDeleteSnapshot(ctx context.Context, virtualCenter *cnsvsphere.Virt
 func getPendingCreateSnapshotTaskFromMap(ctx context.Context, snapshotName string) *object.Task {
 	var task *object.Task
 	log := logger.GetLogger(ctx)
+	snapshotTaskMapLock.Lock()
 	taskDetailsInMap, ok := snapshotTaskMap[snapshotName]
+	snapshotTaskMapLock.Unlock()
 	if ok {
 		task = taskDetailsInMap.task
 		log.Infof("CreateSnapshot task still pending for Snapshot: %q, with taskInfo: %+v",
