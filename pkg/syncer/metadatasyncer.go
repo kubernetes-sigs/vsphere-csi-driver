@@ -421,6 +421,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.VSphereDPLPModernApp, "", "")
 		}
+		if !commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+			common.SupportsSnapServiceLocalProtection) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+				clusterFlavor, common.SupportsSnapServiceLocalProtection, "", "")
+		}
 		IsVsanFileVolumeServiceEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.VsanFileVolumeService)
 		if !IsVsanFileVolumeServiceEnabled {
