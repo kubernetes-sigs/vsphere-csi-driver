@@ -82,15 +82,16 @@ spec:
                 description: StoragePolicyDeleted indicates whether the underlying
                   storagepolicy is deleted or not on the VC.
                 type: boolean
+              volumeClassName:
+                description: |-
+                  VolumeClassName is the authoritative Kubernetes-compliant name of the
+                  storage policy in vCenter. Empty means identity is unresolved or the policy
+                  is deleted. A value differing from this object's name identifies an upgraded
+                  StorageClass alias for which InfraSPI and namespace SPIs are not created.
+                type: string
             type: object
         type: object
     served: true
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

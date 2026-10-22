@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
@@ -279,10 +280,8 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 		},
 	}
 
-	// Channel for periodic resync; a ticker-driven goroutine lists all
-	// StoragePolicyInfo CRs on a configurable interval and pushes them here so
-	// the controller re-reconciles each one against the cached InfraStoragePolicyInfo
-	// topology.
+	// Channel for periodic resync; a ticker-driven goroutine lists SPQs and
+	// enqueues SPI requests, including assigned policies with no SPI yet.
 	// source.Channel drains this into controller-runtime's internal work queue,
 	// so a small buffer is sufficient to avoid blocking between sends and reads.
 	// If the buffer does fill up (e.g. reconciles are slow), the sender skips the
@@ -570,6 +569,17 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 
+	// Validate whether the clusterSPI for the given SC name points to the valid K8sCompliantName.
+	// If policy is deleted from the VC or if the given SC is from an upgraded alias, then skip creation
+	// of SPI in that namespace.
+	skip, err := r.checkClusterSPIPolicyIdentity(ctx, request.Name)
+	if err != nil {
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if skip {
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
 	// Fetch the cluster-scoped InfraStoragePolicyInfo; it is the source of topology
 	// data synced into the namespace-scoped StoragePolicyInfo status.
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
@@ -650,6 +660,38 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 
 	log.Infof("Successfully reconciled StoragePolicyInfo %q", request.NamespacedName)
 	return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+}
+
+// checkClusterSPIPolicyIdentity returns skip=true for deleted policies and upgraded
+// aliases, or an error when the ClusterSPI cannot be fetched or its identity is unresolved.
+// The caller owns reconciliation completion and retry handling.
+func (r *ReconcileStoragePolicyInfo) checkClusterSPIPolicyIdentity(ctx context.Context, name string) (bool, error) {
+	log := logger.GetLogger(ctx)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, clusterSPI); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("ClusterStoragePolicyInfo %q not yet available; will retry", name)
+		} else {
+			log.Errorf("Failed to get ClusterStoragePolicyInfo %q: %v", name, err)
+		}
+		return false, err
+	}
+	if clusterSPI.Status.StoragePolicyDeleted {
+		log.Infof("Storage policy for ClusterStoragePolicyInfo %q is deleted; skipping StoragePolicyInfo creation", name)
+		return true, nil
+	}
+	resolvedName := clusterSPI.Status.VolumeClassName
+	if resolvedName == "" {
+		err := fmt.Errorf("ClusterStoragePolicyInfo %q policy identity is not resolved yet", name)
+		log.Info(err.Error())
+		return false, err
+	}
+	if resolvedName != clusterSPI.Name {
+		log.Infof("ClusterStoragePolicyInfo %q resolves to authoritative K8s compliant name %q; "+
+			"skipping StoragePolicyInfo creation for upgraded alias", clusterSPI.Name, resolvedName)
+		return true, nil
+	}
+	return false, nil
 }
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given
