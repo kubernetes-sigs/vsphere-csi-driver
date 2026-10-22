@@ -414,6 +414,37 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
 				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
 			}
+			// The vCenter lookup above is datacenter-wide and has no notion of
+			// Kubernetes namespaces. Verify that a VirtualMachine CR with this
+			// BIOS UUID exists in the CnsNodeVmAttachment's namespace before
+			// attaching, so the PVC can't be attached to a VM in another namespace.
+			vmInstance, err := isVmCrPresent(internalCtx, r.vmOperatorClient, nodeUUID,
+				request.Namespace)
+			if err != nil {
+				msg := fmt.Sprintf("failed to verify if VM CR is present with UUID: %q "+
+					"in namespace: %q. Err: %+v", nodeUUID, request.Namespace, err)
+				instance.Status.Error = fmt.Sprintf("Failed to verify VM with UUID: %q "+
+					"in namespace: %q", nodeUUID, request.Namespace)
+				err = k8s.UpdateStatus(internalCtx, r.client, instance)
+				if err != nil {
+					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				}
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIApiServerOperationFault, nil
+			}
+			if vmInstance == nil {
+				msg := fmt.Sprintf("VM CR with UUID: %q not found in namespace: %q for "+
+					"CnsNodeVmAttachment request with name: %q. Skipping attach.",
+					nodeUUID, request.Namespace, request.Name)
+				instance.Status.Error = fmt.Sprintf("VM with UUID: %q not found in namespace: %q",
+					nodeUUID, request.Namespace)
+				err = k8s.UpdateStatus(internalCtx, r.client, instance)
+				if err != nil {
+					log.Errorf("updateCnsNodeVMAttachment failed. err: %v", err)
+				}
+				recordEvent(internalCtx, r, instance, v1.EventTypeWarning, msg)
+				return reconcile.Result{RequeueAfter: timeout}, csifault.CSIVmNotFoundFault, nil
+			}
 			volumeID, faulttype, err := getVolumeID(internalCtx, instance.Spec.VolumeName, instance.Namespace)
 			if err != nil {
 				msg := fmt.Sprintf("Failed to get volumeID. Error: %s", err)
@@ -966,7 +997,9 @@ func updateSVPVC(ctx context.Context, client client.Client,
 }
 
 // isVmCrPresent checks whether VM CR is present in SV namespace
-// with given vmuuid and returns the VirtualMachine CR object if it is found
+// with given vmuuid and returns the VirtualMachine CR object if it is found.
+// UUIDs are compared case-insensitively and ignoring surrounding whitespace,
+// matching the normalization done by the vCenter lookup (GetVirtualMachineByUUID).
 func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 	vmuuid string, namespace string) (*vmoperatortypes.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
@@ -976,8 +1009,12 @@ func isVmCrPresent(ctx context.Context, vmOperatorClient client.Client,
 		log.Error(msg)
 		return nil, err
 	}
+	normalizedUUID := strings.ToLower(strings.TrimSpace(vmuuid))
 	for _, vmInstance := range vmList.Items {
-		if vmInstance.Status.BiosUUID == vmuuid {
+		biosUUID := strings.ToLower(strings.TrimSpace(vmInstance.Status.BiosUUID))
+		// Skip VM CRs whose BiosUUID is not populated yet so an empty
+		// UUID never matches.
+		if biosUUID != "" && biosUUID == normalizedUUID {
 			msg := fmt.Sprintf("VM CR with BiosUUID: %s found in namespace: %s",
 				vmuuid, namespace)
 			log.Infof(msg)
