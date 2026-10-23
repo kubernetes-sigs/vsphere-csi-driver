@@ -5109,15 +5109,37 @@ func startSnapshotSPUReconciler(ctx context.Context) error {
 	}
 	queue := workqueue.NewTypedRateLimitingQueueWithConfig(workqueue.DefaultTypedControllerRateLimiter[string](),
 		workqueue.TypedRateLimitingQueueConfig[string]{Name: "snapshot-spu-used"})
-	reconciler, err := newSPUSnapshotReconciler(spuClient, informer, queue)
+	dviClient, err := newDeletedVolumeInfoClient(ctx,
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsSnapServiceLocalProtection))
 	if err != nil {
-		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
-			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+		queue.ShutDown()
+		return logger.LogNewErrorf(log, "failed to create DeletedVolumeInfo client: %v", err)
 	}
 	spuSnapshotQueue = queue
-	go reconciler.run(ctx, spuSnapshotWorkers)
-	log.Infof("Reconciler of snapshot %s CRs started with %d workers", storagepolicyv1alpha3.CRDSingular,
-		spuSnapshotWorkers)
+	go func() {
+		defer queue.ShutDown()
+		// Resolve optional inventory before constructing the reconciler. Discovery
+		// retries must not block unrelated metadata syncer initialization.
+		dviInformer, err := initializeDeletedVolumeInfo(ctx, dviClient,
+			deletedVolumeInfoStartupRetryInterval, deletedVolumeInfoPollInterval, func() {
+				utils.LogoutAllvCenterSessions(ctx)
+				os.Exit(0)
+			})
+		if err != nil {
+			log.Infof("Stopped initializing snapshot %s reconciler: %v", storagepolicyv1alpha3.CRDSingular, err)
+			return
+		}
+		reconciler, err := newSPUSnapshotReconciler(spuClient, informer, queue, dviInformer)
+		if err != nil {
+			log.Errorf("failed to add event handler on informer for %q CR. Error: %v",
+				cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
+			utils.LogoutAllvCenterSessions(ctx)
+			os.Exit(1)
+		}
+		log.Infof("Reconciler of snapshot %s CRs started with %d workers", storagepolicyv1alpha3.CRDSingular,
+			spuSnapshotWorkers)
+		reconciler.run(ctx, spuSnapshotWorkers)
+	}()
 	return nil
 }
 
