@@ -237,7 +237,7 @@ func (r *ReconcileVirtualMachineSnapshot) Reconcile(ctx context.Context,
 	if err != nil {
 		recordEvent(ctx, r, vmSnapshot, corev1.EventTypeWarning, err.Error())
 		log.Errorf("error while processing virtualmachinesnapshot %s/%s set backOffDuration: %v. error: %v",
-			request.Namespace, request.Name, backOffDuration[request.NamespacedName], err)
+			request.Namespace, request.Name, timeout, err)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
