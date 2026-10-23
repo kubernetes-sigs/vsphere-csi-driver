@@ -147,7 +147,7 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		} else {
 			// Compare objects between the guest cluster and supervisor cluster.
 			// Update the supervisor cluster API server if an object is stale.
-			log.Infof("FullSync: Comparing CnsVolumeMetadata %v (entity type %q, entity name %q): "+
+			log.Debugf("FullSync: Comparing CnsVolumeMetadata %v (entity type %q, entity name %q): "+
 				"guest labels: %v, supervisor labels: %v, guest clusterDistribution: %q, "+
 				"supervisor clusterDistribution: %q",
 				guestObject.Name, guestObject.Spec.EntityType, guestObject.Spec.EntityName,
@@ -338,7 +338,7 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 			volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pv.UID), pv.Name,
 			cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "",
 			[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
-		log.Infof("FullSync: Built guest CnsVolumeMetadata %v for PV %q with labels: %v",
+		log.Debugf("FullSync: Built guest CnsVolumeMetadata %v for PV %q with labels: %v",
 			pvObject.Name, pv.Name, pv.Labels)
 		returnList.Items = append(returnList.Items, *pvObject)
 
@@ -359,7 +359,7 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 				volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace,
 				[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
-			log.Infof("FullSync: Built guest CnsVolumeMetadata %v for PVC %s/%s with labels: %v",
+			log.Debugf("FullSync: Built guest CnsVolumeMetadata %v for PVC %s/%s with labels: %v",
 				pvcObject.Name, pvc.Namespace, pvc.Name, pvc.GetLabels())
 			returnList.Items = append(returnList.Items, *pvcObject)
 			pvcToVolumeName[pvc.Name] = pv.Spec.CSI.VolumeHandle
