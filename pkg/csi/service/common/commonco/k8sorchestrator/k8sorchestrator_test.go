@@ -394,3 +394,41 @@ func TestNodeIDToNameMapBidirectional(t *testing.T) {
 	assert.False(t, reverseExists)
 	assert.Equal(t, "host-2", m.nameToID["node-b"])
 }
+
+// TestGetAllK8sVolumesConcurrentAccess verifies that GetAllK8sVolumes can be
+// called while PV informer handlers concurrently add and remove entries from
+// volumeIDToNameMap. Run with -race to detect unsynchronized map access.
+func TestGetAllK8sVolumesConcurrentAccess(t *testing.T) {
+	k8sOrchestrator := K8sOrchestrator{
+		volumeIDToNameMap: &volumeIDToNameMap{
+			RWMutex: &sync.RWMutex{},
+			items:   make(map[string]string),
+		},
+	}
+
+	const iterations = 1000
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			volumeID := "volume-id-" + strconv.Itoa(i)
+			k8sOrchestrator.volumeIDToNameMap.add(volumeID, "pv-"+strconv.Itoa(i))
+			if i%2 == 0 {
+				k8sOrchestrator.volumeIDToNameMap.remove(volumeID)
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = k8sOrchestrator.GetAllK8sVolumes()
+		}
+	}()
+	wg.Wait()
+
+	volumeIDs := k8sOrchestrator.GetAllK8sVolumes()
+	if len(volumeIDs) != iterations/2 {
+		t.Errorf("Expected %d volume IDs but got %d", iterations/2, len(volumeIDs))
+	}
+}

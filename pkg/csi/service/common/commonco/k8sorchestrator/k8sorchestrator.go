@@ -279,6 +279,17 @@ func (m *volumeIDToNameMap) get(volumeID string) (string, bool) {
 	return volumeName, found
 }
 
+// Returns a snapshot of all volume IDs from volumeIDToNameMap in a thread safe manner.
+func (m *volumeIDToNameMap) getAll() []string {
+	m.RLock()
+	defer m.RUnlock()
+	volumeIDs := make([]string, 0, len(m.items))
+	for volumeID := range m.items {
+		volumeIDs = append(volumeIDs, volumeID)
+	}
+	return volumeIDs
+}
+
 // K8sOrchestrator defines set of properties specific to K8s.
 type K8sOrchestrator struct {
 	supervisorFSS        FSSConfigMapInfo
@@ -1194,11 +1205,7 @@ func pvDeleted(obj interface{}) {
 // GetAllK8sVolumes returns list of volumes in a bound state
 // list Includes Migrated vSphere Volumes VMDK Paths for in-tree vSphere PVs and Volume IDs for CSI PVs
 func (c *K8sOrchestrator) GetAllK8sVolumes() []string {
-	volumeIDs := make([]string, 0)
-	for volumeID := range c.volumeIDToNameMap.items {
-		volumeIDs = append(volumeIDs, volumeID)
-	}
-	return volumeIDs
+	return c.volumeIDToNameMap.getAll()
 }
 
 // isSyncMapEmpty checks if given sync map is empty or not and returns bool value accordingly
