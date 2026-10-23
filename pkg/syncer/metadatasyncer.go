@@ -5109,8 +5109,15 @@ func startSnapshotSPUReconciler(ctx context.Context) error {
 	}
 	queue := workqueue.NewTypedRateLimitingQueueWithConfig(workqueue.DefaultTypedControllerRateLimiter[string](),
 		workqueue.TypedRateLimitingQueueConfig[string]{Name: "snapshot-spu-used"})
-	reconciler, err := newSPUSnapshotReconciler(spuClient, informer, queue)
+	dviInformer, err := newDeletedVolumeInfoInformer(ctx,
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsSnapServiceLocalProtection))
 	if err != nil {
+		queue.ShutDown()
+		return logger.LogNewErrorf(log, "failed to create DeletedVolumeInfo informer: %v", err)
+	}
+	reconciler, err := newSPUSnapshotReconciler(spuClient, informer, queue, dviInformer)
+	if err != nil {
+		queue.ShutDown()
 		return logger.LogNewErrorf(log, "failed to add event handler on informer for %q CR. Error: %v",
 			cnsvolumeinfov1alpha1.CnsVolumeInfoSingular, err)
 	}
