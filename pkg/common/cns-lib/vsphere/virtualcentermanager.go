@@ -39,6 +39,9 @@ var (
 type VirtualCenterManager interface {
 	// GetVirtualCenter returns the VirtualCenter instance given the host.
 	GetVirtualCenter(ctx context.Context, host commontypes.FQDN) (*VirtualCenter, error)
+	// IsVirtualCenterRegistered returns true if the virtual center is registered. Unlike GetVirtualCenter, it
+	// does not log when the virtual center is not found.
+	IsVirtualCenterRegistered(host commontypes.FQDN) bool
 	// GetAllVirtualCenters returns all VirtualCenter instances. If virtual
 	// centers are added or removed concurrently, they may or may not be
 	// reflected in the result of a call to this method.
@@ -97,6 +100,11 @@ func (m *defaultVirtualCenterManager) GetVirtualCenter(ctx context.Context,
 	}
 	log.Errorf("Couldn't find VC %s in registry", host)
 	return nil, ErrVCNotFound
+}
+
+func (m *defaultVirtualCenterManager) IsVirtualCenterRegistered(host commontypes.FQDN) bool {
+	_, exists := m.virtualCenters.Load(host)
+	return exists
 }
 
 func (m *defaultVirtualCenterManager) GetAllVirtualCenters() []*VirtualCenter {

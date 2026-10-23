@@ -482,18 +482,22 @@ func GetDatacenterObjectList(ctx context.Context,
 		return nil, err
 	}
 
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	var vcenter *cnsvsphere.VirtualCenter
+	if err == nil {
+		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
+	if err != nil {
+		log.Errorf("failed to get virtual center instance with error: %v", err)
+		return nil, err
+	}
+	err = vcenter.Connect(ctx)
+	if err != nil {
+		log.Errorf("failed to connect to VC with error: %v", err)
+		return nil, err
+	}
 	datacenterList := make([]cnsvsphere.Datacenter, 0)
 	for _, dcMoref := range dcList {
-		vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, &configInfo, false)
-		if err != nil {
-			log.Errorf("failed to get virtual center instance with error: %v", err)
-			return nil, err
-		}
-		err = vcenter.Connect(ctx)
-		if err != nil {
-			log.Errorf("failed to connect to VC with error: %v", err)
-			return nil, err
-		}
 		dc := &cnsvsphere.Datacenter{
 			Datacenter: object.NewDatacenter(vcenter.Client.Client,
 				vimtypes.ManagedObjectReference{

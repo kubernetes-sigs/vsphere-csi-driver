@@ -555,11 +555,10 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 	}
 	if newVCConfig != nil {
 		newVCConfig.ReloadVCConfigForNewClient = true
-		var vcenter *cnsvsphere.VirtualCenter
-		if c.manager.VcenterConfig.Host != newVCConfig.Host ||
+		reconnectToVC := c.manager.VcenterConfig.Host != newVCConfig.Host ||
 			c.manager.VcenterConfig.Username != newVCConfig.Username ||
-			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig {
-
+			c.manager.VcenterConfig.Password != newVCConfig.Password || reconnectToVCFromNewConfig
+		if reconnectToVC {
 			// Verify if new configuration has valid credentials by connecting to
 			// vCenter. Proceed only if the connection succeeds, else return error.
 			newVC := &cnsvsphere.VirtualCenter{Config: newVCConfig, ClientMutex: &sync.Mutex{}}
@@ -567,23 +566,16 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				return logger.LogNewErrorf(log, "failed to connect to VirtualCenter host: %q, Err: %+v",
 					newVCConfig.Host, err)
 			}
-
-			// Reset virtual center singleton instance by passing reload flag as
-			// true.
-			log.Info("Obtaining new vCenterInstance")
-			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-			}
-		} else {
-			// If it's not a VC host or VC credentials update, same singleton
-			// instance can be used and it's Config field can be updated.
-			vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-			if err != nil {
-				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-			}
-			vcenter.Config = newVCConfig
 		}
+
+		// If it's a VC host or VC credentials update, a new vCenter instance is created using the new config.
+		// Otherwise the cached instance is reused and only its Config field is updated.
+		log.Info("Obtaining vCenterInstance")
+		vcenter, err := cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, reconnectToVC)
+		if err != nil {
+			return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+		}
+		vcenter.Config = newVCConfig
 		idempotencyHandlingEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.CSIVolumeManagerIdempotency)
 		isCSITransactionSupportEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
@@ -601,10 +593,11 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				return err
 			}
 		}
-		err := c.manager.VolumeManager.ResetManager(ctx, vcenter)
+		err = c.manager.VolumeManager.ResetManager(ctx, vcenter)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 		}
+		oldHost := c.manager.VcenterConfig.Host
 		c.manager.VcenterConfig = newVCConfig
 
 		volumeManager, err := cnsvolume.GetManager(ctx, vcenter, operationStore,
@@ -617,6 +610,13 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 		if c.authMgr != nil {
 			c.authMgr.ResetvCenterInstance(ctx, vcenter)
 			log.Debugf("Updated vCenter in auth manager")
+		}
+		if oldHost != newVCConfig.Host {
+			// The vCenter host changed and everything is switched over to the new host, unregister the
+			// previous host so that it does not stay registered.
+			if err = cnsvsphere.UnregisterVirtualCenterForHost(ctx, oldHost); err != nil {
+				log.Warnf("failed to unregister previous vCenter %q. err=%v", oldHost, err)
+			}
 		}
 	}
 	if cfg != nil {

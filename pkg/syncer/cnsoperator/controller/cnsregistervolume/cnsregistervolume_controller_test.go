@@ -547,6 +547,7 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			},
 		}
 		r = &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
 			volumeManager: mockVolMgr,
@@ -559,8 +560,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 	})
 
 	It("should disallow registering volume not accessible to active clusters on namespace", func() {
-		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
-			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(ctx context.Context,
+			config *cnsvsphere.VirtualCenterConfig, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 			return &cnsvsphere.VirtualCenter{}, nil
 		})
 
@@ -605,8 +606,8 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			// no-op
 		})
 
-		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
-			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(ctx context.Context,
+			config *cnsvsphere.VirtualCenterConfig, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 			return &cnsvsphere.VirtualCenter{
 				Config: &cnsvsphere.VirtualCenterConfig{
 					Host: commontypes.NewFQDN("dummy-vcenter"),
@@ -764,13 +765,14 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 			},
 		}
 		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
 			volumeManager: diskURLMgr,
 		}
 
-		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
-			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(ctx context.Context,
+			config *cnsvsphere.VirtualCenterConfig, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("vc")}}, nil
 		})
 		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
@@ -885,14 +887,15 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		k8sclientFake := k8sfake.NewClientset(pvc, sc)
 
 		diskURLReconciler := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        fakeClient,
 			scheme:        scheme,
 			volumeManager: diskURLMgr,
 			k8sclient:     k8sclientFake,
 		}
 
-		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(ctx context.Context,
-			config *config.ConfigurationInfo, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(ctx context.Context,
+			config *cnsvsphere.VirtualCenterConfig, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("vc")}}, nil
 		})
 		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
@@ -2311,18 +2314,21 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 	defer func() { syncer.IsPodVMOnStretchSupervisorFSSEnabled = origStretch }()
 
 	r := &ReconcileCnsRegisterVolume{
-		client:     fakeClient,
-		scheme:     scheme,
-		k8sclient:  k8sclientFake,
-		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{}},
+		client:    fakeClient,
+		scheme:    scheme,
+		k8sclient: k8sclientFake,
+		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
+		}},
 	}
 
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
 	vcCalled := false
-	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(_ context.Context,
-		_ *config.ConfigurationInfo, _ bool) (*cnsvsphere.VirtualCenter, error) {
+	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(_ context.Context,
+		_ *cnsvsphere.VirtualCenterConfig, _ bool) (*cnsvsphere.VirtualCenter, error) {
 		vcCalled = true
 		return newFakeVCWithClient(), nil
 	})
@@ -2404,7 +2410,8 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
 		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
-			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{commontypes.NewFQDN("vc"): {User: "test-user"}},
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
 		}},
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
@@ -2417,8 +2424,8 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 	patches := gomonkey.NewPatches()
 	defer patches.Reset()
 
-	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(_ context.Context,
-		_ *config.ConfigurationInfo, _ bool) (*cnsvsphere.VirtualCenter, error) {
+	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(_ context.Context,
+		_ *cnsvsphere.VirtualCenterConfig, _ bool) (*cnsvsphere.VirtualCenter, error) {
 		return newFakeVCWithClient(), nil
 	})
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
@@ -3054,6 +3061,7 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 
 	// Create a minimal reconciler with mocked volumeManager
 	reconciler := &ReconcileCnsRegisterVolume{
+		configInfo:    testConfigInfo(),
 		volumeManager: nil, // Will be mocked
 	}
 
@@ -3180,6 +3188,7 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 
 	// Create a minimal reconciler with mocked volumeManager
 	reconciler := &ReconcileCnsRegisterVolume{
+		configInfo:    testConfigInfo(),
 		volumeManager: nil, // Will be mocked
 	}
 
@@ -3422,8 +3431,9 @@ var _ = Describe("patchCnsRegisterVolumeStatus Tests", func() {
 			recorder := broadcaster.NewRecorder(clientgoscheme.Scheme, corev1.EventSource{Component: "test"})
 
 			reconciler = &ReconcileCnsRegisterVolume{
-				client:   client,
-				recorder: recorder,
+				configInfo: testConfigInfo(),
+				client:     client,
+				recorder:   recorder,
 			}
 		})
 
@@ -3457,8 +3467,9 @@ var _ = Describe("patchCnsRegisterVolumeStatus Tests", func() {
 			recorder := broadcaster.NewRecorder(clientgoscheme.Scheme, corev1.EventSource{Component: "test"})
 
 			reconciler = &ReconcileCnsRegisterVolume{
-				client:   client,
-				recorder: recorder,
+				configInfo: testConfigInfo(),
+				client:     client,
+				recorder:   recorder,
 			}
 		})
 
@@ -3738,6 +3749,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -3805,6 +3817,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -3894,6 +3907,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -3973,6 +3987,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -4061,6 +4076,7 @@ func TestReconcileDelete(t *testing.T) {
 
 		mockVolMgr := &mockVolumeManager{}
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -4164,6 +4180,7 @@ func TestReconcileDelete(t *testing.T) {
 		}
 
 		r := &ReconcileCnsRegisterVolume{
+			configInfo:    testConfigInfo(),
 			client:        c,
 			volumeManager: mockVolMgr,
 			k8sclient:     k8sclient,
@@ -4827,8 +4844,11 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 		scheme: scheme,
 		// Empty clientset: a reconcile that gets past the host-local block stops at the storage
 		// class lookup rather than dereferencing a nil client.
-		k8sclient:  k8sfake.NewSimpleClientset(),
-		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{}},
+		k8sclient: k8sfake.NewSimpleClientset(),
+		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
+		}},
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
 				_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
@@ -4837,8 +4857,8 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 		},
 	}
 
-	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstance, func(_ context.Context,
-		_ *config.ConfigurationInfo, _ bool) (*cnsvsphere.VirtualCenter, error) {
+	patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(_ context.Context,
+		_ *cnsvsphere.VirtualCenterConfig, _ bool) (*cnsvsphere.VirtualCenter, error) {
 		return newFakeVCWithClient(), nil
 	})
 	patches.ApplyFunc(constructCreateSpecForInstance, func(_ context.Context, _ *ReconcileCnsRegisterVolume,
@@ -5033,4 +5053,13 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 	assert.Equal(t, reconcile.Result{}, result)
 	assert.True(t, *setErrCalled, "setInstanceError should be called when host-local topology cannot be derived")
 	assert.True(t, *cleanupCalled, "cleanupCNSVolume should be called when host-local topology cannot be derived")
+}
+
+// testConfigInfo returns a config with a single vCenter entry, which is required to look up the vCenter
+// instance via GetVirtualCenterInstanceForVCenterConfig.
+func testConfigInfo() *config.ConfigurationInfo {
+	return &config.ConfigurationInfo{Cfg: &config.Config{
+		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+			commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
+	}}
 }

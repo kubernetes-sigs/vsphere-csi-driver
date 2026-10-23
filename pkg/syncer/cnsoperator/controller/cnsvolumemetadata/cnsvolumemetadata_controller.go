@@ -325,7 +325,11 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v",
 		instance.Name, deleteFlag)
-	vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.Cfg)
+	var vCenter *cnsvsphere.VirtualCenter
+	if err == nil {
+		vCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
 	if err != nil {
 		log.Errorf("ReconcileCnsVolumeMetadata: Failed to get virtual center instance. Err: %v", err)
 		return false

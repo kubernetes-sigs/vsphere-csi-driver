@@ -599,7 +599,9 @@ func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperatorInfo) erro
 		log.Errorf("Failed to read config. Error: %+v", err)
 		return err
 	}
-	cnsOperator.configInfo = &commonconfig.ConfigurationInfo{Cfg: cfg}
+	// Update in place, as the controllers hold the same ConfigurationInfo pointer (see AddToManager) and must
+	// observe the reloaded config.
+	cnsOperator.configInfo.Cfg = cfg
 	log.Infof("Reloaded the value for CnsRegisterVolumesCleanupIntervalInMin to %d",
 		cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
 	return nil
