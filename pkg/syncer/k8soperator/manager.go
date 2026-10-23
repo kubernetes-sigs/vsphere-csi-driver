@@ -24,6 +24,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ccV1beta2 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -67,6 +68,11 @@ func NewManager(
 	// Setup Scheme for all resources
 	if err := snapv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return nil, fmt.Errorf("failed to set scheme for K8s operator for type %s. Err: %+v", snapv1.GroupName, err)
+	}
+
+	if err := ccV1beta2.AddToScheme(mgr.GetScheme()); err != nil {
+		return nil, fmt.Errorf("failed to set scheme for K8s operator for type %s. Err: %+v",
+			ccV1beta2.GroupVersion, err)
 	}
 
 	if err := k8scontroller.AddToManager(mgr, clusterFlavor); err != nil {
