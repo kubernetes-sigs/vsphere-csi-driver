@@ -484,7 +484,11 @@ func GetDatacenterObjectList(ctx context.Context,
 
 	datacenterList := make([]cnsvsphere.Datacenter, 0)
 	for _, dcMoref := range dcList {
-		vcenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, &configInfo, false)
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+		var vcenter *cnsvsphere.VirtualCenter
+		if err == nil {
+			vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+		}
 		if err != nil {
 			log.Errorf("failed to get virtual center instance with error: %v", err)
 			return nil, err

@@ -71,7 +71,11 @@ func NewManager(
 
 	cryptoClient := crypto.NewClient(ctx, mgr.GetClient())
 
-	vcClient, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	var vcClient *cnsvsphere.VirtualCenter
+	if err == nil {
+		vcClient, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
 	if err != nil {
 		return nil, err
 	}
