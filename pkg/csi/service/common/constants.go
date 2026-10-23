@@ -748,6 +748,10 @@ const (
 	// Supervisor capability, only on the two-ConfigMap FSS check (see VKSRegisterVolume).
 	VSphereDPLPModernApp = "supports_vsphere_dp_lp_modern_app"
 
+	// SupportsSnapServiceLocalProtection is the WCP capability that indicates whether
+	// Snap Service local protection is supported by the Supervisor.
+	SupportsSnapServiceLocalProtection = "supports_snap_service_local_protection"
+
 	// VKSRegisterVolume is the guest-cluster FSS that gates the VKSRegisterVolume
 	// operator. Requires the flag to be true in both the guest PVCSI ConfigMap and the
 	// Supervisor csi-feature-states ConfigMap (two-ConfigMap gating, not associated with
@@ -776,6 +780,7 @@ var WCPFeatureStates = map[string]struct{}{
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
 	VSphereDPLPModernApp:                    {},
+	SupportsSnapServiceLocalProtection:      {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -797,6 +802,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
 	VSphereDPLPModernApp:                    {},
+	SupportsSnapServiceLocalProtection:      {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
