@@ -722,6 +722,97 @@ func TestPvcsiFullSync_PatchLogic_Integration(t *testing.T) {
 	}
 }
 
+// TestPvcsiFullSync_LabelScenarios runs the full sync compare+patch logic for combinations of
+// guest/supervisor labels, including the guest PV/PVC having no labels at all.
+func TestPvcsiFullSync_LabelScenarios(t *testing.T) {
+	tests := []struct {
+		name          string
+		guestLabels   map[string]string
+		superLabels   map[string]string
+		wantEqual     bool
+		wantPersisted map[string]string
+	}{
+		{
+			name:          "guest has no labels, supervisor has stale labels: labels are cleared",
+			guestLabels:   nil,
+			superLabels:   map[string]string{"stale": "v"},
+			wantEqual:     false,
+			wantPersisted: nil,
+		},
+		{
+			name:          "guest has labels, supervisor has none: labels are added",
+			guestLabels:   map[string]string{"new": "v"},
+			superLabels:   nil,
+			wantEqual:     false,
+			wantPersisted: map[string]string{"new": "v"},
+		},
+		{
+			name:          "guest label value changed: label is updated",
+			guestLabels:   map[string]string{"k": "new"},
+			superLabels:   map[string]string{"k": "old"},
+			wantEqual:     false,
+			wantPersisted: map[string]string{"k": "new"},
+		},
+		{
+			name:          "both have no labels (nil): nothing to do",
+			guestLabels:   nil,
+			superLabels:   nil,
+			wantEqual:     true,
+			wantPersisted: nil,
+		},
+		{
+			name:          "guest has empty (non-nil) labels, supervisor has none: nothing to do",
+			guestLabels:   map[string]string{},
+			superLabels:   nil,
+			wantEqual:     true,
+			wantPersisted: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			guestObject := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				ObjectMeta: metav1.ObjectMeta{Name: "label-scenario"},
+				Spec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
+					EntityType:          cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV,
+					Labels:              tt.guestLabels,
+					ClusterDistribution: "tkgs-guest",
+				},
+			}
+			supervisorObject := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
+				ObjectMeta: metav1.ObjectMeta{Name: "label-scenario", Namespace: "vmware-system-csi"},
+				Spec: cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec{
+					EntityType:          cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV,
+					Labels:              tt.superLabels,
+					ClusterDistribution: "tkgs-guest",
+				},
+			}
+
+			scheme := runtime.NewScheme()
+			_ = cnsoperatorapis.AddToScheme(scheme)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(supervisorObject.DeepCopy()).Build()
+
+			equal := compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec)
+			assert.Equal(t, tt.wantEqual, equal, "compareCnsVolumeMetadatas result")
+			if !equal {
+				original := supervisorObject.DeepCopy()
+				supervisorObject.Spec = guestObject.Spec
+				require.NoError(t, k8s.PatchObject(ctx, fakeClient, original, supervisorObject))
+			}
+
+			persisted := &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{}
+			require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(supervisorObject), persisted))
+			assert.Equal(t, len(tt.wantPersisted), len(persisted.Spec.Labels),
+				"persisted labels on the supervisor object")
+			for k, v := range tt.wantPersisted {
+				assert.Equal(t, v, persisted.Spec.Labels[k])
+			}
+		})
+	}
+}
+
 // TestPVCPatchFunctionality tests PVC patching functionality in pvcsi_fullsync and pvcsi_metadatasyncer
 func TestPVCPatchFunctionality(t *testing.T) {
 	ctx := context.Background()
