@@ -698,6 +698,7 @@ data:
   "CSI_Backup_API": "false"
   "improved-volume-visibility": "true"
   "host-local-storage-support": "false"
+  "podvm-v2-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
   "linked-clone-support": "true"
