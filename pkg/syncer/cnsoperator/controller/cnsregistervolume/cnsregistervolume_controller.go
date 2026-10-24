@@ -340,7 +340,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, r.configInfo, false)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.Cfg)
+	var vc *cnsvsphere.VirtualCenter
+	if err == nil {
+		vc, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
 	if err != nil {
 		msg := fmt.Sprintf("Failed to get virtual center instance with error: %+v", err)
 		log.Error(msg)

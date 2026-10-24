@@ -80,7 +80,11 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Get VC connection.
-	vc, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	var vc *cnsvsphere.VirtualCenter
+	if err == nil {
+		vc, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
 	if err != nil {
 		log.Errorf("Failed to get vCenter from vSphereSecretConfigInfo. Err: %+v", err)
 		return err

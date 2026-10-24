@@ -444,7 +444,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		} else {
 			// SupportsExposingStoragePolicyAttributes is enabled — start the shared
 			// vSphere inventory watcher used by ClusterSPI and InfraSPI controllers.
-			vc, vcErr := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			vcconfig, vcErr := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+			var vc *cnsvsphere.VirtualCenter
+			if vcErr == nil {
+				vc, vcErr = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+			}
 			if vcErr != nil {
 				return logger.LogNewErrorf(log, "failed to get vCenter instance for inventory watcher: %v", vcErr)
 			}
@@ -560,7 +564,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Initialize volume manager with vcenter credentials
-		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+		var vCenter *cnsvsphere.VirtualCenter
+		if err == nil {
+			vCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+		}
 		if err != nil {
 			return err
 		}
@@ -2872,22 +2880,21 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
 						newVCConfig.Host, err)
 				}
+			}
 
-				// Reset virtual center singleton instance by passing reload flag
-				// as true.
-				log.Info("Obtaining new vCenterInstance using new credentials")
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+			// If it's a VC host or VC credentials update, a new vCenter instance is created using the new
+			// config. Otherwise the cached instance is reused and only its Config field is updated.
+			log.Info("Obtaining vCenterInstance")
+			vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, configChanged)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+			}
+			vcenter.Config = newVCConfig
+			if oldHost := metadataSyncer.host; oldHost != newVCConfig.Host {
+				// The vCenter host changed, unregister the previous host so that it does not stay registered.
+				if err = cnsvsphere.UnregisterVirtualCenterForHost(ctx, oldHost); err != nil {
+					log.Warnf("failed to unregister previous vCenter %q. err=%v", oldHost, err)
 				}
-			} else {
-				// If it's not a VC host or VC credentials update, same singleton
-				// instance can be used and it's Config field can be updated.
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-				}
-				vcenter.Config = newVCConfig
 			}
 			err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
 			if err != nil {

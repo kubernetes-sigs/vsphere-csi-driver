@@ -88,7 +88,11 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	vcClient, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	var vcClient *cnsvsphere.VirtualCenter
+	if err == nil {
+		vcClient, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+	}
 	if err != nil {
 		return err
 	}

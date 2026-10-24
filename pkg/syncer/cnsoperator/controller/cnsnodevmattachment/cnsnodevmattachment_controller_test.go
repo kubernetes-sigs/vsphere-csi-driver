@@ -156,6 +156,7 @@ func TestReconcileDetachWithVolumeIDFallback(t *testing.T) {
 				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 					commontypes.NewFQDN("test-vc"): {
 						Datacenters: "dc-1",
+						VCenterPort: "443",
 					},
 				},
 			},
@@ -180,8 +181,8 @@ func TestReconcileDetachWithVolumeIDFallback(t *testing.T) {
 	}()
 
 	// Mock getVirtualCenterInstance to return a minimal fake VirtualCenter
-	getVirtualCenterInstance = func(ctx context.Context, cfg *config.ConfigurationInfo,
-		filterSuspendedDatastores bool) (*cnsvsphere.VirtualCenter, error) {
+	getVirtualCenterInstance = func(ctx context.Context, cfg *cnsvsphere.VirtualCenterConfig,
+		reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 		return &cnsvsphere.VirtualCenter{}, nil
 	}
 
@@ -295,6 +296,7 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 					commontypes.NewFQDN("test-vc"): {
 						Datacenters: "dc-1",
+						VCenterPort: "443",
 					},
 				},
 			},
@@ -318,8 +320,8 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 		getVMByUUIDFromVCenter = originalGetVMByUUID
 	}()
 
-	getVirtualCenterInstance = func(ctx context.Context, cfg *config.ConfigurationInfo,
-		filterSuspendedDatastores bool) (*cnsvsphere.VirtualCenter, error) {
+	getVirtualCenterInstance = func(ctx context.Context, cfg *cnsvsphere.VirtualCenterConfig,
+		reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
 		return &cnsvsphere.VirtualCenter{}, nil
 	}
 
