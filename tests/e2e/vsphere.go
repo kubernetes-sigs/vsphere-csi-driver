@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -608,6 +607,13 @@ func (vs *vSphere) deleteFCD(ctx context.Context, fcdID string, dsRef vim25types
 // only the CNS metadata is removed (the FCD remains and can be reclaimed by
 // a subsequent vs.deleteFCD call).
 func (vs *vSphere) cnsDeleteVolume(ctx context.Context, volumeID string, deleteDisk bool) error {
+	// Connect to VC and ensure CnsClient is valid for the current session
+	// before this is called - callers may invoke this long after their VC
+	// session was established, e.g. after a vpxd restart mid-test.
+	connect(ctx, vs)
+	if err := connectCns(ctx, vs); err != nil {
+		return err
+	}
 	req := cnstypes.CnsDeleteVolume{
 		This:       cnsVolumeManagerInstance,
 		VolumeIds:  []cnstypes.CnsVolumeId{{Id: volumeID}},
@@ -1099,6 +1105,13 @@ func (vs *vSphere) deleteVolumeSnapshotInCNS(fcdID string, snapshotId string) er
 func (vs *vSphere) createVolumeSnapshotInCNS(fcdID string) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Connect to VC and ensure CnsClient is valid for the current session
+	// before this is called - callers may invoke this long after their VC
+	// session was established, e.g. after a vpxd restart mid-test.
+	connect(ctx, vs)
+	if err := connectCns(ctx, vs); err != nil {
+		return "", err
+	}
 
 	var cnsSnapshotCreateSpecList []cnstypes.CnsSnapshotCreateSpec
 	cnsSnapshotCreateSpec := cnstypes.CnsSnapshotCreateSpec{
@@ -1184,9 +1197,9 @@ func (vs *vSphere) verifyLabelsAreUpdated(volumeID string, matchLabels map[strin
 			if matchLabels == nil {
 				return nil
 			}
-			labelsMatch := reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
+			labelsMatch := containsExpectedLabels(getLabelsMapFromKeyValue(kubernetesMetadata.Labels), matchLabels)
 			if guestCluster {
-				labelsMatch = reflect.DeepEqual(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
+				labelsMatch = containsExpectedLabels(getLabelsMapFromKeyValue(kubernetesMetadata.CnsEntityMetadata.Labels),
 					matchLabels)
 			}
 			if labelsMatch {
