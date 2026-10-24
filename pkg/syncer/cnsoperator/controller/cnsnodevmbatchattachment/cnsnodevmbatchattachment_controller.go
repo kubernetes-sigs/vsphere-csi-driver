@@ -444,6 +444,25 @@ func (r *Reconciler) processDetach(ctx context.Context,
 	vm *cnsvsphere.VirtualMachine,
 	instance *v1alpha1.CnsNodeVMBatchAttachment, volumesToDetach map[string]string) error {
 	log := logger.GetLogger(ctx)
+
+	if len(volumesToDetach) == 0 {
+		log.Infof("No volumes to detach from VM %q", instance.Spec.InstanceUUID)
+		return nil
+	}
+
+	// Validate if the VM is present in the same namespace as the batchattach instance/volumes.
+	// This is to prevent any cross namespace attacks.
+	isPresentInSameNamespace, err := isVmInSameNamespace(ctx, r.vmOperatorClient, instance.Name,
+		instance.Spec.InstanceUUID, instance.Namespace)
+	if err != nil {
+		return err
+	}
+
+	if !isPresentInSameNamespace {
+		return fmt.Errorf("failed to find VM with instance UUID %s in namespace %s", instance.Spec.InstanceUUID,
+			instance.Namespace)
+	}
+
 	log.Debugf("Calling detach volume for PVC %+v", volumesToDetach)
 
 	volumesThatFailedToDetach := r.detachVolumes(ctx, k8sClient, vm, volumesToDetach, instance)
