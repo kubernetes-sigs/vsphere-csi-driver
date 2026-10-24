@@ -59,6 +59,7 @@ import (
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -487,20 +488,9 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 				// /etc/vmware/wcp/tls/vmca.pem. For such operations, fsnotify
 				// handles the event as a CREATE event. The condition below also
 				// ensures that the event is for the expected ca file path.
-				if event.Op&fsnotify.Create == fsnotify.Create && event.Name == cnsconfig.SupervisorCAFilePath {
-					log.Infof("Observed ca file rotation at: %q", cnsconfig.SupervisorCAFilePath)
-					for {
-						reconnectVCErr := c.ReloadConfiguration(true)
-						if reconnectVCErr == nil {
-							log.Infof("Successfully re-established connection with VC from: %q",
-								cnsconfig.SupervisorCAFilePath)
-							break
-						}
-						log.Errorf("failed to re-establish VC connection. Will retry again in 60 seconds. err: %+v",
-							reconnectVCErr)
-						time.Sleep(60 * time.Second)
-					}
-				}
+				// When the CA bundle is a ConfigMap volume, a rotation shows up as a Create of the
+				// volume's ..data symlink instead (see runtimeconfig.IsCAFileRotation).
+				runtimeconfig.HandleCAFileEvent(ctx, event, func() error { return c.ReloadConfiguration(true) })
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					log.Errorf("fsnotify error: %+v", err)
@@ -510,6 +500,14 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			log.Debugf("fsnotify event processed")
 		}
 	}()
+
+	// Reconnect when the vCenter credentials change, and reload when the vSAN file volume
+	// settings change. Both are no-ops unless the runtime config FSS is on.
+	err = runtimeconfig.StartReloading(ctx, config, c)
+	if err != nil {
+		log.Errorf("failed to watch the runtime configuration sources. err=%v", err)
+		return err
+	}
 
 	// Go module to keep the metrics http server running all the time.
 	go func() {
@@ -535,6 +533,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 // reload, the function resets config, reloads VC connection when credentials
 // are changed and returns appropriate error.
 func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error {
+	defer runtimeconfig.LockReload()()
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Info("Reloading Configuration")
 	cfg, err := cnsconfig.GetConfig(ctx)
