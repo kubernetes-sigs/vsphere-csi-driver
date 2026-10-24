@@ -378,6 +378,10 @@ func (m *mockCOCommon) GetNodeIDtoNameMap(ctx context.Context) map[string]string
 // nodeNameToHostMoIDMapOverride lets host-local tests supply a fixed node-name -> host-MoID map.
 var nodeNameToHostMoIDMapOverride map[string]string
 
+func (m *mockCOCommon) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return false
+}
+
 func (m *mockCOCommon) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
 	return nodeNameToHostMoIDMapOverride
 }

@@ -637,6 +637,10 @@ func (m *mockCOCommonForFullSync) GetNodeIDtoNameMap(ctx context.Context) map[st
 	return make(map[string]string)
 }
 
+func (m *mockCOCommonForFullSync) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return false
+}
+
 func (m *mockCOCommonForFullSync) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
 	return make(map[string]string)
 }

@@ -320,6 +320,9 @@ type K8sOrchestrator struct {
 	// this map contains UID of PVC with status Pending.
 	// When PVC's status turn to Bound, it is deleted from the map
 	pvcUIDCache sync.Map // key: PVC UID (string), value: namespaced name (string)
+	// podVMV2AtStartup latches the supports_podvm_v2 capability when the orchestrator
+	// initializes. See IsPodVMV2EnabledAtStartup.
+	podVMV2AtStartup bool
 }
 
 // K8sGuestInitParams lists the set of parameters required to run the init for
@@ -444,6 +447,13 @@ func Newk8sOrchestrator(ctx context.Context, controllerClusterFlavor cnstypes.Cn
 			log.Errorf("Failed to fetch the capabilities CR. Error: %v", err)
 			os.Exit(1)
 		}
+		// Latch supports_podvm_v2 once. Every PodVM v2 decision taken for the lifetime of
+		// this process must agree on a single value, and IsFSSEnabled re-reads the
+		// capabilities CR for a capability that supports late enablement, so two
+		// consecutive reads can legitimately disagree.
+		k8sOrchestratorInstance.podVMV2AtStartup = k8sOrchestratorInstance.IsFSSEnabled(ctx, common.PodVMV2Support)
+		log.Infof("PodVM v2 capability %q at startup: %t", common.PodVMV2Support,
+			k8sOrchestratorInstance.podVMV2AtStartup)
 	}
 
 	if (controllerClusterFlavor == cnstypes.CnsClusterFlavorWorkload) &&
@@ -1333,6 +1343,16 @@ func (c *K8sOrchestrator) HandleLateEnablementOfCapability(ctx context.Context,
 			os.Exit(1)
 		}
 	}
+}
+
+// IsPodVMV2EnabledAtStartup returns the supports_podvm_v2 capability value latched when the
+// orchestrator initialized. Callers must prefer it over IsFSSEnabled for anything decided once
+// per process: the host-ownership inventory, CSINode registration and the late-enablement restart
+// watchers all have to agree. IsFSSEnabled re-reads the capabilities CR whenever a
+// late-enablement capability reads false, so two calls can return different values and leave the
+// process half-converted with no watcher to restart it.
+func (c *K8sOrchestrator) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return c.podVMV2AtStartup
 }
 
 // IsDPOServiceInstalled reports whether the Data Protection Operator service is installed by checking if the

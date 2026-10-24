@@ -413,6 +413,14 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
 				common.HostLocalStorageSupport, "", "")
 		}
+		// PodVMV2Support selects, at startup, the VirtualNode host-ownership inventory and the
+		// CSINode topology keys for VirtualNodes. Restart the syncer when it flips to enabled.
+		// Keyed on the latched startup value so this decision cannot disagree with the one the
+		// orchestrator already made; see IsPodVMV2EnabledAtStartup.
+		if !commonco.ContainerOrchestratorUtility.IsPodVMV2EnabledAtStartup(ctx) {
+			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, clusterFlavor,
+				common.PodVMV2Support, "", "")
+		}
 		if !isSharedDiskEnabled {
 			go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
 				clusterFlavor, common.SharedDiskFss, "", "")

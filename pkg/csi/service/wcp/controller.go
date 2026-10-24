@@ -284,6 +284,15 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
 			common.HostLocalStorageSupport, "", "")
 	}
+	// PodVMV2Support selects, at startup, the VirtualNode host-ownership inventory used by
+	// ListVolumes. Restart the controller when it flips to enabled. The watcher is keyed on the
+	// latched startup value, not on a fresh capability read: a fresh read can already see the
+	// capability enabled, which would skip the watcher and leave this process running with the
+	// inventory it chose while the capability was still disabled.
+	if !commonco.ContainerOrchestratorUtility.IsPodVMV2EnabledAtStartup(ctx) {
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorWorkload,
+			common.PodVMV2Support, "", "")
+	}
 	if idempotencyHandlingEnabled {
 		log.Info("CSI Volume manager idempotency handling feature flag is enabled.")
 		operationStore, err = cnsvolumeoperationrequest.InitVolumeOperationRequestInterface(ctx,

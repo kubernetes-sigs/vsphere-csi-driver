@@ -136,6 +136,10 @@ func (m *MockCOCommonInterface) GetNodeIDtoNameMap(ctx context.Context) map[stri
 	return args.Get(0).(map[string]string)
 }
 
+func (m *MockCOCommonInterface) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
+	return false
+}
+
 func (m *MockCOCommonInterface) GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string {
 	return make(map[string]string)
 }
