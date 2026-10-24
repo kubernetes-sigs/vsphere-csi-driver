@@ -28,7 +28,7 @@ var (
 	// CAUTION: This technique requires that tag values should not be repeated across
 	// categories i.e using `us-east` as a region and as a zone is not allowed.
 	domainNodeMap = make(map[string]map[string]struct{})
-	// domainNodeMapInstanceLock guards the domainNodeMap instance from concurrent writes.
+	// domainNodeMapInstanceLock guards the domainNodeMap instance from concurrent reads and writes.
 	domainNodeMapInstanceLock = &sync.RWMutex{}
 	// PreferredDatastoresExist signifies if preferred datastores are present in the cluster.
 	PreferredDatastoresExist bool
@@ -646,6 +646,7 @@ func VerifyAllNodesInTopologyAccessibleToDatastore(ctx context.Context, nodeName
 		}
 		// Find the intersection of node names for all the tagValues using the domainNodeMap cached values.
 		var nodesInSegment []string
+		domainNodeMapInstanceLock.RLock()
 		for nodeName := range domainNodeMap[tagValues[0]] {
 			isPresent := true
 			for _, otherTag := range tagValues[1:] {
@@ -659,6 +660,7 @@ func VerifyAllNodesInTopologyAccessibleToDatastore(ctx context.Context, nodeName
 				nodesInSegment = append(nodesInSegment, nodeName)
 			}
 		}
+		domainNodeMapInstanceLock.RUnlock()
 		log.Debugf("Nodes %+v belong to topology segment %+v", nodesInSegment, segments)
 		// Find if nodesInSegment is a subset of the accessibleNodeNamesMap. If yes, that means all
 		// the nodes in the given list of segments have access to the chosen datastore.
