@@ -1,5 +1,8 @@
 # Troubleshooting
 
+For automatic heap, goroutine, and allocation profiles at high Go memory usage,
+see [Memory threshold profiles and log bundle extraction](memory-profiles.md).
+
 vSphere CSI Driver supports 2 levels of logging
 
 - PRODUCTION where all INFO/ERROR logs are logged
