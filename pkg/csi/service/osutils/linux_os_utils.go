@@ -715,28 +715,22 @@ func (osUtils *OsUtils) PublishBlockVol(
 	}
 	log.Debugf("publishBlockVol: device %+v, device mounts %q", *dev, devMnts)
 
-	// Check if device is already mounted.
-	if len(devMnts) == 0 {
-		// Do the bind mount.
-		mntFlags := make([]string, 0)
-		log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
-			dev.FullPath, params.Target, mntFlags)
-		if err := gofsutil.BindMount(ctx, dev.FullPath, params.Target, mntFlags...); err != nil {
-			return nil, logger.LogNewErrorCodef(log, codes.Internal,
-				"error mounting volume. Parameters: %v err: %v", params, err)
-		}
-		log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.Target)
-	} else if len(devMnts) == 1 {
-		// Already mounted, make sure it's what we want.
-		if unescape(ctx, devMnts[0].Path) != params.Target {
-			return nil, logger.LogNewErrorCode(log, codes.Internal,
-				"device already in use and mounted elsewhere")
-		}
-		log.Debugf("Volume already published to target. Parameters: [%+v]", params)
-	} else {
-		return nil, logger.LogNewErrorCode(log, codes.AlreadyExists,
-			"block volume already mounted in more than one place")
+	// Check if volume is already published to the requested target.
+	if isTargetInMounts(ctx, params.Target, devMnts) {
+		log.Infof("Volume already published to target. Parameters: [%+v]", params)
+		return &csi.NodePublishVolumeResponse{}, nil
 	}
+
+	// Bind mount device to target. Multiple pods on the same node each get their
+	// own publish target path, similar to PublishMountVol for filesystem volumes.
+	mntFlags := make([]string, 0)
+	log.Debugf("PublishBlockVolume: Attempting to bind mount %q to %q with mount flags %v",
+		dev.FullPath, params.Target, mntFlags)
+	if err := gofsutil.BindMount(ctx, dev.FullPath, params.Target, mntFlags...); err != nil {
+		return nil, logger.LogNewErrorCodef(log, codes.Internal,
+			"error mounting volume. Parameters: %v err: %v", params, err)
+	}
+	log.Debugf("PublishBlockVolume: Bind mount successful to path %q", params.Target)
 	log.Infof("NodePublishVolume successful to path %q", params.Target)
 	// Existing or new mount satisfies request.
 	return &csi.NodePublishVolumeResponse{}, nil
