@@ -416,6 +416,41 @@ func (vc *VirtualCenter) FindProfileByK8sCompliantName(ctx context.Context,
 	return nil, fault.CSINotFoundFault, fmt.Errorf("storage policy with K8s compliant name %s not found", k8sCompliantName)
 }
 
+// FindProfileByK8sCompliantNameOrID searches for a storage policy using one
+// REQUIREMENT-profile query. An exact K8s-compliant-name match takes precedence;
+// profileID is used as the fallback for upgraded StorageClass aliases.
+func (vc *VirtualCenter) FindProfileByK8sCompliantNameOrID(ctx context.Context,
+	k8sCompliantName, profileID string) (*ProfileDetail, string, error) {
+	log := logger.GetLogger(ctx)
+
+	profiles, err := vc.QueryAllProfileDetails(ctx, "REQUIREMENT", false)
+	if err != nil {
+		log.Errorf("failed to query profile details: %v", err)
+		return nil, fault.CSIInternalFault, err
+	}
+
+	var profileByID *ProfileDetail
+	for i := range profiles {
+		profile := &profiles[i]
+		if profile.K8sCompliantName == k8sCompliantName {
+			log.Infof("Found storage policy with K8s compliant name %s: ID=%s, Name=%s",
+				k8sCompliantName, profile.ID, profile.Name)
+			return profile, "", nil
+		}
+		if profileID != "" && profile.ID == profileID {
+			profileByID = profile
+		}
+	}
+	if profileByID != nil {
+		log.Infof("Found storage policy with ID %s: K8sCompliantName=%s, Name=%s",
+			profileID, profileByID.K8sCompliantName, profileByID.Name)
+		return profileByID, "", nil
+	}
+
+	return nil, fault.CSINotFoundFault, fmt.Errorf(
+		"storage policy with K8s compliant name %s or ID %s not found", k8sCompliantName, profileID)
+}
+
 func simplifyProfileStructs(ctx context.Context, profiles []pbmtypes.BasePbmProfile) []SpbmPolicyContent {
 	log := logger.GetLogger(ctx)
 	out := make([]SpbmPolicyContent, 0)

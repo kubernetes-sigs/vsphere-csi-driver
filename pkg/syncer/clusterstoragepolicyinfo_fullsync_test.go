@@ -27,6 +27,7 @@ import (
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -43,7 +44,8 @@ func fullSyncTestScheme(t *testing.T) *runtime.Scheme {
 func TestEnsureClusterStoragePolicyInfoCRsExist_CreatesMissingCRs(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := fullSyncTestScheme(t)
-	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
 
 	profiles := []cnsvsphere.ProfileDetail{
 		{ID: "policy-1", Name: "Policy One", K8sCompliantName: "policy-one"},
@@ -57,6 +59,7 @@ func TestEnsureClusterStoragePolicyInfoCRsExist_CreatesMissingCRs(t *testing.T) 
 		err := cli.Get(ctx, apitypes.NamespacedName{Name: name}, got)
 		require.NoError(t, err, "expected ClusterStoragePolicyInfo %q to be created", name)
 		assert.Empty(t, got.OwnerReferences, "expected no owner references on a bare CR created from full sync")
+		assert.Equal(t, name, got.Status.VolumeClassName)
 	}
 }
 
@@ -72,7 +75,8 @@ func TestEnsureClusterStoragePolicyInfoCRsExist_SkipsExistingCR(t *testing.T) {
 			},
 		},
 	}
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).WithObjects(existing).Build()
 
 	profiles := []cnsvsphere.ProfileDetail{
 		{ID: "policy-1", Name: "Policy One", K8sCompliantName: "policy-one"},
@@ -83,13 +87,78 @@ func TestEnsureClusterStoragePolicyInfoCRsExist_SkipsExistingCR(t *testing.T) {
 	got := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
 	require.NoError(t, cli.Get(ctx, apitypes.NamespacedName{Name: "policy-one"}, got))
 	assert.Equal(t, existing.OwnerReferences, got.OwnerReferences,
-		"existing CR with owner references must not be touched by full sync")
+		"full sync must preserve existing owner references")
+	assert.Equal(t, "policy-one", got.Status.VolumeClassName)
+}
+
+func TestEnsureClusterStoragePolicyInfoCRsExist_VolumeClassName(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		current     string
+		failPatch   bool
+		deleted     bool
+		wantPatches int
+	}{
+		{name: "backfill", wantPatches: 1},
+		{name: "correct stale volume class name", current: "old-name", wantPatches: 1},
+		{name: "already resolved", current: "gold"},
+		{name: "restored policy", current: "gold", deleted: true, wantPatches: 1},
+		{name: "patch failure continues", failPatch: true, wantPatches: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			existing := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "gold", Annotations: map[string]string{"other": "preserved"}},
+				Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+					StoragePolicyDeleted: tc.deleted, Error: "preserved error",
+				},
+			}
+			if tc.current != "" {
+				existing.Status.VolumeClassName = tc.current
+			}
+			patches := 0
+			cli := fake.NewClientBuilder().WithScheme(fullSyncTestScheme(t)).WithObjects(existing).
+				WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object,
+						patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						assert.Equal(t, "status", subResource)
+						if obj.GetName() != "gold" {
+							return c.Status().Patch(ctx, obj, patch, opts...)
+						}
+						patches++
+						if tc.failPatch {
+							return assert.AnError
+						}
+						return c.Status().Patch(ctx, obj, patch, opts...)
+					},
+				}).Build()
+			ensureClusterStoragePolicyInfoCRsExist(ctx, cli, []cnsvsphere.ProfileDetail{
+				{ID: "p1", K8sCompliantName: "gold"},
+				{ID: "p2", K8sCompliantName: "silver"},
+			})
+			assert.Equal(t, tc.wantPatches, patches)
+			got := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+			require.NoError(t, cli.Get(ctx, apitypes.NamespacedName{Name: "gold"}, got))
+			assert.Equal(t, "preserved", got.Annotations["other"])
+			assert.Equal(t, "preserved error", got.Status.Error)
+			assert.False(t, got.Status.StoragePolicyDeleted)
+			want := "gold"
+			if tc.failPatch {
+				want = tc.current
+			}
+			assert.Equal(t, want, got.Status.VolumeClassName)
+			require.NoError(t, cli.Get(ctx, apitypes.NamespacedName{Name: "silver"}, got))
+			assert.Equal(t, "silver", got.Status.VolumeClassName)
+		})
+	}
 }
 
 func TestEnsureClusterStoragePolicyInfoCRsExist_SkipsProfileWithoutK8sCompliantName(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := fullSyncTestScheme(t)
-	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
 
 	profiles := []cnsvsphere.ProfileDetail{
 		{ID: "policy-1", Name: "Policy One", K8sCompliantName: ""},
@@ -119,7 +188,8 @@ func (e *erroringCreateClient) Create(ctx context.Context, obj client.Object, op
 func TestEnsureClusterStoragePolicyInfoCRsExist_ContinuesAfterPerPolicyCreateError(t *testing.T) {
 	ctx := logger.NewContextWithLogger(context.Background())
 	scheme := fullSyncTestScheme(t)
-	base := fake.NewClientBuilder().WithScheme(scheme).Build()
+	base := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
 	cli := &erroringCreateClient{Client: base, failNames: map[string]bool{"policy-one": true}}
 
 	profiles := []cnsvsphere.ProfileDetail{

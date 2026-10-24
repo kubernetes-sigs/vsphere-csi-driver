@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
@@ -567,6 +568,35 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 	if !spqExists {
 		log.Infof("StoragePolicyQuota for %q no longer exists; policy unassigned from namespace, "+
 			"leaving any existing StoragePolicyInfo to garbage collection", request.NamespacedName)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
+	// ClusterSPI publishes the authoritative K8s-compliant policy name. Do not
+	// create a namespace SPI until that identity is resolved, and permanently
+	// skip upgraded aliases whose ClusterSPI name is not authoritative.
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: request.Name}, clusterSPI); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("ClusterStoragePolicyInfo %q not yet available; will retry", request.Name)
+		} else {
+			log.Errorf("Failed to get ClusterStoragePolicyInfo %q: %v", request.Name, err)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if clusterSPI.Status.StoragePolicyDeleted {
+		log.Infof("Storage policy for ClusterStoragePolicyInfo %q is deleted; skipping StoragePolicyInfo creation",
+			request.Name)
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+	resolvedName := clusterSPI.Status.VolumeClassName
+	if resolvedName == "" {
+		err := fmt.Errorf("ClusterStoragePolicyInfo %q policy identity is not resolved yet", request.Name)
+		log.Info(err.Error())
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if resolvedName != clusterSPI.Name {
+		log.Infof("ClusterStoragePolicyInfo %q resolves to authoritative K8s compliant name %q; "+
+			"skipping StoragePolicyInfo creation for upgraded alias", clusterSPI.Name, resolvedName)
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 

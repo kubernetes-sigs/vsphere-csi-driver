@@ -23,12 +23,89 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/govmomi/pbm"
+	pbmmethods "github.com/vmware/govmomi/pbm/methods"
 	pbmtypes "github.com/vmware/govmomi/pbm/types"
+	"github.com/vmware/govmomi/vim25/soap"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 )
+
+type profileDetailsRoundTripper struct {
+	t        *testing.T
+	profiles []ProfileDetail
+	err      error
+	calls    int
+}
+
+func (r *profileDetailsRoundTripper) RoundTrip(_ context.Context, req, res soap.HasFault) error {
+	r.calls++
+	body, ok := req.(*pbmmethods.PbmQueryProfileDetailsBody)
+	require.True(r.t, ok, "unexpected PBM request")
+	assert.Equal(r.t, "REQUIREMENT", body.Req.ProfileCategory)
+	assert.False(r.t, body.Req.FetchAllFields)
+	if r.err != nil {
+		return r.err
+	}
+	response := &pbmtypes.PbmQueryProfileDetailsResponse{}
+	for _, p := range r.profiles {
+		response.Returnval = append(response.Returnval, pbmtypes.PbmProfileDetails{
+			Profile: &pbmtypes.PbmCapabilityProfile{
+				PbmProfile:       pbmtypes.PbmProfile{ProfileId: pbmtypes.PbmProfileId{UniqueId: p.ID}, Name: p.Name},
+				K8sCompliantName: p.K8sCompliantName,
+				ProfileCategory:  "REQUIREMENT",
+			},
+		})
+	}
+	res.(*pbmmethods.PbmQueryProfileDetailsBody).Res = response
+	return nil
+}
+
+func TestFindProfileByK8sCompliantNameOrID(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	host, port := vcsimFor(t)
+	vc := connectedVC(t, ctx, host, port)
+	profiles := []ProfileDetail{
+		{ID: "p1", K8sCompliantName: "silver"},
+		{ID: "p2", K8sCompliantName: "gold"},
+	}
+	for _, tc := range []struct {
+		name         string
+		profiles     []ProfileDetail
+		expectedName string
+		id           string
+		wantID       string
+		wantFault    string
+		queryErr     error
+	}{
+		{name: "name match", profiles: profiles, expectedName: "gold", wantID: "p2"},
+		{name: "alias resolves by ID", profiles: profiles, expectedName: "alias", id: "p1", wantID: "p1"},
+		{name: "name takes priority over earlier ID match", profiles: profiles, expectedName: "gold", id: "p1", wantID: "p2"},
+		{name: "deleted policy", profiles: profiles, expectedName: "missing", id: "missing",
+			wantFault: fault.CSINotFoundFault},
+		{name: "no ID fallback", profiles: profiles, expectedName: "missing", wantFault: fault.CSINotFoundFault},
+		{name: "empty inventory", expectedName: "gold", id: "p1", wantFault: fault.CSINotFoundFault},
+		{name: "query failure", expectedName: "gold", id: "p1", queryErr: assert.AnError, wantFault: fault.CSIInternalFault},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &profileDetailsRoundTripper{t: t, profiles: tc.profiles, err: tc.queryErr}
+			vc.PbmClient = &pbm.Client{RoundTripper: rt}
+			profile, faultType, err := vc.FindProfileByK8sCompliantNameOrID(ctx, tc.expectedName, tc.id)
+			assert.Equal(t, 1, rt.calls, "name and ID must use the same query")
+			assert.Equal(t, tc.wantFault, faultType)
+			if tc.wantFault != "" {
+				require.Error(t, err)
+				assert.Nil(t, profile)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, profile)
+				assert.Equal(t, tc.wantID, profile.ID)
+			}
+		})
+	}
+}
 
 func TestFindProfileByK8sCompliantName_ProfileFound(t *testing.T) {
 	k8sCompliantName := "test-policy"
