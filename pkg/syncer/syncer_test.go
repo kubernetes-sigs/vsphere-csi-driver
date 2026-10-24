@@ -37,6 +37,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	cnsvolumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	csitypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/types"
+	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
 	k8stesting "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes/testing"
 )
 
@@ -1116,6 +1118,86 @@ func TestGetVCForTopologySegments(t *testing.T) {
 					tc.expectedVC, vc)
 			}
 		})
+	}
+}
+
+// fakeTopologyNodeManager is a node.Manager that resolves every node UUID to a
+// VM on a fixed vCenter. Only GetNodeVMAndUpdateCache is implemented.
+type fakeTopologyNodeManager struct {
+	node.Manager
+	vcHost commontypes.FQDN
+}
+
+func (f *fakeTopologyNodeManager) GetNodeVMAndUpdateCache(ctx context.Context, nodeUUID string,
+	dc *cnsvsphere.Datacenter) (*cnsvsphere.VirtualMachine, error) {
+	return &cnsvsphere.VirtualMachine{UUID: nodeUUID, VirtualCenterHost: f.vcHost}, nil
+}
+
+// TestTopologyVCMapConcurrentAccess verifies that CSINodeTopology informer updates to
+// topologyVCMap can run concurrently with full sync reads of it. Run with -race to
+// detect unsynchronized access.
+func TestTopologyVCMapConcurrentAccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	origMetadataSyncer, origNodeMgr := MetadataSyncer, nodeMgr
+	defer func() {
+		MetadataSyncer, nodeMgr = origMetadataSyncer, origNodeMgr
+	}()
+
+	vc0 := commontypes.NewFQDN("10.100.100.0")
+	vc1 := commontypes.NewFQDN("10.100.100.1")
+	MetadataSyncer = &metadataSyncInformer{
+		topologyVCMap: map[string]map[commontypes.FQDN]struct{}{
+			"region-1": {vc0: {}},
+			"zone-1":   {vc0: {}},
+		},
+	}
+	nodeMgr = &fakeTopologyNodeManager{vcHost: vc1}
+
+	const iterations = 500
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			nodeTopoObj := csinodetopologyv1alpha1.CSINodeTopology{
+				Spec: csinodetopologyv1alpha1.CSINodeTopologySpec{NodeUUID: fmt.Sprintf("node-%d", i)},
+				Status: csinodetopologyv1alpha1.CSINodeTopologyStatus{
+					TopologyLabels: []csinodetopologyv1alpha1.TopologyLabel{
+						{Key: "topology.csi.vmware.com/region", Value: "region-1"},
+						{Key: "topology.csi.vmware.com/zone", Value: fmt.Sprintf("zone-vc1-%d", i)},
+					},
+				},
+			}
+			addLabelsToTopologyVCMap(ctx, nodeTopoObj)
+			removeLabelsFromTopologyVCMap(ctx, nodeTopoObj)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		segments := map[string][]string{
+			"topology.csi.vmware.com/region": {"region-1"},
+			"topology.csi.vmware.com/zone":   {"zone-1"},
+		}
+		for i := 0; i < iterations; i++ {
+			// The result depends on interleaving with the writer, so only
+			// concurrent safety is exercised here.
+			_, _ = getVCForTopologySegments(ctx, segments)
+		}
+	}()
+	wg.Wait()
+
+	// Every vc1 mapping added above was removed again, so the segment resolves to vc0 only.
+	vc, err := getVCForTopologySegments(ctx, map[string][]string{
+		"topology.csi.vmware.com/region": {"region-1"},
+		"topology.csi.vmware.com/zone":   {"zone-1"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error resolving topology segments: %v", err)
+	}
+	if vc != vc0.String() {
+		t.Errorf("expected VC %q, got %q", vc0, vc)
 	}
 }
 
