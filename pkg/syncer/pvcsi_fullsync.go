@@ -147,6 +147,12 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 		} else {
 			// Compare objects between the guest cluster and supervisor cluster.
 			// Update the supervisor cluster API server if an object is stale.
+			log.Debugf("FullSync: Comparing CnsVolumeMetadata %v (entity type %q, entity name %q): "+
+				"guest labels: %v, supervisor labels: %v, guest clusterDistribution: %q, "+
+				"supervisor clusterDistribution: %q",
+				guestObject.Name, guestObject.Spec.EntityType, guestObject.Spec.EntityName,
+				guestObject.Spec.Labels, supervisorObject.Spec.Labels,
+				guestObject.Spec.ClusterDistribution, supervisorObject.Spec.ClusterDistribution)
 			if guestObject.Spec.EntityType != cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD &&
 				!compareCnsVolumeMetadatas(&guestObject.Spec, &supervisorObject.Spec) {
 				log.Infof("FullSync: Patching CnsVolumeMetadata %v on the supervisor cluster", guestObject.Name)
@@ -332,6 +338,8 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 			volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pv.UID), pv.Name,
 			cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "",
 			[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+		log.Debugf("FullSync: Built guest CnsVolumeMetadata %v for PV %q with labels: %v",
+			pvObject.Name, pv.Name, pv.Labels)
 		returnList.Items = append(returnList.Items, *pvObject)
 
 		// Get the cnsvolumemetadata object for pvc bound to this pv and add it
@@ -351,6 +359,8 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 				volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace,
 				[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
+			log.Debugf("FullSync: Built guest CnsVolumeMetadata %v for PVC %s/%s with labels: %v",
+				pvcObject.Name, pvc.Namespace, pvc.Name, pvc.GetLabels())
 			returnList.Items = append(returnList.Items, *pvcObject)
 			pvcToVolumeName[pvc.Name] = pv.Spec.CSI.VolumeHandle
 		}
@@ -654,7 +664,11 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 // and returns false if their labels are not deeply equal.
 func compareCnsVolumeMetadatas(guestObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec,
 	supervisorObject *cnsvolumemetadatav1alpha1.CnsVolumeMetadataSpec) bool {
-	return reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels) &&
+	// A nil and an empty label map are equivalent: both are omitted from the CR's JSON
+	// (omitempty), so treating them as different would trigger a no-op patch on every sync.
+	labelsEqual := (len(guestObject.Labels) == 0 && len(supervisorObject.Labels) == 0) ||
+		reflect.DeepEqual(guestObject.Labels, supervisorObject.Labels)
+	return labelsEqual &&
 		reflect.DeepEqual(guestObject.ClusterDistribution, supervisorObject.ClusterDistribution)
 }
 
