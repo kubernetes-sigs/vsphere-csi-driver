@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -17,7 +17,7 @@ import (
 const (
 	NonUpdatablePVCAnnotation = "PVC Annotation %s is not mutable by user %s"
 	NonCreatablePVCAnnotation = "PVC Annotation %s cannot be created by user %s"
-	CSIServiceAccountPrefix   = "system:serviceaccount:vmware-system-csi"
+	CSIServiceAccountPrefix   = "system:serviceaccount:vmware-system-csi:"
 )
 
 // Disallow editing PVC Volume Health annotation for non cns-csi service account users.
@@ -76,10 +76,8 @@ func validatePVCAnnotationForVolumeHealth(ctx context.Context, request admission
 	return admission.Allowed("")
 }
 
+// validateCSIServiceAccount returns true only for service accounts in the vmware-system-csi namespace.
+// The trailing ":" in the prefix keeps namespaces such as "vmware-system-csi-foo" from matching.
 func validateCSIServiceAccount(username string) bool {
-	csiServiceAccountRegex, err := regexp.Compile(CSIServiceAccountPrefix)
-	if err != nil {
-		return true // fail open
-	}
-	return csiServiceAccountRegex.MatchString(username)
+	return strings.HasPrefix(username, CSIServiceAccountPrefix)
 }
