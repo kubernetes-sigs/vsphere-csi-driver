@@ -12,6 +12,7 @@ import (
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/types"
 	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
@@ -25,6 +26,90 @@ import (
 type mockVolumeManager struct {
 	createVolumeFunc func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
 		extraParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error)
+}
+
+// TestCreateBlockVolumeTransactionAPIVersion verifies that both provisioning paths
+// omit VolumeId for vCenter 9.1 advertising API 9.0 (issue #4236).
+func TestCreateBlockVolumeTransactionAPIVersion(t *testing.T) {
+	ctx := context.Background()
+	vcManager := vsphere.GetVirtualCenterManager(ctx)
+	vc, err := vcManager.RegisterVirtualCenter(ctx, &vsphere.VirtualCenterConfig{
+		Host:     commontypes.NewFQDN("transaction-test-vc"),
+		Username: "test-user",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		// The client below only carries service content and has no session to log out.
+		vc.Client = nil
+		require.NoError(t, vcManager.UnregisterVirtualCenter(ctx, vc.Config.Host))
+	})
+	vc.Client = &govmomi.Client{Client: &vim25.Client{ServiceContent: types.ServiceContent{
+		About: types.AboutInfo{Version: "9.1.0.0"},
+	}}}
+	originalGetVCenter := getVCenterInternal
+	getVCenterInternal = func(context.Context, *Manager) (*vsphere.VirtualCenter, error) { return vc, nil }
+	t.Cleanup(func() { getVCenterInternal = originalGetVCenter })
+
+	const volumeID = "f77566dd-b1b1-4970-97d2-3cff457511f9"
+	datastores := []*vsphere.DatastoreInfo{{
+		Datastore: &vsphere.Datastore{Datastore: object.NewDatastore(nil,
+			types.ManagedObjectReference{Type: "Datastore", Value: "datastore-1"})},
+		Info: &types.DatastoreInfo{Url: "ds:///vmfs/volumes/test/"},
+	}}
+	tests := []struct {
+		name           string
+		apiVersion     string
+		featureEnabled bool
+		wantVolumeID   bool
+	}{
+		{name: "API 9.0 with feature enabled", apiVersion: "9.0.0.0", featureEnabled: true},
+		{name: "API 9.1 with feature enabled", apiVersion: "9.1.0.0", featureEnabled: true, wantVolumeID: true},
+		{name: "API 9.1 with feature disabled", apiVersion: "9.1.0.0"},
+	}
+	for _, tt := range tests {
+		for _, multiVC := range []bool{false, true} {
+			pathName := "single VC"
+			if multiVC {
+				pathName = "multi VC"
+			}
+			t.Run(tt.name+"/"+pathName, func(t *testing.T) {
+				vc.Client.ServiceContent.About.ApiVersion = tt.apiVersion
+				supported, err := vcManager.IsCnsTransactionSupported(ctx, vc.Config.Host)
+				require.NoError(t, err)
+				opts := CreateBlockVolumeOptions{IsCSITransactionSupportEnabled: tt.featureEnabled && supported}
+				var capturedSpec *cnstypes.CnsVolumeCreateSpec
+				volumeManager := &mockVolumeManager{
+					createVolumeFunc: func(_ context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+						_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+						capturedSpec = spec
+						return &cnsvolume.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: volumeID}}, "", nil
+					},
+				}
+				spec := &CreateVolumeSpec{
+					Name: "pvc-" + volumeID, VolumeType: BlockVolumeType, CapacityMB: 1024,
+					ScParams: &StorageClassParams{},
+				}
+				if multiVC {
+					_, _, err = CreateBlockVolumeUtilForMultiVC(ctx, VanillaCreateBlockVolParamsForMultiVC{
+						Vcenter: vc, VolumeManager: volumeManager, CNSConfig: &config.Config{},
+						Spec: spec, SharedDatastores: datastores, ClusterFlavor: cnstypes.CnsClusterFlavorVanilla,
+					}, opts)
+				} else {
+					_, _, err = CreateBlockVolumeUtil(ctx, cnstypes.CnsClusterFlavorVanilla,
+						&Manager{VolumeManager: volumeManager, CnsConfig: &config.Config{}},
+						spec, datastores, nil, opts, nil)
+				}
+				require.NoError(t, err)
+				require.NotNil(t, capturedSpec)
+				if tt.wantVolumeID {
+					require.NotNil(t, capturedSpec.VolumeId)
+					assert.Equal(t, volumeID, capturedSpec.VolumeId.Id)
+				} else {
+					assert.Nil(t, capturedSpec.VolumeId, "unsupported or disabled transactions must omit VolumeId")
+				}
+			})
+		}
+	}
 }
 
 func (m *mockVolumeManager) UnregisterVolume(ctx context.Context, volumeID string,
