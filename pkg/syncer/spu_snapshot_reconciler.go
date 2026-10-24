@@ -49,13 +49,13 @@ func enqueueSnapshotSPU(key string) {
 }
 
 // spuSnapshotReconciler owns CSI updates to Used in snapshot StoragePolicyUsage CRs.
-// CnsVolumeInfo event handlers and the full sync only add the StoragePolicyUsage key to the queue.
-// The worker reads the StoragePolicyUsage by name, sums AggregatedSnapshotSize of the CnsVolumeInfo CRs
-// of that StoragePolicyUsage from the informer index, and patches the total.
+// Inventory event handlers and the full sync only add the StoragePolicyUsage key to the queue.
+// The worker sums CVI snapshot capacity and, when enabled, DVI capacity from the informer indexes.
 type spuSnapshotReconciler struct {
-	client   client.Client
-	informer cache.SharedIndexInformer
-	queue    workqueue.TypedRateLimitingInterface[string]
+	client      client.Client
+	informer    cache.SharedIndexInformer
+	dviInformer cache.SharedIndexInformer
+	queue       workqueue.TypedRateLimitingInterface[string]
 }
 
 // newSPUSnapshotClient creates a client with its own rate limiter for the reconciler, so that its
@@ -74,13 +74,36 @@ func newSPUSnapshotClient(ctx context.Context) (client.Client, error) {
 
 // newSPUSnapshotReconciler creates the reconciler and registers the event handlers on the informer.
 func newSPUSnapshotReconciler(c client.Client, informer cache.SharedIndexInformer,
-	queue workqueue.TypedRateLimitingInterface[string]) (*spuSnapshotReconciler, error) {
-	r := &spuSnapshotReconciler{client: c, informer: informer, queue: queue}
+	queue workqueue.TypedRateLimitingInterface[string],
+	dviInformer cache.SharedIndexInformer) (*spuSnapshotReconciler, error) {
+	r := &spuSnapshotReconciler{client: c, informer: informer, queue: queue, dviInformer: dviInformer}
+	if dviInformer != nil {
+		// The volume-info service may already be running. AddIndexers backfills its store
+		// under the cache lock before returning, so existing CVIs participate in the handoff.
+		if _, exists := informer.GetIndexer().GetIndexers()[snapshotVolumeIDIndex]; !exists {
+			if err := informer.AddIndexers(cache.Indexers{snapshotVolumeIDIndex: snapshotVolumeIDIndexFunc}); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := dviInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: r.enqueueDeletedVolumeInfo,
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				if deletedVolumeInfoFieldsChanged(oldObj, newObj) {
+					r.enqueueDeletedVolumeInfo(oldObj)
+					r.enqueueDeletedVolumeInfo(newObj)
+				}
+			},
+			DeleteFunc: r.enqueueDeletedVolumeInfo,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			// After initial sync, ignore CVIs that have never recorded snapshot activity.
 			// Startup also enumerates SPUs, including ones with no contributing CVI left.
-			if informer.HasSynced() && !hasSnapshotInfo(obj) {
+			// A restored CVI without snapshot information still suppresses its old DVI.
+			if r.dviInformer == nil && informer.HasSynced() && !hasSnapshotInfo(obj) {
 				return
 			}
 			r.enqueue(obj)
@@ -111,6 +134,7 @@ func (r *spuSnapshotReconciler) enqueue(obj interface{}) {
 	if !ok {
 		return
 	}
+	r.enqueueDeletedVolumeInfoForCVI(u)
 	if key, ok := cnsvolumeinfo.SPUSnapshotKey(u); ok {
 		r.queue.Add(key)
 	} else if cnsvolumeinfo.HasSnapshotInfo(u) {
@@ -122,7 +146,7 @@ func (r *spuSnapshotReconciler) enqueue(obj interface{}) {
 // snapshotInfoFields are the fields of a CnsVolumeInfo spec which decide its contribution to the
 // snapshot StoragePolicyUsage, besides the StoragePolicyUsage key itself.
 var snapshotInfoFields = []string{"aggregatedsnapshotsize", "validaggregatedsnapshotsize",
-	"snapshotlatestoperationcompletetime", "storagePolicyID"}
+	"snapshotlatestoperationcompletetime", "storagePolicyID", "volumeID"}
 
 func hasSnapshotInfo(obj interface{}) bool {
 	u, ok := obj.(*unstructured.Unstructured)
@@ -156,8 +180,16 @@ func snapshotFieldsChanged(oldObj, newObj interface{}) bool {
 func (r *spuSnapshotReconciler) run(ctx context.Context, workers int) {
 	log := logger.GetLogger(ctx)
 	defer r.queue.ShutDown()
-	if !cache.WaitForCacheSync(ctx.Done(), r.informer.HasSynced) {
-		log.Errorf("snapshot StoragePolicyUsage reconciler: CnsVolumeInfo cache did not sync")
+	synced := []cache.InformerSynced{r.informer.HasSynced}
+	if r.dviInformer != nil {
+		// The dynamic informer retries List/Watch if the external CRD is not installed
+		// yet. An unavailable API is never treated as an empty DVI inventory.
+		go r.dviInformer.Run(ctx.Done())
+		synced = append(synced, r.dviInformer.HasSynced)
+		log.Info("snapshot StoragePolicyUsage reconciler: waiting for CnsVolumeInfo and DeletedVolumeInfo inventories")
+	}
+	if !cache.WaitForCacheSync(ctx.Done(), synced...) {
+		log.Errorf("snapshot StoragePolicyUsage reconciler: inventory caches did not sync")
 		return
 	}
 	var workerGroup sync.WaitGroup
@@ -225,6 +257,9 @@ func (r *spuSnapshotReconciler) processNext(ctx context.Context) bool {
 // reconcile retries the recompute a few times, re-reading and re-summing every time.
 func (r *spuSnapshotReconciler) reconcile(ctx context.Context, key string) error {
 	log := logger.GetLogger(ctx)
+	if key == unassignedDeletedVolumeInfoKey {
+		return r.enqueueAllSnapshotSPUs(ctx)
+	}
 	ns, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil || ns == "" || name == "" {
 		// A malformed key can never succeed, drop it.
@@ -263,11 +298,15 @@ func (r *spuSnapshotReconciler) recomputeOnce(ctx context.Context, ns, name, key
 			if indexErr != nil {
 				return indexErr
 			}
-			if len(objs) == 0 {
+			dvis, indexErr := r.deletedVolumeInfosForSPU(key)
+			if indexErr != nil {
+				return indexErr
+			}
+			if len(objs) == 0 && len(dvis) == 0 {
 				return nil // The association no longer exists; nothing remains to report.
 			}
 		}
-		return err // Retry while a contributing CVI is waiting for SPU creation.
+		return err // Retry while a contributing CVI or DVI is waiting for SPU creation.
 	}
 	if !isCSISnapshotSPU(spu) {
 		return nil
@@ -281,6 +320,19 @@ func (r *spuSnapshotReconciler) recomputeOnce(ctx context.Context, ns, name, key
 		return err
 	}
 	total, missing, capacityErr := sumSnapshotCapacity(objs, spu.Spec.StoragePolicyId)
+	if capacityErr == nil && r.dviInformer != nil {
+		var dvis []interface{}
+		dvis, capacityErr = r.deletedVolumeInfosForSPU(key)
+		if capacityErr == nil {
+			var deletedTotal *resource.Quantity
+			var deletedMissing bool
+			deletedTotal, deletedMissing, capacityErr = r.sumDeletedVolumeInfoCapacity(dvis, objs, spu.Spec.StoragePolicyId)
+			if capacityErr == nil {
+				total.Add(*deletedTotal)
+				missing = missing || deletedMissing
+			}
+		}
+	}
 	_, hasAnnotation := spu.Annotations[common.MissingSnapshotAggregatedCapacity]
 	if capacityErr != nil {
 		// Never turn a malformed inventory into a downward correction of Used.
