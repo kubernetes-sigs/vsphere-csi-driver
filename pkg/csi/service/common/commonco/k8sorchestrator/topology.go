@@ -125,7 +125,8 @@ var (
 	azClusterMap = make(map[string]string)
 	// azClustersMap maintains a cache of AZ instance name to the clusterMorefs in that zone.
 	azClustersMap = make(map[string][]string)
-	// azClusterMapInstanceLock guards the azClusterMap and azClustersMap instances from concurrent writes.
+	// azClusterMapInstanceLock guards the azClusterMap and azClustersMap instances from concurrent access.
+	// Readers must hold the read lock; writers must hold the write lock.
 	azClusterMapInstanceLock = &sync.RWMutex{}
 	// preferredDatastoresMap is a map of topology domain to list of
 	// datastore URLs preferred in that domain.
@@ -471,8 +472,21 @@ func removeFromAZClusterMap(ctx context.Context, azName string) {
 }
 
 // GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
+// A copy is returned so that callers can iterate over it without racing with
+// concurrent updates from the AvailabilityZone informer.
 func (volTopology *wcpControllerVolumeTopology) GetAZClustersMap(ctx context.Context) map[string][]string {
-	return azClustersMap
+	return getAZClustersMapCopy()
+}
+
+// getAZClustersMapCopy returns a deep copy of azClustersMap taken under the read lock.
+func getAZClustersMapCopy() map[string][]string {
+	azClusterMapInstanceLock.RLock()
+	defer azClusterMapInstanceLock.RUnlock()
+	azClustersMapCopy := make(map[string][]string, len(azClustersMap))
+	for zone, clusterMorefs := range azClustersMap {
+		azClustersMapCopy[zone] = append([]string(nil), clusterMorefs...)
+	}
+	return azClustersMapCopy
 }
 
 // GetAZClustersMap returns the zone to clusterMorefs map from the azClustersMap.
@@ -1481,14 +1495,18 @@ func (volTopology *wcpControllerVolumeTopology) getClustersMatchingTopologySegme
 	log := logger.GetLogger(ctx)
 	var matchingClusterMorefs []string
 	if isPodVMOnStretchedSupervisorEnabled {
+		azClusterMapInstanceLock.RLock()
 		clusterMorefs, exists := azClustersMap[zone]
+		azClusterMapInstanceLock.RUnlock()
 		if !exists || len(clusterMorefs) == 0 {
 			return nil, logger.LogNewErrorf(log, "could not find the cluster MoIDs for zone %q in "+
 				"AvailabilityZone resources", zone)
 		}
 		matchingClusterMorefs = append(matchingClusterMorefs, clusterMorefs...)
 	} else {
+		azClusterMapInstanceLock.RLock()
 		clusterMoref, exists := azClusterMap[zone]
+		azClusterMapInstanceLock.RUnlock()
 		if !exists || clusterMoref == "" {
 			return nil, logger.LogNewErrorf(log, "could not find the cluster MoID for zone %q in "+
 				"AvailabilityZone resources", zone)
@@ -1518,7 +1536,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 				// If the topology requirement received is nil, then identify topology of the datastore by looking into
 				// azClustersMap
 				var selectedSegments []map[string]string
-				for az, clusters := range azClustersMap {
+				for az, clusters := range getAZClustersMapCopy() {
 					sharedDatastoresForclusters, err := getSharedDatastoresInClusters(ctx, clusters, params.Vc)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "failed to get shared datastores "+
@@ -1592,7 +1610,7 @@ func (volTopology *wcpControllerVolumeTopology) GetTopologyInfoFromNodes(ctx con
 			params.TopoSegToDatastoresMap = make(map[string][]*cnsvsphere.DatastoreInfo)
 		}
 		var selectedSegments []map[string]string
-		for zone, clusters := range azClustersMap {
+		for zone, clusters := range getAZClustersMapCopy() {
 			if _, exists := params.TopoSegToDatastoresMap[zone]; !exists {
 				sharedDatastoresForClusters, err := getSharedDatastoresInClusters(ctx, clusters, params.Vc)
 				if err != nil {
@@ -1810,7 +1828,7 @@ func (volTopology *wcpControllerVolumeTopology) GetAccessibleZonesForDatastore(c
 	log.Debugf("Finding accessible zones for datastore: %s", datastoreURL)
 
 	// Iterate through all zones in azClustersMap to find where this datastore is accessible
-	for az, clusters := range azClustersMap {
+	for az, clusters := range getAZClustersMapCopy() {
 		sharedDatastores, err := getSharedDatastoresInClusters(ctx, clusters, vc)
 		if err != nil {
 			log.Warnf("Failed to get shared datastores for zone %s: %v", az, err)
