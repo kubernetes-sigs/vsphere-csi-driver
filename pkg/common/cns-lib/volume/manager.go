@@ -1534,6 +1534,22 @@ func (m *defaultManager) deleteVolume(ctx context.Context, volumeID string, dele
 	return "", nil
 }
 
+// canTrustCachedDeleteSuccess returns true if CNS confirms that the volume is
+// absent. If the volume is still present, or CNS cannot be queried, it returns
+// false so that the caller issues the CNS DeleteVolume call. That call is
+// idempotent: it returns NotFound for a volume that is already gone.
+func (m *defaultManager) canTrustCachedDeleteSuccess(ctx context.Context, volumeID string) bool {
+	log := logger.GetLogger(ctx)
+	res, err := m.QueryVolume(ctx, cnstypes.CnsQueryFilter{
+		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
+	})
+	if err != nil {
+		log.Warnf("failed to query volume %q to validate cached DeleteVolume success: %v", volumeID, err)
+		return false
+	}
+	return res == nil || len(res.Volumes) == 0
+}
+
 // deleteVolumeWithImprovedIdempotency attempts to delete the volume on CNS.
 // CNS task information is persisted by leveraging the VolumeOperationRequest
 // interface.
@@ -1565,7 +1581,15 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 		if volumeOperationDetails.OperationDetails != nil {
 			// Validate if previous attempt was successful.
 			if volumeOperationDetails.OperationDetails.TaskStatus == taskInvocationStatusSuccess {
-				return "", nil
+				// The cached record can be stale if the same volume ID was created or
+				// registered again after the earlier delete (e.g. a Data Protection
+				// restore recovers the FCD under its original ID). Confirm with CNS
+				// before trusting it, otherwise the volume leaks.
+				if m.canTrustCachedDeleteSuccess(ctx, volumeID) {
+					return "", nil
+				}
+				log.Infof("DeleteVolume: cached success for volume %q is stale as the volume still exists "+
+					"in CNS. Invoking CNS DeleteVolume again", volumeID)
 			}
 			// Validate if previous operation is pending.
 			// If we're retrying after re-registration, don't reuse the old pending task
