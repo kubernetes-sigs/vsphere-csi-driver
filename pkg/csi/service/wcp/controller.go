@@ -1171,7 +1171,7 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	var hostMoIDToTopology map[string]map[string]string
 	if isHostLocalRequest {
 		hostMoRefs, hostMoIDToTopology, err = getHostMoRefsForHostLocalVolume(ctx, topologyRequirement,
-			commonco.ContainerOrchestratorUtility.GetNodeNameToHostMoIDMap(ctx))
+			commonco.GetNodeNameToHostMoIDsMap(ctx, commonco.ContainerOrchestratorUtility))
 		if err != nil {
 			log.Errorf("failed to resolve candidate hosts for host-local volume %q. Error: %+v", req.Name, err)
 			return nil, csifault.CSIInternalFault, err

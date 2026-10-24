@@ -371,8 +371,11 @@ func (m *mockCOCommon) GetNodesForVolumes(ctx context.Context, volumeIds []strin
 }
 
 func (m *mockCOCommon) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	//TODO implement me
-	panic("implement me")
+	result := make(map[string]string)
+	for node, host := range nodeNameToHostMoIDMapOverride {
+		result[host] = node
+	}
+	return result
 }
 
 // nodeNameToHostMoIDMapOverride lets host-local tests supply a fixed node-name -> host-MoID map.
