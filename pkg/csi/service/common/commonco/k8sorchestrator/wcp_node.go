@@ -28,11 +28,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/podvmv2"
 )
 
 var clusterComputeResourceMoIds []string
 
-// InitializeCSINodes listens on node Add events to create CSINode instance for each K8s node object.
+// InitializeCSINodes listens on Node events to register each Kubernetes Node.
 func (c *K8sOrchestrator) InitializeCSINodes(ctx context.Context) error {
 	log := logger.GetLogger(ctx)
 	var err error
@@ -45,7 +46,9 @@ func (c *K8sOrchestrator) InitializeCSINodes(ctx context.Context) error {
 		func(obj interface{}) { // Add.
 			c.createCSINode(obj)
 		},
-		nil,
+		func(oldObj interface{}, newObj interface{}) { // Metadata can arrive after Node creation.
+			c.updateCSINode(oldObj, newObj)
+		},
 		nil)
 	if err != nil {
 		return logger.LogNewErrorf(log, "failed to listen on nodes. Error: %+v", err)
@@ -65,6 +68,7 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 
 	// Check if CreateCSINodeAnnotation is present on the node. Spherelet adds this annotation on
 	// the node to communicate to CSI driver to create CSINode instance for each node.
+	// The VirtualNode producer publishes the same trigger for cluster-backed Nodes.
 	csiNodeAnnotation, exists := node.ObjectMeta.Annotations[common.CreateCSINodeAnnotation]
 	if val, _ := strconv.ParseBool(csiNodeAnnotation); !exists || !val {
 		log.Infof("createCSINode: %s annotation exists: %t with value: %t on the node %s",
@@ -74,7 +78,20 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 
 	var topologyKeysList []string
 	isWorkloadDomainIsolationEnabled := c.IsFSSEnabled(ctx, common.WorkloadDomainIsolation)
-	if isWorkloadDomainIsolationEnabled {
+	isPodVMV2Enabled := c.IsFSSEnabled(ctx, common.PodVMV2Support)
+	if isPodVMV2Enabled && !podvmv2.IsVirtualNode(node) && !podvmv2.IsDedicatedHostNode(node) {
+		log.Warnf("createCSINode: unsupported node type %q on Node %q",
+			node.Annotations[podvmv2.NodeTypeAnnotation], node.Name)
+		return
+	}
+	isVirtualNode := isPodVMV2Enabled && podvmv2.IsVirtualNode(node)
+	if isVirtualNode && node.Labels[corev1.LabelTopologyZone] == "" {
+		log.Infof("createCSINode: waiting for zone on VirtualNode %q", node.Name)
+		return
+	}
+	if isVirtualNode {
+		topologyKeysList = []string{corev1.LabelTopologyZone}
+	} else if isPodVMV2Enabled || isWorkloadDomainIsolationEnabled {
 		// Publish zone and host standard topology keys for all types of supervisor clusters.
 		topologyKeysList = append(topologyKeysList, corev1.LabelTopologyZone, corev1.LabelHostname)
 	} else {
@@ -139,33 +156,79 @@ func (c *K8sOrchestrator) createCSINode(obj interface{}) {
 			// registers itself, so a missing entry means the CSI node daemonset is not running here. This
 			// is the case on an annotated control plane node. Do not add the entry: it would advertise the
 			// driver to the scheduler and to the attacher on a node where nothing can format or mount a
-			// volume, leaving pods scheduled there stuck in NodeStageVolume.
+			// volume, leaving pods scheduled there stuck in NodeStageVolume. This holds for a VirtualNode
+			// too: a Node that cannot run the node plugin cannot serve a volume, whatever its type.
 			log.Warnf("createCSINode: CSINode object for node %q has no entry for driver %q. Skipping, as "+
 				"the CSI node daemonset does not appear to be running on this node.",
 				node.Name, common.VSphereCSIDriverName)
 			return
 		}
-		// If CSINode object is present, re-create CSINode object if zone topology key is not present on it.
-		// Topology keys of an existing driver entry are immutable, hence the delete and re-create.
-		if isWorkloadDomainIsolationEnabled {
-			if !slices.Contains(csinode.Spec.Drivers[driverIdx].TopologyKeys, corev1.LabelTopologyZone) {
-				log.Infof("topology key: %q not present on CSINodes object for node: %q. Re-creating CSINodes object.",
-					corev1.LabelTopologyZone, node.Name)
-				err = c.k8sClient.StorageV1().CSINodes().Delete(ctx, csiNodeSpec.Name, metav1.DeleteOptions{})
-				if err != nil {
-					log.Errorf("failed to delete CSINode object for node: %q. Error: %v", csiNodeSpec.Name, err)
-					os.Exit(1)
+		// Topology keys of an existing driver entry are immutable, hence the delete and re-create below.
+		var needsRegistration bool
+		if isPodVMV2Enabled {
+			// Reconcile each Node according to its identity during mixed-version upgrades.
+			// A Node deleted and recreated under the same name leaves a CSINode owned by the
+			// previous UID. Matching keys alone would skip re-registration, and garbage
+			// collection then removes that CSINode for good: the Add event has already been
+			// handled, and later status updates are not relevant changes. Re-create it under
+			// the current Node instead. A CSINode with no Node ownerReference (one the
+			// spherelet created) is not at risk from garbage collection and is left alone.
+			staleOwner := false
+			for _, ref := range csinode.OwnerReferences {
+				if ref.APIVersion == "v1" && ref.Kind == "Node" && ref.UID != node.UID {
+					staleOwner = true
+					break
 				}
-				_, err = c.k8sClient.StorageV1().CSINodes().Create(ctx, csiNodeSpec, metav1.CreateOptions{})
-				if err == nil {
-					log.Infof("re-created CSINodes object %+v for the node: %q with zonal topology keys",
-						csinode, csiNodeSpec.Name)
-					return
-				} else {
-					log.Errorf("failed to create CSINode object %+v. Error: %v", csiNodeSpec, err)
-					os.Exit(1)
-				}
+			}
+			needsRegistration = staleOwner ||
+				!slices.Equal(csinode.Spec.Drivers[driverIdx].TopologyKeys, topologyKeysList)
+		} else if isWorkloadDomainIsolationEnabled {
+			// Legacy behavior: re-create the CSINode if the zone topology key is missing.
+			needsRegistration = !slices.Contains(csinode.Spec.Drivers[driverIdx].TopologyKeys,
+				corev1.LabelTopologyZone)
+		}
+		if needsRegistration {
+			log.Infof("Updating CSINode topology keys to %v for node %q. Re-creating CSINode object.",
+				topologyKeysList, node.Name)
+			err = c.k8sClient.StorageV1().CSINodes().Delete(ctx, csiNodeSpec.Name, metav1.DeleteOptions{})
+			if err != nil {
+				log.Errorf("failed to delete CSINode object for node: %q. Error: %v", csiNodeSpec.Name, err)
+				os.Exit(1)
+			}
+			_, err = c.k8sClient.StorageV1().CSINodes().Create(ctx, csiNodeSpec, metav1.CreateOptions{})
+			if err == nil {
+				log.Infof("re-created CSINodes object %+v for the node: %q with zonal topology keys",
+					csinode, csiNodeSpec.Name)
+				return
+			} else {
+				log.Errorf("failed to create CSINode object %+v. Error: %v", csiNodeSpec, err)
+				os.Exit(1)
 			}
 		}
 	}
+}
+
+// updateCSINode retries registration when the producer supplies identity, zone,
+// or the registration trigger, without issuing API calls on every status update.
+// Without the PodVM v2 capability registration remains Add-only, as before.
+func (c *K8sOrchestrator) updateCSINode(oldObj, newObj interface{}) {
+	oldNode, oldOK := oldObj.(*corev1.Node)
+	newNode, newOK := newObj.(*corev1.Node)
+	if !newOK || newNode == nil {
+		return
+	}
+	relevant := !oldOK || oldNode == nil || oldNode.UID != newNode.UID ||
+		oldNode.Annotations[common.CreateCSINodeAnnotation] != newNode.Annotations[common.CreateCSINodeAnnotation] ||
+		oldNode.Annotations[podvmv2.NodeTypeAnnotation] != newNode.Annotations[podvmv2.NodeTypeAnnotation] ||
+		oldNode.Labels[corev1.LabelTopologyZone] != newNode.Labels[corev1.LabelTopologyZone]
+	if !relevant {
+		return
+	}
+	// Checked only for relevant changes: Node status updates are frequent, and a
+	// disabled late-enablement capability re-reads the capabilities CR.
+	ctx, _ := logger.GetNewContextWithLogger()
+	if !c.IsFSSEnabled(ctx, common.PodVMV2Support) {
+		return
+	}
+	c.createCSINode(newNode)
 }

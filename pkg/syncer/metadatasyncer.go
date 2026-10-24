@@ -276,6 +276,16 @@ func getPVtoBackingDiskObjectIdIntervalInMin(ctx context.Context) int {
 	return pvtoBackingDiskObjectIdIntervalInMin
 }
 
+// csiNodeRegistrationRequired reports whether the syncer must watch Nodes to create CSINodes.
+// PodVM v2 needs the same watcher as PodVMOnStretchedSupervisor: a VirtualNode has no spherelet
+// to register it, so without this no VirtualNode CSINode is ever created and no PodVM v2 volume
+// can be published. One call covers both capabilities; calling InitializeCSINodes twice would
+// install duplicate Node handlers.
+func csiNodeRegistrationRequired(ctx context.Context, podVMOnStretchedSupervisor bool,
+	co commonco.COCommonInterface) bool {
+	return podVMOnStretchedSupervisor || co.IsPodVMV2EnabledAtStartup(ctx)
+}
+
 // InitMetadataSyncer initializes the Metadata Sync Informer.
 func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavor,
 	configInfo *cnsconfig.ConfigurationInfo) error {
@@ -326,7 +336,8 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 		IsPodVMOnStretchSupervisorFSSEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 			common.PodVMOnStretchedSupervisor)
-		if IsPodVMOnStretchSupervisorFSSEnabled {
+		if csiNodeRegistrationRequired(ctx, IsPodVMOnStretchSupervisorFSSEnabled,
+			commonco.ContainerOrchestratorUtility) {
 			// Start watching on nodes to create CSINodes, if not already present.
 			err = commonco.ContainerOrchestratorUtility.InitializeCSINodes(ctx)
 			if err != nil {
