@@ -1045,6 +1045,10 @@ func updateDeploymentReplicawithWait(client clientset.Interface, count int32, na
 			ginkgo.By("Waiting for update operation on deployment to take effect")
 			deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 			if err != nil {
+				if apierrors.IsConflict(err) {
+					// Deployment was modified after our Get; retry with the latest version.
+					return false, nil
+				}
 				return false, err
 			}
 			err = fdep.WaitForDeploymentComplete(client, deployment)
@@ -1061,10 +1065,19 @@ func updateDeploymentReplica(client clientset.Interface,
 	count int32, name string, namespace string) *appsv1.Deployment {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	*deployment.Spec.Replicas = count
-	deployment, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	var deployment *appsv1.Deployment
+	// Re-fetch and retry on conflict, since the deployment controller can modify
+	// the object between our Get and Update.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var getErr error
+		deployment, getErr = client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		*deployment.Spec.Replicas = count
+		deployment, getErr = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		return getErr
+	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = fdep.WaitForDeploymentComplete(client, deployment)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1131,22 +1144,28 @@ func getSvcClientAndNamespace() (clientset.Interface, string) {
 func updateCSIDeploymentTemplateFullSyncInterval(client clientset.Interface, mins string, namespace string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	deployment, err := client.AppsV1().Deployments(namespace).Get(
-		ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	containers := deployment.Spec.Template.Spec.Containers
-
-	for _, c := range containers {
-		if c.Name == "vsphere-syncer" {
-			for _, e := range c.Env {
-				if e.Name == "FULL_SYNC_INTERVAL_MINUTES" {
-					e.Value = mins
+	var deployment *appsv1.Deployment
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var updateErr error
+		deployment, updateErr = client.AppsV1().Deployments(namespace).Get(
+			ctx, vSphereCSIControllerPodNamePrefix, metav1.GetOptions{})
+		if updateErr != nil {
+			return updateErr
+		}
+		// Index into the slices: ranging by value would only modify copies.
+		containers := deployment.Spec.Template.Spec.Containers
+		for i := range containers {
+			if containers[i].Name == "vsphere-syncer" {
+				for j := range containers[i].Env {
+					if containers[i].Env[j].Name == "FULL_SYNC_INTERVAL_MINUTES" {
+						containers[i].Env[j].Value = mins
+					}
 				}
 			}
 		}
-	}
-	deployment.Spec.Template.Spec.Containers = containers
-	_, err = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		_, updateErr = client.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		return updateErr
+	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ginkgo.By("Polling for update operation on deployment to take effect...")
 	waitErr := wait.PollUntilContextTimeout(ctx, healthStatusPollInterval, healthStatusPollTimeout, true,
