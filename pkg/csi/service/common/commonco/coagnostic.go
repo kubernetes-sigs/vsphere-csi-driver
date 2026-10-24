@@ -68,8 +68,10 @@ type COCommonInterface interface {
 	InitTopologyServiceInNode(ctx context.Context) (types.NodeTopologyService, error)
 	// GetNodesForVolumes returns a map of volumeID to list of node names
 	GetNodesForVolumes(ctx context.Context, volumeIds []string) map[string][]string
-	// GetNodeIDtoNameMap returns a map of node ID  to node names
-	GetNodeIDtoNameMap(ctx context.Context) map[string]string
+	// GetNodeIDtoNameMap returns a map of ESXi host MoID to the name of the Kubernetes Node
+	// that owns it. An error means ownership could not be resolved; callers must not treat
+	// the returned map as a complete view of the cluster.
+	GetNodeIDtoNameMap(ctx context.Context) (map[string]string, error)
 	// GetNodeNameToHostMoIDMap returns a map of node name to ESXi host MoID.
 	GetNodeNameToHostMoIDMap(ctx context.Context) map[string]string
 	// IsPodVMV2EnabledAtStartup returns the supports_podvm_v2 capability value latched when

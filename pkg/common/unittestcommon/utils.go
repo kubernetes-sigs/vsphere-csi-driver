@@ -532,9 +532,12 @@ func (c *FakeK8SOrchestrator) GetNodesForVolumes(ctx context.Context, volumeID [
 }
 
 // GetNodeIDtoNameMap returns a map containing the nodeID to node name
-func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	nodeIDToNamesMap := make(map[string]string)
-	return nodeIDToNamesMap
+func (c *FakeK8SOrchestrator) GetNodeIDtoNameMap(ctx context.Context) (map[string]string, error) {
+	result := make(map[string]string)
+	for node, host := range c.NodeNameToHostMoID {
+		result[host] = node
+	}
+	return result, c.NodeIDtoNameMapErr
 }
 
 // GetNodeNameToHostMoIDMap returns the configured node name to ESXi host MoID map,

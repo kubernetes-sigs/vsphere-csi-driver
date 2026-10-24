@@ -633,8 +633,8 @@ func (m *mockCOCommonForFullSync) GetNodesForVolumes(ctx context.Context, volume
 	return make(map[string][]string)
 }
 
-func (m *mockCOCommonForFullSync) GetNodeIDtoNameMap(ctx context.Context) map[string]string {
-	return make(map[string]string)
+func (m *mockCOCommonForFullSync) GetNodeIDtoNameMap(ctx context.Context) (map[string]string, error) {
+	return make(map[string]string), nil
 }
 
 func (m *mockCOCommonForFullSync) IsPodVMV2EnabledAtStartup(ctx context.Context) bool {
