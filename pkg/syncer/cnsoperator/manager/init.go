@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis"
 	internalapiscnsoperatorconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/config"
 	triggercsifullsyncv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsoperator/triggercsifullsync/v1alpha1"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology"
 	csinodetopologyconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/config"
 	csinodetopologyv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/csinodetopology/v1alpha1"
@@ -97,6 +98,11 @@ func getGlobalScheme(ctx context.Context) *runtime.Scheme {
 		}
 		if err := internalapis.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add internalapis to global scheme: %+v", err)
+		}
+		// CnsVolumeOperationRequest is registered so the CnsRegisterVolume reconciler can delete a
+		// stale "delete-<volumeID>" record. It is not part of internalapis.AddToScheme.
+		if err := cnsvolumeoprequestv1alpha1.AddToScheme(globalScheme); err != nil {
+			log.Errorf("failed to add cnsvolumeoprequestv1alpha1 to global scheme: %+v", err)
 		}
 		if err := wcpcapapis.AddToScheme(globalScheme); err != nil {
 			log.Errorf("failed to add wcpcapapis to global scheme: %+v", err)

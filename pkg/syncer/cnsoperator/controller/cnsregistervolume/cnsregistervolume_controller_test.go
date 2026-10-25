@@ -66,6 +66,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
@@ -822,6 +823,99 @@ var _ = Describe("Reconcile Accessibility Logic", func() {
 		Expect(result).To(Equal(reconcile.Result{RequeueAfter: 0}))
 		Expect(unregCalled).To(BeTrue(), "UnregisterVolume must be called for DiskURLPath accessibility failure")
 		Expect(unregDiskArg).To(BeTrue(), "unregDisk must be true so FCD is demoted back to VMDK")
+	})
+
+	// A "delete-<volumeID>" CnsVolumeOperationRequest left by an earlier CSI DeleteVolume must be
+	// cleared when the same volume ID is registered again, otherwise the next real delete of the
+	// registered volume is skipped and the FCD leaks.
+	It("should clear a stale delete-<volumeID> CnsVolumeOperationRequest when registering the volume", func() {
+		const reusedID = "fcd-reused-id"
+		Expect(cnsvolumeoprequestv1alpha1.AddToScheme(scheme)).To(Succeed())
+		csiNamespace := cnsvolumeoperationrequest.GetCSINamespace()
+		staleRecord := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
+			ObjectMeta: metav1.ObjectMeta{Name: "delete-" + reusedID, Namespace: csiNamespace},
+		}
+		otherRecord := &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
+			ObjectMeta: metav1.ObjectMeta{Name: "delete-some-other-volume", Namespace: csiNamespace},
+		}
+		registerCR := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: "stale-delete-record-test", Namespace: "test-ns"},
+			Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+				PvcName:     "test-pvc",
+				DiskURLPath: "https://vc/test.vmdk",
+				AccessMode:  "ReadWriteOnce",
+			},
+		}
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(registerCR, staleRecord, otherRecord).
+			Build()
+		reconciler := &ReconcileCnsRegisterVolume{
+			client:     fakeClient,
+			scheme:     scheme,
+			configInfo: testConfigInfo(),
+			volumeManager: &mockVolumeManager{
+				createVolumeFunc: func(ctx context.Context, spec *cnstypes.CnsVolumeCreateSpec,
+					ctxParams interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
+					return &cnsvolume.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: reusedID}}, "", nil
+				},
+				unregisterVolume: func(_ context.Context, volumeID string, unregDisk bool) (string, error) {
+					return "", nil
+				},
+			},
+		}
+
+		patches.ApplyFunc(cnsvsphere.GetVirtualCenterInstanceForVCenterConfig, func(ctx context.Context,
+			config *cnsvsphere.VirtualCenterConfig, reinitialize bool) (*cnsvsphere.VirtualCenter, error) {
+			return &cnsvsphere.VirtualCenter{Config: &cnsvsphere.VirtualCenterConfig{Host: commontypes.NewFQDN("vc")}}, nil
+		})
+		patches.ApplyFunc(common.QueryVolumeByID, func(ctx context.Context, vm cnsvolume.Manager,
+			volumeID string, querySelection *cnstypes.CnsQuerySelection) (*cnstypes.CnsVolume, error) {
+			return &cnstypes.CnsVolume{
+				VolumeId:        cnstypes.CnsVolumeId{Id: volumeID},
+				DatastoreUrl:    "dummy-ds-url",
+				StoragePolicyId: "dummy-storage-policy-id",
+				BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{
+					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: 1024},
+				},
+			}, nil
+		})
+		patches.ApplyFunc(common.GetClusterComputeResourceMoIds, func(ctx context.Context) ([]string, bool, error) {
+			return []string{"cluster-a", "cluster-b"}, true, nil
+		})
+		patches.ApplyMethod(reflect.TypeOf(&mockCOCommon{}), "GetZonesForNamespace",
+			func(_ *mockCOCommon, ns string) map[string]struct{} {
+				return map[string]struct{}{"zone-b": {}}
+			})
+		patches.ApplyMethod(reflect.TypeOf(&mockCOCommon{}), "GetActiveClustersForNamespaceInRequestedZones",
+			func(_ commonco.COCommonInterface, ctx context.Context, ns string, zones []string) ([]string, error) {
+				return []string{"cluster-a"}, nil
+			})
+		patches.ApplyFunc(isDatastoreAccessibleToAZClusters,
+			func(ctx context.Context, vc *cnsvsphere.VirtualCenter,
+				azToClusters map[string][]string, ds string) bool {
+				return false
+			})
+		patches.ApplyFunc(constructCreateSpecForInstance, func(ctx context.Context,
+			r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+			host commontypes.FQDN, isTKGSHAEnabled bool) (*cnstypes.CnsVolumeCreateSpec, error) {
+			return &cnstypes.CnsVolumeCreateSpec{Name: "fake-volume", VolumeType: "BLOCK"}, nil
+		})
+		patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+			instance *cnsregistervolumev1alpha1.CnsRegisterVolume, msg string) {
+		})
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: registerCR.Name, Namespace: registerCR.Namespace},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		err = fakeClient.Get(ctx, types.NamespacedName{Name: staleRecord.Name, Namespace: csiNamespace},
+			&cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "stale delete record must be removed on registration")
+		err = fakeClient.Get(ctx, types.NamespacedName{Name: otherRecord.Name, Namespace: csiNamespace},
+			&cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{})
+		Expect(err).NotTo(HaveOccurred(), "records of other volumes must be left alone")
 	})
 
 	// DiskURLPath registrations that fail PVC topology validation
@@ -5062,4 +5156,77 @@ func testConfigInfo() *config.ConfigurationInfo {
 		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 			commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
 	}}
+}
+
+func TestClearStaleDeleteOperationRecord(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	assert.NoError(t, cnsvolumeoprequestv1alpha1.AddToScheme(scheme))
+
+	newRecord := func(name, namespace string) *cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest {
+		return &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		}
+	}
+	exists := func(c ctrlclient.Client, name, namespace string) bool {
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace},
+			&cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{})
+		return err == nil
+	}
+
+	t.Run("deletes the record in the default CSI namespace", func(t *testing.T) {
+		t.Setenv(cnsvolumeoperationrequest.EnvCSINamespace, "")
+		ns := cnsvolumeoperationrequest.GetCSINamespace()
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(newRecord("delete-vol-1", ns), newRecord("delete-vol-2", ns)).Build()
+		r := &ReconcileCnsRegisterVolume{client: c}
+
+		r.clearStaleDeleteOperationRecord(ctx, "vol-1")
+
+		assert.False(t, exists(c, "delete-vol-1", ns))
+		assert.True(t, exists(c, "delete-vol-2", ns), "other volumes' records must be untouched")
+	})
+
+	t.Run("honours the CSI_NAMESPACE override", func(t *testing.T) {
+		t.Setenv(cnsvolumeoperationrequest.EnvCSINamespace, "custom-csi-ns")
+		c := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(newRecord("delete-vol-1", "custom-csi-ns"), newRecord("delete-vol-1", "other-ns")).Build()
+		r := &ReconcileCnsRegisterVolume{client: c}
+
+		r.clearStaleDeleteOperationRecord(ctx, "vol-1")
+
+		assert.False(t, exists(c, "delete-vol-1", "custom-csi-ns"))
+		assert.True(t, exists(c, "delete-vol-1", "other-ns"), "records in other namespaces must be untouched")
+	})
+
+	t.Run("a missing record is not an error", func(t *testing.T) {
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		r := &ReconcileCnsRegisterVolume{client: c}
+		assert.NotPanics(t, func() { r.clearStaleDeleteOperationRecord(ctx, "vol-absent") })
+	})
+
+	t.Run("a delete failure is swallowed (best effort) and only Delete is used", func(t *testing.T) {
+		var deleteCalls int
+		c := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, cl ctrlclient.WithWatch, obj ctrlclient.Object,
+				opts ...ctrlclient.DeleteOption) error {
+				deleteCalls++
+				return apierrors.NewInternalError(fmt.Errorf("boom"))
+			},
+			Get: func(ctx context.Context, cl ctrlclient.WithWatch, key ctrlclient.ObjectKey,
+				obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+				t.Errorf("Get must not be used: reads would start an informer over every CVOR")
+				return nil
+			},
+			List: func(ctx context.Context, cl ctrlclient.WithWatch, list ctrlclient.ObjectList,
+				opts ...ctrlclient.ListOption) error {
+				t.Errorf("List must not be used: reads would start an informer over every CVOR")
+				return nil
+			},
+		}).Build()
+		r := &ReconcileCnsRegisterVolume{client: c}
+
+		assert.NotPanics(t, func() { r.clearStaleDeleteOperationRecord(ctx, "vol-1") })
+		assert.Equal(t, 1, deleteCalls)
+	})
 }
