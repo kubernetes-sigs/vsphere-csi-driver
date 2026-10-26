@@ -244,10 +244,12 @@ func (r *Reconciler) Reconcile(ctx context.Context,
 	batchAttachCtx = logger.NewContextWithLogger(batchAttachCtx)
 	log := logger.GetLogger(batchAttachCtx)
 
-	// Initialize backOffDuration for the instance, if required.
+	// Initialize backOffDuration for the instance, if required. Also repair an
+	// invalid value left behind by an earlier reconciliation so that a failure
+	// always schedules a retry.
 	backOffDurationMapMutex.Lock()
 	var timeout time.Duration
-	if _, exists := backOffDuration[request.NamespacedName]; !exists {
+	if duration, exists := backOffDuration[request.NamespacedName]; !exists || duration < time.Second {
 		backOffDuration[request.NamespacedName] = time.Second
 	}
 	timeout = backOffDuration[request.NamespacedName]
@@ -681,7 +683,11 @@ func recordEvent(ctx context.Context, r *Reconciler,
 	case v1.EventTypeWarning:
 		// Double backOff duration.
 		backOffDurationMapMutex.Lock()
-		backOffDuration[namespacedName] = min(backOffDuration[namespacedName]*2,
+		currentBackOffDuration := backOffDuration[namespacedName]
+		if currentBackOffDuration < time.Second {
+			currentBackOffDuration = time.Second
+		}
+		backOffDuration[namespacedName] = min(currentBackOffDuration*2,
 			cnsoperatortypes.MaxBackOffDurationForReconciler)
 		backOffDurationMapMutex.Unlock()
 		r.recorder.Event(instance, v1.EventTypeWarning, "NodeVmBatchAttachFailed", msg)
