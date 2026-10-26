@@ -54,7 +54,7 @@ func newSPUTestEnv(t *testing.T, funcs interceptor.Funcs,
 		cnsvolumeinfo.SPUSnapshotIndexers())
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	t.Cleanup(queue.ShutDown)
-	r, err := newSPUSnapshotReconciler(c, informer, queue)
+	r, err := newSPUSnapshotReconciler(c, informer, queue, nil)
 	assert.NoError(t, err)
 	return &spuTestEnv{r: r, informer: informer, queue: queue, client: c}
 }
@@ -78,6 +78,7 @@ func testSPU(used string) *storagepolicyv1alpha3.StoragePolicyUsage {
 // testCVI builds a CnsVolumeInfo with the given aggregated snapshot size ("" for none).
 func testCVI(name, sc, vac, policy, size string, valid bool, snapTime string) *unstructured.Unstructured {
 	spec := map[string]interface{}{
+		"volumeID":  name,
 		"namespace": testSPUNamespace, "storageClassName": sc, "storagePolicyID": policy,
 		"validaggregatedsnapshotsize": valid,
 	}
@@ -482,7 +483,7 @@ func TestSPUSnapshotStartupRetriesAndClearsEmptyUsage(t *testing.T) {
 			return w, nil
 		},
 	}, &unstructured.Unstructured{}, 0, cnsvolumeinfo.SPUSnapshotIndexers())
-	r, err := newSPUSnapshotReconciler(e.client, informer, e.queue)
+	r, err := newSPUSnapshotReconciler(e.client, informer, e.queue, nil)
 	require.NoError(t, err)
 	go informer.Run(ctx.Done())
 	done := make(chan struct{})
