@@ -2,6 +2,8 @@
 
 The CSI driver and syncer log `heap`, `goroutine`, and `allocs` profiles when live Go heap reaches 95% of `GOMEMLIMIT` after a GC cycle. Repeated dumps are limited to once every **five minutes**. `GOMEMLIMIT` must be set; this measures Go heap, not total container memory.
 
+The feature is on by default and can be turned off with `--enable-profile-logger=false`. When the live heap stays at or above 80% of `GOMEMLIMIT` for one minute after GC, a single `memory watcher: live heap did not drop below the elevated level after GC` warning is logged per episode, without profiles, so the timing of a climb can be matched against other log lines.
+
 ## What appears in the logs
 
 When the threshold is reached, look for:
@@ -30,7 +32,16 @@ python3 hack/extract-memory-profiles.py controller.log syncer.log -o recovered-p
 python3 hack/extract-memory-profiles.py support-bundle.tar.gz -o recovered-profiles
 ```
 
-Inputs can be log files, gzip logs, extracted directories, tar/tgz bundles, or ZIP bundles. Gzipped log members are supported; unpack nested archives first. Use `--profile heap` to extract only heap profiles.
+Inputs can be log files, gzip logs, extracted directories, tar/tgz bundles, or ZIP bundles. Gzipped log members are supported; unpack nested archives first. Use `--profile heap` to extract only heap profiles. Output goes to the current directory unless `-o` is given.
+
+Each profile is limited to 64 MiB, both as encoded base64 in the logs and as decompressed data. Use `--max-profile-mib` to change the limit. A profile over the limit is not written; it is listed under `errors` in `manifest.json`, and the script exits nonzero.
+
+To recover one profile by hand, select its chunk lines from JSON logs and decode them:
+
+```sh
+jq -r 'select(.msg=="memory watcher profile chunk" and .profile=="heap" and
+  .dumpId=="<id>") | .data' controller.log | tr -d '\n' | base64 -d > heap.pb.gz
+```
 
 The output contains `.pb.gz` profiles and `manifest.json` listing their sources and any errors. The script checks chunk sequences, byte counts, base64, and gzip integrity. It preserves valid profiles even if others are incomplete and exits nonzero on errors or no matching profiles. Rotated files are combined by `TraceId`; without it, files are kept separate.
 

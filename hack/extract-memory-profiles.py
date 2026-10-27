@@ -182,7 +182,7 @@ def recover(group, limit):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="+", type=Path, help="Log files, directories, .gz, tar/tgz or ZIP bundles")
-    parser.add_argument("-o", "--output", required=True, type=Path, help="Output directory for profiles and manifest.json")
+    parser.add_argument("-o", "--output", type=Path, default=Path("."), help="Output directory for profiles and manifest.json (default: current directory)")
     parser.add_argument("--profile", action="append", help="Only extract this profile name; repeatable")
     parser.add_argument("--dump-id", action="append", help="Only extract this dumpId; repeatable")
     parser.add_argument("--max-profile-mib", type=int, default=64, help="Limit encoded and decompressed bytes per profile (default: 64 MiB)")
@@ -195,7 +195,7 @@ def main():
         for path in paths:
             if path.is_symlink() or path.is_dir():
                 continue
-            if args.output.resolve() in path.resolve().parents:
+            if path.resolve().parent == args.output.resolve() and (path.name == "manifest.json" or path.name.endswith(".pb.gz")):
                 continue
             try:
                 scan_file(path, groups, errors, args)
