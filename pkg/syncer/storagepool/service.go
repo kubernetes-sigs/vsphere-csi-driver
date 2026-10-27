@@ -54,7 +54,7 @@ var (
 func InitStoragePoolService(ctx context.Context,
 	configInfo *commonconfig.ConfigurationInfo, coInitParams *interface{}) error {
 	log := logger.GetLogger(ctx)
-	clusterIDs := []string{configInfo.Cfg.Global.ClusterID}
+	clusterIDs := []string{configInfo.GetCfg().Global.ClusterID}
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
 		clusterComputeResourceMoIds, _, err := common.GetClusterComputeResourceMoIds(ctx)
 		if err != nil {
@@ -80,7 +80,7 @@ func InitStoragePoolService(ctx context.Context,
 	}
 
 	// Get VC connection.
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.GetCfg())
 	var vc *cnsvsphere.VirtualCenter
 	if err == nil {
 		vc, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)

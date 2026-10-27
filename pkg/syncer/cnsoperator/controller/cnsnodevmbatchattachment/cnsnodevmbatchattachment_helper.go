@@ -709,7 +709,7 @@ func isPvcEncrypted(pvcAnnotations map[string]string) bool {
 // getVmObject find the VM object on vCenter.
 // If VM retrieval from vCenter fails with NotFound error,
 // then it is not considered an error because VM CR is probably being deleted.
-func getVmObject(ctx context.Context, client client.Client, configInfo config.ConfigurationInfo,
+func getVmObject(ctx context.Context, client client.Client, configInfo *config.ConfigurationInfo,
 	instance *v1alpha1.CnsNodeVMBatchAttachment) (*cnsvsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 

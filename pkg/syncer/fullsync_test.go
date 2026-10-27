@@ -505,16 +505,14 @@ func setupMetadataSyncerForFullSync(
 	}
 
 	// Create mock config
-	cfg := &cnsconfig.ConfigurationInfo{
-		Cfg: &cnsconfig.Config{
-			VirtualCenter: map[commontypes.FQDN]*cnsconfig.VirtualCenterConfig{
-				commontypes.NewFQDN("test-vcenter"): {},
-			},
+	cfg := cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+		VirtualCenter: map[commontypes.FQDN]*cnsconfig.VirtualCenterConfig{
+			commontypes.NewFQDN("test-vcenter"): {},
 		},
-	}
+	})
 	// Set Global.VCenterIP and ClusterID
-	cfg.Cfg.Global.VCenterIP = commontypes.NewFQDN("test-vcenter")
-	cfg.Cfg.Global.ClusterID = "test-cluster-id"
+	cfg.GetCfg().Global.VCenterIP = commontypes.NewFQDN("test-vcenter")
+	cfg.GetCfg().Global.ClusterID = "test-cluster-id"
 
 	// Create fake informer manager with listers
 	informerManager := k8s.NewInformer(ctx, k8sClient)

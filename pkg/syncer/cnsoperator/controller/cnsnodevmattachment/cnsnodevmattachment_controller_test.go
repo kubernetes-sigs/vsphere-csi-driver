@@ -151,16 +151,14 @@ func TestReconcileDetachWithVolumeIDFallback(t *testing.T) {
 	r := &ReconcileCnsNodeVMAttachment{
 		client: fakeClient,
 		scheme: s,
-		configInfo: &config.ConfigurationInfo{
-			Cfg: &config.Config{
-				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
-					commontypes.NewFQDN("test-vc"): {
-						Datacenters: "dc-1",
-						VCenterPort: "443",
-					},
+		configInfo: config.NewConfigurationInfo(&config.Config{
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("test-vc"): {
+					Datacenters: "dc-1",
+					VCenterPort: "443",
 				},
 			},
-		},
+		}),
 		recorder: record.NewFakeRecorder(1024),
 	}
 
@@ -291,16 +289,14 @@ func TestReconcileDetachWithVolumeIDFallbackFailure(t *testing.T) {
 	r := &ReconcileCnsNodeVMAttachment{
 		client: fakeClient,
 		scheme: s,
-		configInfo: &config.ConfigurationInfo{
-			Cfg: &config.Config{
-				VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
-					commontypes.NewFQDN("test-vc"): {
-						Datacenters: "dc-1",
-						VCenterPort: "443",
-					},
+		configInfo: config.NewConfigurationInfo(&config.Config{
+			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
+				commontypes.NewFQDN("test-vc"): {
+					Datacenters: "dc-1",
+					VCenterPort: "443",
 				},
 			},
-		},
+		}),
 		recorder: record.NewFakeRecorder(1024),
 	}
 

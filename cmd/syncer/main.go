@@ -325,7 +325,7 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				log.Errorf("failed to initialize nodeManager. Error: %+v", err)
 				os.Exit(1)
 			}
-			if configInfo.Cfg.Global.ClusterDistribution == "" {
+			if configInfo.GetCfg().Global.ClusterDistribution == "" {
 				config, err := rest.InClusterConfig()
 				if err != nil {
 					log.Errorf("failed to get InClusterConfig: %v", err)
@@ -362,13 +362,13 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 				distributionUnknown := true
 				for distServerVersion, distName := range ClusterDistNameToServerVersion {
 					if strings.Contains(version, distServerVersion) {
-						configInfo.Cfg.Global.ClusterDistribution = distName
+						configInfo.GetCfg().Global.ClusterDistribution = distName
 						distributionUnknown = false
 						break
 					}
 				}
 				if distributionUnknown {
-					configInfo.Cfg.Global.ClusterDistribution = ClusterDistNameToServerVersion["nativek8s"]
+					configInfo.GetCfg().Global.ClusterDistribution = ClusterDistNameToServerVersion["nativek8s"]
 				}
 			}
 		}

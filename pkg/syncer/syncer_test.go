@@ -128,7 +128,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	}
 
 	configInfo := &cnsconfig.ConfigurationInfo{}
-	configInfo.Cfg = csiConfig
+	configInfo.SetCfg(csiConfig)
 
 	virtualCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, cnsVCenterConfig, false)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestSyncerWorkflows(t *testing.T) {
 	metadataSyncer.k8sInformerManager.Listen()
 
 	_, err := unittestcommon.GetFakeVolumeMigrationService(ctx,
-		&metadataSyncer.volumeManager, metadataSyncer.configInfo.Cfg)
+		&metadataSyncer.volumeManager, metadataSyncer.configInfo.GetCfg())
 	if err != nil {
 		t.Fatalf("failed to get migration service. Err: %v", err)
 	}
@@ -267,8 +267,8 @@ func runTestMetadataSyncInformer(t *testing.T) {
 			DynamicData: vimtypes.DynamicData{},
 			ContainerCluster: cnstypes.CnsContainerCluster{
 				ClusterType: string(cnstypes.CnsClusterTypeKubernetes),
-				ClusterId:   metadataSyncer.configInfo.Cfg.Global.ClusterID,
-				VSphereUser: metadataSyncer.configInfo.Cfg.VirtualCenter[metadataSyncer.host].User,
+				ClusterId:   metadataSyncer.configInfo.GetCfg().Global.ClusterID,
+				VSphereUser: metadataSyncer.configInfo.GetCfg().VirtualCenter[metadataSyncer.host].User,
 			},
 		},
 		BackingObjectDetails: &cnstypes.CnsBlockBackingDetails{

@@ -1924,7 +1924,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityE
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
 	origCapability := isVSphereDPLPModernAppEnabled
@@ -1968,7 +1968,7 @@ func TestConstructCreateSpecForInstanceWithBothVolumeIDAndDiskURLPathCapabilityD
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
 	origCapability := isVSphereDPLPModernAppEnabled
@@ -2005,7 +2005,7 @@ func TestConstructCreateSpecForInstanceWithVolumeIDOnly(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
 	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
@@ -2037,7 +2037,7 @@ func TestConstructCreateSpecForInstanceWithDiskURLPathOnly(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 	}
 
 	spec, err := constructCreateSpecForInstance(context.TODO(), r, instance, commontypes.NewFQDN("test-host"), false)
@@ -2070,7 +2070,7 @@ func TestConstructCreateSpecForInstanceWithoutStorageClassName(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(),
 	}
 
@@ -2108,7 +2108,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassName(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
 
@@ -2144,7 +2144,7 @@ func TestConstructCreateSpecForInstanceWithMissingStorageClass(t *testing.T) {
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(),
 	}
 
@@ -2180,7 +2180,7 @@ func TestConstructCreateSpecForInstanceWithStorageClassMissingPolicyIDParam(t *t
 	}
 	cfg.Global.ClusterID = "test-cluster"
 	r := &ReconcileCnsRegisterVolume{
-		configInfo: &config.ConfigurationInfo{Cfg: cfg},
+		configInfo: config.NewConfigurationInfo(cfg),
 		k8sclient:  k8sfake.NewClientset(sc),
 	}
 
@@ -2317,10 +2317,10 @@ func TestReconcileRejectsUnassignedStorageClassPolicy(t *testing.T) {
 		client:    fakeClient,
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
-		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+		configInfo: config.NewConfigurationInfo(&config.Config{
 			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
-		}},
+		}),
 	}
 
 	patches := gomonkey.NewPatches()
@@ -2409,10 +2409,10 @@ func TestReconcileReusesSpecifiedStorageClassNameWithoutLateDiscovery(t *testing
 		client:    fakeClient,
 		scheme:    scheme,
 		k8sclient: k8sclientFake,
-		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+		configInfo: config.NewConfigurationInfo(&config.Config{
 			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
-		}},
+		}),
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
 				_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
@@ -4960,10 +4960,10 @@ func newHostLocalReconcileFixture(patches *gomonkey.Patches, storageLocality str
 		// Empty clientset: a reconcile that gets past the host-local block stops at the storage
 		// class lookup rather than dereferencing a nil client.
 		k8sclient: k8sfake.NewSimpleClientset(),
-		configInfo: &config.ConfigurationInfo{Cfg: &config.Config{
+		configInfo: config.NewConfigurationInfo(&config.Config{
 			VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 				commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
-		}},
+		}),
 		volumeManager: &mockVolumeManager{
 			createVolumeFunc: func(_ context.Context, _ *cnstypes.CnsVolumeCreateSpec,
 				_ interface{}) (*cnsvolume.CnsVolumeInfo, string, error) {
@@ -5173,8 +5173,8 @@ func TestReconcileHostLocalTopologyError(t *testing.T) {
 // testConfigInfo returns a config with a single vCenter entry, which is required to look up the vCenter
 // instance via GetVirtualCenterInstanceForVCenterConfig.
 func testConfigInfo() *config.ConfigurationInfo {
-	return &config.ConfigurationInfo{Cfg: &config.Config{
+	return config.NewConfigurationInfo(&config.Config{
 		VirtualCenter: map[commontypes.FQDN]*config.VirtualCenterConfig{
 			commontypes.NewFQDN("vc"): {User: "test-user", VCenterPort: "443"}},
-	}}
+	})
 }

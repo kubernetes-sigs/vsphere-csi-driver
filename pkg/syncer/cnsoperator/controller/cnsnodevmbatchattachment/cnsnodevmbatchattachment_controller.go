@@ -174,7 +174,7 @@ func newReconciler(mgr manager.Manager, configInfo *config.ConfigurationInfo,
 	recorder record.EventRecorder, cbtClient client.Client) reconcile.Reconciler {
 	return &Reconciler{client: mgr.GetClient(),
 		scheme:     mgr.GetScheme(),
-		configInfo: *configInfo, volumeManager: volumeManager,
+		configInfo: configInfo, volumeManager: volumeManager,
 		vmOperatorClient:  vmOperatorClient,
 		cnsOperatorClient: cnsOperatorClient,
 		recorder:          recorder,
@@ -213,7 +213,7 @@ type Reconciler struct {
 	// that reads objects from the cache and writes to the apiserver
 	client            client.Client
 	scheme            *runtime.Scheme
-	configInfo        config.ConfigurationInfo
+	configInfo        *config.ConfigurationInfo
 	volumeManager     volumes.Manager
 	vmOperatorClient  client.Client
 	cnsOperatorClient client.Client

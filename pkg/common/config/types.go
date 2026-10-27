@@ -17,6 +17,8 @@ limitations under the License.
 package config
 
 import (
+	"sync/atomic"
+
 	vsanfstypes "github.com/vmware/govmomi/vsan/vsanfs/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 )
@@ -114,9 +116,29 @@ type Config struct {
 	Snapshot SnapshotConfig
 }
 
-// ConfigurationInfo is a struct that used to capture config param details
+// ConfigurationInfo is a struct that used to capture config param details.
+// The config can be swapped at runtime on a config reload while other goroutines read it, so it must only be
+// accessed through GetCfg and SetCfg. Share the *ConfigurationInfo, never copy it.
 type ConfigurationInfo struct {
-	Cfg *Config
+	cfg atomic.Pointer[Config]
+}
+
+// NewConfigurationInfo returns a ConfigurationInfo holding the given config.
+func NewConfigurationInfo(cfg *Config) *ConfigurationInfo {
+	c := &ConfigurationInfo{}
+	c.cfg.Store(cfg)
+	return c
+}
+
+// GetCfg returns the current config. Each call observes the latest config, so caller that reads several
+// fields and needs them consistent with each other should call GetCfg once and use the result.
+func (c *ConfigurationInfo) GetCfg() *Config {
+	return c.cfg.Load()
+}
+
+// SetCfg replaces the current config. Holders of the same *ConfigurationInfo observe the new config.
+func (c *ConfigurationInfo) SetCfg(cfg *Config) {
+	c.cfg.Store(cfg)
 }
 
 // FeatureStatesConfigInfo contains the details about feature states configmap

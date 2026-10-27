@@ -88,7 +88,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.GetCfg())
 	var vcClient *cnsvsphere.VirtualCenter
 	if err == nil {
 		vcClient, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
@@ -98,8 +98,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	}
 
 	volumeManager, err := volume.GetManager(ctx, vcClient, nil, false, false, false,
-		cnstypes.CnsClusterFlavorWorkload, configInfo.Cfg.Global.SupervisorID,
-		configInfo.Cfg.Global.ClusterDistribution)
+		cnstypes.CnsClusterFlavorWorkload, configInfo.GetCfg().Global.SupervisorID,
+		configInfo.GetCfg().Global.ClusterDistribution)
 	if err != nil {
 		return fmt.Errorf("failed to create an instance of volume manager: %w", err)
 	}

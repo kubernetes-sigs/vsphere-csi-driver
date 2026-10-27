@@ -186,7 +186,7 @@ func listCBTStatesByNamespace(ctx context.Context) (map[string]bool, error) {
 func periodicCBTSync(ctx context.Context, metadataSyncer *metadataSyncInformer,
 	namespaceCBTState map[string]bool) {
 	log := logger.GetLogger(ctx)
-	vc := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+	vc := metadataSyncer.configInfo.GetCfg().Global.VCenterIP
 	// Create one kube client and wire all dependencies into a CBTSyncer shared by every
 	// namespace sync in this tick. CBT sync is gated to Workload flavor in InitMetadataSyncer,
 	// so metadataSyncer.volumeManager is guaranteed initialised by the time the loop runs.

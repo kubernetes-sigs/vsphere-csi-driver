@@ -83,7 +83,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		return nil
 	}
 
-	if len(configInfo.Cfg.VirtualCenter) > 1 {
+	if len(configInfo.GetCfg().VirtualCenter) > 1 {
 		log.Infof("Not initializing the TriggerCsiFullSync Controller as it is a multi VC deployment.")
 		return nil
 	}
@@ -258,7 +258,7 @@ func (r *ReconcileTriggerCsiFullSync) Reconcile(ctx context.Context,
 	if r.clusterFlavor == cnstypes.CnsClusterFlavorGuest {
 		fullSyncErr = syncer.PvcsiFullSync(ctx, syncer.MetadataSyncer)
 	} else {
-		fullSyncErr = syncer.CsiFullSync(ctx, syncer.MetadataSyncer, r.configInfo.Cfg.Global.VCenterIP)
+		fullSyncErr = syncer.CsiFullSync(ctx, syncer.MetadataSyncer, r.configInfo.GetCfg().Global.VCenterIP)
 	}
 	err = r.client.Get(ctx, request.NamespacedName, instance)
 	if err != nil {

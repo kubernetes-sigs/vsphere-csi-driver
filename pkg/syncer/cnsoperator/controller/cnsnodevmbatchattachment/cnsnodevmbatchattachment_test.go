@@ -181,7 +181,7 @@ func setTestEnvironment(testCnsNodeVMBatchAttachment *v1alpha1.CnsNodeVMBatchAtt
 	r := &Reconciler{
 		client:            fakeClient,
 		scheme:            s,
-		configInfo:        config.ConfigurationInfo{},
+		configInfo:        &config.ConfigurationInfo{},
 		recorder:          record.NewFakeRecorder(testBufferSize),
 		instanceLock:      sync.Map{},
 		cnsOperatorClient: cnsOperatorClient,
@@ -1788,7 +1788,7 @@ func TestRemovePvcFinalizer_WhenCnsNodeVmAttachmentExists(t *testing.T) {
 }
 
 func MockGetVMFromVcenter(ctx context.Context, nodeUUID string,
-	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
+	configInfo *config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	var vm *cnsvsphere.VirtualMachine
 	if nodeUUID == "test-2" {
 		return vm, fmt.Errorf("some error occurred while getting VM")
