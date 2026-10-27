@@ -444,7 +444,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		} else {
 			// SupportsExposingStoragePolicyAttributes is enabled — start the shared
 			// vSphere inventory watcher used by ClusterSPI and InfraSPI controllers.
-			vc, vcErr := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+			vcconfig, vcErr := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+			var vc *cnsvsphere.VirtualCenter
+			if vcErr == nil {
+				vc, vcErr = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+			}
 			if vcErr != nil {
 				return logger.LogNewErrorf(log, "failed to get vCenter instance for inventory watcher: %v", vcErr)
 			}
@@ -560,7 +564,11 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		}
 	} else if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		// Initialize volume manager with vcenter credentials
-		vCenter, err := cnsvsphere.GetVirtualCenterInstance(ctx, configInfo, false)
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+		var vCenter *cnsvsphere.VirtualCenter
+		if err == nil {
+			vCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
+		}
 		if err != nil {
 			return err
 		}
@@ -571,11 +579,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 		vCenter.Config.ReloadVCConfigForNewClient = true
 		metadataSyncer.host = vCenter.Config.Host
 
-		cnsDeletionMap[metadataSyncer.host] = make(map[string]bool)
-		pvMissingLabeledMap[metadataSyncer.host] = make(map[string]bool)
-		cnsCreationMap[metadataSyncer.host] = make(map[string]bool)
-		volumeInfoCrDeletionMap[metadataSyncer.host] = make(map[string]bool)
-		volumeOperationsLock[metadataSyncer.host] = &sync.Mutex{}
+		initFullSyncStateForHost(metadataSyncer.host)
 
 		volumeManager, err := volumes.GetManager(ctx, vCenter,
 			nil, false, false, false,
@@ -671,11 +675,7 @@ func InitMetadataSyncer(ctx context.Context, clusterFlavor cnstypes.CnsClusterFl
 			}
 
 			metadataSyncer.volumeManagers[vcconfig.Host] = volumeManager
-			cnsDeletionMap[vcconfig.Host] = make(map[string]bool)
-			pvMissingLabeledMap[vcconfig.Host] = make(map[string]bool)
-			cnsCreationMap[vcconfig.Host] = make(map[string]bool)
-			volumeInfoCrDeletionMap[vcconfig.Host] = make(map[string]bool)
-			volumeOperationsLock[vcconfig.Host] = &sync.Mutex{}
+			initFullSyncStateForHost(vcconfig.Host)
 		}
 		// If it is a multi VC deployment, initialize volumeInfoService
 		if len(vcconfigs) > 1 && volumeInfoService == nil {
@@ -2845,7 +2845,9 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 				}
 			}
 			if cfg != nil {
-				metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
+				// Update in place, as the controllers hold the same ConfigurationInfo pointer and look up the
+				// vCenter from it.
+				metadataSyncer.configInfo.Cfg = cfg
 				log.Infof("updated metadataSyncer.configInfo")
 			}
 		}
@@ -2877,23 +2879,16 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 						"failed to connect to VirtualCenter host: %s using new credentials, Err: %+v",
 						newVCConfig.Host, err)
 				}
-
-				// Reset virtual center singleton instance by passing reload flag
-				// as true.
-				log.Info("Obtaining new vCenterInstance using new credentials")
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, true)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-				}
-			} else {
-				// If it's not a VC host or VC credentials update, same singleton
-				// instance can be used and it's Config field can be updated.
-				vcenter, err = cnsvsphere.GetVirtualCenterInstance(ctx, &cnsconfig.ConfigurationInfo{Cfg: cfg}, false)
-				if err != nil {
-					return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
-				}
-				vcenter.Config = newVCConfig
 			}
+
+			// If it's a VC host or VC credentials update, a new vCenter instance is created using the new
+			// config. Otherwise the cached instance is reused and only its Config field is updated.
+			log.Info("Obtaining vCenterInstance")
+			vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, newVCConfig, configChanged)
+			if err != nil {
+				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
+			}
+			vcenter.Config = newVCConfig
 			err := metadataSyncer.volumeManager.ResetManager(ctx, vcenter)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
@@ -2906,14 +2901,62 @@ func ReloadConfiguration(metadataSyncer *metadataSyncInformer, reconnectToVCFrom
 			metadataSyncer.volumeManager = volumeManager
 			storagepool.ResetVC(ctx, vcenter)
 
+			oldHost := metadataSyncer.host
+			// Full sync indexes its per-vCenter maps by host, so they must exist for the new host
+			// before it is used.
+			initFullSyncStateForHost(newVCConfig.Host)
 			metadataSyncer.host = newVCConfig.Host
+			if oldHost != newVCConfig.Host {
+				// The vCenter host changed and everything is switched over to the new host, unregister the
+				// previous host so that it does not stay registered.
+				if err = cnsvsphere.UnregisterVirtualCenterForHost(ctx, oldHost); err != nil {
+					log.Warnf("failed to unregister previous vCenter %q. err=%v", oldHost, err)
+				}
+			}
 		}
 		if cfg != nil {
-			metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{Cfg: cfg}
+			// Update in place, as the controllers hold the same ConfigurationInfo pointer and look up the
+			// vCenter from it.
+			metadataSyncer.configInfo.Cfg = cfg
 			log.Infof("updated metadataSyncer.configInfo")
 		}
 	}
 	return nil
+}
+
+// initFullSyncStateForHost creates the per-vCenter maps and lock used by full sync for the given host.
+// It is a no-op for a host that is already initialized, so state of a running host is never reset.
+func initFullSyncStateForHost(host commontypes.FQDN) {
+	if cnsDeletionMap == nil {
+		cnsDeletionMap = make(map[commontypes.FQDN]map[string]bool)
+	}
+	if pvMissingLabeledMap == nil {
+		pvMissingLabeledMap = make(map[commontypes.FQDN]map[string]bool)
+	}
+	if cnsCreationMap == nil {
+		cnsCreationMap = make(map[commontypes.FQDN]map[string]bool)
+	}
+	if volumeInfoCrDeletionMap == nil {
+		volumeInfoCrDeletionMap = make(map[commontypes.FQDN]map[string]bool)
+	}
+	if volumeOperationsLock == nil {
+		volumeOperationsLock = make(map[commontypes.FQDN]*sync.Mutex)
+	}
+	if _, ok := cnsDeletionMap[host]; !ok {
+		cnsDeletionMap[host] = make(map[string]bool)
+	}
+	if _, ok := pvMissingLabeledMap[host]; !ok {
+		pvMissingLabeledMap[host] = make(map[string]bool)
+	}
+	if _, ok := cnsCreationMap[host]; !ok {
+		cnsCreationMap[host] = make(map[string]bool)
+	}
+	if _, ok := volumeInfoCrDeletionMap[host]; !ok {
+		volumeInfoCrDeletionMap[host] = make(map[string]bool)
+	}
+	if _, ok := volumeOperationsLock[host]; !ok {
+		volumeOperationsLock[host] = &sync.Mutex{}
+	}
 }
 
 // pvcAdded handles PVC add events. On Supervisor cluster, this clears the

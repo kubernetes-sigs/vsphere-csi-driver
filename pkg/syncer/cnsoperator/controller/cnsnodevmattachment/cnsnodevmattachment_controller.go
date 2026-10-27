@@ -79,7 +79,7 @@ var (
 
 // Mockable function variables for testing
 var (
-	getVirtualCenterInstance = cnsvsphere.GetVirtualCenterInstance
+	getVirtualCenterInstance = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig
 	connectToVCenter         = func(ctx context.Context, vc *cnsvsphere.VirtualCenter) error {
 		return vc.Connect(ctx)
 	}
@@ -351,7 +351,11 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		}
 		// Get node VM by nodeUUID.
 		var dc *cnsvsphere.Datacenter
-		vcenter, err := getVirtualCenterInstance(internalCtx, r.configInfo, false)
+		var vcenter *cnsvsphere.VirtualCenter
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(internalCtx, r.configInfo.Cfg)
+		if err == nil {
+			vcenter, err = getVirtualCenterInstance(internalCtx, vcconfig, false)
+		}
 		if err != nil {
 			msg := fmt.Sprintf("failed to get virtual center instance with error: %v", err)
 			instance.Status.Error = err.Error()

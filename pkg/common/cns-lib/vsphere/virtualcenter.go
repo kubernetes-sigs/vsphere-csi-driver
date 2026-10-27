@@ -125,15 +125,9 @@ type MetricRoundTripper struct {
 }
 
 var (
-	// VCenter instance. It is a singleton.
-	vCenterInstance *VirtualCenter
 	// Map of VCenter Hostname and vCenter instances
 	vCenterInstances = make(map[commontypes.FQDN]*VirtualCenter)
 
-	// Has the vCenter instance been initialized?
-	vCenterInitialized bool
-	// vCenterInstanceLock makes sure only one vCenter instance be initialized.
-	vCenterInstanceLock = &sync.RWMutex{}
 	// vCenterInstancesLock makes sure only one vCenter being initialized for specific host
 	vCenterInstancesLock = &sync.RWMutex{}
 )
@@ -1109,58 +1103,6 @@ func (vc *VirtualCenter) GetDatastoresByCluster(ctx context.Context,
 	return dsList, nil
 }
 
-// GetVirtualCenterInstance returns the vcenter object singleton.
-// It is thread safe. Takes in a boolean paramater reloadConfig.
-// If reinitialize is true, the vcenter object is instantiated again and the
-// old object becomes eligible for garbage collection.
-// If reinitialize is false and instance was already initialized, the previous
-// instance is returned.
-func GetVirtualCenterInstance(ctx context.Context,
-	config *config.ConfigurationInfo, reinitialize bool) (*VirtualCenter, error) {
-	log := logger.GetLogger(ctx)
-	vCenterInstanceLock.Lock()
-	defer vCenterInstanceLock.Unlock()
-
-	if !vCenterInitialized || reinitialize {
-		log.Infof("Initializing new vCenterInstance.")
-
-		var vcconfig *VirtualCenterConfig
-		vcconfig, err := GetVirtualCenterConfig(ctx, config.Cfg)
-		if err != nil {
-			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", err)
-			return nil, err
-		}
-
-		// Initialize the virtual center manager.
-		virtualcentermanager := GetVirtualCenterManager(ctx)
-
-		// Unregister all VCs from virtual center manager.
-		if err = virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
-			log.Errorf("failed to unregister vcenter with virtualCenterManager.")
-			return nil, err
-		}
-
-		// Register with virtual center manager.
-		vCenterInstance, err = virtualcentermanager.RegisterVirtualCenter(ctx, vcconfig)
-		if err != nil {
-			log.Errorf("failed to register VirtualCenter . Err: %+v", err)
-			return nil, err
-		}
-
-		// Connect to VC.
-		err = vCenterInstance.Connect(ctx)
-		if err != nil {
-			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v",
-				vcconfig.Host, err)
-			return nil, err
-		}
-
-		vCenterInitialized = true
-		log.Info("vCenterInstance initialized")
-	}
-	return vCenterInstance, nil
-}
-
 // GetVirtualCenterInstanceForVCenterConfig returns the vcenter object for given vCenter Config
 // Takes in a boolean paramater reloadConfig.
 // If reinitialize is true, the vcenter object is instantiated again and the
@@ -1174,13 +1116,17 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 	defer vCenterInstancesLock.Unlock()
 
 	hostKey := vcconfig.Host
-	_, found := vCenterInstances[hostKey]
-	if !found || reinitialize {
+	// Initialize the virtual center manager.
+	virtualcentermanager := GetVirtualCenterManager(ctx)
+	_, cached := vCenterInstances[hostKey]
+	// The vCenter may have been registered with the virtual center manager directly, without going through
+	// this accessor (e.g. WCP CSI controller init). Treat such a vCenter as already registered, so that it is
+	// adopted rather than failing with ErrVCAlreadyRegistered.
+	registered := cached || virtualcentermanager.IsVirtualCenterRegistered(hostKey)
+	if !registered || reinitialize {
 		log.Infof("Initializing new vCenterInstance for vCenter %q", vcconfig.Host)
-		// Initialize the virtual center manager.
-		virtualcentermanager := GetVirtualCenterManager(ctx)
-		if found {
-			// Unregister the VC from virtual center manager.
+		if registered {
+			// Unregister only this VC from virtual center manager.
 			if err := virtualcentermanager.UnregisterVirtualCenter(ctx, vcconfig.Host); err != nil {
 				return nil, logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q with "+
 					"virtualCenterManager. Err: %+v", vcconfig.Host, err)
@@ -1200,12 +1146,46 @@ func GetVirtualCenterInstanceForVCenterConfig(ctx context.Context,
 		if err != nil {
 			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v",
 				vcconfig.Host, err)
+			// Do not leave the cache pointing at the instance that was just logged out, or a registry entry
+			// that is not connected. The next call starts from scratch.
+			delete(vCenterInstances, hostKey)
+			if unregErr := virtualcentermanager.UnregisterVirtualCenter(ctx, hostKey); unregErr != nil {
+				log.Warnf("failed to unregister VirtualCenter %q after a failed connect. Err: %+v",
+					hostKey, unregErr)
+			}
 			return nil, err
 		}
 		vCenterInstances[hostKey] = vcInstance
 		log.Infof("vCenterInstance for vCenter: %q initialized", vcconfig.Host)
+	} else if !cached {
+		// Adopt the instance registered directly with the virtual center manager.
+		vcInstance, err := virtualcentermanager.GetVirtualCenter(ctx, hostKey)
+		if err != nil {
+			return nil, err
+		}
+		if err = vcInstance.Connect(ctx); err != nil {
+			log.Errorf("failed to connect to VirtualCenter host: %q. Err: %+v", vcconfig.Host, err)
+			return nil, err
+		}
+		vCenterInstances[hostKey] = vcInstance
+		log.Infof("vCenterInstance for vCenter: %q adopted from virtualCenterManager", vcconfig.Host)
 	}
 	return vCenterInstances[hostKey], nil
+}
+
+// UnregisterVirtualCenterForHost unregisters and logs out only the given vCenter and drops it from the
+// instance cache. It is used when the vCenter host changes on config reload, so that the previous host
+// does not stay registered.
+func UnregisterVirtualCenterForHost(ctx context.Context, host commontypes.FQDN) error {
+	log := logger.GetLogger(ctx)
+	vCenterInstancesLock.Lock()
+	defer vCenterInstancesLock.Unlock()
+
+	if err := GetVirtualCenterManager(ctx).UnregisterVirtualCenter(ctx, host); err != nil {
+		return logger.LogNewErrorf(log, "failed to unregister VirtualCenter %q. Err: %+v", host, err)
+	}
+	delete(vCenterInstances, host)
+	return nil
 }
 
 // UnregisterAllVirtualCenters helps unregister and logout all registered vCenter instances
@@ -1221,6 +1201,8 @@ func UnregisterAllVirtualCenters(ctx context.Context) error {
 	if err := virtualcentermanager.UnregisterAllVirtualCenters(ctx); err != nil {
 		return logger.LogNewErrorf(log, "failed to unregister all VirtualCenter servers. Err: %+v", err)
 	}
+	// The cached instances are logged out now, do not hand them out again.
+	clear(vCenterInstances)
 	return nil
 }
 
