@@ -3125,27 +3125,13 @@ func (c *controller) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshot
 				return nil, logger.LogNewErrorCodef(log, codes.Internal,
 					"failed to create snapshot on volume %q with error: %v", volumeID, err)
 			}
-			cnsVolumeInfo, err = volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsSnapshotInfo.SourceVolumeID)
+			// cnsVolumeInfo was read before the snapshot was created, so its resourceVersion guards the write.
+			err = c.updateCNSVolumeInfoSnapshotDetails(ctx, volumeID, cnsVolumeInfo, cnsSnapshotInfo)
 			if err != nil {
-				return nil, logger.LogNewErrorCodef(log, codes.Internal,
-					"failed to retrieve cnsVolumeInfo for volume: %s Error: %+v", cnsVolumeInfo.Spec.VolumeID, err)
+				return nil, err
 			}
-			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
-				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
-				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
-				if err != nil {
-					return nil, err
-				}
-				err = c.UpdateCNSVolumeInfo(ctx, patch, volumeID)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				log.Infof("CNSVolumeInfo is already updated, skipping update for volume %q and snapshot %q",
-					volumeID, snapshotID)
-			}
-			log.Infof("successfully updated aggregated snapshot capacity: %d for volume %q and snapshot %q",
-				cnsSnapshotInfo.AggregatedSnapshotCapacityInMb, volumeID, snapshotID)
+			log.Infof("successfully updated aggregated snapshot capacity for volume %q and snapshot %q",
+				volumeID, snapshotID)
 		} else {
 			snapshotID, cnsSnapshotInfo, err = common.CreateSnapshotUtil(ctx, c.manager.VolumeManager,
 				volumeID, req.Name, nil)
@@ -3239,19 +3225,10 @@ func (c *controller) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshot
 					"Failed to delete WCP snapshot %q. Error: %+v",
 					csiSnapshotID, err)
 			}
-			if cnsVolumeInfo.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
-				cnsSnapshotInfo.SnapshotLatestOperationCompleteTime) {
-				patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, cnsSnapshotInfo)
-				if err != nil {
-					return nil, err
-				}
-				err = c.UpdateCNSVolumeInfo(ctx, patch, cnsVolumeInfo.Spec.VolumeID)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				log.Infof("CNSVolumeInfo is already updated, skiping update for volume %d and snapshot %d",
-					cnsVolumeInfo.Spec.VolumeID, cnsSnapshotInfo.SnapshotID)
+			// cnsVolumeInfo was read before the snapshot was deleted, so its resourceVersion guards the write.
+			err = c.updateCNSVolumeInfoSnapshotDetails(ctx, volumeID, cnsVolumeInfo, cnsSnapshotInfo)
+			if err != nil {
+				return nil, err
 			}
 		} else {
 			_, err := common.DeleteSnapshotUtil(ctx, c.manager.VolumeManager, csiSnapshotID, nil)
@@ -3611,18 +3588,24 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	}
 }
 
-func (c *controller) UpdateCNSVolumeInfo(ctx context.Context, patch map[string]interface{}, volumeID string) error {
+// updateCNSVolumeInfoSnapshotDetails records the aggregated snapshot capacity measured by a snapshot
+// operation on volumeID. preRead is the CnsVolumeInfo read before the operation started; the write is
+// conditioned on its resourceVersion and re-measured from CNS if the CnsVolumeInfo changed since.
+func (c *controller) updateCNSVolumeInfoSnapshotDetails(ctx context.Context, volumeID string,
+	preRead *cnsvolumeinfov1alpha1.CNSVolumeInfo, snapshotInfo *cnsvolume.CnsSnapshotInfo) error {
 	log := logger.GetLogger(ctx)
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		return logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to create patch for CNSVolumeInfo instance. Error: %+v", err)
+	if snapshotInfo != nil && !preRead.Spec.SnapshotLatestOperationCompleteTime.Time.Before(
+		snapshotInfo.SnapshotLatestOperationCompleteTime) {
+		// Task completion times cannot order writes, so this is logged and never used to skip the write.
+		log.Infof("CnsVolumeInfo for volume %q records snapshot time %v, not before the task completion time "+
+			"%v; writing anyway as the resourceVersion decides", volumeID,
+			preRead.Spec.SnapshotLatestOperationCompleteTime.Time, snapshotInfo.SnapshotLatestOperationCompleteTime)
 	}
-	err = volumeInfoService.PatchVolumeInfo(ctx, volumeID, patchBytes, allowedRetriesToPatchCNSVolumeInfo)
+	err := volumeInfoService.UpdateVolumeInfoSnapshotDetails(ctx, volumeID, preRead.ResourceVersion, snapshotInfo,
+		c.manager.VolumeManager)
 	if err != nil {
 		return logger.LogNewErrorCodef(log, codes.Internal,
-			"failed to patch CNSVolumeInfo instance to update snapshot details."+
-				" Error: %+v", err)
+			"failed to update CnsVolumeInfo snapshot details for volume %q. Error: %+v", volumeID, err)
 	}
 	return nil
 }

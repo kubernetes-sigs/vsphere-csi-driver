@@ -42,6 +42,7 @@ import (
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -491,6 +492,11 @@ func (f *fakeVolumeInfoServiceImpl) PatchVolumeInfoStatus(
 	defer f.mu.Unlock()
 	f.patchStatusCalls = append(f.patchStatusCalls, recordedPatch{volumeID, append([]byte(nil), patch...), retries})
 	return f.patchStatusErr
+}
+
+func (f *fakeVolumeInfoServiceImpl) UpdateVolumeInfoSnapshotDetails(_ context.Context, _, _ string,
+	_ *volumes.CnsSnapshotInfo, _ volumes.Manager) error {
+	return nil
 }
 
 // makePVC returns a bound PVC pointing at PV `pvName`, with optional VAC.
