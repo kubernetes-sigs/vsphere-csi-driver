@@ -92,6 +92,13 @@ func Register() {
 	ctx, log := logger.GetNewContextWithLogger()
 	latched.Store(boolState(enabled(ctx)))
 	log.Infof("Runtime configuration sources enabled: %t", latched.Load() == stateOn)
+	if latched.Load() == stateOff && isSupervisor(ctx) && commonco.ContainerOrchestratorUtility != nil &&
+		!commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsSelfManagedMode) {
+		// The capability may turn on after the driver started. The container restarts when it does,
+		// and Register then latches the runtime sources on.
+		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx,
+			cnstypes.CnsClusterFlavorWorkload, common.SupportsSelfManagedMode, "", "")
+	}
 	config.SetPostProcessor(process)
 }
 
@@ -114,7 +121,8 @@ func boolState(on bool) int32 {
 }
 
 // Enabled reports whether the runtime sources are in use: a Supervisor with the
-// vsphere-csi-runtime-config FSS on. The answer is fixed by Register; before it is called the
+// vsphere-csi-runtime-config FSS on and the supports_self_managed_mode capability on. Both are
+// required, so a Supervisor without the capability always keeps the legacy configuration path. The answer is fixed by Register; before it is called the
 // feature state is read each time.
 func Enabled(ctx context.Context) bool {
 	if state := latched.Load(); state != stateUnset {
@@ -127,11 +135,16 @@ func enabled(ctx context.Context) bool {
 	if commonco.ContainerOrchestratorUtility == nil {
 		return false
 	}
-	flavor, err := config.GetClusterFlavor(ctx)
-	if err != nil || flavor != cnstypes.CnsClusterFlavorWorkload {
+	if !isSupervisor(ctx) {
 		return false
 	}
-	return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VSphereCSIRuntimeConfig)
+	return commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsSelfManagedMode) &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.VSphereCSIRuntimeConfig)
+}
+
+func isSupervisor(ctx context.Context) bool {
+	flavor, err := config.GetClusterFlavor(ctx)
+	return err == nil && flavor == cnstypes.CnsClusterFlavorWorkload
 }
 
 // IsCAFileRotation reports whether a file system event in the trust bundle directory means the
