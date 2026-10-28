@@ -870,7 +870,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	}
 	// If PV is already bound to a different PVC at this point, then its a
 	// duplicate request.
-	if pv.Status.Phase == v1.VolumeBound && pv.Spec.ClaimRef.Name != instance.Spec.PvcName {
+	if pv.Status.Phase == v1.VolumeBound && isPVClaimedByOtherPVC(pv, instance) {
 		log.Errorf("Duplicate Request. There already exists a PV: %s which is bound", pvName)
 		setInstanceError(ctx, r, instance, "Duplicate Request")
 		return reconcile.Result{RequeueAfter: timeout}, nil
@@ -1341,6 +1341,18 @@ func isBlockVolumeRegisterRequest(ctx context.Context, instance *cnsregistervolu
 	return false
 }
 
+// isPVClaimedByOtherPVC returns true if the PV's claimRef points to a PVC other
+// than the one requested by the CnsRegisterVolume instance. Both name and
+// namespace are compared since the PV is cluster-scoped.
+func isPVClaimedByOtherPVC(pv *v1.PersistentVolume,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume) bool {
+	if pv.Spec.ClaimRef == nil {
+		return false
+	}
+	return pv.Spec.ClaimRef.Name != instance.Spec.PvcName ||
+		pv.Spec.ClaimRef.Namespace != instance.Namespace
+}
+
 // validateAndFixPVVolumeMode checks if an existing PV has the correct volumeMode.
 // If the volumeMode doesn't match what's expected, it untags the CNS volume, deletes
 // and recreates the PV with the correct volumeMode since volumeMode is immutable on PVs.
@@ -1365,6 +1377,17 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 
 	// Check if volumeMode matches
 	if expectedVolumeMode != pvVolumeMode {
+		// Never untag/delete/recreate a PV that is claimed by a different PVC,
+		// e.g. a PVC with the same name in another namespace.
+		if isPVClaimedByOtherPVC(pv, instance) {
+			msg := fmt.Sprintf("PV %s is claimed by PVC %s/%s, not %s/%s. Refusing to recreate it "+
+				"with volumeMode %s", pvName, pv.Spec.ClaimRef.Namespace, pv.Spec.ClaimRef.Name,
+				instance.Namespace, instance.Spec.PvcName, expectedVolumeMode)
+			log.Error(msg)
+			setInstanceError(ctx, r, instance, msg)
+			return nil, errors.New(msg)
+		}
+
 		log.Warnf("PV %s exists but has incorrect volumeMode. Expected: %s, Actual: %s. "+
 			"Untagging CNS volume and recreating PV with correct volumeMode.", pvName, expectedVolumeMode, pvVolumeMode)
 

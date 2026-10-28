@@ -3095,6 +3095,121 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 	assert.Equal(t, corev1.ReadWriteOnce, pvFinal.Spec.AccessModes[0])
 }
 
+func TestIsPVClaimedByOtherPVC(t *testing.T) {
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: "register-vol", Namespace: "ns-a"},
+		Spec:       cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{PvcName: "my-pvc"},
+	}
+	tests := []struct {
+		name     string
+		claimRef *corev1.ObjectReference
+		expected bool
+	}{
+		{name: "nil claimRef", claimRef: nil, expected: false},
+		{name: "same name and namespace",
+			claimRef: &corev1.ObjectReference{Namespace: "ns-a", Name: "my-pvc"}, expected: false},
+		{name: "different name",
+			claimRef: &corev1.ObjectReference{Namespace: "ns-a", Name: "other-pvc"}, expected: true},
+		{name: "same name, different namespace",
+			claimRef: &corev1.ObjectReference{Namespace: "ns-b", Name: "my-pvc"}, expected: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pv := &corev1.PersistentVolume{Spec: corev1.PersistentVolumeSpec{ClaimRef: tt.claimRef}}
+			assert.Equal(t, tt.expected, isPVClaimedByOtherPVC(pv, instance))
+		})
+	}
+}
+
+func TestPVNotRecreatedWhenClaimedByPVCInOtherNamespace(t *testing.T) {
+	ctx := context.Background()
+	k8sclient := k8sfake.NewClientset()
+	pvcName := "test-pvc"
+	pvName := "static-pv-test-volume-id"
+	volumeID := "test-volume-id"
+	storageClassName := "test-sc"
+
+	isSharedDiskEnabled = true
+	defer func() {
+		isSharedDiskEnabled = false
+	}()
+
+	// CnsRegisterVolume in namespace A expects Block.
+	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "register-vol",
+			Namespace: "ns-a",
+		},
+		Spec: cnsregistervolumev1alpha1.CnsRegisterVolumeSpec{
+			PvcName:    pvcName,
+			VolumeID:   volumeID,
+			AccessMode: corev1.ReadWriteOnce,
+			VolumeMode: corev1.PersistentVolumeBlock,
+		},
+	}
+
+	// Existing PV with Filesystem volumeMode, claimed by a PVC with the same
+	// name in namespace B.
+	fsVolumeMode := corev1.PersistentVolumeFilesystem
+	existingPV := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pvName,
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: resource.MustParse("1Gi"),
+			},
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       "csi.vsphere.vmware.com",
+					VolumeHandle: volumeID,
+				},
+			},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			VolumeMode:       &fsVolumeMode,
+			StorageClassName: storageClassName,
+			ClaimRef: &corev1.ObjectReference{
+				Kind:       "PersistentVolumeClaim",
+				APIVersion: "v1",
+				Namespace:  "ns-b",
+				Name:       pvcName,
+			},
+		},
+	}
+	pvBefore, err := k8sclient.CoreV1().PersistentVolumes().Create(ctx, existingPV, metav1.CreateOptions{})
+	assert.NoError(t, err)
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	untagCalled := false
+	patches.ApplyFunc(common.DeleteVolumeUtil,
+		func(ctx context.Context, volumeManager cnsvolume.Manager, volumeID string, deleteDisk bool) (string, error) {
+			untagCalled = true
+			return "", nil
+		})
+	var instanceErr string
+	patches.ApplyFunc(setInstanceError, func(ctx context.Context, r *ReconcileCnsRegisterVolume,
+		instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
+		instanceErr = errMsg
+	})
+
+	reconciler := &ReconcileCnsRegisterVolume{}
+	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
+	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
+		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, time.Second)
+
+	assert.Error(t, err)
+	assert.Nil(t, pvAfter)
+	assert.False(t, untagCalled, "CNS volume must not be untagged")
+	assert.Contains(t, instanceErr, "ns-b/"+pvcName)
+
+	// PV must be untouched and still claimed by namespace B.
+	pvFinal, err := k8sclient.CoreV1().PersistentVolumes().Get(ctx, pvName, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, corev1.PersistentVolumeFilesystem, *pvFinal.Spec.VolumeMode)
+	assert.Equal(t, "ns-b", pvFinal.Spec.ClaimRef.Namespace)
+}
+
 func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	ctx := context.Background()
 	k8sclient := k8sfake.NewClientset()
