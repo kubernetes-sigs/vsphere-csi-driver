@@ -23,6 +23,8 @@ import (
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	snapshotmetadatav1beta1 "github.com/kubernetes-csi/external-snapshot-metadata/client/apis/snapshotmetadataservice/v1beta1"
 	cnstypes "github.com/vmware/govmomi/cns/types"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -50,7 +52,16 @@ func NewManager(
 		return nil, err
 	}
 
+	// Use a private scheme instead of the process-wide client-go scheme.Scheme. Other
+	// operators run concurrently in this process and registering types into a shared
+	// Scheme from multiple goroutines causes "fatal error: concurrent map writes".
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add client-go types to scheme for Data Protection(DP) operator. Err: %+v", err)
+	}
+
 	mgr, err := ctrlmgr.New(kubeConfig, ctrlmgr.Options{
+		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
 		},
