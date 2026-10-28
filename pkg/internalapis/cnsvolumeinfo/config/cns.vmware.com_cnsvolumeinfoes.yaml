@@ -99,7 +99,7 @@ spec:
                 migrationConditions:
                   description: MigrationConditions describe the current conditions of
                     the migration. Known condition types are "InProgress", "Infeasible",
-                    "Error", "Complete".
+                    "Complete".
                   items:
                     description: metav1.Condition represents an observation of an
                       object's state. Some examples are available at
@@ -150,6 +150,13 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
+                migrationTargetStoragePolicyID:
+                  description: MigrationTargetStoragePolicyID is the storage policy
+                    that the current MigrationConditions apply to. The CSI Syncer
+                    writes it in the same status patch as MigrationConditions, so
+                    ControllerModifyVolume can ignore a condition left over from a
+                    previous modify to a different policy.
+                  type: string
               type: object
           required:
             - spec
