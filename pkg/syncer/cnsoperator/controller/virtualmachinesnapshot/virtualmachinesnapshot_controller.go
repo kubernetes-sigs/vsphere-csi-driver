@@ -18,7 +18,6 @@ package virtualmachinesnapshot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -54,12 +53,11 @@ import (
 )
 
 const (
-	MaxBackOffDurationForReconciler    = 5 * time.Minute
-	workerThreadsEnvVar                = "WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT"
-	defaultMaxWorkerThreads            = 10
-	allowedRetriesToPatchCNSVolumeInfo = 5
-	SyncVolumeFinalizer                = "cns.vmware.com/syncvolume"
-	VMSnapshotFinalizer                = "vmoperator.vmware.com/virtualmachinesnapshot"
+	MaxBackOffDurationForReconciler = 5 * time.Minute
+	workerThreadsEnvVar             = "WORKER_THREADS_VIRTUAL_MACHINE_SNAPSHOT"
+	defaultMaxWorkerThreads         = 10
+	SyncVolumeFinalizer             = "cns.vmware.com/syncvolume"
+	VMSnapshotFinalizer             = "vmoperator.vmware.com/virtualmachinesnapshot"
 )
 
 var (
@@ -390,6 +388,9 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 	log *zap.SugaredLogger, vm *vmoperatortypes.VirtualMachine) error {
 	var err error
 	cnsVolumeIds := []cnstypes.CnsVolumeId{}
+	// preReadResourceVersions holds the CNSVolumeInfo resourceVersion of each volume, read before the
+	// volume is synced. It guards the CNSVolumeInfo write against values written during the sync.
+	preReadResourceVersions := make(map[string]string)
 	syncMode := []string{string(cnstypes.CnsSyncVolumeModeSPACE_USAGE)}
 	syncgrp, sgctx := syncgroup.WithContext(ctx)
 	for _, vmVolume := range vm.Spec.Volumes {
@@ -413,6 +414,14 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 			if pv.Spec.CSI != nil && pv.Spec.CSI.VolumeHandle != "" {
 				cnsVolId := cnstypes.CnsVolumeId{Id: pv.Spec.CSI.VolumeHandle}
 				cnsVolumeIds = append(cnsVolumeIds, cnsVolId)
+				cnsVolumeInfo, cviErr := r.volumeInfoService.GetVolumeInfoForVolumeID(ctx, cnsVolId.Id)
+				if cviErr == nil {
+					preReadResourceVersions[cnsVolId.Id] = cnsVolumeInfo.ResourceVersion
+				} else {
+					// Without a pre-read version the CNSVolumeInfo write re-measures before writing.
+					log.Infof("syncVolumesAndUpdateCNSVolumeInfo: CNSVolumeInfo for volume %s not in cache, "+
+						"its snapshot capacity will be re-measured before writing. error: %v", cnsVolId.Id, cviErr)
+				}
 				syncVolumeSpecs := []cnstypes.CnsSyncVolumeSpec{
 					{
 						VolumeId: cnsVolId,
@@ -461,23 +470,16 @@ func (r *ReconcileVirtualMachineSnapshot) syncVolumesAndUpdateCNSVolumeInfo(ctx 
 					"AggregatedSnapshotCapacityInMb %d", cnsvolume.VolumeId.Id, val.AggregatedSnapshotCapacityInMb)
 
 				//  Update CNSVolumeInfo with latest aggregated Size and Update SPU used value.
-				patch, err := common.GetCNSVolumeInfoPatch(ctx, val.AggregatedSnapshotCapacityInMb,
-					cnsvolume.VolumeId.Id)
+				volumeID := cnsvolume.VolumeId.Id
+				err = r.volumeInfoService.UpdateVolumeInfoSnapshotDetails(ctx, volumeID,
+					preReadResourceVersions[volumeID], &volumes.CnsSnapshotInfo{
+						SourceVolumeID:                      volumeID,
+						AggregatedSnapshotCapacityInMb:      val.AggregatedSnapshotCapacityInMb,
+						SnapshotLatestOperationCompleteTime: time.Now(),
+					}, r.volumeManager)
 				if err != nil {
-					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to get cnsvolumeinfo patch for "+
-						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
-					return err
-				}
-				patchBytes, err := json.Marshal(patch)
-				if err != nil {
-					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: error while json marshal. error: %v", err)
-					return err
-				}
-				err = r.volumeInfoService.PatchVolumeInfo(ctx, cnsvolume.VolumeId.Id,
-					patchBytes, allowedRetriesToPatchCNSVolumeInfo)
-				if err != nil {
-					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to patch cnsvolumeinfo for volume "+
-						"volume %s, error: %v", cnsvolume.VolumeId.Id, err)
+					log.Errorf("syncVolumesAndUpdateCNSVolumeInfo: failed to update cnsvolumeinfo for "+
+						"volume %s, error: %v", volumeID, err)
 					return err
 				}
 			} else {

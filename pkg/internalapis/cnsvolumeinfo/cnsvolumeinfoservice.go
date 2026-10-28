@@ -2,6 +2,8 @@ package cnsvolumeinfo
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	cnsvolume "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	commontypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
@@ -44,7 +47,14 @@ const (
 
 	// FileVolumePrefix represents the prefix for RWX volume's volumeHandle.
 	FileVolumePrefix = "file:"
+
+	// maxSnapshotDetailsWriteAttempts bounds the conditional writes of UpdateVolumeInfoSnapshotDetails.
+	maxSnapshotDetailsWriteAttempts = 5
 )
+
+// snapshotDetailsRetryInterval is the wait between attempts of UpdateVolumeInfoSnapshotDetails.
+// It is a variable so that tests can shorten it.
+var snapshotDetailsRetryInterval = 100 * time.Millisecond
 
 // VolumeInfoService exposes interfaces to support Operate on cnsvolumeinfo CR
 // for multi vCenter CSI topology feature.
@@ -80,6 +90,15 @@ type VolumeInfoService interface {
 
 	// PatchVolumeInfoStatus patches the status of CNSVolumeInfo instance associated with volumeID.
 	PatchVolumeInfoStatus(ctx context.Context, volumeID string, patchBytes []byte, retries int) error
+
+	// UpdateVolumeInfoSnapshotDetails writes the aggregated snapshot capacity of volumeID to its
+	// CNSVolumeInfo, conditioned on preReadResourceVersion: the resourceVersion of the CNSVolumeInfo
+	// read before measured was taken. If the CNSVolumeInfo changed since then, the write is rejected,
+	// the CNSVolumeInfo is read again from the API server, the capacity is re-measured from CNS
+	// through volumeManager, and the write is retried. An empty preReadResourceVersion skips straight
+	// to re-measuring. An error means nothing was written.
+	UpdateVolumeInfoSnapshotDetails(ctx context.Context, volumeID, preReadResourceVersion string,
+		measured *cnsvolume.CnsSnapshotInfo, volumeManager cnsvolume.Manager) error
 
 	// Informer returns the shared informer of the CnsVolumeInfo CRs in the CSI namespace.
 	// It has the SPUSnapshotIndex index registered.
@@ -360,6 +379,123 @@ func (volumeInfo *volumeInfo) PatchVolumeInfoStatus(ctx context.Context, volumeI
 			attempt, volumeInfoInstance.Name, volumeInfoInstance.Namespace)
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// UpdateVolumeInfoSnapshotDetails writes the aggregated snapshot capacity of volumeID to its
+// CNSVolumeInfo only if the CNSVolumeInfo has not changed since preReadResourceVersion was read.
+//
+// preReadResourceVersion must be read before measured was taken. A successful write then proves
+// that whatever it replaces was measured earlier than measured. A conflict means another writer
+// wrote during the measurement, so measured is discarded: the CNSVolumeInfo is read again from the
+// API server, the capacity is re-measured and the write is retried. Any other failure, including a
+// failed re-measure, is retried as well. Every failure uses up one of maxSnapshotDetailsWriteAttempts,
+// with a short wait between attempts. No write is ever made without a resourceVersion precondition.
+func (volumeInfo *volumeInfo) UpdateVolumeInfoSnapshotDetails(ctx context.Context, volumeID,
+	preReadResourceVersion string, measured *cnsvolume.CnsSnapshotInfo, volumeManager cnsvolume.Manager) error {
+	log := logger.GetLogger(ctx)
+	key := types.NamespacedName{Namespace: csiNamespace, Name: getCnsVolumeInfoCrName(ctx, volumeID)}
+	resourceVersion := preReadResourceVersion
+	needsRemeasure := measured == nil || resourceVersion == ""
+	var capacityInMb int64
+	var measuredAt time.Time
+	if measured != nil {
+		capacityInMb = measured.AggregatedSnapshotCapacityInMb
+		measuredAt = measured.SnapshotLatestOperationCompleteTime
+	}
+	if measuredAt.IsZero() {
+		// A replayed result may carry no completion time. A zero time would be patched as null and
+		// clear the field, so use the current time; it is informational only.
+		measuredAt = time.Now()
+	}
+	var lastErr error
+	for attempt := 1; attempt <= maxSnapshotDetailsWriteAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(snapshotDetailsRetryInterval)
+		}
+		if needsRemeasure {
+			remeasuredVersion, remeasuredMb, err := volumeInfo.remeasureSnapshotCapacity(ctx, key, volumeID,
+				volumeManager)
+			if apierrors.IsNotFound(err) {
+				return logger.LogNewErrorf(log, "CnsVolumeInfo %q not found for volume %q", key.Name, volumeID)
+			}
+			if err != nil {
+				log.Warnf("attempt %d: failed to re-measure the aggregated snapshot capacity of volume %q, "+
+					"will retry. Error: %v", attempt, volumeID, err)
+				lastErr = err
+				continue
+			}
+			resourceVersion, capacityInMb = remeasuredVersion, remeasuredMb
+			// The time is informational only; it never decides whether a write happens.
+			measuredAt = time.Now()
+			needsRemeasure = false
+		}
+		patchBytes, err := snapshotDetailsPatch(ctx, volumeID, resourceVersion, capacityInMb, measuredAt)
+		if err != nil {
+			return err
+		}
+		target := &cnsvolumeinfov1alpha1.CNSVolumeInfo{
+			ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		}
+		err = volumeInfo.k8sClient.Patch(ctx, target, client.RawPatch(types.MergePatchType, patchBytes))
+		if err == nil {
+			log.Infof("attempt %d: updated CnsVolumeInfo %q with aggregated snapshot capacity %d MB "+
+				"(precondition resourceVersion %q)", attempt, key.Name, capacityInMb, resourceVersion)
+			return nil
+		}
+		lastErr = err
+		switch {
+		case apierrors.IsConflict(err):
+			log.Infof("attempt %d: CnsVolumeInfo %q changed after resourceVersion %q was read; "+
+				"discarding the measurement and re-measuring", attempt, key.Name, resourceVersion)
+			needsRemeasure = true
+		case apierrors.IsNotFound(err):
+			return logger.LogNewErrorf(log, "CnsVolumeInfo %q not found for volume %q", key.Name, volumeID)
+		default:
+			log.Warnf("attempt %d: failed to update CnsVolumeInfo %q, will retry. Error: %v",
+				attempt, key.Name, err)
+		}
+	}
+	return logger.LogNewErrorf(log, "failed to update aggregated snapshot capacity of CnsVolumeInfo %q "+
+		"after %d attempts. Error: %v", key.Name, maxSnapshotDetailsWriteAttempts, lastErr)
+}
+
+// remeasureSnapshotCapacity reads the CnsVolumeInfo live from the API server and then queries CNS for
+// the aggregated snapshot capacity of volumeID, so the returned resourceVersion was read before the
+// returned capacity was measured.
+func (volumeInfo *volumeInfo) remeasureSnapshotCapacity(ctx context.Context, key types.NamespacedName,
+	volumeID string, volumeManager cnsvolume.Manager) (string, int64, error) {
+	log := logger.GetLogger(ctx)
+	current := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+	if err := volumeInfo.k8sClient.Get(ctx, key, current); err != nil {
+		return "", 0, fmt.Errorf("failed to read CnsVolumeInfo %q: %w", key.Name, err)
+	}
+	capacityInMb, err := cnsvolume.QueryAggregatedSnapshotCapacityInMb(ctx, volumeManager, volumeID)
+	if err != nil {
+		return "", 0, err
+	}
+	log.Infof("re-measured aggregated snapshot capacity %d MB for volume %q against CnsVolumeInfo "+
+		"resourceVersion %q", capacityInMb, volumeID, current.ResourceVersion)
+	return current.ResourceVersion, capacityInMb, nil
+}
+
+// snapshotDetailsPatch returns a merge patch that sets the snapshot details and carries
+// resourceVersion, so that the API server rejects it if the CnsVolumeInfo has changed.
+func snapshotDetailsPatch(ctx context.Context, volumeID, resourceVersion string, capacityInMb int64,
+	measuredAt time.Time) ([]byte, error) {
+	patch, err := common.GetValidatedCNSVolumeInfoPatch(ctx, &cnsvolume.CnsSnapshotInfo{
+		SourceVolumeID:                      volumeID,
+		AggregatedSnapshotCapacityInMb:      capacityInMb,
+		SnapshotLatestOperationCompleteTime: measuredAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	patch["metadata"] = map[string]interface{}{"resourceVersion": resourceVersion}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal CnsVolumeInfo patch for volume %q: %w", volumeID, err)
+	}
+	return patchBytes, nil
 }
 
 // GetCnsVolumeInfoCrName returns the Kubernetes-safe CR name for a volumeID.

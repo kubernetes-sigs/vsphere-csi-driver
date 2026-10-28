@@ -200,7 +200,10 @@ type CnsSnapshotInfo struct {
 	SourceVolumeID                      string
 	SnapshotDescription                 string
 	ChangedBlockTrackingId              string
-	AggregatedSnapshotCapacityInMb      int64
+	// AggregatedSnapshotCapacityInMb is measured during the call that returns it, by a CNS task that
+	// call invoked or a CNS query it issued. It is never replayed from an earlier attempt, so callers
+	// may treat it as newer than anything they read before the call.
+	AggregatedSnapshotCapacityInMb int64
 }
 
 // CreateVolumeExtraParams consist of values required by the CreateVolume interface and
@@ -2738,6 +2741,9 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 	var (
 		// Reference to the CreateSnapshot task on CNS.
 		createSnapshotsTask *object.Task
+		// invokedNewCreateSnapshotTask is true when this call started a new CreateSnapshot task on CNS, and
+		// false when it resumed a pending task started by an earlier attempt, whose result may be stale.
+		invokedNewCreateSnapshotTask bool
 		// Name of the CnsVolumeOperationRequest instance.
 		instanceName = snapshotName + "-" + volumeID
 		// Local instance of CreateSnapshot details that needs to be persisted.
@@ -2785,11 +2791,15 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 					SnapshotDescription:    volumeOperationDetails.Name,
 					ChangedBlockTrackingId: volumeOperationDetails.ChangedBlockTrackingId,
 				}
-				if volumeOperationDetails.QuotaDetails != nil {
-					if volumeOperationDetails.QuotaDetails.AggregatedSnapshotSize != nil {
-						cnsSnapshotInfo.AggregatedSnapshotCapacityInMb =
-							volumeOperationDetails.QuotaDetails.AggregatedSnapshotSize.Value()
+				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+					// The persisted size was measured by an earlier attempt; measure it again.
+					aggregatedSnapshotCapacityInMb, err := queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
+					if err != nil {
+						return nil, err
 					}
+					cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = aggregatedSnapshotCapacityInMb
+				}
+				if volumeOperationDetails.QuotaDetails != nil {
 					if !volumeOperationDetails.QuotaDetails.SnapshotLatestOperationCompleteTime.IsZero() {
 						cnsSnapshotInfo.SnapshotLatestOperationCompleteTime =
 							volumeOperationDetails.QuotaDetails.SnapshotLatestOperationCompleteTime.Time
@@ -2863,6 +2873,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 			}
 			return nil, logger.LogNewErrorf(log, "failed to create snapshot with error: %v", err)
 		}
+		invokedNewCreateSnapshotTask = true
 
 		if m.idempotencyHandlingEnabled {
 			// Persist the volume operation details.
@@ -2912,7 +2923,7 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 				}
 				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					log.Infof("get aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
-					aggregatedSnapshotCapacityInMb, err := m.getAggregatedSnapshotSize(ctx, volumeID)
+					aggregatedSnapshotCapacityInMb, err := queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "Failed to get aggregated snapshot size for volume %q with"+
 							" error %v", volumeID, err)
@@ -3029,10 +3040,18 @@ func (m *defaultManager) createSnapshotWithImprovedIdempotencyCheck(ctx context.
 		ChangedBlockTrackingId:              snapshotCreateResult.Snapshot.ChangedBlockTrackingId,
 	}
 	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+		aggregatedSnapshotCapacityInMb := snapshotCreateResult.AggregatedSnapshotCapacityInMb
+		if !invokedNewCreateSnapshotTask {
+			// A resumed task may have completed before this call; measure the size now.
+			aggregatedSnapshotCapacityInMb, err = queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
+			if err != nil {
+				return nil, err
+			}
+		}
 		log.Infof("For volumeID %q new AggregatedSnapshotSize is %d and SnapshotLatestOperationCompleteTime is %q",
-			volumeID, snapshotCreateResult.AggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
-		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = snapshotCreateResult.AggregatedSnapshotCapacityInMb
-		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotCreateResult.AggregatedSnapshotCapacityInMb*MbInBytes,
+			volumeID, aggregatedSnapshotCapacityInMb, *createSnapshotsTaskInfo.CompleteTime)
+		cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = aggregatedSnapshotCapacityInMb
+		aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb*MbInBytes,
 			resource.BinarySI)
 		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *createSnapshotsTaskInfo.CompleteTime
@@ -3296,6 +3315,9 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	var (
 		// Reference to the DeleteVolume task on CNS.
 		deleteSnapshotTask *object.Task
+		// invokedNewDeleteSnapshotTask is true when this call started a new DeleteSnapshot task on CNS, and
+		// false when it resumed a pending task started by an earlier attempt, whose result may be stale.
+		invokedNewDeleteSnapshotTask bool
 		// Name of the CnsVolumeOperationRequest instance.
 		instanceName = "deletesnapshot-" + volumeID + "-" + snapshotID
 		// quotaInfo consists of values required to populate QuotaDetails in CnsVolumeOperationRequest CR.
@@ -3347,12 +3369,13 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 						SourceVolumeID: volumeOperationDetails.VolumeID,
 					}
 					if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
+						// The persisted size was measured by an earlier attempt; measure it again.
+						aggregatedSnapshotCapacityInMb, err := queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
+						if err != nil {
+							return nil, err
+						}
+						cnsSnapshotInfo.AggregatedSnapshotCapacityInMb = aggregatedSnapshotCapacityInMb
 						if volumeOperationDetails.QuotaDetails != nil {
-							if volumeOperationDetails.QuotaDetails.AggregatedSnapshotSize != nil {
-								cnsSnapshotInfo.AggregatedSnapshotCapacityInMb =
-									volumeOperationDetails.QuotaDetails.AggregatedSnapshotSize.Value()
-
-							}
 							if !volumeOperationDetails.QuotaDetails.SnapshotLatestOperationCompleteTime.IsZero() {
 								cnsSnapshotInfo.SnapshotLatestOperationCompleteTime =
 									volumeOperationDetails.QuotaDetails.SnapshotLatestOperationCompleteTime.Time
@@ -3400,7 +3423,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 					snapshotID, volumeID)
 				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					//  return updated cnssnapshotinfo
-					aggregatedSnapshotCapacityInMb, err := m.getAggregatedSnapshotSize(ctx, volumeID)
+					aggregatedSnapshotCapacityInMb, err := queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log,
 							"Failed to get aggregated snapshot size for volume %q with error %v", volumeID, err)
@@ -3440,6 +3463,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			return nil, logger.LogNewErrorf(log, "CNS DeleteSnapshot failed from the vCenter %q with err: %v",
 				m.virtualCenter.Config.Host, err)
 		}
+		invokedNewDeleteSnapshotTask = true
 		if m.idempotencyHandlingEnabled {
 			volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
 				metav1.Now(), deleteSnapshotTask.Reference().Value, "", "", taskInvocationStatusInProgress, "", "")
@@ -3457,7 +3481,7 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 			if validateSnapshotDeleted(ctx, m, volumeID, snapshotID) {
 				if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 					log.Infof("get aggregated Snapshot Capacity for volume with volumeID %q", volumeID)
-					aggregatedSnapshotCapacityInMb, err := m.getAggregatedSnapshotSize(ctx, volumeID)
+					aggregatedSnapshotCapacityInMb, err := queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
 					if err != nil {
 						return nil, logger.LogNewErrorf(log, "Failed to get aggregated snapshot size for volume %q with"+
 							" error %v", volumeID, err)
@@ -3570,13 +3594,21 @@ func (m *defaultManager) deleteSnapshotWithImprovedIdempotencyCheck(
 	}
 	if isStorageQuotaM2FSSEnabled && m.clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
 		snapshotDeleteResult := interface{}(deleteSnapshotsTaskResult).(*cnstypes.CnsSnapshotDeleteResult)
+		aggregatedSnapshotCapacityInMb := snapshotDeleteResult.AggregatedSnapshotCapacityInMb
+		if !invokedNewDeleteSnapshotTask {
+			// A resumed task may have completed before this call; measure the size now.
+			aggregatedSnapshotCapacityInMb, err = queryAggregatedSnapshotCapacityInMb(ctx, m, volumeID)
+			if err != nil {
+				return nil, err
+			}
+		}
 		cnsSnapshotInfo = &CnsSnapshotInfo{
 			SnapshotID:                          snapshotDeleteResult.SnapshotId.Id,
 			SourceVolumeID:                      snapshotDeleteResult.VolumeId.Id,
 			SnapshotLatestOperationCompleteTime: *deleteSnapshotsTaskInfo.CompleteTime,
-			AggregatedSnapshotCapacityInMb:      snapshotDeleteResult.AggregatedSnapshotCapacityInMb,
+			AggregatedSnapshotCapacityInMb:      aggregatedSnapshotCapacityInMb,
 		}
-		aggregatedSnapshotCapacity := resource.NewQuantity(snapshotDeleteResult.AggregatedSnapshotCapacityInMb*MbInBytes,
+		aggregatedSnapshotCapacity := resource.NewQuantity(aggregatedSnapshotCapacityInMb*MbInBytes,
 			resource.BinarySI)
 		quotaInfo.AggregatedSnapshotSize = aggregatedSnapshotCapacity
 		quotaInfo.SnapshotLatestOperationCompleteTime.Time = *deleteSnapshotsTaskInfo.CompleteTime
@@ -3884,34 +3916,30 @@ func (m *defaultManager) ReRegisterVolume(ctx context.Context, volumeID string) 
 	return nil
 }
 
-func (m *defaultManager) getAggregatedSnapshotSize(ctx context.Context, volumeID string) (int64, error) {
+// queryAggregatedSnapshotCapacityInMb is QueryAggregatedSnapshotCapacityInMb; tests replace it.
+var queryAggregatedSnapshotCapacityInMb = QueryAggregatedSnapshotCapacityInMb
+
+// QueryAggregatedSnapshotCapacityInMb returns the aggregated snapshot capacity, in MB, that CNS
+// currently records for the block volume volumeID. -1 means CNS cannot report it.
+func QueryAggregatedSnapshotCapacityInMb(ctx context.Context, m Manager, volumeID string) (int64, error) {
 	log := logger.GetLogger(ctx)
-	var aggregatedSnapshotCapacity int64
-	log.Infof("getAggregatedSnapshotSize: Query Volume to fetch aggregatedsnapshotsize for volumeID %q", volumeID)
-	queryFilter := cnstypes.CnsQueryFilter{
+	queryResult, err := m.QueryVolume(ctx, cnstypes.CnsQueryFilter{
 		VolumeIds: []cnstypes.CnsVolumeId{{Id: volumeID}},
-	}
-	queryResult, err := m.QueryVolume(ctx, queryFilter)
+	})
 	if err != nil {
-		log.Errorf("QueryVolume failed for volumeID %q with err: %v.", volumeID, err)
-		return aggregatedSnapshotCapacity, err
+		return 0, logger.LogNewErrorf(log, "failed to query volume %q from CNS. Error: %v", volumeID, err)
 	}
-	if len(queryResult.Volumes) == 0 {
-		return aggregatedSnapshotCapacity,
-			logger.LogNewErrorf(log, "for volumeID %q QueryVolume did not return volume.", volumeID)
+	if queryResult == nil || len(queryResult.Volumes) == 0 {
+		return 0, logger.LogNewErrorf(log, "CNS query did not return volume %q", volumeID)
 	}
-	if queryResult != nil && len(queryResult.Volumes) > 0 {
-		val, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
-		if ok {
-			log.Infof("getAggregatedSnapshotSize: received aggregatedsnapshotsize %d for volumeID %q",
-				val.AggregatedSnapshotCapacityInMb, volumeID)
-			aggregatedSnapshotCapacity = val.AggregatedSnapshotCapacityInMb
-		} else {
-			return aggregatedSnapshotCapacity,
-				logger.LogNewErrorf(log, "Unable to retrieve CnsBlockBackingDetails for volumeID %q", volumeID)
-		}
+	details, ok := queryResult.Volumes[0].BackingObjectDetails.(*cnstypes.CnsBlockBackingDetails)
+	if !ok || details == nil {
+		return 0, logger.LogNewErrorf(log, "CNS query did not return block backing details for volume %q",
+			volumeID)
 	}
-	return aggregatedSnapshotCapacity, nil
+	log.Infof("received aggregated snapshot capacity %d MB for volume %q", details.AggregatedSnapshotCapacityInMb,
+		volumeID)
+	return details.AggregatedSnapshotCapacityInMb, nil
 }
 
 // compileBatchAttachTaskResult consolidates Batch AttachVolume API's task result.
