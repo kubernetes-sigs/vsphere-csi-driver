@@ -278,8 +278,10 @@ func useFSS(t *testing.T, enabled bool) {
 	commonco.ContainerOrchestratorUtility = co
 	latched.Store(stateUnset)
 	if enabled {
-		if err := co.EnableFSS(context.Background(), common.VSphereCSIRuntimeConfig); err != nil {
-			t.Fatal(err)
+		for _, name := range []string{common.VSphereCSIRuntimeConfig, common.SupportsSelfManagedMode} {
+			if err := co.EnableFSS(context.Background(), name); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }
@@ -294,6 +296,16 @@ func TestEnabled(t *testing.T) {
 	if !Enabled(ctx) {
 		t.Error("disabled with the FSS on")
 	}
+	for _, only := range []string{common.VSphereCSIRuntimeConfig, common.SupportsSelfManagedMode} {
+		useFSS(t, false)
+		if err := commonco.ContainerOrchestratorUtility.EnableFSS(ctx, only); err != nil {
+			t.Fatal(err)
+		}
+		if Enabled(ctx) {
+			t.Errorf("enabled with only %s on", only)
+		}
+	}
+	useFSS(t, true)
 	t.Setenv("CLUSTER_FLAVOR", "VANILLA")
 	if Enabled(ctx) {
 		t.Error("enabled on a non-Supervisor flavor")
