@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cnsconfig "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -958,8 +961,61 @@ func getPatchData(oldObj, newObj interface{}) ([]byte, error) {
 	return patchBytes, nil
 }
 
-// PatchStoragePolicyUsage patches the StoragePolicyUsage CR based on old and new objects
+// storagePolicyUsageConflictBackoff is the backoff used by UpdateStoragePolicyUsage when the
+// StoragePolicyUsage CR is modified concurrently between the read and the patch.
+var storagePolicyUsageConflictBackoff = wait.Backoff{
+	Steps:    10,
+	Duration: 50 * time.Millisecond,
+	Factor:   1.5,
+	Jitter:   0.2,
+}
+
+// PatchStoragePolicyUsage patches the StoragePolicyUsage CR based on old and new objects.
+// The patch carries oldObj's resourceVersion, so the API server rejects it with a Conflict
+// error if the CR was modified after oldObj was read. A Conflict is returned immediately
+// (re-sending the same stale patch can never succeed); callers that compute newObj from
+// oldObj should use UpdateStoragePolicyUsage, which re-reads and re-applies the change.
+// Other errors are retried; a retry after a write that committed but lost its response
+// returns a Conflict rather than applying the change twice.
 func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *storagepolicyusagev1alpha3.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) error {
+	_, err := patchStoragePolicyUsageWithRetries(ctx, cnsOperatorClient, oldObj, newObj)
+	return err
+}
+
+// patchStoragePolicyUsageWithRetries sends the versioned patch from oldObj to newObj, resending
+// the same patch on non-Conflict errors up to allowedRetriesToPatchStoragePolicyUsage times. The
+// patch can never be applied twice since it carries oldObj's resourceVersion. retried reports
+// whether an earlier attempt failed with a non-Conflict error; such an attempt may have committed
+// before its response was lost, so a Conflict after it may be caused by this caller's own write.
+func patchStoragePolicyUsageWithRetries(ctx context.Context, cnsOperatorClient client.Client,
+	oldObj *storagepolicyusagev1alpha3.StoragePolicyUsage,
+	newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) (retried bool, err error) {
+	log := logger.GetLogger(ctx)
+	// Try to patch StoragePolicyUsage CR for allowedRetries times
+	allowedRetries := allowedRetriesToPatchStoragePolicyUsage
+	attempt := 0
+	for {
+		attempt++
+		err = patchStoragePolicyUsageOnce(ctx, cnsOperatorClient, oldObj, newObj)
+		if err == nil || apierrors.IsConflict(err) {
+			return attempt > 1, err
+		}
+		if attempt >= allowedRetries {
+			log.Errorf("failed to patch StoragePolicyUsage instance %q on namespace %q, Error: %+v",
+				oldObj.Name, oldObj.Namespace, err)
+			return true, err
+		}
+		log.Warnf("attempt %d, failed to patch StoragePolicyUsage instance %q on namespace %q with error %+v, "+
+			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// patchStoragePolicyUsageOnce sends a single status merge patch from oldObj to newObj that carries
+// oldObj's resourceVersion, so the API server rejects it with a Conflict if the CR has changed.
+func patchStoragePolicyUsageOnce(ctx context.Context, cnsOperatorClient client.Client,
 	oldObj *storagepolicyusagev1alpha3.StoragePolicyUsage,
 	newObj *storagepolicyusagev1alpha3.StoragePolicyUsage) error {
 	log := logger.GetLogger(ctx)
@@ -968,26 +1024,20 @@ func PatchStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Clien
 		log.Errorf("error fetching PatchData StoragePolicyUsage CR. err: %v", err)
 		return err
 	}
-	rawPatch := client.RawPatch(apitypes.MergePatchType, patch)
-	// Try to patch StoragePolicyUsage CR for allowedRetries times
-	allowedRetries := allowedRetriesToPatchStoragePolicyUsage
-	attempt := 0
-	for {
-		attempt++
-		err = cnsOperatorClient.Status().Patch(ctx, oldObj, rawPatch)
-		if err != nil && attempt >= allowedRetries {
-			log.Errorf("failed to patch StoragePolicyUsage instance %q on namespace %q, Error: %+v",
-				oldObj.Name, oldObj.Namespace, err)
-			return err
-		} else if err == nil {
-			log.Debugf("Successfully patched StoragePolicyUsage instance %q on namespace %q",
-				oldObj.Name, oldObj.Namespace)
-			return nil
-		}
-		log.Warnf("attempt %d, failed to patch StoragePolicyUsage instance %q on namespace %q with error %+v, "+
-			"will retry...", attempt, oldObj.Name, oldObj.Namespace, err)
-		time.Sleep(100 * time.Millisecond)
+	patch, err = addResourceVersion(patch, oldObj.ResourceVersion)
+	if err != nil {
+		log.Errorf("error adding resourceVersion to PatchData StoragePolicyUsage CR. err: %v", err)
+		return err
 	}
+	err = cnsOperatorClient.Status().Patch(ctx, oldObj, client.RawPatch(apitypes.MergePatchType, patch))
+	if apierrors.IsConflict(err) {
+		log.Infof("StoragePolicyUsage instance %q on namespace %q was modified concurrently, "+
+			"patch based on resourceVersion %q rejected", oldObj.Name, oldObj.Namespace, oldObj.ResourceVersion)
+	} else if err == nil {
+		log.Debugf("Successfully patched StoragePolicyUsage instance %q on namespace %q",
+			oldObj.Name, oldObj.Namespace)
+	}
+	return err
 }
 
 // patchSnapshotUsedOnce writes only Used, including when quotaUsage was absent at
@@ -1016,6 +1066,50 @@ func patchMissingSnapshotCapacityAnnotation(ctx context.Context, cnsOperatorClie
 		return err
 	}
 	return cnsOperatorClient.Patch(ctx, spu.DeepCopy(), client.RawPatch(apitypes.MergePatchType, patch))
+}
+
+// UpdateStoragePolicyUsage applies mutate to the StoragePolicyUsage CR and patches its status
+// with optimistic concurrency. spu must be a copy previously read from the API server; it is
+// used for the first attempt. mutate receives a deep copy of the current CR to modify, and
+// returns false to skip the patch. If the CR was modified concurrently, the latest copy is
+// re-fetched into spu and mutate is re-applied to it, so relative changes (e.g. adding to
+// Reserved/Used) are never lost. mutate may be called more than once.
+// Transient (non-Conflict) patch errors are retried by resending the same versioned patch,
+// which can never be applied twice. If a Conflict follows such an error, the earlier attempt
+// may have committed before its response was lost, so an error is returned instead of
+// re-running mutate, which could apply the change twice.
+func UpdateStoragePolicyUsage(ctx context.Context, cnsOperatorClient client.Client,
+	spu *storagepolicyusagev1alpha3.StoragePolicyUsage,
+	mutate func(patched *storagepolicyusagev1alpha3.StoragePolicyUsage) bool) error {
+	log := logger.GetLogger(ctx)
+	key := apitypes.NamespacedName{Namespace: spu.Namespace, Name: spu.Name}
+	first := true
+	return retry.RetryOnConflict(storagePolicyUsageConflictBackoff, func() error {
+		if !first {
+			log.Infof("re-fetching StoragePolicyUsage instance %q on namespace %q after conflict",
+				key.Name, key.Namespace)
+			// Fetch into a fresh object so fields cleared on the server don't survive from the
+			// stale copy, and so spu is left intact if the Get fails.
+			latest := &storagepolicyusagev1alpha3.StoragePolicyUsage{}
+			if err := cnsOperatorClient.Get(ctx, key, latest); err != nil {
+				return err
+			}
+			*spu = *latest
+		}
+		first = false
+		patched := spu.DeepCopy()
+		if !mutate(patched) {
+			return nil
+		}
+		retried, err := patchStoragePolicyUsageWithRetries(ctx, cnsOperatorClient, spu, patched)
+		if retried && apierrors.IsConflict(err) {
+			// Not wrapped, so RetryOnConflict does not re-run mutate.
+			return fmt.Errorf("StoragePolicyUsage instance %q on namespace %q may have been updated by an "+
+				"earlier attempt that failed with a transient error; not re-applying the change: %v",
+				key.Name, key.Namespace, err)
+		}
+		return err
+	})
 }
 
 // addResourceVersion sets the resource version for the patch obj
