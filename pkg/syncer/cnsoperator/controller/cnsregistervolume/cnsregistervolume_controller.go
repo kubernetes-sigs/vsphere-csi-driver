@@ -60,6 +60,8 @@ import (
 	commoncotypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
+	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer"
 )
@@ -393,6 +395,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 	volumeID = volInfo.VolumeID.Id
 	log.Infof("Created CNS volume with volumeID: %s", volumeID)
+	r.clearStaleDeleteOperationRecord(ctx, volumeID)
 
 	pvName = staticPvNamePrefix + volumeID
 	// Query volume
@@ -1472,6 +1475,34 @@ func validatePVCCapacityMatchesBackendFCD(pvc *v1.PersistentVolumeClaim, capacit
 		return nil
 	}
 	return fmt.Errorf("PVC %s size is not matching with backend FCD size", pvc.Namespace+"/"+pvc.Name)
+}
+
+// clearStaleDeleteOperationRecord drops any "delete-<volumeID>" CnsVolumeOperationRequest left
+// behind by an earlier CSI DeleteVolume for this same volume ID. CNS reuses FCD IDs across
+// register/unregister cycles, and the CSI driver treats a terminal record for that key as proof
+// that the volume is already gone. A surviving record would therefore turn the next genuine delete
+// of this newly registered volume into a silent no-op and leak the FCD. This reconciler runs in the
+// syncer, whose volume manager has no operation store, so it deletes the CR directly.
+// Only Delete is used (never Get or List): reads go through the manager cache and would start an
+// informer over every CnsVolumeOperationRequest. Block FCD IDs contain no ':', so no file-volume
+// name normalisation is needed. It is best effort: registration must not fail because of this.
+func (r *ReconcileCnsRegisterVolume) clearStaleDeleteOperationRecord(ctx context.Context, volumeID string) {
+	log := logger.GetLogger(ctx)
+	name := "delete-" + volumeID
+	namespace := cnsvolumeoperationrequest.GetCSINamespace()
+	err := r.client.Delete(ctx, &cnsvolumeoprequestv1alpha1.CnsVolumeOperationRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	})
+	switch {
+	case err == nil:
+		log.Infof("Deleted stale CnsVolumeOperationRequest %s/%s before registering volume %q",
+			namespace, name, volumeID)
+	case apierrors.IsNotFound(err):
+		log.Debugf("No stale CnsVolumeOperationRequest %s/%s found for volume %q", namespace, name, volumeID)
+	default:
+		log.Warnf("Failed to delete stale CnsVolumeOperationRequest %s/%s for volume %q. Err: %v",
+			namespace, name, volumeID, err)
+	}
 }
 
 // setInstanceError sets error and records an event on the CnsRegisterVolume

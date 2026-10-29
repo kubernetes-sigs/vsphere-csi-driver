@@ -102,7 +102,7 @@ func InitVolumeOperationRequestInterface(ctx context.Context, cleanupInterval in
 	csiTransactionSupportEnabled bool) (
 	VolumeOperationRequest, error) {
 	log := logger.GetLogger(ctx)
-	csiNamespace = getCSINamespace()
+	csiNamespace = GetCSINamespace()
 
 	operationStoreInitLock.Lock()
 	defer operationStoreInitLock.Unlock()
@@ -538,7 +538,10 @@ func SetCSITransactionSupport(enabled bool) {
 	isCSITransactionSupportEnabled = enabled
 }
 
-func getCSINamespace() string {
+// GetCSINamespace returns the namespace in which the CSI driver is running, as
+// configured by the CSI_NAMESPACE environment variable. It falls back to the
+// default CSI namespace when the variable is unset.
+func GetCSINamespace() string {
 	csiNamespace := os.Getenv(EnvCSINamespace)
 	if strings.TrimSpace(csiNamespace) == "" {
 		return csiconfig.DefaultCSINamespace
