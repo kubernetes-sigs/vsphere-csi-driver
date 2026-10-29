@@ -242,14 +242,12 @@ func TestAddNodeAffinityRulesOnPVTopologyAnnotationPresent(t *testing.T) {
 	metadataSyncer := &metadataSyncInformer{
 		supervisorClient: supervisorClient,
 	}
-	metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{
-		Cfg: &cnsconfig.Config{
-			GC: cnsconfig.GCConfig{
-				Endpoint: "endpoint",
-				Port:     "443",
-			},
+	metadataSyncer.configInfo = cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+		GC: cnsconfig.GCConfig{
+			Endpoint: "endpoint",
+			Port:     "443",
 		},
-	}
+	})
 
 	// Patch k8sNewClient to return our guestClient
 	origK8sClient := k8sNewClient
@@ -324,14 +322,12 @@ func TestAddNodeAffinityRulesOnPVTopologyAnnotationAbsent(t *testing.T) {
 	metadataSyncer := &metadataSyncInformer{
 		supervisorClient: supervisorClient,
 	}
-	metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{
-		Cfg: &cnsconfig.Config{
-			GC: cnsconfig.GCConfig{
-				Endpoint: "endpoint",
-				Port:     "443",
-			},
+	metadataSyncer.configInfo = cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+		GC: cnsconfig.GCConfig{
+			Endpoint: "endpoint",
+			Port:     "443",
 		},
-	}
+	})
 
 	// Patch k8sNewClient to return our guestClient
 	origK8sClient := k8sNewClient
@@ -2769,14 +2765,12 @@ func TestCleanUpCnsVolumeMetadata(t *testing.T) {
 			}
 			metadataSyncer := &metadataSyncInformer{
 				cnsOperatorClient: builder.Build(),
-				configInfo: &cnsconfig.ConfigurationInfo{
-					Cfg: &cnsconfig.Config{
-						GC: cnsconfig.GCConfig{
-							TanzuKubernetesClusterUID:  cleanupThisGCUID,
-							TanzuKubernetesClusterName: gcName,
-						},
+				configInfo: cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+					GC: cnsconfig.GCConfig{
+						TanzuKubernetesClusterUID:  cleanupThisGCUID,
+						TanzuKubernetesClusterName: gcName,
 					},
-				},
+				}),
 			}
 
 			cleanUpCnsVolumeMetadata(ctx, metadataSyncer, list)

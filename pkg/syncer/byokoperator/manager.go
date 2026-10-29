@@ -71,7 +71,7 @@ func NewManager(
 
 	cryptoClient := crypto.NewClient(ctx, mgr.GetClient())
 
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.GetCfg())
 	var vcClient *cnsvsphere.VirtualCenter
 	if err == nil {
 		vcClient, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
@@ -81,7 +81,7 @@ func NewManager(
 	}
 
 	volumeManager, err := volume.GetManager(ctx, vcClient, nil, false,
-		false, false, clusterFlavor, configInfo.Cfg.Global.SupervisorID, configInfo.Cfg.Global.ClusterDistribution)
+		false, false, clusterFlavor, configInfo.GetCfg().Global.SupervisorID, configInfo.GetCfg().Global.ClusterDistribution)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create an instance of volume manager: %w", err)
 	}

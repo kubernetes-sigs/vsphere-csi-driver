@@ -134,7 +134,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 			err      error
 			vcconfig *cnsvsphere.VirtualCenterConfig
 		)
-		vcconfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, cnsOperator.configInfo.Cfg)
+		vcconfig, err = cnsvsphere.GetVirtualCenterConfig(ctx, cnsOperator.configInfo.GetCfg())
 		if err != nil {
 			log.Errorf("failed to get VirtualCenterConfig. Err: %+v", err)
 			return err
@@ -146,12 +146,12 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 
 		var clusterId string
 		if clusterFlavor == cnstypes.CnsClusterFlavorWorkload {
-			clusterId = cnsOperator.configInfo.Cfg.Global.SupervisorID
+			clusterId = cnsOperator.configInfo.GetCfg().Global.SupervisorID
 		} else {
-			clusterId = cnsOperator.configInfo.Cfg.Global.ClusterID
+			clusterId = cnsOperator.configInfo.GetCfg().Global.ClusterID
 		}
 		volumeManager, err = volumes.GetManager(ctx, vCenter, nil, false, false, false,
-			clusterFlavor, clusterId, cnsOperator.configInfo.Cfg.Global.ClusterDistribution)
+			clusterFlavor, clusterId, cnsOperator.configInfo.GetCfg().Global.ClusterDistribution)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -246,7 +246,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					log.Info("Triggering PVC finalizer cleanup routine")
 					cleanupOrphanedBatchAttachPVCs(ctx, *restConfig)
 					log.Info("Completed PVC finalizer cleanup")
-					for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsPVCProtectionCleanupIntervalInMin; i++ {
+					for i := 1; i <= cnsOperator.configInfo.GetCfg().Global.CnsPVCProtectionCleanupIntervalInMin; i++ {
 						time.Sleep(1 * time.Minute)
 					}
 				}
@@ -300,9 +300,9 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 					ctx, log = logger.GetNewContextWithLogger()
 					log.Infof("Triggering CnsRegisterVolume cleanup routine")
 					cleanUpCnsRegisterVolumeInstances(ctx, restConfig,
-						cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+						cnsOperator.configInfo.GetCfg().Global.CnsRegisterVolumesCleanupIntervalInMin)
 					log.Infof("Completed CnsRegisterVolume cleanup")
-					for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+					for i := 1; i <= cnsOperator.configInfo.GetCfg().Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
 						time.Sleep(time.Duration(1 * time.Minute))
 					}
 				}
@@ -332,9 +332,9 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 						ctx, log = logger.GetNewContextWithLogger()
 						log.Infof("Triggering CnsUnregisterVolume cleanup routine")
 						cleanUpCnsUnregisterVolumeInstances(ctx, restConfig,
-							cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+							cnsOperator.configInfo.GetCfg().Global.CnsRegisterVolumesCleanupIntervalInMin)
 						log.Infof("Completed CnsUnregisterVolume cleanup")
-						for i := 1; i <= cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
+						for i := 1; i <= cnsOperator.configInfo.GetCfg().Global.CnsRegisterVolumesCleanupIntervalInMin; i++ {
 							time.Sleep(time.Duration(1 * time.Minute))
 						}
 					}
@@ -607,8 +607,8 @@ func reloadConfiguration(ctx context.Context, cnsOperator *cnsOperatorInfo) erro
 	}
 	// Update in place, as the controllers hold the same ConfigurationInfo pointer (see AddToManager) and must
 	// observe the reloaded config.
-	cnsOperator.configInfo.Cfg = cfg
+	cnsOperator.configInfo.SetCfg(cfg)
 	log.Infof("Reloaded the value for CnsRegisterVolumesCleanupIntervalInMin to %d",
-		cnsOperator.configInfo.Cfg.Global.CnsRegisterVolumesCleanupIntervalInMin)
+		cnsOperator.configInfo.GetCfg().Global.CnsRegisterVolumesCleanupIntervalInMin)
 	return nil
 }

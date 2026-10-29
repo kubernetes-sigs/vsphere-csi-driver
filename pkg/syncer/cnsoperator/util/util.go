@@ -450,7 +450,7 @@ func GetVCDatacentersFromConfig(cfg *config.Config) ([]string, commontypes.FQDN,
 
 // GetVMFromVcenter returns the VM from vCenter for the given nodeUUID.
 func GetVMFromVcenter(ctx context.Context, nodeUUID string,
-	configInfo config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
+	configInfo *config.ConfigurationInfo) (*cnsvsphere.VirtualMachine, error) {
 	log := logger.GetLogger(ctx)
 
 	dcList, err := GetDatacenterObjectList(ctx, configInfo)
@@ -473,16 +473,16 @@ func GetVMFromVcenter(ctx context.Context, nodeUUID string,
 
 // GetDatacenterObjectList returns the list datacenters on the vCenter.
 func GetDatacenterObjectList(ctx context.Context,
-	configInfo config.ConfigurationInfo) ([]cnsvsphere.Datacenter, error) {
+	configInfo *config.ConfigurationInfo) ([]cnsvsphere.Datacenter, error) {
 	log := logger.GetLogger(ctx)
 
-	dcList, host, err := GetVCDatacentersFromConfig(configInfo.Cfg)
+	dcList, host, err := GetVCDatacentersFromConfig(configInfo.GetCfg())
 	if err != nil {
 		log.Errorf("failed to find datacenter moref from config. Err: %s", err)
 		return nil, err
 	}
 
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, configInfo.GetCfg())
 	var vcenter *cnsvsphere.VirtualCenter
 	if err == nil {
 		vcenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)

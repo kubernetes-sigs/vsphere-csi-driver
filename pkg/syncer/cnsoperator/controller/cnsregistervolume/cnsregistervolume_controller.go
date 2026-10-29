@@ -342,7 +342,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
 	var vc *cnsvsphere.VirtualCenter
 	if err == nil {
 		vc, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
@@ -567,10 +567,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			}
 		}
 	} else if !isDatastoreAccessibleToCluster(
-		ctx, vc, r.configInfo.Cfg.Global.ClusterID, volume.DatastoreUrl) {
+		ctx, vc, r.configInfo.GetCfg().Global.ClusterID, volume.DatastoreUrl) {
 		// Verify if the volume is accessible to Supervisor cluster.
 		log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
-			volumeID, volume.DatastoreUrl, r.configInfo.Cfg.Global.ClusterID)
+			volumeID, volume.DatastoreUrl, r.configInfo.GetCfg().Global.ClusterID)
 		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
 		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
 			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)

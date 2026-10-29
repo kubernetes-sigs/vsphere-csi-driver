@@ -112,7 +112,7 @@ func PvcsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer) er
 	// Remove cnsvolumemetadata object from supervisorCnsVolumeMetadataList that
 	// do not belong to this guest cluster.
 	for _, object := range supervisorNamespaceList.Items {
-		if object.Spec.GuestClusterID == metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+		if object.Spec.GuestClusterID == metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID {
 			supervisorCnsVolumeMetadataList.Items = append(supervisorCnsVolumeMetadataList.Items, object)
 		}
 	}
@@ -262,8 +262,8 @@ func cleanUpCnsVolumeMetadata(ctx context.Context, metadataSyncer *metadataSyncI
 	log := logger.GetLogger(ctx)
 	log.Info("cleanUpCnsVolumeMetadata: deleting the CnsVolumeMetadata CRs " +
 		"created on legacy vsphere kubernetes releases")
-	guestClusterID := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
-	guestClusterName := metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName
+	guestClusterID := metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID
+	guestClusterName := metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName
 	toDeleteCnsVolumeMetadataList := cnsvolumemetadatav1alpha1.CnsVolumeMetadataList{}
 	cnsVolMetadataMap := make(map[string]int)
 	for i := range cnsVolumeMetadataList.Items {
@@ -329,7 +329,7 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
 			pv.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, "")
 		pvObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(
-			volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pv.UID), pv.Name,
+			volumeNames, metadataSyncer.configInfo.GetCfg().GC, string(pv.UID), pv.Name,
 			cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, pv.Labels, "",
 			[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 		returnList.Items = append(returnList.Items, *pvObject)
@@ -346,9 +346,9 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 			}
 			entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
 				pvc.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV,
-				metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+				metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID)
 			pvcObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(
-				volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pvc.UID), pvc.Name,
+				volumeNames, metadataSyncer.configInfo.GetCfg().GC, string(pvc.UID), pvc.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, pvc.GetLabels(), pvc.Namespace,
 				[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 			returnList.Items = append(returnList.Items, *pvcObject)
@@ -380,13 +380,13 @@ func createCnsVolumeMetadataList(ctx context.Context, metadataSyncer *metadataSy
 				cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
 					volume.VolumeSource.PersistentVolumeClaim.ClaimName, pod.Namespace,
 					cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,
-					metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID))
+					metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID))
 			volumeNames = append(volumeNames, volumeName)
 		}
 		if len(volumeNames) > 0 {
 			log.Debugf("Pod %q claims vsphere volumes %v", pod.Name, volumeNames)
 			podObject := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(
-				volumeNames, metadataSyncer.configInfo.Cfg.GC, string(pod.UID), pod.Name,
+				volumeNames, metadataSyncer.configInfo.GetCfg().GC, string(pod.UID), pod.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			returnList.Items = append(returnList.Items, *podObject)
 		}
@@ -566,7 +566,7 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 
 	// Create controller-runtime client for supervisor cluster once, outside the loop
 	supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		metadataSyncer.configInfo.GetCfg().GC.Endpoint, metadataSyncer.configInfo.GetCfg().GC.Port)
 	supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
 	if err != nil {
 		msg := fmt.Sprintf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
@@ -585,24 +585,24 @@ func setGuestClusterDetailsOnSupervisorPVC(ctx context.Context, metadataSyncer *
 				continue
 			}
 			// Add label to Supervisor PVC that contains guest cluster details, if not present already.
-			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+			key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName,
+				metadataSyncer.configInfo.GetCfg().GC.ClusterDistribution)
 			val, ok := svPVC.Labels[key]
 			original := svPVC.DeepCopy()
 			patchNeeded := false
-			if !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+			if !ok || val != metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID {
 				patchNeeded = true
 				if svPVC.Labels == nil {
 					svPVC.Labels = make(map[string]string)
 				}
-				svPVC.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+				svPVC.Labels[key] = metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID
 			}
 
 			if metadataSyncer.coCommonInterface.IsFSSEnabled(ctx, common.ImprovedVolumeVisibility) {
 				if _, ok := svPVC.Annotations[common.AnnKeyGuestClusterPvc]; !ok {
 					guestPvcAnnot := common.BuildGuestPvcAnnotation(
-						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
-						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
+						metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID,
+						metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName,
 						pv.Spec.ClaimRef.Name, pv.Spec.ClaimRef.Namespace, svPVC.Spec.VolumeName)
 					// Marshal the guest cluster annotation to JSON
 					jsonAnnotation, err := json.Marshal(guestPvcAnnot)
@@ -689,7 +689,7 @@ func getGuestAndSupervisorSnapshotClients(ctx context.Context, metadataSyncer *m
 		return nil, nil, nil, err
 	}
 	supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-		metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+		metadataSyncer.configInfo.GetCfg().GC.Endpoint, metadataSyncer.configInfo.GetCfg().GC.Port)
 	supervisorClient, err := k8s.NewSupervisorSnapshotClient(ctx, supervisorRestConfig)
 	if err != nil {
 		log.Errorf("failed to create supervisor snapshotter client. Error: %v", err)
@@ -955,13 +955,13 @@ func setGuestClusterDetailsOnSupervisorSnapshot(ctx context.Context, metadataSyn
 		patchNeeded := false
 
 		// Add label to Supervisor Snapshot that contains guest cluster details, if not present already.
-		key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-			metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
-		if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID {
+		key := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName,
+			metadataSyncer.configInfo.GetCfg().GC.ClusterDistribution)
+		if val, ok := svVS.Labels[key]; !ok || val != metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID {
 			if svVS.Labels == nil {
 				svVS.Labels = make(map[string]string)
 			}
-			svVS.Labels[key] = metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID
+			svVS.Labels[key] = metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID
 			patchNeeded = true
 		}
 		// Add finalizer "cns.vmware.com/volumesnapshot-protection" to Supervisor snapshot, if not present
@@ -999,8 +999,8 @@ func syncSupervisorSnapshotAnnotations(ctx context.Context, metadataSyncer *meta
 	return reconcileSupervisorSnapshotAnnotations(ctx,
 		guestSnapshotterClient, supervisorSnapshotterClient, supervisorRuntimeClient,
 		supervisorNamespace,
-		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID,
-		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName)
+		metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID,
+		metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName)
 }
 
 // reconcileSupervisorSnapshotAnnotations performs a single-pass, two-way reconcile of ONLY the

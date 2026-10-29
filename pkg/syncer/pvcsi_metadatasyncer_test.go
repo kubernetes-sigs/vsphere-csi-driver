@@ -300,14 +300,12 @@ func TestPvcsiSnapshotDeleted(t *testing.T) {
 
 		return &metadataSyncInformer{
 			coCommonInterface: co,
-			configInfo: &cnsconfig.ConfigurationInfo{
-				Cfg: &cnsconfig.Config{
-					GC: cnsconfig.GCConfig{
-						Endpoint: "sv-endpoint",
-						Port:     "443",
-					},
+			configInfo: cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+				GC: cnsconfig.GCConfig{
+					Endpoint: "sv-endpoint",
+					Port:     "443",
 				},
-			},
+			}),
 		}
 	}
 

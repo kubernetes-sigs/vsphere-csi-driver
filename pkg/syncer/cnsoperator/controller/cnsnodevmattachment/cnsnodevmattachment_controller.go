@@ -332,7 +332,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 			return reconcile.Result{}, "", nil
 		}
 
-		vcdcMap, err := getVCDatacentersFromConfig(r.configInfo.Cfg)
+		vcdcMap, err := getVCDatacentersFromConfig(r.configInfo.GetCfg())
 		if err != nil {
 			msg := fmt.Sprintf("failed to find datacenter moref from config for CnsNodeVmAttachment "+
 				"request with name: %q on namespace: %q. Err: %+v", request.Name, request.Namespace, err)
@@ -352,7 +352,7 @@ func (r *ReconcileCnsNodeVMAttachment) Reconcile(ctx context.Context,
 		// Get node VM by nodeUUID.
 		var dc *cnsvsphere.Datacenter
 		var vcenter *cnsvsphere.VirtualCenter
-		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(internalCtx, r.configInfo.Cfg)
+		vcconfig, err := cnsvsphere.GetVirtualCenterConfig(internalCtx, r.configInfo.GetCfg())
 		if err == nil {
 			vcenter, err = getVirtualCenterInstance(internalCtx, vcconfig, false)
 		}

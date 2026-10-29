@@ -409,7 +409,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 	var err error
 	var volManager volumes.Manager
 
-	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+	if len(metadataSyncer.configInfo.GetCfg().VirtualCenter) > 1 {
 		// Migration feature switch is enabled and multi vCenter feature is enabled, and
 		// Kubernetes Cluster is spread on multiple vCenter Servers.
 		return logger.LogNewErrorf(log,
@@ -417,7 +417,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 	}
 
 	// It is a single VC setup with Multi VC FSS enabled, we need to pick up the one and only volume manager in inventory.
-	vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+	vCenter := metadataSyncer.configInfo.GetCfg().Global.VCenterIP
 	cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
 	if !volMgrFound {
 		return logger.LogNewErrorf(log, "could not get volume manager for the vCenter: %q", vCenter)
@@ -425,7 +425,7 @@ func initVolumeMigrationService(ctx context.Context, metadataSyncer *metadataSyn
 	volManager = cnsVolumeMgr
 
 	volumeMigrationService, err = migration.GetVolumeMigrationService(ctx,
-		&volManager, metadataSyncer.configInfo.Cfg, true)
+		&volManager, metadataSyncer.configInfo.GetCfg(), true)
 	if err != nil {
 		log.Errorf("failed to get migration service. Err: %v", err)
 		return err
@@ -479,9 +479,7 @@ func SyncerInitConfigInfo(ctx context.Context) (*cnsconfig.ConfigurationInfo, er
 		log.Errorf("failed to read config. Error: %+v", err)
 		return nil, err
 	}
-	configInfo := &cnsconfig.ConfigurationInfo{
-		Cfg: cfg,
-	}
+	configInfo := cnsconfig.NewConfigurationInfo(cfg)
 	return configInfo, nil
 }
 
@@ -505,8 +503,8 @@ func getVcHostAndVolumeManagerForVolumeID(ctx context.Context,
 		return metadataSyncer.host, metadataSyncer.volumeManager, nil
 	}
 
-	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
-		vCenter := metadataSyncer.configInfo.Cfg.Global.VCenterIP
+	if len(metadataSyncer.configInfo.GetCfg().VirtualCenter) == 1 {
+		vCenter := metadataSyncer.configInfo.GetCfg().Global.VCenterIP
 		cnsVolumeMgr, volMgrFound := metadataSyncer.volumeManagers[vCenter]
 		if !volMgrFound {
 			return commontypes.FQDN{}, nil, logger.LogNewErrorf(log,
@@ -668,7 +666,7 @@ func getPVsInBoundAvailableOrReleasedForVc(ctx context.Context, metadataSyncer *
 	}
 
 	// For a single VC setup, send back all volumes.
-	if len(metadataSyncer.configInfo.Cfg.VirtualCenter) == 1 {
+	if len(metadataSyncer.configInfo.GetCfg().VirtualCenter) == 1 {
 		return allPvs, nil
 	}
 
@@ -742,7 +740,7 @@ func createVolumeOnMultiVc(ctx context.Context, pv *v1.PersistentVolume,
 	volumeHandle string) (commontypes.FQDN, volumes.Manager, error) {
 	log := logger.GetLogger(ctx)
 
-	vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.Cfg)
+	vcconfigs, err := cnsvsphere.GetVirtualCenterConfigs(ctx, metadataSyncer.configInfo.GetCfg())
 	if err != nil {
 		return commontypes.FQDN{}, nil, logger.LogNewErrorf(log, "failed to get VirtualCenterConfigs. err: %v", err)
 	}
@@ -784,7 +782,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	vcHost commontypes.FQDN, metadataList []cnstypes.BaseCnsEntityMetadata, volumeHandle string) error {
 	log := logger.GetLogger(ctx)
 
-	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.Cfg.VirtualCenter[vcHost]
+	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.GetCfg().VirtualCenter[vcHost]
 	if !vcHostObjFound {
 		return logger.LogNewErrorf(log,
 			"Failed to find VC host for given volume: %q.", volumeHandle)
@@ -792,7 +790,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 
 	containerCluster := cnsvsphere.GetContainerCluster(clusterIDforVolumeMetadata,
 		vcHostObj.User, metadataSyncer.clusterFlavor,
-		metadataSyncer.configInfo.Cfg.Global.ClusterDistribution)
+		metadataSyncer.configInfo.GetCfg().Global.ClusterDistribution)
 
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       pv.Name,
@@ -825,7 +823,7 @@ func createCnsVolume(ctx context.Context, pv *v1.PersistentVolume,
 	} else {
 		log.Infof("vSphere CSI Driver has successfully marked volume: %q as the container volume.",
 			pv.Spec.CSI.VolumeHandle)
-		if len(metadataSyncer.configInfo.Cfg.VirtualCenter) > 1 {
+		if len(metadataSyncer.configInfo.GetCfg().VirtualCenter) > 1 {
 			// Create CNSVolumeInfo CR for the volume ID.
 			err = volumeInfoService.CreateVolumeInfo(ctx, pv.Spec.CSI.VolumeHandle, vcHost.String())
 			if err != nil {

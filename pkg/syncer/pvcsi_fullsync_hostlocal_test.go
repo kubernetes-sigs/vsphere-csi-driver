@@ -134,14 +134,12 @@ func TestAddNodeAffinityRulesOnPV_HostLocal_TranslatesHostKey(t *testing.T) {
 	metadataSyncer := &metadataSyncInformer{
 		supervisorClient: supervisorClient,
 	}
-	metadataSyncer.configInfo = &cnsconfig.ConfigurationInfo{
-		Cfg: &cnsconfig.Config{
-			GC: cnsconfig.GCConfig{
-				Endpoint: "endpoint",
-				Port:     "443",
-			},
+	metadataSyncer.configInfo = cnsconfig.NewConfigurationInfo(&cnsconfig.Config{
+		GC: cnsconfig.GCConfig{
+			Endpoint: "endpoint",
+			Port:     "443",
 		},
-	}
+	})
 
 	origK8sClient := k8sNewClient
 	defer func() { k8sNewClient = origK8sClient }()

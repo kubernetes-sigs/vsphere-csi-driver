@@ -386,14 +386,14 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	}
 	var clusterIDForVolumeMetadata string
 	if useSupervisorId {
-		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.SupervisorID
+		clusterIDForVolumeMetadata = r.configInfo.GetCfg().Global.SupervisorID
 	} else {
-		clusterIDForVolumeMetadata = r.configInfo.Cfg.Global.ClusterID
+		clusterIDForVolumeMetadata = r.configInfo.GetCfg().Global.ClusterID
 	}
-	vcConfig := r.configInfo.Cfg.VirtualCenter[host]
+	vcConfig := r.configInfo.GetCfg().VirtualCenter[host]
 	containerCluster := vsphere.GetContainerCluster(clusterIDForVolumeMetadata,
 		vcConfig.User,
-		cnstypes.CnsClusterFlavorWorkload, r.configInfo.Cfg.Global.ClusterDistribution)
+		cnstypes.CnsClusterFlavorWorkload, r.configInfo.GetCfg().Global.ClusterDistribution)
 	createSpec := &cnstypes.CnsVolumeCreateSpec{
 		Name:       volumeName,
 		VolumeType: common.BlockVolumeType,

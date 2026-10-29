@@ -55,15 +55,15 @@ func pvcsiVolumeUpdated(ctx context.Context, resourceType interface{},
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
 			resource.Spec.CSI.VolumeHandle, supervisorNamespace, cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, "")
 		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle},
-			metadataSyncer.configInfo.Cfg.GC, string(resource.GetUID()), resource.Name,
+			metadataSyncer.configInfo.GetCfg().GC, string(resource.GetUID()), resource.Name,
 			cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV, resource.Labels, "",
 			[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	case *v1.PersistentVolumeClaim:
 		entityReference := cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(
 			resource.Spec.VolumeName, "", cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePV,
-			metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID)
+			metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID)
 		newMetadata = cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec([]string{volumeHandle},
-			metadataSyncer.configInfo.Cfg.GC, string(resource.GetUID()), resource.Name,
+			metadataSyncer.configInfo.GetCfg().GC, string(resource.GetUID()), resource.Name,
 			cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC, resource.Labels, resource.Namespace,
 			[]cnsvolumemetadatav1alpha1.CnsOperatorEntityReference{entityReference})
 	default:
@@ -108,8 +108,8 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 		svPVC, err := metadataSyncer.supervisorClient.CoreV1().PersistentVolumeClaims(supervisorNamespace).
 			Get(ctx, pv.Spec.CSI.VolumeHandle, metav1.GetOptions{})
 		if err == nil {
-			labelKey := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterName,
-				metadataSyncer.configInfo.Cfg.GC.ClusterDistribution)
+			labelKey := fmt.Sprintf("%s/%s", metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterName,
+				metadataSyncer.configInfo.GetCfg().GC.ClusterDistribution)
 
 			// Check if we need to clean up labels or annotations
 			needsCleanup := false
@@ -149,7 +149,7 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 				log.Infof("PVC %q deleted from guest cluster, Removing annotation and label from supervisor", svPVC.Name)
 				// Create controller-runtime client for supervisor cluster
 				supervisorRestConfig := k8s.GetRestClientConfigForSupervisor(ctx,
-					metadataSyncer.configInfo.Cfg.GC.Endpoint, metadataSyncer.configInfo.Cfg.GC.Port)
+					metadataSyncer.configInfo.GetCfg().GC.Endpoint, metadataSyncer.configInfo.GetCfg().GC.Port)
 				supervisorRuntimeClient, err := client.New(supervisorRestConfig, client.Options{})
 				if err != nil {
 					log.Errorf("failed to create controller-runtime client for supervisor cluster. Error: %+v", err)
@@ -169,7 +169,7 @@ func pvcsiVolumeDeleted(ctx context.Context, uID string, metadataSyncer *metadat
 	}
 
 	volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(
-		metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID, uID)
+		metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID, uID)
 	log.Debugf("pvCSI VolumeDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
 	err = metadataSyncer.cnsOperatorClient.Delete(ctx, &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
 		ObjectMeta: metav1.ObjectMeta{
@@ -209,7 +209,7 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 				entityReferences = append(entityReferences,
 					cnsvolumemetadatav1alpha1.GetCnsOperatorEntityReference(pvc.Name, pvc.Namespace,
 						cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePVC,
-						metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID))
+						metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID))
 				volumes = append(volumes, pv.Spec.CSI.VolumeHandle)
 			}
 		}
@@ -217,7 +217,7 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 	if len(volumes) > 0 {
 		if !deleteFlag {
 			newMetadata := cnsvolumemetadatav1alpha1.CreateCnsVolumeMetadataSpec(volumes,
-				metadataSyncer.configInfo.Cfg.GC, string(pod.GetUID()), pod.Name,
+				metadataSyncer.configInfo.GetCfg().GC, string(pod.GetUID()), pod.Name,
 				cnsvolumemetadatav1alpha1.CnsOperatorEntityTypePOD, nil, pod.Namespace, entityReferences)
 			log.Debugf("pvCSI PodUpdated: Invoking create CnsVolumeMetadata : %v", newMetadata)
 			newMetadata.Namespace = supervisorNamespace
@@ -228,7 +228,7 @@ func pvcsiUpdatePod(ctx context.Context, pod *v1.Pod, metadataSyncer *metadataSy
 			log.Infof("pvCSI PodUpdated: Successfully created CnsVolumeMetadata: %v", newMetadata.Name)
 		} else {
 			volumeMetadataName := cnsvolumemetadatav1alpha1.GetCnsVolumeMetadataName(
-				metadataSyncer.configInfo.Cfg.GC.TanzuKubernetesClusterUID, string(pod.GetUID()))
+				metadataSyncer.configInfo.GetCfg().GC.TanzuKubernetesClusterUID, string(pod.GetUID()))
 			log.Debugf("pvCSI PodDeleted: Invoking delete on CnsVolumeMetadata : %v", volumeMetadataName)
 			err = metadataSyncer.cnsOperatorClient.Delete(ctx, &cnsvolumemetadatav1alpha1.CnsVolumeMetadata{
 				ObjectMeta: metav1.ObjectMeta{

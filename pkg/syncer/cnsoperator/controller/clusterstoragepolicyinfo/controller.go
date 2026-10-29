@@ -542,7 +542,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	origInfraStatus := infraSPI.Status.DeepCopy()
 
 	// Connect to vCenter.
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
 	var vc *cnsvsphere.VirtualCenter
 	if err == nil {
 		vc, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)

@@ -325,7 +325,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	log.Debugf("ReconcileCnsVolumeMetadata: Calling updateCnsMetadata for instance %q with delete flag %v",
 		instance.Name, deleteFlag)
-	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.Cfg)
+	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
 	var vCenter *cnsvsphere.VirtualCenter
 	if err == nil {
 		vCenter, err = cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, vcconfig, false)
@@ -345,9 +345,9 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 		clusterID := reference.ClusterID
 		if instance.Spec.EntityType == cnsv1alpha1.CnsOperatorEntityTypePV {
 			if useSupervisorID {
-				clusterID = r.configInfo.Cfg.Global.SupervisorID
+				clusterID = r.configInfo.GetCfg().Global.SupervisorID
 			} else {
-				clusterID = r.configInfo.Cfg.Global.ClusterID
+				clusterID = r.configInfo.GetCfg().Global.ClusterID
 			}
 		}
 		entityReferences = append(entityReferences, cnsvsphere.CreateCnsKuberenetesEntityReference(
@@ -396,7 +396,7 @@ func (r *ReconcileCnsVolumeMetadata) updateCnsMetadata(ctx context.Context,
 			[]cnstypes.CnsKubernetesEntityReference{entityReferences[index]})
 		metadataList = append(metadataList, cnstypes.BaseCnsEntityMetadata(metadata))
 
-		vcConfig := r.configInfo.Cfg.VirtualCenter[host]
+		vcConfig := r.configInfo.GetCfg().VirtualCenter[host]
 		cluster := cnsvsphere.GetContainerCluster(instance.Spec.GuestClusterID,
 			vcConfig.User, cnstypes.CnsClusterFlavorGuest,
 			instance.Spec.ClusterDistribution)

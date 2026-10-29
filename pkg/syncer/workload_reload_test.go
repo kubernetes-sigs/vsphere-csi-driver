@@ -104,7 +104,7 @@ func newWorkloadReloadTestEnv(t *testing.T) *workloadReloadTestEnv {
 	e.volMgr = &resetRecordingManager{}
 	e.syncer = &metadataSyncInformer{
 		clusterFlavor: cnstypes.CnsClusterFlavorWorkload,
-		configInfo:    &cnsconfig.ConfigurationInfo{Cfg: cfg},
+		configInfo:    cnsconfig.NewConfigurationInfo(cfg),
 		host:          e.vcconfig.Host,
 		volumeManager: e.volMgr,
 	}

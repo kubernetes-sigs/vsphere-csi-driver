@@ -104,7 +104,7 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 	if enableTKGsHAinGuest {
 		log.Infof("The %s FSS is enabled in %s", common.TKGsHA, cnstypes.CnsClusterFlavorGuest)
 		restClientConfigForSupervisor :=
-			k8s.GetRestClientConfigForSupervisor(ctx, configInfo.Cfg.GC.Endpoint, configInfo.Cfg.GC.Port)
+			k8s.GetRestClientConfigForSupervisor(ctx, configInfo.GetCfg().GC.Endpoint, configInfo.GetCfg().GC.Port)
 		vmOperatorClient, err = k8s.NewClientForGroup(ctx, restClientConfigForSupervisor, vmoperatortypes.GroupName)
 		if err != nil {
 			log.Errorf("failed to create vmOperatorClient. Error: %+v", err)
@@ -329,8 +329,8 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
-	} else if r.configInfo.Cfg.Labels.TopologyCategories != "" ||
-		(r.configInfo.Cfg.Labels.Zone != "" && r.configInfo.Cfg.Labels.Region != "") {
+	} else if r.configInfo.GetCfg().Labels.TopologyCategories != "" ||
+		(r.configInfo.GetCfg().Labels.Zone != "" && r.configInfo.GetCfg().Labels.Region != "") {
 		log.Infof("Detected a topology aware cluster")
 
 		if len(instance.Status.TopologyLabels) > 0 {
@@ -343,7 +343,7 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 		}
 
 		// Fetch topology labels for nodeVM.
-		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.Cfg)
+		topologyLabels, err := getNodeTopologyInfo(ctx, nodeVM, r.configInfo.GetCfg())
 		if err != nil {
 			msg := fmt.Sprintf("failed to fetch topology information for the nodeVM %q. Error: %v",
 				instance.Name, err)
@@ -377,8 +377,8 @@ func (r *ReconcileCSINodeTopology) reconcileForVanilla(ctx context.Context, requ
 // isTopologyEnabled checks if topology of cluster should be updated.
 // if cluster is not topology aware return false.
 func (r *ReconcileCSINodeTopology) isTopologyEnabled() bool {
-	if r.configInfo.Cfg.Labels.TopologyCategories == "" &&
-		r.configInfo.Cfg.Labels.Zone == "" && r.configInfo.Cfg.Labels.Region == "" {
+	if r.configInfo.GetCfg().Labels.TopologyCategories == "" &&
+		r.configInfo.GetCfg().Labels.Zone == "" && r.configInfo.GetCfg().Labels.Region == "" {
 		return false
 	}
 	return true

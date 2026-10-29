@@ -764,9 +764,7 @@ func InitConfigInfo(ctx context.Context) (*ConfigurationInfo, error) {
 		log.Errorf("failed to read config. Error: %+v", err)
 		return nil, err
 	}
-	configInfo := &ConfigurationInfo{
-		Cfg: cfg,
-	}
+	configInfo := NewConfigurationInfo(cfg)
 	return configInfo, nil
 }
 
