@@ -320,7 +320,7 @@ func TestControllerExpandForFVSFileVolume_QuotaDenied(t *testing.T) {
 		}).
 		Build()
 
-	_, _, err := controllerExpandForFVSFileVolume(ctx, expandReqRWX(fvsExpandPVC, gi10), pvc.DeepCopy(), c)
+	_, _, err := controllerExpandForFileVolume(ctx, expandReqRWX(fvsExpandPVC, gi10), pvc.DeepCopy(), c)
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("expected ResourceExhausted, got %v", err)
 	}
@@ -336,7 +336,7 @@ func TestControllerExpandForFVSFileVolume_QuotaDenied(t *testing.T) {
 	expanded := pvc.DeepCopy()
 	expanded.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("10Gi")
 	expanded.Status.Capacity[corev1.ResourceStorage] = resource.MustParse("10Gi")
-	if _, _, err := controllerExpandForFVSFileVolume(ctx, expandReqRWX(fvsExpandPVC, gi10), expanded, c); err != nil {
+	if _, _, err := controllerExpandForFileVolume(ctx, expandReqRWX(fvsExpandPVC, gi10), expanded, c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if msg, ok := guestPVCProvisioningError(t, c); ok {

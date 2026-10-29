@@ -3363,7 +3363,11 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 				logger.RedactCSIRequest(req), err)
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
-		volumeType = prometheus.PrometheusBlockVolumeType
+		// Legacy vSAN file service volumes ("file:<uuid>") are expanded through
+		// the same CNS ExpandVolume API as block volumes.
+		if cnsVolumeType != common.FileVolumeType {
+			volumeType = prometheus.PrometheusBlockVolumeType
+		}
 		volumeID := req.GetVolumeId()
 		volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 		volSizeMB := int64(common.RoundUpSize(volSizeBytes, common.MbInBytes))
@@ -3401,11 +3405,9 @@ func (c *controller) ControllerExpandVolume(ctx context.Context, req *csi.Contro
 		// in this case. Setting nodeExpandsionRequired to false marks PVC
 		// resize as finished which prevents kubelet from expanding the filesystem.
 		// Ref: https://github.com/kubernetes-csi/external-resizer/blob/master/pkg/controller/controller.go#L335
-		nodeExpansionRequired := true
-		// Set NodeExpansionRequired to false for raw block volumes.
-		if _, ok := req.GetVolumeCapability().GetAccessType().(*csi.VolumeCapability_Block); ok {
-			nodeExpansionRequired = false
-		}
+		// NodeExpansionRequired is false for raw block volumes and for NFS shares,
+		// which grow on the vSAN file service side.
+		nodeExpansionRequired := isNodeExpansionRequired(cnsVolumeType, req.GetVolumeCapability())
 		if isPodVMOnStretchSupervisorFSSEnabled {
 			// Increase capacity in CNSVolumeInfo instance.
 			patch := map[string]interface{}{
