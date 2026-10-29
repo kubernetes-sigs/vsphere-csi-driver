@@ -636,7 +636,8 @@ func TestResolveHostLocalAccessibleTopologySegments(t *testing.T) {
 
 // expandRequestWithMode builds a ControllerExpandVolumeRequest with a mount
 // access type and the given access mode.
-func expandRequestWithMode(volumeID string, mode csi.VolumeCapability_AccessMode_Mode) *csi.ControllerExpandVolumeRequest {
+func expandRequestWithMode(volumeID string,
+	mode csi.VolumeCapability_AccessMode_Mode) *csi.ControllerExpandVolumeRequest {
 	return &csi.ControllerExpandVolumeRequest{
 		VolumeId:      volumeID,
 		CapacityRange: &csi.CapacityRange{RequiredBytes: 1 << 30},
