@@ -428,6 +428,7 @@ func TestControllerExpandVolume_FVS_RoutedToFVSExpand(t *testing.T) {
 // the file volume expand path and succeeds with NodeExpansionRequired=false.
 func TestControllerExpandVolume_LegacyFile_GateDisabled_AlreadyAtSize(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setVsanFileVolumeExpansionForTest(t, true)
 
 	// non-FVS storage class so IsFVSPersistentVolumeClaim is false
 	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
@@ -450,6 +451,7 @@ func TestControllerExpandVolume_LegacyFile_GateDisabled_AlreadyAtSize(t *testing
 // the supervisor PVC and waiting for status.capacity to converge.
 func TestControllerExpandVolume_LegacyFile_Grow_Success(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, true)
+	setVsanFileVolumeExpansionForTest(t, true)
 
 	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "5Gi", "5Gi")
 	c := fvsExpandController(t, pvc, pvc)
@@ -508,6 +510,7 @@ func TestControllerExpandVolume_LegacyFile_Grow_Success(t *testing.T) {
 // legacy file volume is rejected with InvalidArgument.
 func TestControllerExpandVolume_LegacyFile_Shrink_Rejected(t *testing.T) {
 	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setVsanFileVolumeExpansionForTest(t, true)
 
 	pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
 	c := fvsExpandController(t, pvc, pvc)

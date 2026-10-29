@@ -757,6 +757,12 @@ const (
 	// Supervisor csi-feature-states ConfigMap (two-ConfigMap gating, not associated with
 	// any WCP capability — deliberately absent from WCPFeatureStateAssociatedWithPVCSI).
 	VKSRegisterVolume = "vks-register-volume"
+
+	// VsanFileVolumeExpansion is a CSI-only FSS that gates volume expansion of legacy vSAN file
+	// service (CNS) RWX file volumes on both supervisor and guest clusters. In the guest cluster it
+	// requires the flag to be true in both the PVCSI ConfigMap and the Supervisor csi-feature-states
+	// ConfigMap. Not associated with any WCP capability.
+	VsanFileVolumeExpansion = "vsanfs-file-volume-expansion"
 )
 
 var WCPFeatureStates = map[string]struct{}{

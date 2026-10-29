@@ -23,12 +23,35 @@ import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/unittestcommon"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 )
 
 // Tests in this file check that ControllerExpandVolume routes each volume type
 // (FVS file, legacy vSAN file service, multi-node raw block) to the right path.
+
+// setVsanFileVolumeExpansionForTest installs a fake orchestrator with the
+// VsanFileVolumeExpansion FSS set to the given value.
+func setVsanFileVolumeExpansionForTest(t *testing.T, enabled bool) {
+	t.Helper()
+	original := commonco.ContainerOrchestratorUtility
+	t.Cleanup(func() { commonco.ContainerOrchestratorUtility = original })
+	orchestrator, err := unittestcommon.GetFakeContainerOrchestratorInterface(common.Kubernetes)
+	if err != nil {
+		t.Fatalf("GetFakeContainerOrchestratorInterface: %v", err)
+	}
+	if enabled {
+		if err := orchestrator.EnableFSS(context.Background(), common.VsanFileVolumeExpansion); err != nil {
+			t.Fatalf("EnableFSS: %v", err)
+		}
+	}
+	commonco.ContainerOrchestratorUtility = orchestrator
+}
 
 func expandReq(volumeID string, sizeBytes int64, mode csi.VolumeCapability_AccessMode_Mode,
 	rawBlock bool) *csi.ControllerExpandVolumeRequest {
@@ -58,8 +81,6 @@ func TestControllerExpandVolume_FileVolumeModes(t *testing.T) {
 		{"legacy, FVS gate off", "standard-sc", false},
 		{"legacy, FVS gate on", "standard-sc", true},
 		{"FVS, FVS gate on", common.StorageClassVsanFileServicePolicy, true},
-		// With the gate off an FVS storage class PVC is treated as a regular file volume.
-		{"FVS SC, FVS gate off", common.StorageClassVsanFileServicePolicy, false},
 	} {
 		for _, mode := range []csi.VolumeCapability_AccessMode_Mode{
 			csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
@@ -68,6 +89,7 @@ func TestControllerExpandVolume_FileVolumeModes(t *testing.T) {
 		} {
 			t.Run(tc.name+"/"+mode.String(), func(t *testing.T) {
 				setVsanFileVolumeServiceEnabledForTest(t, tc.gate)
+				setVsanFileVolumeExpansionForTest(t, true)
 				pvc := newPVCForExpand(fvsExpandPVC, tc.sc, "10Gi", "10Gi")
 				c := fvsExpandController(t, pvc, pvc)
 
@@ -90,6 +112,8 @@ func TestControllerExpandVolume_FileVolumeModes(t *testing.T) {
 // TestControllerExpandVolume_MultiNodeRawBlock_Rejected verifies multi-node raw
 // block requests are not mistaken for file volumes and remain unsupported.
 func TestControllerExpandVolume_MultiNodeRawBlock_Rejected(t *testing.T) {
+	// The expansion gate is on so the raw block rejection itself is exercised.
+	setVsanFileVolumeExpansionForTest(t, true)
 	for _, gate := range []bool{false, true} {
 		setVsanFileVolumeServiceEnabledForTest(t, gate)
 		pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "10Gi", "10Gi")
@@ -100,5 +124,59 @@ func TestControllerExpandVolume_MultiNodeRawBlock_Rejected(t *testing.T) {
 		if status.Code(err) != codes.Unimplemented {
 			t.Fatalf("gate=%v: expected Unimplemented, got %v", gate, err)
 		}
+	}
+}
+
+// TestControllerExpandVolume_FileVolume_ExpansionGateDisabled_Rejected verifies that with the
+// VsanFileVolumeExpansion FSS off, file volume requests (including multi-node raw block) are
+// rejected as before and the supervisor PVC is left untouched.
+func TestControllerExpandVolume_FileVolume_ExpansionGateDisabled_Rejected(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setVsanFileVolumeExpansionForTest(t, false)
+
+	for _, rawBlock := range []bool{false, true} {
+		pvc := newPVCForExpand(fvsExpandPVC, "standard-sc", "5Gi", "5Gi")
+		c := fvsExpandController(t, pvc, pvc)
+
+		_, err := c.ControllerExpandVolume(context.Background(),
+			expandReq(fvsExpandPVC, gi10, csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER, rawBlock))
+		if status.Code(err) != codes.Unimplemented {
+			t.Fatalf("rawBlock=%v: expected Unimplemented, got %v", rawBlock, err)
+		}
+		cur := &corev1.PersistentVolumeClaim{}
+		if err := c.supervisorRuntimeClient.Get(context.Background(),
+			ctrlclient.ObjectKey{Namespace: fvsTestNamespace, Name: fvsExpandPVC}, cur); err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		got := cur.Spec.Resources.Requests[corev1.ResourceStorage]
+		if got.Cmp(resource.MustParse("5Gi")) != 0 {
+			t.Errorf("rawBlock=%v: supervisor PVC size=%s, want unchanged 5Gi", rawBlock, got.String())
+		}
+	}
+}
+
+// TestControllerExpandVolume_FVSVolume_NotExpandedAsLegacy verifies the legacy expansion gate does
+// not extend to FVS volumes: with the FVS gate off an FVS storage class PVC is rejected even when
+// VsanFileVolumeExpansion is on, and the supervisor PVC is left untouched.
+func TestControllerExpandVolume_FVSVolume_NotExpandedAsLegacy(t *testing.T) {
+	setVsanFileVolumeServiceEnabledForTest(t, false)
+	setVsanFileVolumeExpansionForTest(t, true)
+
+	pvc := newPVCForExpand(fvsExpandPVC, common.StorageClassVsanFileServicePolicy, "5Gi", "5Gi")
+	c := fvsExpandController(t, pvc, pvc)
+
+	_, err := c.ControllerExpandVolume(context.Background(),
+		expandReq(fvsExpandPVC, gi10, csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER, false))
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected Unimplemented, got %v", err)
+	}
+	cur := &corev1.PersistentVolumeClaim{}
+	if err := c.supervisorRuntimeClient.Get(context.Background(),
+		ctrlclient.ObjectKey{Namespace: fvsTestNamespace, Name: fvsExpandPVC}, cur); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	got := cur.Spec.Resources.Requests[corev1.ResourceStorage]
+	if got.Cmp(resource.MustParse("5Gi")) != 0 {
+		t.Errorf("supervisor PVC size=%s, want unchanged 5Gi", got.String())
 	}
 }

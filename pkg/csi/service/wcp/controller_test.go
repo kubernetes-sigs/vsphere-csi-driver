@@ -31,6 +31,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/pbm"
 	vim25types "github.com/vmware/govmomi/vim25/types"
@@ -3637,4 +3638,50 @@ func TestCreateBlockVolumeVACPolicyOverride(t *testing.T) {
 		t.Fatalf("expected storage policy %q (VAC policy from mutable_parameters), got %q",
 			vacPolicyID, queryResult.Volumes[0].StoragePolicyId)
 	}
+}
+
+// TestWCPExpandFileVolumeGate verifies the VsanFileVolumeExpansion FSS gate on the supervisor
+// ControllerExpandVolume path for file volumes: legacy file volumes are rejected when it is off,
+// FVS volume ids are never expanded as legacy volumes when FVS is off, and with the gate on a
+// legacy file volume gets past the gate and on to the CNS expand call.
+func TestWCPExpandFileVolumeGate(t *testing.T) {
+	ct := getControllerTest(t)
+	oldFVS := isVsanFileVolumeServiceFSSEnabled
+	t.Cleanup(func() {
+		isVsanFileVolumeServiceFSSEnabled = oldFVS
+		_ = commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.VsanFileVolumeExpansion)
+	})
+	isVsanFileVolumeServiceFSSEnabled = false
+
+	expandReq := func(volumeID string) *csi.ControllerExpandVolumeRequest {
+		return &csi.ControllerExpandVolumeRequest{
+			VolumeId:      volumeID,
+			CapacityRange: &csi.CapacityRange{RequiredBytes: 2 * common.GbInBytes},
+			VolumeCapability: &csi.VolumeCapability{
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+				},
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			},
+		}
+	}
+	const gateMsg = "volume expansion is only supported for block volume type"
+
+	// Gate off: legacy file volume is rejected.
+	assert.NoError(t, commonco.ContainerOrchestratorUtility.DisableFSS(ctx, common.VsanFileVolumeExpansion))
+	_, err := ct.controller.ControllerExpandVolume(ctx, expandReq("file:"+uuid.New().String()))
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), gateMsg)
+
+	// Gate on, FVS disabled: an FVS volume id is not a legacy volume and is rejected.
+	assert.NoError(t, commonco.ContainerOrchestratorUtility.EnableFSS(ctx, common.VsanFileVolumeExpansion))
+	_, err = ct.controller.ControllerExpandVolume(ctx, expandReq(common.FVSVolumeIDPrefix+"ns:fv"))
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), gateMsg)
+
+	// Gate on: a legacy file volume gets past the gate. The volume does not exist so the
+	// CNS expand call is what fails, not the gate.
+	_, err = ct.controller.ControllerExpandVolume(ctx, expandReq("file:"+uuid.New().String()))
+	assert.Error(t, err)
+	assert.NotContains(t, err.Error(), gateMsg)
 }
