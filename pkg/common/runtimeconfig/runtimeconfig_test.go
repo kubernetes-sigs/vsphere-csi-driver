@@ -417,7 +417,7 @@ func TestStartTriggersReloads(t *testing.T) {
 			creds <- struct{}{}
 			return nil
 		},
-		func() error { fileVolume <- struct{}{}; return nil })
+		func() error { fileVolume <- struct{}{}; return nil }, newFileVolumeSource())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,8 @@ func TestApplyIgnoresABadFileVolumeConfigMap(t *testing.T) {
 	vc := &config.VirtualCenterConfig{SDDCName: "sddc-1", FileVolumeActivated: true}
 	secret := credSecret("s", "csi", "sddc-1", "user@vsphere.local", "pw")
 	cm := fileVolumeConfigMap(map[string]string{"sddc-1.fileVolumeActivated": "maybe"})
-	if err := apply(ctx, fake.NewSimpleClientset(secret, cm), ns, newConfig("csi", vc)); err != nil {
+	if err := apply(ctx, fake.NewSimpleClientset(secret, cm), ns,
+		newConfig("csi", vc), newFileVolumeSource()); err != nil {
 		t.Fatal(err)
 	}
 	if vc.User != "user@vsphere.local" || vc.Password != "pw" || !vc.FileVolumeActivated {
@@ -724,7 +725,7 @@ func TestStartReloadsWhenTheSourcesChangedBeforeTheWatchStarted(t *testing.T) {
 	creds, fileVolume := make(chan struct{}, 10), make(chan struct{}, 10)
 	err := start(ctx, fake.NewSimpleClientset(secret, cm), ns, newConfig("csi", vc),
 		func() error { creds <- struct{}{}; return nil },
-		func() error { fileVolume <- struct{}{}; return nil })
+		func() error { fileVolume <- struct{}{}; return nil }, newFileVolumeSource())
 	if err != nil {
 		t.Fatal(err)
 	}

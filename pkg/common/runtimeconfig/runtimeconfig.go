@@ -243,19 +243,21 @@ func process(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to create a Kubernetes client: %w", err)
 	}
-	return apply(ctx, client, config.GetCSINamespace(), cfg)
+	return apply(ctx, client, config.GetCSINamespace(), cfg, runtimeFileVolumes)
 }
 
-func apply(ctx context.Context, client kubernetes.Interface, namespace string, cfg *config.Config) error {
+func apply(ctx context.Context, client kubernetes.Interface, namespace string, cfg *config.Config,
+	fileVolumes *fileVolumeSource) error {
 	if err := applyCredentials(ctx, client, namespace, cfg); err != nil {
 		return err
 	}
 	// The vSAN settings are optional. A ConfigMap that cannot be read or parsed must not stop the
-	// credentials from being applied, so the values from the config secret stay and the failure is
-	// only logged.
-	if err := applyFileVolumeConfig(ctx, client, namespace, cfg); err != nil {
-		logger.GetLogger(ctx).Warnf("ignoring the file volume ConfigMap, keeping the vSAN file-share settings from "+
-			"the config secret. err: %+v", err)
+	// credentials from being applied. Keep the last successfully read settings, or the config
+	// Secret's values when no matching cache entry exists, and let the file volume worker retry
+	// independently. Otherwise, a fresh config Secret load could silently disable file volumes.
+	if err := fileVolumes.apply(ctx, client, namespace, cfg); err != nil {
+		logger.GetLogger(ctx).Warnf("failed to apply the file volume ConfigMap; using fallback vSAN file-share "+
+			"settings and scheduling a retry. err: %+v", err)
 	}
 	return nil
 }
