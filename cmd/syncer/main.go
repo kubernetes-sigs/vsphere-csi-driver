@@ -93,8 +93,6 @@ var (
 	enableProfileServer = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the syncer.")
 	enableProfileLogger = flag.Bool("enable-profile-logger", true,
 		"Write memory profiles to the log when the live heap nears GOMEMLIMIT.")
-	migrateStorageClass = flag.Bool("migrate-storageclass-expansion", false,
-		"Patch vSphere StorageClasses to allowVolumeExpansion=true, then exit.")
 )
 
 // main for vsphere syncer.
@@ -108,15 +106,6 @@ func main() {
 	logger.SetLoggerLevel(logType)
 	ctx, log := logger.GetNewContextWithLogger()
 	log.Infof("Vsphere Syncer BuildInfo: %s-%s-%s", service.Version, service.Branch, service.Commit)
-
-	// One-shot mode: it needs neither a vCenter connection nor the config secret, so it runs before
-	// any of the syncer's initialization.
-	if *migrateStorageClass {
-		if err := syncer.RunStorageClassExpansionMigration(ctx); err != nil {
-			log.Fatalf("storageclass expansion migration failed: %v", err)
-		}
-		return
-	}
 
 	// Log GOMEMLIMIT if set for memory management visibility
 	if goMemLimit := os.Getenv("GOMEMLIMIT"); goMemLimit != "" {
