@@ -53,7 +53,7 @@ func StartReloading(ctx context.Context, cfg *config.Config, r Reloader) error {
 
 func startReloading(ctx context.Context, client kubernetes.Interface, namespace string, cfg *config.Config,
 	r Reloader) error {
-	return start(ctx, client, namespace, cfg, reloadFunc(r, true), reloadFunc(r, false))
+	return start(ctx, client, namespace, cfg, reloadFunc(r, true), reloadFunc(r, false), newFileVolumeSource())
 }
 
 func reloadFunc(r Reloader, reconnectToVC bool) func() error {
@@ -84,7 +84,8 @@ func Start(ctx context.Context, cfg *config.Config, onCredentialsChange, onFileV
 	if err != nil {
 		return fmt.Errorf("failed to create a Kubernetes client: %w", err)
 	}
-	if err := start(ctx, client, config.GetCSINamespace(), cfg, onCredentialsChange, onFileVolumeChange); err != nil {
+	if err := start(ctx, client, config.GetCSINamespace(), cfg,
+		onCredentialsChange, onFileVolumeChange, runtimeFileVolumes); err != nil {
 		return err
 	}
 	started = true
@@ -103,7 +104,7 @@ var (
 )
 
 func start(ctx context.Context, client kubernetes.Interface, namespace string, cfg *config.Config,
-	onCredentialsChange, onFileVolumeChange func() error) error {
+	onCredentialsChange, onFileVolumeChange func() error, fileVolumes *fileVolumeSource) error {
 	log := logger.GetLogger(ctx)
 
 	if account := cfg.Global.VSphereServiceAccount; account != "" {
@@ -128,7 +129,9 @@ func start(ctx context.Context, client kubernetes.Interface, namespace string, c
 		factory := informers.NewSharedInformerFactoryWithOptions(client, 0, informers.WithNamespace(namespace),
 			informers.WithTweakListOptions(func(o *metav1.ListOptions) { o.FieldSelector = selector }))
 		informer := factory.Core().V1().ConfigMaps().Informer()
-		trigger := make(chan struct{}, 1)
+		// Share the config loader's channel so failed reads trigger recovery even without a
+		// ConfigMap event. Its buffer also preserves failures queued before this worker starts.
+		trigger := fileVolumes.trigger
 		drifted := func() bool {
 			return driftedFrom(cfg, func(c *config.Config) error { return applyFileVolumeConfig(ctx, client, namespace, c) })
 		}
@@ -136,7 +139,7 @@ func start(ctx context.Context, client kubernetes.Interface, namespace string, c
 			return err
 		}
 		factory.Start(ctx.Done())
-		go runReloads(ctx, "file volume ConfigMap", trigger, onFileVolumeChange)
+		go runReloads(ctx, "file volume ConfigMap", trigger, fileVolumes.reload(onFileVolumeChange))
 		log.Infof("Watching ConfigMap %s/%s", namespace, FileVolumeConfigMapName)
 	}
 	return nil
@@ -152,7 +155,8 @@ func hasSDDCName(cfg *config.Config) bool {
 }
 
 // driftedFrom reports whether apply, run on a copy of cfg, would change the credentials or the vSAN
-// file-share settings that cfg holds.
+// file-share settings that cfg holds. A failed probe also requests a reload so the retry worker
+// can recover without waiting for another object change.
 func driftedFrom(cfg *config.Config, apply func(*config.Config) error) bool {
 	probe := &config.Config{Global: cfg.Global, VirtualCenter: map[types.FQDN]*config.VirtualCenterConfig{}}
 	for host, vc := range cfg.VirtualCenter {
@@ -160,7 +164,9 @@ func driftedFrom(cfg *config.Config, apply func(*config.Config) error) bool {
 		probe.VirtualCenter[host] = &c
 	}
 	if err := apply(probe); err != nil {
-		return false // the reload would fail the same way; the next change retries it
+		// Drift is unknown. Queue a reload so the worker retries; another object change may
+		// never arrive, leaving the driver with stale credentials or settings loaded at startup.
+		return true
 	}
 	for host, vc := range cfg.VirtualCenter {
 		p := probe.VirtualCenter[host]
@@ -173,9 +179,9 @@ func driftedFrom(cfg *config.Config, apply func(*config.Config) error) bool {
 }
 
 // addTrigger signals trigger for every change to an object seen by informer. Periodic resyncs are
-// not changes. Neither are the objects present at start-up, unless drifted says the configuration
-// the driver started with no longer matches them: they may have changed between reading the
-// configuration and the informer's first list.
+// not changes. Objects in the initial list trigger a reload only if the drift probe detects a
+// mismatch or fails. They may have changed between reading the configuration and the informer's
+// first list, so an inconclusive probe must also enter the reload worker's retry loop.
 func addTrigger(informer cache.SharedIndexInformer, trigger chan<- struct{}, drifted func() bool) error {
 	fire := func() {
 		select {
