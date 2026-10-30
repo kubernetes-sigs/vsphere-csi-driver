@@ -554,12 +554,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 	if skip {
-		if statusErr := r.setClusterSPISuccess(ctx, instance, origClusterStatus,
-			"Storage policy identity resolved; skipping InfraStoragePolicyInfo creation"); statusErr != nil {
-			log.Errorf("Failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
-			return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
-		}
-		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
+		return r.reconcileSkippedStoragePolicy(ctx, request.NamespacedName, instance, origClusterStatus, timeout)
 	}
 
 	// Only a resolved canonical ClusterSPI may own an InfraSPI.
@@ -642,7 +637,7 @@ func (r *ReconcileClusterStoragePolicyInfo) resolveClusterSPIPolicyIdentity(ctx 
 		return nil, false, err
 	}
 	if policyDeleted {
-		instance.Status.VolumeClassName = ""
+		clearDeletedStoragePolicyAttributes(instance)
 		log.Infof("Storage policy for ClusterStoragePolicyInfo %q was deleted from vCenter; "+
 			"skipping InfraStoragePolicyInfo creation", instance.Name)
 		return nil, true, nil
@@ -657,6 +652,76 @@ func (r *ReconcileClusterStoragePolicyInfo) resolveClusterSPIPolicyIdentity(ctx 
 		"ClusterStoragePolicyInfo %q is an upgraded alias, skipping InfraStoragePolicyInfo creation",
 		profile.ID, profile.K8sCompliantName, instance.Name)
 	return nil, true, nil
+}
+
+// reconcileSkippedStoragePolicy completes reconciliation when policy identity
+// resolution determines that no InfraSPI should exist. Deleted policies publish
+// their terminal status and clean up InfraSPI; upgraded aliases only publish the
+// resolved identity. ClusterSPI is retained in both cases.
+func (r *ReconcileClusterStoragePolicyInfo) reconcileSkippedStoragePolicy(
+	ctx context.Context, key apitypes.NamespacedName,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo,
+	origStatus *clusterspiv1alpha1.ClusterStoragePolicyInfoStatus,
+	timeout time.Duration) (reconcile.Result, error) {
+	log := logger.GetLogger(ctx)
+
+	if instance.Status.StoragePolicyDeleted {
+		// Publish the deletion before InfraSPI cleanup so the StoragePolicyInfo
+		// controller observes the change and removes the affected namespace-scoped SPIs.
+		if statusErr := r.setClusterSPISuccess(ctx, instance, origStatus,
+			"Storage policy deletion detected")
+		if statusErr != nil {
+			log.Errorf("Failed to publish deleted storage policy status for %q: %v", key.Name, statusErr)
+			return r.completeReconciliationWithError(ctx, key, timeout, statusErr)
+		}
+		origStatus = instance.Status.DeepCopy()
+
+		if cleanupErr := r.cleanupDeletedStoragePolicyInfra(ctx, instance.Name)
+		if cleanupErr != nil {
+			errorMsg := fmt.Sprintf("Failed to clean up resources for deleted storage policy: %v", cleanupErr)
+			if setErr := r.setClusterSPIError(ctx, instance, origStatus, errorMsg)
+			if setErr != nil {
+				log.Errorf("Failed to set error status: %v", setErr)
+			}
+			return r.completeReconciliationWithError(ctx, key, timeout, cleanupErr)
+		}
+		return r.completeReconciliationWithSuccess(ctx, key, timeout)
+	}
+
+	if statusErr := r.setClusterSPISuccess(ctx, instance, origStatus,
+		"Storage policy identity resolved; skipping InfraStoragePolicyInfo creation"); statusErr != nil {
+		log.Errorf("Failed to update status for ClusterStoragePolicyInfo %q: %v", key.Name, statusErr)
+		return r.completeReconciliationWithError(ctx, key, timeout, statusErr)
+	}
+	return r.completeReconciliationWithSuccess(ctx, key, timeout)
+}
+
+// clearDeletedStoragePolicyAttributes removes status derived from a policy that
+// no longer exists in vCenter. StoragePolicyDeleted remains set by policy identity
+// resolution, while Error is managed by the reconciliation result setters.
+func clearDeletedStoragePolicyAttributes(instance *clusterspiv1alpha1.ClusterStoragePolicyInfo) {
+	instance.Status.VolumeClassName = ""
+	instance.Status.Performance = nil
+	instance.Status.Encryption = nil
+}
+
+// cleanupDeletedStoragePolicyInfra removes the cluster-scoped infrastructure
+// information derived from a storage policy after vCenter reports that policy as
+// deleted.
+func (r *ReconcileClusterStoragePolicyInfo) cleanupDeletedStoragePolicyInfra(
+	ctx context.Context, policyName string) error {
+	log := logger.GetLogger(ctx)
+
+	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+	}
+	if err := r.client.Delete(ctx, infraSPI); err != nil && !apierrors.IsNotFound(err) {
+		log.Errorf("Failed to delete InfraStoragePolicyInfo %q for deleted storage policy: %v", policyName, err)
+		return fmt.Errorf("delete InfraStoragePolicyInfo %q: %w", policyName, err)
+	} else if err == nil {
+		log.Infof("Deleted InfraStoragePolicyInfo %q for deleted storage policy", policyName)
+	}
+	return nil
 }
 
 // ensureClusterSPIExistsInReconcile handles ClusterStoragePolicyInfo creation and owner reference

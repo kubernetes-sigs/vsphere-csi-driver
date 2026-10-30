@@ -66,12 +66,14 @@ func TestReconcile_ClusterSPIIdentityGate(t *testing.T) {
 		volumeClassName string
 		deleted         bool
 		requeue         bool
+		existing        bool
 		create          bool
 	}{
 		{name: "missing ClusterSPI retries", missing: true, requeue: true},
+		{name: "missing ClusterSPI removes existing SPI and retries", missing: true, existing: true, requeue: true},
 		{name: "unresolved identity retries", requeue: true},
 		{name: "deleted policy skips", deleted: true},
-		{name: "deleted policy with stale volumeClassName skips", deleted: true, volumeClassName: "gold"},
+		{name: "deleted policy removes existing SPI", deleted: true, volumeClassName: "gold", existing: true},
 		{name: "upgraded alias skips", volumeClassName: "silver"},
 		{name: "canonical identity creates SPI", volumeClassName: "gold", create: true},
 	} {
@@ -87,6 +89,11 @@ func TestReconcile_ClusterSPIIdentityGate(t *testing.T) {
 				cspi.Status.VolumeClassName = tc.volumeClassName
 				cspi.Status.StoragePolicyDeleted = tc.deleted
 				objects = append(objects, cspi)
+			}
+			if tc.existing {
+				objects = append(objects, &spiv1alpha1.StoragePolicyInfo{
+					ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+				})
 			}
 			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).
 				WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
@@ -324,6 +331,35 @@ func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
 	}
 	reqs := r.mapInfraSPItoSPI(ctx, infraSPI)
 	assert.Empty(t, reqs)
+}
+
+func TestMapClusterSPItoSPIs_EnqueuesMatchingNamespaces(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	spi1 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	spi2 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns2"},
+	}
+	spiOther := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
+	}
+	r := &ReconcileStoragePolicyInfo{
+		client: spiNameIndexer(t, scheme, spi1, spi2, spiOther),
+		scheme: scheme,
+	}
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true,
+		},
+	}
+
+	reqs := r.mapClusterSPItoSPIs(ctx, clusterSPI)
+	require.Len(t, reqs, 2)
+	names := []string{reqs[0].Namespace + "/" + reqs[0].Name, reqs[1].Namespace + "/" + reqs[1].Name}
+	assert.ElementsMatch(t, []string{"ns1/gold", "ns2/gold"}, names)
 }
 
 // newZone builds an unstructured Zone CR in the given namespace, matching the

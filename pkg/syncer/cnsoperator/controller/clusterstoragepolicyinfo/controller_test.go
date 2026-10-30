@@ -1086,6 +1086,60 @@ func TestUpdateStatus_PolicyDeleted(t *testing.T) {
 	assert.Empty(t, cspi.Status.Error, "expected no error message")
 }
 
+func TestCleanupDeletedStoragePolicyInfra(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true,
+		},
+	}
+	objects := []client.Object{
+		clusterSPI,
+		&infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+	// Repeating cleanup must be harmless after all derived objects are gone.
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&clusterspiv1alpha1.ClusterStoragePolicyInfo{}), "ClusterSPI must continue to exist")
+	assert.True(t, apierrors.IsNotFound(cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&infraspiv1alpha1.InfraStoragePolicyInfo{})))
+}
+
+func TestClearDeletedStoragePolicyAttributes(t *testing.T) {
+	iopsLimit := int64(1000)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			VolumeClassName:      "gold",
+			StoragePolicyDeleted: true,
+			Performance: &clusterspiv1alpha1.Performance{
+				IopsLimit: &iopsLimit,
+			},
+			Encryption: &clusterspiv1alpha1.Encryption{
+				SupportsEncryption: true,
+				EncryptionTypes: []clusterspiv1alpha1.EncryptionType{
+					clusterspiv1alpha1.EncryptionTypeVSAN,
+				},
+			},
+			Error: "preserved until reconciliation reports success",
+		},
+	}
+
+	clearDeletedStoragePolicyAttributes(clusterSPI)
+
+	assert.Empty(t, clusterSPI.Status.VolumeClassName)
+	assert.Nil(t, clusterSPI.Status.Performance)
+	assert.Nil(t, clusterSPI.Status.Encryption)
+	assert.True(t, clusterSPI.Status.StoragePolicyDeleted)
+	assert.Equal(t, "preserved until reconciliation reports success", clusterSPI.Status.Error)
+}
+
 // statusUpdateInterceptor returns interceptor.Funcs that record every Status().Update() call
 // while still performing the update against the underlying fake client.
 func statusUpdateInterceptor(called *bool) interceptor.Funcs {
