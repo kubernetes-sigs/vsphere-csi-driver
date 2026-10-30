@@ -18,9 +18,10 @@ package manager
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -62,8 +63,10 @@ import (
 )
 
 var (
-	// Use localhost and port for metrics
-	metricsHost       = "0.0.0.0"
+	// Serve controller-runtime metrics on loopback only. The endpoint is plain HTTP
+	// with no authn/authz, and the Supervisor controller runs with hostNetwork, so
+	// binding all interfaces would expose it on the node IP.
+	metricsHost       = "127.0.0.1"
 	metricsPort int32 = 8383
 
 	// Global scheme for thread-safe initialization
@@ -74,6 +77,11 @@ var (
 type cnsOperatorInfo struct {
 	configInfo        *commonconfig.ConfigurationInfo
 	coCommonInterface commonco.COCommonInterface
+}
+
+// metricsBindAddress returns the address the controller-runtime metrics server listens on.
+func metricsBindAddress() string {
+	return net.JoinHostPort(metricsHost, strconv.Itoa(int(metricsPort)))
 }
 
 // getGlobalScheme initializes and returns a thread-safe global scheme
@@ -433,7 +441,7 @@ func InitCnsOperator(ctx context.Context, clusterFlavor cnstypes.CnsClusterFlavo
 	mgr, err := manager.New(restConfig, manager.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+			BindAddress: metricsBindAddress(),
 		},
 		// No controller here watches PVC/PV, only Get()s them, so don't let the manager
 		// cache them — at 120K+ PVC scale that cache alone costs 1GB+.
