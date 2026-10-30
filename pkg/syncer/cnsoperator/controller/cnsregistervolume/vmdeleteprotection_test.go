@@ -156,9 +156,10 @@ func TestReconcileBindsBeforeVMDeleteProtection(t *testing.T) {
 			v1.ResourceName(scName + scResourceNameSuffix): resource.MustParse("10Gi"),
 		}}}
 	r.k8sclient = k8sfake.NewClientset(sc, quota, pvc)
-	patches.ApplyFunc(isDatastoreAccessibleToCluster, func(context.Context, *cnsvsphere.VirtualCenter, string, string) bool {
-		return true
-	})
+	patches.ApplyFunc(isDatastoreAccessibleToCluster,
+		func(context.Context, *cnsvsphere.VirtualCenter, string, string) bool {
+			return true
+		})
 	calls := 0
 	fail := true
 	r.volumeManager.(*mockVolumeManager).unprotectVolumeFromVMDeletionFunc = func(context.Context, string) error {

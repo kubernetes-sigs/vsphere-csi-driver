@@ -56,7 +56,8 @@ func TestAsyncRestoreReservationAcrossRequeuesAndRestart(t *testing.T) {
 		require.Equal(t, api.ReasonWaitingForRestoreOwner, condOf(competitor, api.ConditionReady).Reason)
 	}
 	// First stamp decides ownership, retaining #4402's not-processed semantics.
-	_, err := r.k8sclient.CoreV1().PersistentVolumes().Create(ctx, testStampedPV(string(owner.UID), false), metav1.CreateOptions{})
+	_, err := r.k8sclient.CoreV1().PersistentVolumes().Create(ctx,
+		testStampedPV(string(owner.UID), false), metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, _, result, proceed = restarted.startRestore(ctx, competitor, reconcileRequestFor(competitor), time.Second)
 	require.False(t, proceed)
@@ -73,7 +74,8 @@ func TestAsyncRestoreFailedAttemptReleasesReservation(t *testing.T) {
 	owner.Status.CnsTaskID = "task-failed"
 	r, _, _ := newAsyncTestReconciler(t, owner, 40)
 	r.volumeInfoService = &fakeRestoreVolumeInfoService{}
-	seedOutcome(r.taskTracker, "task-failed", &cnsTaskOutcome{state: volumes.CreateVolumeTaskFailed, err: errors.New("disk locked")})
+	seedOutcome(r.taskTracker, "task-failed", &cnsTaskOutcome{
+		state: volumes.CreateVolumeTaskFailed, err: errors.New("disk locked")})
 	_, retry, err := r.submitOrPollCreateVolume(ctx, owner, nil, asyncTestSpec(), time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, retry)
@@ -102,7 +104,8 @@ func TestAsyncRestoreTaskResultSurvivesRestart(t *testing.T) {
 	old := submitCreateVolumeTaskFn
 	t.Cleanup(func() { submitCreateVolumeTaskFn = old })
 	submits := 0
-	submitCreateVolumeTaskFn = func(context.Context, *vsphere.VirtualCenter, *cnstypes.CnsVolumeCreateSpec) (vimtypes.ManagedObjectReference, string, error) {
+	submitCreateVolumeTaskFn = func(context.Context, *vsphere.VirtualCenter, *cnstypes.CnsVolumeCreateSpec) (
+		vimtypes.ManagedObjectReference, string, error) {
 		submits++
 		return taskRef("unexpected"), "", nil
 	}
@@ -121,13 +124,15 @@ func TestAsyncRestoreResultWriteFailureKeepsTask(t *testing.T) {
 	cr.Status.CnsTaskID = "task-done"
 	r, _, _ := newAsyncTestReconciler(t, cr, 40)
 	failing := true
-	r.client = interceptor.NewClient(r.client.(client.WithWatch), interceptor.Funcs{SubResourcePatch: func(ctx context.Context, c client.Client,
-		sub string, obj client.Object, p client.Patch, opts ...client.SubResourcePatchOption) error {
-		if failing {
-			return errors.New("unavailable")
-		}
-		return c.SubResource(sub).Patch(ctx, obj, p, opts...)
-	}})
+	r.client = interceptor.NewClient(r.client.(client.WithWatch), interceptor.Funcs{
+		SubResourcePatch: func(ctx context.Context, c client.Client,
+			sub string, obj client.Object, p client.Patch, opts ...client.SubResourcePatchOption) error {
+			if failing {
+				return errors.New("unavailable")
+			}
+			return c.SubResource(sub).Patch(ctx, obj, p, opts...)
+		},
+	})
 	seedOutcome(r.taskTracker, cr.Status.CnsTaskID, &cnsTaskOutcome{state: volumes.CreateVolumeTaskSucceeded,
 		volInfo: &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: testRestoreVolumeID}}})
 	_, retry, err := r.submitOrPollCreateVolume(ctx, cr, nil, asyncTestSpec(), time.Second)
@@ -151,7 +156,8 @@ func TestAsyncRestoreMetadataRetryAndWarning(t *testing.T) {
 	service := &fakeRestoreVolumeInfoService{handoverErr: errors.New("previous CVI terminating")}
 	r := newRestoreReconcileHarness(t, cr, service, testStampedPV(string(cr.UID), false))
 	require.NoError(t, r.client.Get(ctx, instanceKey(cr), cr))
-	info := cnsvolumeinfo.RestoredVolumeInfo{VolumeID: testRestoreVolumeID, Namespace: cr.Namespace, RestoredBy: string(cr.UID)}
+	info := cnsvolumeinfo.RestoredVolumeInfo{
+		VolumeID: testRestoreVolumeID, Namespace: cr.Namespace, RestoredBy: string(cr.UID)}
 	require.Error(t, r.reconcileRestoreMetadata(ctx, cr, testRestorePVName, info))
 	failed := condOf(cr, api.ConditionRestoreMetadataConfigured)
 	transition := failed.LastTransitionTime
@@ -174,7 +180,8 @@ func TestAsyncRestoreDeleteUnknownTaskPreservesReference(t *testing.T) {
 	cr := testRestoreInstance("true")
 	cr.Status.CnsTaskID = "task-unknown"
 	r, _, _ := newAsyncTestReconciler(t, cr, 40)
-	seedOutcome(r.taskTracker, cr.Status.CnsTaskID, &cnsTaskOutcome{state: volumes.CreateVolumeTaskUnknown, err: errors.New("session lost")})
+	seedOutcome(r.taskTracker, cr.Status.CnsTaskID, &cnsTaskOutcome{
+		state: volumes.CreateVolumeTaskUnknown, err: errors.New("session lost")})
 	require.NotNil(t, r.resolveInFlightTaskForDelete(ctx, cr, reconcileRequestFor(cr), time.Second))
 	require.Equal(t, "task-unknown", cr.Status.CnsTaskID)
 }
@@ -186,7 +193,8 @@ func TestAsyncRestoreDeleteCompletedTaskProtectsOtherPV(t *testing.T) {
 	cr.Status.CnsTaskID = "task-old"
 	r, _, _ := newAsyncTestReconciler(t, cr, 40)
 	r.volumeInfoService = &fakeRestoreVolumeInfoService{}
-	_, err := r.k8sclient.CoreV1().PersistentVolumes().Create(ctx, testStampedPV("other-uid", false), metav1.CreateOptions{})
+	_, err := r.k8sclient.CoreV1().PersistentVolumes().Create(ctx,
+		testStampedPV("other-uid", false), metav1.CreateOptions{})
 	require.NoError(t, err)
 	seedOutcome(r.taskTracker, cr.Status.CnsTaskID, &cnsTaskOutcome{state: volumes.CreateVolumeTaskSucceeded,
 		volInfo: &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: testRestoreVolumeID}}})
