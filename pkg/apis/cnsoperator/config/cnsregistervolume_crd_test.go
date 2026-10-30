@@ -84,6 +84,9 @@ func TestCRDDeclaresConditionsAndTaskID(t *testing.T) {
 	cnsTaskID, ok := status.Properties["cnsTaskID"]
 	require.True(t, ok, "status.cnsTaskID must be declared in the CRD or the API server prunes it")
 	assert.Equal(t, "string", cnsTaskID.Type)
+	volumeID, ok := status.Properties["cnsVolumeID"]
+	require.True(t, ok, "successful task results must not be pruned")
+	assert.Equal(t, "string", volumeID.Type)
 }
 
 // TestCRDDoesNotDeclareRemovedFields verifies the superseded fields are gone. They

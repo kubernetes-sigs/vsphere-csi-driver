@@ -119,13 +119,16 @@ spec:
                   controller resume monitoring a task across reconciles and
                   across a syncer restart without holding a worker.
                 type: string
+              cnsVolumeID:
+                description: Successful CNS task result, persisted atomically when cnsTaskID is cleared and retained across bind and finalization retries.
+                type: string
               conditions:
                 description: |-
                   Conditions describes the observed progress of this registration, and
                   the reason it is not yet ready. Conditions are informational:
                   registered, not the Ready condition, is the completion signal.
-                  Known condition types are SpecValidated, CnsVolumeRegistered,
-                  VolumeAccessible, PvcBound, VMDeleteProtectionConfigured and Ready. A
+                  Known condition types are SpecValidated, RestoreValidated, CnsVolumeRegistered,
+                  VolumeAccessible, PvcBound, VMDeleteProtectionConfigured, RestoreMetadataConfigured and Ready. A
                   condition is set lazily when its step is first evaluated, so an absent condition means not yet
                   evaluated, which is distinct from False. Consumers must look
                   conditions up by type rather than by index.

@@ -208,7 +208,7 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 	maxInFlight := util.GetMaxWorkerThreads(ctx, maxInFlightCnsTasksEnvVar, defaultMaxInFlightCnsTasks)
 	// Buffered so the tracker's goroutines never block delivering a wake-up.
 	taskEvents := make(chan event.GenericEvent, maxInFlight*2)
-	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), scheme: mgr.GetScheme(),
+	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), apiReader: mgr.GetAPIReader(), scheme: mgr.GetScheme(),
 		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder,
 		volumeInfoService: volumeInfoService, k8sclient: k8sclient,
 		// The listview and vCenter are bound on first use, once a reconcile has
@@ -256,6 +256,7 @@ type ReconcileCnsRegisterVolume struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
 	client            client.Client
+	apiReader         client.Reader // uncached reads for task state and restore reservations
 	scheme            *runtime.Scheme
 	configInfo        *commonconfig.ConfigurationInfo
 	volumeManager     volumes.Manager
@@ -288,7 +289,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log := logger.GetLogger(ctx)
 	// Fetch the CnsRegisterVolume instance.
 	instance := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
-	err := r.client.Get(ctx, request.NamespacedName, instance)
+	err := r.executionReader().Get(ctx, request.NamespacedName, instance)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.With("name", request.Name).With("namespace", request.Namespace).
@@ -408,16 +409,25 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Infof("CnsRegisterVolume %s/%s already stamped volume %q; skipping the restore precheck",
 			instance.Namespace, instance.Name, instance.Spec.VolumeID)
 	}
-	if isRestore && !restoreStamped {
+	if isRestore && !restoreStamped && instance.Status.CnsTaskID == "" {
 		err = r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
 			string(instance.UID))
 		if err != nil {
 			log.Errorf("Restore precheck failed for CnsRegisterVolume %s/%s, will retry: %v",
 				instance.Namespace, instance.Name, err)
-			setInstanceError(ctx, r, instance, err.Error())
+			setInstanceError(ctx, r, instance, err.Error(), falseCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreValidated,
+				cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting for restore prerequisites"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
+
+	restoreReason := cnsregistervolumev1alpha1.ReasonNotRequired
+	if isRestore {
+		restoreReason = cnsregistervolumev1alpha1.ReasonValidated
+	}
+	setInstanceConditions(ctx, r, instance, trueCondition(
+		cnsregistervolumev1alpha1.ConditionRestoreValidated, restoreReason, "Restore prerequisites satisfied"))
 
 	// Verify if CnsRegisterVolume request is for block volume registration
 	// Currently file volume registration is not supported.
@@ -468,6 +478,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	// Submit the CNS task and return, or pick up the result of a task submitted
 	// by an earlier pass. Either way this does not block on CNS, so the worker
 	// is free to start another CnsRegisterVolume while this one's task runs.
+	resumingTask := instance.Status.CnsTaskID != ""
 	volInfo, taskResult, err := r.submitOrPollCreateVolume(ctx, instance, vc, createSpec, timeout)
 	if taskResult != nil {
 		return *taskResult, nil
@@ -477,6 +488,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		log.Errorf(msg)
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+
+	// Monitor an already submitted task even if prerequisites change. Once it
+	// settles, recheck before creating Kubernetes resources unless we already
+	// stamped the volume (CNAS-12485 §6.2/§6.7).
+	if isRestore && !restoreStamped && resumingTask {
+		if err := r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
+			string(instance.UID)); err != nil {
+			setInstanceError(ctx, r, instance, err.Error(), falseCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreValidated,
+				cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting for restore prerequisites"))
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
 	}
 
 	if instance.Spec.DiskURLPath != "" {
@@ -518,6 +542,12 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	volume, err := common.QueryVolumeByID(ctx, r.volumeManager, volumeID, &querySelection)
 	if err != nil {
 		if err.Error() == common.ErrNotFound.Error() {
+			// Cleanup may have completed before a crash persisted its result.
+			// Only an authoritative NotFound clears the checkpoint; transport
+			// failures keep it and cannot authorize a new registration task.
+			if err := r.persistCnsExecution(ctx, instance, "", ""); err != nil {
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
 			msg := fmt.Sprintf("CNS Volume: %s not found", volumeID)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
@@ -1072,6 +1102,11 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if protectionRetry != nil {
 			return *protectionRetry, nil
 		}
+		if !isRestore || !syncer.IsPodVMOnStretchSupervisorFSSEnabled {
+			setInstanceConditions(ctx, r, instance, trueCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreMetadataConfigured,
+				cnsregistervolumev1alpha1.ReasonNotRequired, "Restore metadata handover is not required"))
+		}
 		setInstanceConditions(ctx, r, instance,
 			falseCondition(cnsregistervolumev1alpha1.ConditionReady, cnsregistervolumev1alpha1.ReasonFinalizing,
 				"Applying CnsVolumeInfo and storage quota accounting"))
@@ -1079,7 +1114,7 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			if isRestore {
 				// The restored CnsVolumeInfo is created already carrying the snapshot size of the deleted
 				// volume, so the snapshot usage of the namespace does not drop during the restore.
-				err = r.handoverRestoredVolume(ctx, instance, pvName, cnsvolumeinfo.RestoredVolumeInfo{
+				err = r.reconcileRestoreMetadata(ctx, instance, pvName, cnsvolumeinfo.RestoredVolumeInfo{
 					VolumeID:         volumeID,
 					Namespace:        instance.Namespace,
 					StoragePolicyID:  volume.StoragePolicyId,
@@ -1744,10 +1779,12 @@ func setInstanceConditions(ctx context.Context, r *ReconcileCnsRegisterVolume,
 // through them. Ready mirrors the first of these that is not yet satisfied.
 var registrationSteps = []string{
 	cnsregistervolumev1alpha1.ConditionSpecValidated,
+	cnsregistervolumev1alpha1.ConditionRestoreValidated,
 	cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
 	cnsregistervolumev1alpha1.ConditionVolumeAccessible,
 	cnsregistervolumev1alpha1.ConditionPvcBound,
 	cnsregistervolumev1alpha1.ConditionVMDeleteProtectionConfigured,
+	cnsregistervolumev1alpha1.ConditionRestoreMetadataConfigured,
 }
 
 // applyConditions stamps observedGeneration and sets each condition on the
@@ -1836,9 +1873,7 @@ func setInstanceCnsTaskID(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	if instance.Status.CnsTaskID == taskID {
 		return nil
 	}
-	origInstance := instance.DeepCopy()
-	instance.Status.CnsTaskID = taskID
-	return patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
+	return r.persistCnsExecution(ctx, instance, taskID, instance.Status.CnsVolumeID)
 }
 
 // setInstanceSuccess sets instance to success and records an event on the
@@ -1975,10 +2010,13 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 	// cnsTaskID follows the same include-or-clear rule. Clearing it matters:
 	// a stale task ID left behind would make the next reconcile poll a task
 	// that is already finished with.
-	if newObj.Status.CnsTaskID != "" || oldObj.Status.CnsTaskID != "" {
+	if newObj.Status.CnsTaskID != oldObj.Status.CnsTaskID {
 		statusMap["cnsTaskID"] = newObj.Status.CnsTaskID
 	}
 
+	if newObj.Status.CnsVolumeID != oldObj.Status.CnsVolumeID {
+		statusMap["cnsVolumeID"] = newObj.Status.CnsVolumeID
+	}
 	statusPatch := map[string]interface{}{
 		"status": statusMap,
 	}
@@ -2046,12 +2084,25 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 		return reconcile.Result{}, nil
 	}
 
+	// Recover a submission whose status write failed in this process before
+	// deciding there is no outstanding work. The task must settle on deletion.
+	if instance.Status.CnsTaskID == "" && instance.Status.CnsVolumeID == "" && r.taskTracker != nil {
+		r.taskTracker.mu.Lock()
+		pending := r.taskTracker.slots[instanceKey(instance)]
+		r.taskTracker.mu.Unlock()
+		if pending != "" {
+			if err := setInstanceCnsTaskID(ctx, r, instance, pending); err != nil {
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
+	}
+
 	// If a CNS task is still in flight, the finalizer must stay: the task may
 	// be about to create a volume, and dropping the finalizer now would delete
 	// the CR and leave that volume behind with nothing referencing it.
 	// Starting a second CNS operation on the same disk is also not an option,
 	// so the only correct move is to wait for the task to settle.
-	if instance.Status.CnsTaskID != "" {
+	if instance.Status.CnsTaskID != "" || instance.Status.CnsVolumeID != "" {
 		if res := r.resolveInFlightTaskForDelete(ctx, instance, request, timeout); res != nil {
 			return *res, nil
 		}
@@ -2316,10 +2367,30 @@ func (r *ReconcileCnsRegisterVolume) cleanupCNSVolume(
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	volumeID string,
 ) error {
-	if instance.Spec.DiskURLPath != "" {
-		return r.unregisterFCD(ctx, volumeID)
+	if isSnapServiceLocalProtectionEnabled && r.volumeInfoService != nil {
+		owner, err := r.restoreOwner(ctx, volumeID)
+		if err != nil {
+			return err
+		}
+		if owner != "" && owner != string(instance.UID) {
+			return nil
+		}
 	}
-	return r.untagCNSVolume(ctx, volumeID)
+	var err error
+	if instance.Spec.DiskURLPath != "" {
+		err = r.unregisterFCD(ctx, volumeID)
+	} else {
+		err = r.untagCNSVolume(ctx, volumeID)
+	}
+	if err != nil {
+		return err
+	}
+	if instance.Status.CnsVolumeID != "" {
+		if err := r.persistCnsExecution(ctx, instance, "", ""); err != nil {
+			return err
+		}
+	}
+	return r.releaseRestoreReservation(ctx, instance)
 }
 
 // unregisterFCD de-registers a volume as FCD, converting it back to a legacy disk.

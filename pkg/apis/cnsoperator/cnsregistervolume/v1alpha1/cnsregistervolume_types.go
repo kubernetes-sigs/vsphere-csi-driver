@@ -90,6 +90,12 @@ const (
 	// formed and, when a storageClassName is given, whether its storage policy
 	// is assigned to this namespace. Evaluated before any CNS call.
 	ConditionSpecValidated = "SpecValidated"
+	// ConditionRestoreValidated reports restore prerequisites and admission.
+	ConditionRestoreValidated = "RestoreValidated"
+	// ConditionRestoreMetadataConfigured reports completion of the restored CVI
+	// handover, including a warning-only outcome without a snapshot-size seed.
+	// SnapshotSizeRestored remains a condition on CnsVolumeInfo, owned by its writers.
+	ConditionRestoreMetadataConfigured = "RestoreMetadataConfigured"
 	// ConditionCnsVolumeRegistered reflects whether CNS has registered the disk
 	// and the volume exists.
 	ConditionCnsVolumeRegistered = "CnsVolumeRegistered"
@@ -115,7 +121,13 @@ const (
 // conditions existed. Everything else, including ReasonCnsTaskFailed, retries.
 const (
 	// ReasonValidated is set on ConditionSpecValidated when the checks pass.
-	ReasonValidated = "Validated"
+	ReasonValidated                  = "Validated"
+	ReasonWaitingForRestoreOwner     = "WaitingForRestoreOwner"
+	ReasonRestorePrecheckFailed      = "RestorePrecheckFailed"
+	ReasonRestoreNotProcessed        = "RestoreNotProcessed"
+	ReasonConfiguringRestoreMetadata = "ConfiguringRestoreMetadata"
+	ReasonRestoreMetadataFailed      = "RestoreMetadataFailed"
+	ReasonRestoreMetadataConfigured  = "RestoreMetadataConfigured"
 	// ReasonInvalidSpec means the spec is malformed or incomplete.
 	ReasonInvalidSpec = "InvalidSpec"
 	// ReasonStoragePolicyNotAssignedToNamespace means the storageClassName's
@@ -227,6 +239,14 @@ type CnsRegisterVolumeStatus struct {
 	// reached a terminal state. A cleared or failed task ID is never reused.
 	// +optional
 	CnsTaskID string `json:"cnsTaskID,omitempty"`
+
+	// CnsVolumeID is the successful task result. It is persisted in the same
+	// write that clears CnsTaskID, before releasing the task result. Later bind
+	// and finalization retries query this volume instead of submitting again.
+	// Cleanup clears it only after undoing CNS registration. Unlike conditions,
+	// this field controls recovery and its writes must succeed.
+	// +optional
+	CnsVolumeID string `json:"cnsVolumeID,omitempty"`
 
 	// Conditions describes the observed progress of this registration, and the
 	// reason it is not yet ready.

@@ -76,6 +76,11 @@ func (r *ReconcileCnsRegisterVolume) submitOrPollCreateVolume(ctx context.Contex
 	*volumes.CnsVolumeInfo, *reconcile.Result, error) {
 	log := logger.GetLogger(ctx)
 
+	if instance.Status.CnsVolumeID != "" {
+		// The caller queries this persisted result before Kubernetes work.
+		// No second task or extra query is needed for bind/finalization retries.
+		return &volumes.CnsVolumeInfo{VolumeID: cnstypes.CnsVolumeId{Id: instance.Status.CnsVolumeID}}, nil, nil
+	}
 	if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
 		msg := fmt.Sprintf("failed to initialize CNS task tracking: %v", err)
 		log.Error(msg)
@@ -84,6 +89,15 @@ func (r *ReconcileCnsRegisterVolume) submitOrPollCreateVolume(ctx context.Contex
 	}
 
 	if instance.Status.CnsTaskID == "" {
+		r.taskTracker.mu.Lock()
+		pending := r.taskTracker.slots[instanceKey(instance)]
+		r.taskTracker.mu.Unlock()
+		if pending != "" {
+			if err := setInstanceCnsTaskID(ctx, r, instance, pending); err != nil {
+				return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+			}
+			return r.pollCreateVolume(ctx, instance, vc, createSpec, timeout)
+		}
 		return r.submitCreateVolume(ctx, instance, vc, createSpec, timeout)
 	}
 	return r.pollCreateVolume(ctx, instance, vc, createSpec, timeout)
@@ -109,6 +123,15 @@ func (r *ReconcileCnsRegisterVolume) submitCreateVolume(ctx context.Context,
 		return nil, &reconcile.Result{RequeueAfter: cnsSlotRetryInterval}, nil
 	}
 
+	if r.isSnapServiceRestore(ctx, instance) {
+		if err := r.reserveRestore(ctx, instance); err != nil {
+			r.taskTracker.releaseSlot(cr)
+			setInstanceError(ctx, r, instance, err.Error(), falseCondition(
+				cnsregistervolumev1alpha1.ConditionRestoreValidated,
+				cnsregistervolumev1alpha1.ReasonRestorePrecheckFailed, "Waiting to persist restore admission"))
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
 	taskMoRef, _, err := submitCreateVolumeTaskFn(ctx, vc, createSpec)
 	if err != nil {
 		r.taskTracker.releaseSlot(cr)
@@ -118,13 +141,13 @@ func (r *ReconcileCnsRegisterVolume) submitCreateVolume(ctx context.Context,
 		return nil, &reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Persist the reference before anything else. If this write fails the task
-	// is running on CNS with nothing pointing at it; the CR falls back to
-	// submitting again next pass, which is safe because CNS answers a repeat
-	// registration of the same disk with CnsAlreadyRegisteredFault, which the
-	// shared decoding helpers map to success.
+	// Persist the reference before subscribing. Retain it in memory if the
+	// write fails so the next pass retries persistence rather than submission.
+	// A process crash in the submit/persist window can still lose the reference.
+	r.taskTracker.mu.Lock()
+	r.taskTracker.slots[cr] = taskMoRef.Value
+	r.taskTracker.mu.Unlock()
 	if err := setInstanceCnsTaskID(ctx, r, instance, taskMoRef.Value); err != nil {
-		r.taskTracker.releaseSlot(cr)
 		log.Errorf("submitted CNS task %q but failed to record it on CnsRegisterVolume %s/%s: %v",
 			taskMoRef.Value, instance.Namespace, instance.Name, err)
 		return nil, &reconcile.Result{RequeueAfter: timeout}, nil
@@ -178,12 +201,11 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 
 	switch outcome.state {
 	case volumes.CreateVolumeTaskSucceeded:
-		r.taskTracker.forget(cr, taskID)
-		if err := setInstanceCnsTaskID(ctx, r, instance, ""); err != nil {
-			log.Errorf("failed to clear cnsTaskID after success on %s/%s: %v",
-				instance.Namespace, instance.Name, err)
+		if err := r.persistCnsExecution(ctx, instance, "", outcome.volInfo.VolumeID.Id); err != nil {
+			log.Errorf("failed to persist CNS result on %s/%s: %v", instance.Namespace, instance.Name, err)
 			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
 		}
+		r.taskTracker.forget(cr, taskID)
 		setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
 			cnsregistervolumev1alpha1.ReasonRegistered, "CNS has registered the disk"))
 		return outcome.volInfo, nil, nil
@@ -193,10 +215,16 @@ func (r *ReconcileCnsRegisterVolume) pollCreateVolume(ctx context.Context,
 		// retried indefinitely rather than becoming terminal. Deciding which
 		// CNS faults are permanent needs agreement with VM Operator first,
 		// because a misclassification wedges a VM that currently self-heals.
-		r.taskTracker.forget(cr, taskID)
 		if err := setInstanceCnsTaskID(ctx, r, instance, ""); err != nil {
 			log.Errorf("failed to clear cnsTaskID after failure on %s/%s: %v",
 				instance.Namespace, instance.Name, err)
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		r.taskTracker.forget(cr, taskID)
+		if instance.Status.CnsTaskID == "" {
+			if err := r.releaseRestoreReservation(ctx, instance); err != nil {
+				return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
 		msg := fmt.Sprintf("failed to create CNS volume. Error: %v", outcome.err)
 		log.Error(msg)
@@ -235,10 +263,10 @@ func (r *ReconcileCnsRegisterVolume) resolveTaskDirectly(ctx context.Context,
 	state, volInfo, _, err := volumes.GetCreateVolumeTaskResult(ctx, vc, taskMoRef, createSpec.Name)
 	switch state {
 	case volumes.CreateVolumeTaskSucceeded:
-		r.taskTracker.forget(cr, taskID)
-		if setErr := setInstanceCnsTaskID(ctx, r, instance, ""); setErr != nil {
+		if setErr := r.persistCnsExecution(ctx, instance, "", volInfo.VolumeID.Id); setErr != nil {
 			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
 		}
+		r.taskTracker.forget(cr, taskID)
 		setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
 			cnsregistervolumev1alpha1.ReasonRegistered, "CNS has registered the disk"))
 		return volInfo, nil, nil
@@ -247,9 +275,15 @@ func (r *ReconcileCnsRegisterVolume) resolveTaskDirectly(ctx context.Context,
 		return nil, &reconcile.Result{RequeueAfter: cnsTaskSafetyRequeue}, nil
 
 	case volumes.CreateVolumeTaskFailed:
-		r.taskTracker.forget(cr, taskID)
 		if setErr := setInstanceCnsTaskID(ctx, r, instance, ""); setErr != nil {
 			log.Errorf("failed to clear cnsTaskID on %s/%s: %v", instance.Namespace, instance.Name, setErr)
+			return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+		}
+		r.taskTracker.forget(cr, taskID)
+		if instance.Status.CnsTaskID == "" {
+			if releaseErr := r.releaseRestoreReservation(ctx, instance); releaseErr != nil {
+				return nil, &reconcile.Result{RequeueAfter: timeout}, nil
+			}
 		}
 		msg := fmt.Sprintf("failed to create CNS volume. Error: %v", err)
 		setInstanceError(ctx, r, instance, msg,
@@ -295,33 +329,69 @@ func (r *ReconcileCnsRegisterVolume) resolveInFlightTaskForDelete(ctx context.Co
 	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, request reconcile.Request,
 	timeout time.Duration) *reconcile.Result {
 	log := logger.GetLogger(ctx)
-	cr := request.NamespacedName
-	taskID := instance.Status.CnsTaskID
-
-	outcome, done := r.taskTracker.outcome(taskID)
-	if !done {
-		log.Infof("CnsRegisterVolume %s/%s is being deleted while CNS task %q is still in flight; "+
-			"holding the finalizer until it settles", instance.Namespace, instance.Name, taskID)
-		return &reconcile.Result{RequeueAfter: cnsTaskSafetyRequeue}
-	}
-
-	// The task finished. If it produced a volume, that volume exists in CNS
-	// with no PV pointing at it, so clean it up before letting the CR go.
-	if outcome.state == volumes.CreateVolumeTaskSucceeded && outcome.volInfo != nil {
-		volumeID := outcome.volInfo.VolumeID.Id
-		log.Infof("Cleaning up CNS volume %q created by a task that completed during deletion of %s/%s",
-			volumeID, instance.Namespace, instance.Name)
-		if err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-			log.Errorf("failed to clean up CNS volume %q during deletion: %v", volumeID, err)
-			return &reconcile.Result{RequeueAfter: timeout}
+	if instance.Status.CnsTaskID != "" {
+		taskID := instance.Status.CnsTaskID
+		outcome, done := r.taskTracker.outcome(taskID)
+		if !done || outcome.state == volumes.CreateVolumeTaskUnknown {
+			if done {
+				r.taskTracker.forgetResult(taskID)
+			}
+			vc, err := r.taskVirtualCenter(ctx)
+			if err != nil {
+				log.Errorf("Cannot recover task during deletion: %v", err)
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			if err := r.taskTracker.ensureInit(ctx, r.volumeManager, vc); err != nil {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			// Monitoring/deletion must not depend on a StorageClass that may
+			// have disappeared since submission. Only the stable name is needed.
+			name := staticPvNamePrefix + instance.Spec.VolumeID
+			if instance.Spec.VolumeID == "" {
+				name = staticPvNamePrefix + string(instance.UID)
+			}
+			spec := &cnstypes.CnsVolumeCreateSpec{Name: name}
+			_, retry, err := r.pollCreateVolume(ctx, instance, vc, spec, timeout)
+			if err != nil {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			if retry != nil {
+				return retry
+			}
+		} else if outcome.state == volumes.CreateVolumeTaskSucceeded {
+			if err := r.persistCnsExecution(ctx, instance, "", outcome.volInfo.VolumeID.Id); err != nil {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			r.taskTracker.forget(request.NamespacedName, taskID)
+		} else {
+			if err := setInstanceCnsTaskID(ctx, r, instance, ""); err != nil {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+			r.taskTracker.forget(request.NamespacedName, taskID)
 		}
 	}
-
-	r.taskTracker.forget(cr, taskID)
-	if err := setInstanceCnsTaskID(ctx, r, instance, ""); err != nil {
-		log.Errorf("failed to clear cnsTaskID during deletion of %s/%s: %v",
-			instance.Namespace, instance.Name, err)
-		return &reconcile.Result{RequeueAfter: timeout}
+	if volumeID := instance.Status.CnsVolumeID; volumeID != "" {
+		pv, err := r.k8sclient.CoreV1().PersistentVolumes().Get(ctx, staticPvNamePrefix+volumeID, metav1.GetOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return &reconcile.Result{RequeueAfter: timeout}
+		}
+		// Existing PVs go through the normal bound/ownership checks first.
+		if pv == nil {
+			if err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+				return &reconcile.Result{RequeueAfter: timeout}
+			}
+		}
 	}
 	return nil
+}
+
+func (r *ReconcileCnsRegisterVolume) taskVirtualCenter(ctx context.Context) (*cnsvsphere.VirtualCenter, error) {
+	if r.configInfo == nil {
+		return nil, fmt.Errorf("vCenter configuration is unavailable")
+	}
+	cfg, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
+	if err != nil {
+		return nil, err
+	}
+	return cnsvsphere.GetVirtualCenterInstanceForVCenterConfig(ctx, cfg, false)
 }

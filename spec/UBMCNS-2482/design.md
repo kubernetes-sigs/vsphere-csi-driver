@@ -3,6 +3,10 @@
 
 Jira: UBMCNS-2482.
 
+This implementation is based on upstream `6a84be7f` (PR #4402). SnapService restore must
+preserve [CNAS-12485](../CNAS-12485/spec.md), especially §6.2–§6.9 and the DP contract in §9.
+The async changes affect scheduling and recovery, not the source or ownership of snapshot charges.
+
 A `CnsRegisterVolume` (CRV) asks the Supervisor to import an existing disk (by `volumeID` or
 `diskURLPath`), create the PV and PVC for it, and report `status.registered=true`. VM Operator
 creates one CRV per disk when it imports or restores a VM, and VM Service waits 120s for each.
@@ -187,10 +191,12 @@ flowchart LR
 | Condition | `True` means | Set to `False` while |
 |---|---|---|
 | `SpecValidated` | The spec's own fields are well formed and, if a `storageClassName` is given, its storage policy is assigned to this namespace. No CNS call has been made yet. | The spec is malformed, or the namespace is not entitled to the requested storage policy. |
+| `RestoreValidated` | Restore preconditions and admission checks passed, or restore is not required. | Prerequisites/ownership cannot be read, another attempt is active, or another registration owns the restore. |
 | `CnsVolumeRegistered` | CNS has registered the disk and the volume exists. | The CRV is waiting for an in-flight task slot, or its CNS task is running, failed, or in an indeterminate state. |
 | `VolumeAccessible` | The registered volume's datastore is reachable from this cluster, its storage policy is compatible and present, and any host-local topology has been resolved. These are checked **against the volume CNS returned**, so they can only run once it exists. | A check against the registered volume failed. The CNS volume is deleted on this path, so the registration is undone rather than left half-made. |
 | `PvcBound` | The PV and PVC exist and the PVC reached `Bound`. | The Kubernetes objects are being created, or the PVC has not bound yet. |
 | `VMDeleteProtectionConfigured` | The required `keepAfterDeleteVm` clear succeeded and was recorded on the PVC, or clearing is not required. | Clearing or persisting its result has not succeeded; retries do not block binding. |
+| `RestoreMetadataConfigured` | Restored CVI handover completed, including a warning-only unseeded result, or handover is not required. | CVI handover or its condition write has not succeeded. |
 | `Ready` | Registration is complete. `True` exactly when `registered=true`. | Any of the above is not yet `True`, or the final bookkeeping is still in progress. |
 
 **Conditions are set lazily and never removed.** A condition appears the first time the controller
@@ -214,6 +220,13 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | | False | `InvalidSpec` | The spec itself is malformed or incomplete. |
 | | False | `StoragePolicyNotAssignedToNamespace` | The `storageClassName`'s policy is not assigned to this namespace. Checked before any CNS call so a namespace cannot register a volume with a policy it is not entitled to. |
 | | False | `StoragePolicyLookupFailed` | The policy for the StorageClass could not be resolved or its assignment could not be verified. |
+| `RestoreValidated` | True | `Validated` / `NotRequired` | Restore preconditions passed or the feature does not apply. |
+| | False | `WaitingForRestoreOwner` | Another attempt is active; retry without changing `status.error`. |
+| | False | `RestorePrecheckFailed` | Prerequisite, ownership read or reservation persistence failed; retry. |
+| | False | `RestoreNotProcessed` | Another registration stamped the volume; durable marker, no retry. |
+| `RestoreMetadataConfigured` | False | `ConfiguringRestoreMetadata` | Initial handover attempt after binding and VM-delete protection. |
+| | False | `RestoreMetadataFailed` | Retry the complete handover; do not publish registration success. |
+| | True | `RestoreMetadataConfigured` / `NotRequired` | Handover completed or is not applicable. |
 | `CnsVolumeRegistered` | True | `Registered` | The CNS volume exists. |
 | | False | `WaitingForTaskSlot` | The in-flight cap is full; retrying every 5s. Nothing has been sent to CNS. |
 | | False | `CnsTaskRunning` | The task is submitted and running. No worker is held. |
@@ -341,13 +354,20 @@ registration spec is.
 | Before the first submit | Empty or absent. The next pass submits. |
 | Immediately after a successful submit | Set to the task MoRef value, before anything else is done with the task. |
 | While the task runs | Unchanged. Each pass reads it, rebuilds the reference, and either finds a recorded outcome or re-subscribes to the listview. |
-| Task succeeded | Cleared, then `CnsVolumeRegistered=True` is published and the pass continues to the Kubernetes work. |
+| Task succeeded | Atomically replaced by `status.cnsVolumeID`, then `CnsVolumeRegistered=True` is published. Subsequent passes query the persisted volume ID and resume Kubernetes work. |
 | Task failed | Cleared, `status.error` is set and `CnsVolumeRegistered=False, reason=CnsTaskFailed`. The next pass submits a new task. |
 | Task state unknown | **Kept**, along with the in-flight slot. The CR must not resubmit while a task it cannot see may still be running. |
 | CR deleted with a task in flight | Kept until the task settles; the finalizer is held meanwhile. Cleared once any volume the task created has been cleaned up. |
 
-A cleared or failed task ID is never reused: the next attempt is a fresh submit with a fresh task,
-not a retry against the old reference.
+A failed task ID is not reused. A successful task becomes `status.cnsVolumeID` in the same
+optimistically locked status patch that clears its task ID. This optional controller-owned string
+is a recovery checkpoint, not a snapshot size or caller-supplied restore input. Its schema ships
+in the embedded CRD; conditions remain informational. The backend is queried before reusing the
+ID. Transport errors never authorize a new task; an authoritative missing-volume response clears
+the checkpoint for a later attempt. Cleanup clears it after undoing CNS registration.
+
+This closes the task-success-to-PV gap and avoids repeated CNS submissions while waiting for
+binding, VM-delete protection or CVI handover, including after task retention expires in vCenter.
 
 #### Writing it
 
@@ -356,13 +376,14 @@ not a retry against the old reference.
   what to do, so the error cannot be swallowed.
 - It is written **before** the listview subscription is attempted. A failed subscription is
   recoverable from a stored reference; a stored reference that was never written is not.
-- If the write fails, the in-flight slot is released and the pass requeues. The task continues on
-  CNS unobserved, and the next pass resubmits. That is safe because CNS answers a repeat
-  registration of the same disk with `CnsAlreadyRegisteredFault`, which the shared decoding helpers
-  map to success, and because the volume name is derived from the CR UID so the same name is reused.
-- `patchCnsRegisterVolumeStatus` includes `cnsTaskID` in a patch when it holds a value or is being
-  cleared, and omits it otherwise. Omitting leaves the stored value untouched; clearing matters
-  because a stale task ID would make the next pass resolve a task it is already finished with.
+- If the task-ID write fails, retain the reference in the tracker's capacity slot and retry the
+  write on the next pass. Do not resubmit in the same process. A crash before the task ID becomes
+  durable still leaves the existing submit/persist uncertainty window; the restore reservation
+  prevents a different CR from taking over, but cannot recover the lost task reference itself.
+- `persistCnsExecution` uses a resourceVersion precondition; conflicts return to a fresh reconcile.
+  The successful result is kept in memory until its status write succeeds. Diagnostic status
+  patches omit unchanged execution fields, so a condition write cannot overwrite a newer task ID.
+- Reconcile reads the CR through the uncached API reader before making execution decisions.
 
 ### 2.6 Compatibility
 
@@ -376,8 +397,8 @@ The CRD change is additive and optional, and nothing outside CSI writes this sta
 - **`VKSRegisterVolume`**, the in-tree consumer, is read-only and reads only `Spec.PvcName`,
   `Status.Registered` and `Status.Error`. Untouched, as is its guest-flavor and FSS gating.
 - **VM Operator e2e** waits on `status.registered`, which is written at the same points as before.
-- `registered` and `error` keep their exact meaning. The additions are `conditions` and
-  `cnsTaskID`, both optional.
+- `registered` and `error` keep their exact meaning. The additions are `conditions`,
+  `cnsTaskID` and `cnsVolumeID`, all optional.
 - No change to the `volumes.Manager` interface or the listview, and the syncer's volume manager
   still gets no operation store. The new volume-package code is additive.
 
@@ -402,8 +423,10 @@ flowchart TD
     B -->|No| C{"registered?"}
     C -->|Yes| END0["Done"]
     C -->|No| V["Add finalizer, validate spec<br/>mark SpecValidated"]
-    V --> S{"cnsTaskID set?"}
-    S -->|No| SUB["Take slot, submit task,<br/>persist cnsTaskID, watch<br/>(return, worker free)"]
+    V --> R{"cnsVolumeID set?"}
+    R -->|Yes| ACC
+    R -->|No| S{"cnsTaskID set?"}
+    S -->|No| SUB["Take slot, submit task,<br/>reserve restore if applicable,<br/>persist cnsTaskID, watch<br/>(return, worker free)"]
     S -->|Yes| POLL["Resolve task (3.4)"]
     POLL -->|succeeded| ACC["mark CnsVolumeRegistered<br/>check datastore and policy<br/>against the returned volume"]
     POLL -->|"running / unknown / failed"| WAIT["Return and wait"]
@@ -497,7 +520,7 @@ sequenceDiagram
     G->>T: store outcome, RemoveTask
     G->>W: GenericEvent wakes the CRV
     W->>T: outcome(task), map lookup
-    W->>W: clear cnsTaskID, continue with PV and PVC
+    W->>W: persist cnsVolumeID and clear cnsTaskID, continue with PV and PVC
 ```
 
 The wake-up uses a `source.Channel` watch registered in `add()`. The controller's
@@ -518,7 +541,7 @@ flowchart TD
     AT -->|No| DIR["Read task directly<br/>from vCenter once"]
     O -->|Yes| ST{"State"}
     DIR --> ST
-    ST -->|Succeeded| OK["Clear cnsTaskID,<br/>CnsVolumeRegistered=True"]
+    ST -->|Succeeded| OK["Persist cnsVolumeID, clear cnsTaskID,<br/>CnsVolumeRegistered=True"]
     ST -->|Failed| F["Clear cnsTaskID, set error,<br/>reason=CnsTaskFailed,<br/>resubmit after backoff"]
     ST -->|"Unknown / Running"| U["Keep cnsTaskID and slot,<br/>requeue 10s"]
 ```
@@ -545,7 +568,7 @@ Failure and restart handling:
 |---|---|
 | Syncer restarts with a task running | The CRV still has `cnsTaskID`. The next pass finds no watcher and re-subscribes via `AddTask`. If the task is gone from vCenter, it is read directly. No new submit. |
 | Crash after submit, before `cnsTaskID` is persisted | The task runs on CNS with no reference. The next pass resubmits, which is safe because CNS answers a repeat registration of the same disk with `CnsAlreadyRegisteredFault`, mapped to success by the shared decoding helpers. The deterministic volume name lets the volume be found by name. |
-| `cnsTaskID` patch fails | Slot released and requeue; same resubmit path. |
+| `cnsTaskID` patch fails | Keep the reference in the tracker slot; retry persistence without resubmitting. |
 | `AddTask` fails after submit | The task is submitted and recorded; only the subscription failed. Not fatal. The safety requeue retries it. |
 
 ### 3.6 Deletion with a task in flight
@@ -553,10 +576,10 @@ Failure and restart handling:
 ```mermaid
 flowchart TD
     D["reconcileDelete"] --> T{"cnsTaskID set?"}
-    T -->|No| N["Normal cleanup"]
+    T -->|No| N["Check persisted volume result,<br/>bound PV and restore ownership,<br/>then normal cleanup"]
     T -->|Yes| O{"Task finished?"}
     O -->|No| H["Hold finalizer, requeue 10s"]
-    O -->|Yes| C["Delete the volume the task<br/>created, if any"]
+    O -->|Yes| C["Persist successful result<br/>before releasing task"]
     C --> N
 ```
 
@@ -586,6 +609,77 @@ The condition and task-ID semantics are in 2.4 and 2.5; this is how the writes a
   `predicate.GenerationChangedPredicate`, and a status-subresource write does not bump
   `metadata.generation`.
 - **CRD delivery.** The schema is structural, so an undeclared status field would be silently
-  pruned. `conditions` and `cnsTaskID` are declared in the embedded CRD, which the syncer applies
+  pruned. `conditions`, `cnsTaskID` and `cnsVolumeID` are declared in the embedded CRD, which the syncer applies
   before any controller starts. A unit test asserts the shipped CRD declares them, including the
   `x-kubernetes-list-type: map` keyed by `type` on `conditions`.
+
+
+## 4. SnapService restore across async reconciles
+
+### 4.1 CNAS-12485 contract
+
+| Contract | Async implementation |
+|---|---|
+| D2, D3, D5: read the DVI directly; seed on CVI creation; never overwrite an aggregate | Keep `CreateOrUpdateRestoredVolumeInfo` unchanged. No snapshot size, validity or timestamp is added to CRV spec or status. `cnsVolumeID` is only the CNS registration task result. |
+| D6, D10: restore finalizer and DPO ownership | Keep the finalizer in the CVI Create. CSI neither writes/deletes DVIs nor removes the SnapService finalizer. |
+| D11/D12, §6.1–6.3: explicit annotation, capability and matching DVI | Retain the feature/service gates and namespace/volume identity checks. Missing prerequisites retry with `status.error`; no new task, PV or PVC is created. |
+| §6.7: stamped retries continue after DVI removal | Own PV/CVI stamps bypass the precheck. An existing task is monitored without re-submission, then prerequisites are checked again before Kubernetes work if no stamp exists yet. |
+| D13/D15, §6.9: first stamp wins | Keep the per-reconcile lock and conditional PV/CVI stamps. A temporary reservation bridges the async gap before a stamp, and does not itself establish ownership. |
+| D14, §6.8: CVI owns `SnapshotSizeRestored` | Do not copy it onto CRV or gate registration on it being True. Full sync retains its False-to-True behavior. |
+| D16: never mutate another registration's volume | Preserve PV checks before recreation/deletion; check CVI ownership before CNS cleanup, including cleanup of a task that completes during deletion. |
+| §6.4/6.5: safe handover and no accounting gap | Continue to use one CVI Create for the seed, finalizer and stamp, followed by the CVI status patch. Unchanged resourceVersion retry rules protect concurrent writers. |
+| §10: missing seed after precheck is a warning | A completed unseeded handover reports `RestoreMetadataConfigured=True`; CVI reports `SnapshotSizeRestored=False`. Registration may finish normally. |
+
+`RestoreValidated` is mirrored between `SpecValidated` and `CnsVolumeRegistered`.
+`RestoreMetadataConfigured` is mirrored after `VMDeleteProtectionConfigured`. Both are lazy,
+observational conditions. Existing CRs without them remain valid. `registered=true` and
+`Ready=True` are still the only completion publication, after quota bookkeeping.
+
+### 4.2 Reservation lifecycle
+
+The existing in-memory restore lock is still acquired before the ownership check and released
+on every reconcile exit. The single leader additionally persists
+`cns.vmware.com/restore-volume-id=<volume UUID>` on the CR, after validation and task-cap admission,
+before submitting CNS work. While holding the lock, a competing unstamped restore lists matching
+CRs through the API reader with a server-side label selector. This is across namespaces because
+a Supervisor's vCenter volume ID is global. No PVC/PV informer or DVI write is added.
+
+A pending reservation means **wait**, not **not processed**. Completed and not-processed CRs do
+not reserve work. Terminating CRs do reserve it until their finalizers settle outstanding tasks
+and cleanup. A definitive task failure or successful CNS cleanup releases the reservation so
+another attempt can proceed if no stamp exists. Read/write errors retain the reservation rather
+than allowing overlapping operations. Reservations survive restart and PV recreation without
+holding a worker or an in-memory mutex across reconciles.
+
+The first live PV/CVI stamp remains authoritative. Once another CR owns that stamp, retain
+CNAS-12485's not-processed marker, final status error and no-retry behavior. Ownership metadata
+is not inferred from conditions. Ordinary unannotated registrations remain outside this restore
+serialization, as explicitly scoped in CNAS-12485 §6.9.
+
+### 4.3 Handover and deletion
+
+After binding and VM-delete-protection configuration, invoke the existing handover helper.
+A missing/deleting PV, a terminating CVI, DVI API error or failed CVI write retries without quota
+writes or success publication. An unseeded warning outcome completes the handover. Repeating a
+handover never overwrites an existing snapshot aggregate or resets the CVI condition after DPO
+has removed its DVI. Full-sync recovery is unchanged.
+
+Deletion re-establishes monitoring of an outstanding task after restart. Unknown task state keeps
+the finalizer, task reference and reservation. A successful result is persisted before any cleanup.
+Existing PVs go through bound/ownership checks before CNS cleanup; a missing PV also requires
+checking CVI ownership. A task result must never cause another registration's CNS volume to be
+untagged before those checks.
+
+### 4.4 Validation
+
+Retain and run all tests introduced by PR #4402: CVI/DVI service and schema tests, registration
+precheck/ownership/stamp/handover tests, full-sync restore tests, DVI activation/accounting/scope
+tests, CRD installation tests, and WCP regression tests. Add async coverage for:
+
+- competing CRs across requeue/restart before any PV exists; a reservation waits and a stamp rejects;
+- failed attempts releasing reservations, with unknown tasks retaining theirs;
+- task success persisted before releasing its result, and retries after persistence failure;
+- restart after success without resubmission during bind/finalization;
+- handover failure and warning-only completion, Ready mirroring and stable transition times;
+- delete with an unknown task, and a completed task whose PV belongs to another restore;
+- stale execution writes conflicting, and the embedded schema preserving successful volume IDs.

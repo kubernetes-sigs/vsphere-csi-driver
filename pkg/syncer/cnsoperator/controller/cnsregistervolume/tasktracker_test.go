@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	cnsregistervolumev1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/cnsregistervolume/v1alpha1"
 	volumes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/volume"
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
 )
@@ -354,10 +355,9 @@ func wireAsyncCnsTaskSuccess(r *ReconcileCnsRegisterVolume) func() {
 	return func() { submitCreateVolumeTaskFn = orig }
 }
 
-// reconcileUntilSettled drives Reconcile the way the work queue would, until it
-// stops asking to be requeued. A single call no longer takes a CR from created
-// to registered, because the CNS task wait and the PVC bind wait both release
-// the worker and resume on a later pass.
+// reconcileUntilSettled consumes the fake task's completion, then returns at
+// the first external wait (binding, VSLM, quota, etc.). Those waits need a test
+// state change, not a tight retry loop that fills the fake event recorder.
 func reconcileUntilSettled(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	req reconcile.Request) (reconcile.Result, error) {
 	var (
@@ -368,6 +368,13 @@ func reconcileUntilSettled(ctx context.Context, r *ReconcileCnsRegisterVolume,
 		result, err = r.Reconcile(ctx, req)
 		if err != nil || result.RequeueAfter == 0 {
 			return result, err
+		}
+		current := &cnsregistervolumev1alpha1.CnsRegisterVolume{}
+		if getErr := r.client.Get(ctx, req.NamespacedName, current); getErr != nil {
+			return result, getErr
+		}
+		if current.Status.CnsTaskID == "" {
+			return result, nil
 		}
 	}
 	return result, err

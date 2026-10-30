@@ -62,6 +62,9 @@ func newAsyncTestReconciler(t *testing.T, instance *cnsregistervolumev1alpha1.Cn
 		taskTracker: newCnsTaskTracker(lv, nil, events, maxInFlight),
 		taskEvents:  events,
 	}
+	if err := c.Get(context.Background(), instanceKey(instance), instance); err != nil {
+		t.Fatal(err)
+	}
 	return r, lv, events
 }
 
