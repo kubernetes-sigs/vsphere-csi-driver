@@ -21,8 +21,11 @@ import (
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"google.golang.org/grpc/codes"
 
 	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/wcpguest/nfsdriver"
 )
@@ -30,6 +33,13 @@ import (
 // IsGuestNFSVolumeID reports whether id was minted by createGuestNFSVolume.
 func IsGuestNFSVolumeID(id string) bool {
 	return nfsdriver.IsGuestVolumeID(id)
+}
+
+// isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled. Every guest
+// NFS volume operation is gated on it.
+func isGuestNFSEnabled(ctx context.Context) bool {
+	return commonco.ContainerOrchestratorUtility != nil &&
+		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.GuestNFSVolume)
 }
 
 // hasNFSServerParam reports whether params selects the guest-local NFS driver backend, i.e.
@@ -51,6 +61,14 @@ func (c *controller) createGuestNFSVolume(ctx context.Context, req *csi.CreateVo
 	*csi.CreateVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
 
+	// Without this check a "server" parameter would fall through to the Supervisor path and be
+	// rejected there as an unknown parameter, which is a confusing error for the user.
+	if !isGuestNFSEnabled(ctx) {
+		return nil, csifault.CSIInvalidArgumentFault, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"StorageClass parameter %q selects guest NFS volumes, but the %q feature state is disabled",
+			"server", common.GuestNFSVolume)
+	}
+
 	resp, err := nfsdriver.GetOrCreateDriver().ControllerServer().CreateVolume(ctx, req)
 	if err != nil {
 		log.Errorf("createGuestNFSVolume: CreateVolume failed for %q: %v", req.GetName(), err)
@@ -65,6 +83,15 @@ func (c *controller) createGuestNFSVolume(ctx context.Context, req *csi.CreateVo
 func (c *controller) deleteGuestNFSVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (
 	*csi.DeleteVolumeResponse, string, error) {
 	log := logger.GetLogger(ctx)
+
+	// Fail rather than fall through to the Supervisor path, which would not find a PVC and
+	// report success, orphaning the folder on the NFS server. The external-provisioner retries
+	// until the feature state is enabled again.
+	if !isGuestNFSEnabled(ctx) {
+		return nil, csifault.CSIInternalFault, logger.LogNewErrorCodef(log, codes.FailedPrecondition,
+			"cannot delete guest NFS volume %q: the %q feature state is disabled",
+			req.VolumeId, common.GuestNFSVolume)
+	}
 
 	req.VolumeId = strings.TrimPrefix(req.VolumeId, nfsdriver.VolumeIDPrefix)
 	resp, err := nfsdriver.GetOrCreateDriver().ControllerServer().DeleteVolume(ctx, req)

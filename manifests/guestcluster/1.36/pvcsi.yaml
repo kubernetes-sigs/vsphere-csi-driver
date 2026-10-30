@@ -756,6 +756,7 @@ data:
   "vsan-file-volume-service-support": "false"
   "CSI_Backup_API": "false"
   "improved-volume-visibility": "true"
+  "guest-nfs-volume": "false" # guest-local NFS volumes (server StorageClass parameter); no Supervisor dependency
   "host-local-storage-support": "false"
   "supports_exposing_storage_policy_attributes": "false" # same name as supervisor capability; effective only when supervisor capability is also enabled
   "vks-register-volume": "false"
