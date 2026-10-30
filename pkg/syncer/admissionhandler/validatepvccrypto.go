@@ -20,7 +20,7 @@ func validatePVCRequestForCrypto(
 	cryptoClient crypto.Client,
 	request admission.Request) admission.Response {
 
-	if request.Operation != admissionv1.Create || request.Operation == admissionv1.Update {
+	if request.Operation != admissionv1.Create && request.Operation != admissionv1.Update {
 		return admission.Allowed("")
 	}
 
@@ -32,6 +32,21 @@ func validatePVCRequestForCrypto(
 		reason := "skipped validation when failed to deserialize PVC from new request object"
 		log.Warn(reason)
 		return admission.Allowed(reason)
+	}
+
+	if request.Operation == admissionv1.Update {
+		oldPVC := &corev1.PersistentVolumeClaim{}
+		if err := json.Unmarshal(request.OldObject.Raw, oldPVC); err != nil {
+			log.Errorf("error unmarshalling old pvc: %v", err)
+			reason := "skipped validation when failed to deserialize PVC from old request object"
+			log.Warn(reason)
+			return admission.Allowed(reason)
+		}
+		// Only validate updates that add or change the EncryptionClass annotation, so that
+		// unrelated updates (e.g. finalizer or label changes) on existing PVCs are not blocked.
+		if crypto.GetEncryptionClassNameForPVC(newPVC) == crypto.GetEncryptionClassNameForPVC(oldPVC) {
+			return admission.Allowed("")
+		}
 	}
 
 	fieldErrs := validatePVCCrypto(ctx, cryptoClient, newPVC)
