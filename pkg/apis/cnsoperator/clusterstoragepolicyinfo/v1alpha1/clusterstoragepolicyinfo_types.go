@@ -34,6 +34,13 @@ const (
 // ClusterStoragePolicyInfoStatus defines the observed state of ClusterStoragePolicyInfo.
 // +k8s:openapi-gen=true
 type ClusterStoragePolicyInfoStatus struct {
+	// VolumeClassName is the authoritative Kubernetes-compliant name of the
+	// storage policy in vCenter. Empty means identity is unresolved or the policy
+	// is deleted. A value differing from this object's name identifies an upgraded
+	// StorageClass alias for which InfraSPI and namespace SPIs are not created.
+	// +optional
+	VolumeClassName string `json:"volumeClassName,omitempty"`
+
 	// StoragePolicyDeleted indicates whether the underlying storagepolicy is deleted or not on the VC.
 	// +optional
 	StoragePolicyDeleted bool `json:"storagePolicyDeleted"`

@@ -407,11 +407,14 @@ func (r *ReconcileClusterStoragePolicyInfo) mapObjectToClusterSPI(ctx context.Co
 		return nil
 	}
 
-	// If this is a StorageClass, skip WFFC StorageClasses
+	// Ignore other provisioners and WFFC StorageClasses at the watch boundary.
 	if sc, ok := obj.(*storagev1.StorageClass); ok {
-		if storageClassIsWaitForFirstConsumer(sc) {
+		if sc.Provisioner != common.VSphereCSIDriverName || storageClassIsWaitForFirstConsumer(sc) {
 			return nil
 		}
+	}
+	if vac, ok := obj.(*storagev1.VolumeAttributesClass); ok && vac.DriverName != common.VSphereCSIDriverName {
+		return nil
 	}
 
 	return []reconcile.Request{{NamespacedName: apitypes.NamespacedName{Name: obj.GetName()}}}
@@ -506,7 +509,7 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	}
 
 	// Handle creation and owner reference management
-	instance, wasCreated, err := r.ensureClusterSPIExistsInReconcile(ctx, instance, request.Name)
+	instance, wasCreated, backingPolicyID, err := r.ensureClusterSPIExistsInReconcile(ctx, instance, request.Name)
 	if err != nil {
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
@@ -527,20 +530,6 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	// Snapshot the status so setters below can skip the write if unchanged.
 	origClusterStatus := instance.Status.DeepCopy()
 
-	// Ensure InfraStoragePolicyInfo CR exists with the same name
-	infraSPI, err := r.ensureInfraSPIExists(ctx, instance)
-	if err != nil {
-		log.Errorf("Failed to ensure InfraStoragePolicyInfo exists for %q: %v", request.Name, err)
-		errorMsg := fmt.Sprintf("Failed to ensure InfraStoragePolicyInfo exists: %v", err)
-		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
-			log.Errorf("Failed to set error status: %v", setErr)
-		}
-		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
-	}
-
-	// Snapshot the status so setters below can skip the write if unchanged.
-	origInfraStatus := infraSPI.Status.DeepCopy()
-
 	// Connect to vCenter.
 	vcconfig, err := cnsvsphere.GetVirtualCenterConfig(ctx, r.configInfo.GetCfg())
 	var vc *cnsvsphere.VirtualCenter
@@ -556,24 +545,36 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
 
-	// Find storage policy profile by K8s compliant name
-	profile, policyDeleted, err := findStoragePolicyProfile(ctx, instance, vc)
+	profile, skip, err := r.resolveClusterSPIPolicyIdentity(ctx, instance, backingPolicyID, vc)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Failed to lookup storage policy: %v", err)
+		errorMsg := fmt.Sprintf("Failed to resolve storage policy identity: %v", err)
 		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
 			log.Errorf("Failed to set error status: %v", setErr)
 		}
 		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
 	}
-	if policyDeleted {
-		// Policy was deleted - update status and return success
+	if skip {
 		if statusErr := r.setClusterSPISuccess(ctx, instance, origClusterStatus,
-			"Storage policy deleted from vCenter"); statusErr != nil {
-			log.Errorf("failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
+			"Storage policy identity resolved; skipping InfraStoragePolicyInfo creation"); statusErr != nil {
+			log.Errorf("Failed to update status for ClusterStoragePolicyInfo %q: %v", request.Name, statusErr)
 			return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, statusErr)
 		}
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 	}
+
+	// Only a resolved canonical ClusterSPI may own an InfraSPI.
+	infraSPI, err := r.ensureInfraSPIExists(ctx, instance)
+	if err != nil {
+		log.Errorf("Failed to ensure InfraStoragePolicyInfo exists for %q: %v", request.Name, err)
+		errorMsg := fmt.Sprintf("Failed to ensure InfraStoragePolicyInfo exists: %v", err)
+		if setErr := r.setClusterSPIError(ctx, instance, origClusterStatus, errorMsg); setErr != nil {
+			log.Errorf("Failed to set error status: %v", setErr)
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+
+	// Snapshot the status so setters below can skip the write if unchanged.
+	origInfraStatus := infraSPI.Status.DeepCopy()
 
 	rawProfiles, err := vc.PbmRetrieveContentRaw(ctx, []string{profile.ID})
 	if err != nil {
@@ -625,43 +626,87 @@ func (r *ReconcileClusterStoragePolicyInfo) Reconcile(ctx context.Context,
 	return r.completeReconciliationWithSuccess(ctx, request.NamespacedName, timeout)
 }
 
+// resolveClusterSPIPolicyIdentity resolves the policy represented by instance and
+// publishes its authoritative K8s-compliant name. It returns skip=true when the
+// policy was deleted or instance represents an upgraded alias, in which case an
+// InfraStoragePolicyInfo must not be created.
+func (r *ReconcileClusterStoragePolicyInfo) resolveClusterSPIPolicyIdentity(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, backingPolicyID string,
+	vc *cnsvsphere.VirtualCenter) (*cnsvsphere.ProfileDetail, bool, error) {
+	log := logger.GetLogger(ctx)
+
+	// Resolve by expected K8s-compliant name, falling back to the backing SC/VAC
+	// policy ID to distinguish deletion from an upgraded alias.
+	profile, policyDeleted, err := resolveStoragePolicyProfile(ctx, instance, backingPolicyID, vc)
+	if err != nil {
+		return nil, false, err
+	}
+	if policyDeleted {
+		instance.Status.VolumeClassName = ""
+		log.Infof("Storage policy for ClusterStoragePolicyInfo %q was deleted from vCenter; "+
+			"skipping InfraStoragePolicyInfo creation", instance.Name)
+		return nil, true, nil
+	}
+
+	instance.Status.VolumeClassName = profile.K8sCompliantName
+	if profile.K8sCompliantName == instance.Name {
+		return profile, false, nil
+	}
+
+	log.Infof("Storage policy ID %q has authoritative K8s compliant name %q; "+
+		"ClusterStoragePolicyInfo %q is an upgraded alias, skipping InfraStoragePolicyInfo creation",
+		profile.ID, profile.K8sCompliantName, instance.Name)
+	return nil, true, nil
+}
+
 // ensureClusterSPIExistsInReconcile handles ClusterStoragePolicyInfo creation and owner reference
 // management in Reconcile.
-// Returns (instance, wasCreated, error).
+// Returns (instance, wasCreated, backingPolicyID, error).
 func (r *ReconcileClusterStoragePolicyInfo) ensureClusterSPIExistsInReconcile(ctx context.Context,
 	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, name string) (
-	*clusterspiv1alpha1.ClusterStoragePolicyInfo, bool, error) {
+	*clusterspiv1alpha1.ClusterStoragePolicyInfo, bool, string, error) {
 	// Check what resources exist
 	sc, err := r.checkStorageClassExists(ctx, name)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 
 	vac, err := r.checkVolumeAttributesClassExists(ctx, name)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 
-	// Get or create the ClusterStoragePolicyInfo with owner references
+	// Get or create the ClusterStoragePolicyInfo with owner references before validating policy IDs.
 	instance, wasCreated, err := r.ensureClusterSPIInstance(ctx, instance, name, sc, vac)
-	return instance, wasCreated, err
+	if err != nil {
+		return nil, false, "", err
+	}
+
+	policyID, err := storagePolicyIDFromBackingResources(sc, vac)
+	if err != nil {
+		return nil, false, "", err
+	}
+
+	return instance, wasCreated, policyID, nil
 }
 
-// checkStorageClassExists checks if a StorageClass with the given name exists and is valid.
+// checkStorageClassExists returns the same-named vSphere CSI StorageClass, ignoring other provisioners.
 func (r *ReconcileClusterStoragePolicyInfo) checkStorageClassExists(ctx context.Context,
 	name string) (*storagev1.StorageClass, error) {
 	sc := &storagev1.StorageClass{}
 
-	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, sc); err == nil {
-		return sc, nil
-	} else if !apierrors.IsNotFound(err) {
-		return nil, err
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, sc); err != nil {
+		return nil, client.IgnoreNotFound(err)
 	}
-
-	return nil, nil
+	if sc.Provisioner != common.VSphereCSIDriverName {
+		logger.GetLogger(ctx).Debugf("Ignoring StorageClass %q with non-vSphere CSI provisioner %q",
+			name, sc.Provisioner)
+		return nil, nil
+	}
+	return sc, nil
 }
 
-// checkVolumeAttributesClassExists checks if a VolumeAttributesClass with the given name exists.
+// checkVolumeAttributesClassExists returns the same-named vSphere CSI VAC, ignoring other drivers.
 func (r *ReconcileClusterStoragePolicyInfo) checkVolumeAttributesClassExists(ctx context.Context,
 	name string) (*storagev1.VolumeAttributesClass, error) {
 	log := logger.GetLogger(ctx)
@@ -669,21 +714,21 @@ func (r *ReconcileClusterStoragePolicyInfo) checkVolumeAttributesClassExists(ctx
 
 	vacSupported, vacErr := volumeAttributesClassAPIAvailable(r.mgr)
 	if vacErr != nil {
-		log.Warnf("Could not discover VolumeAttributesClass API; skipping VAC lookup. Err: %v", vacErr)
-		return nil, nil
+		return nil, fmt.Errorf("failed to discover VolumeAttributesClass API: %w", vacErr)
 	}
 
 	if !vacSupported {
 		return nil, nil
 	}
 
-	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, vac); err == nil {
-		return vac, nil
-	} else if !apierrors.IsNotFound(err) {
-		return nil, err
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, vac); err != nil {
+		return nil, client.IgnoreNotFound(err)
 	}
-
-	return nil, nil
+	if vac.DriverName != common.VSphereCSIDriverName {
+		log.Debugf("Ignoring VolumeAttributesClass %q with non-vSphere CSI driver %q", name, vac.DriverName)
+		return nil, nil
+	}
+	return vac, nil
 }
 
 // ensureClusterSPIInstance ensures the ClusterStoragePolicyInfo instance exists when SC or VAC exists.
@@ -1014,7 +1059,7 @@ func (r *ReconcileClusterStoragePolicyInfo) populateTopologyCapabilities(ctx con
 	// parameter when a StorageClass references the policy; otherwise derive it directly from the
 	// policy's PBM capabilities. Deriving from PBM lets us populate topology for policies whose CRs
 	// were created ahead of any StorageClass (see full sync).
-	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
+	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID, clusterSPI.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
