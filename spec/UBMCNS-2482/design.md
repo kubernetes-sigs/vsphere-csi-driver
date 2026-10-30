@@ -618,6 +618,8 @@ The condition and task-ID semantics are in 2.4 and 2.5; this is how the writes a
 
 ### 4.1 CNAS-12485 contract
 
+The contract below follows the [CNAS-12485 SnapService restore design spec](https://github.com/deepakkinni/vsphere-csi-driver/blob/topic/dk016388/cvi_create_dvi_v1/spec/CNAS-12485/spec.md).
+
 | Contract | Async implementation |
 |---|---|
 | D2, D3, D5: read the DVI directly; seed on CVI creation; never overwrite an aggregate | Keep `CreateOrUpdateRestoredVolumeInfo` unchanged. No snapshot size, validity or timestamp is added to CRV spec or status. `cnsVolumeID` is only the CNS registration task result. |
