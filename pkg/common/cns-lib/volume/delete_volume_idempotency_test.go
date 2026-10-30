@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cnsvsphere "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/vsphere"
+	csifault "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/fault"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest"
 	cnsvolumeoprequestv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeoperationrequest/v1alpha1"
@@ -57,14 +58,23 @@ func (f *fakeOperationStore) HasPriorSuccessfulCreate(ctx context.Context, name 
 }
 
 // fakeListView fails AddTask with a caller supplied error, which is how
-// waitOnTask surfaces both terminally failed tasks and unobservable ones.
+// waitOnTask surfaces both terminally failed tasks and unobservable ones. When
+// deliverEmptyResult is set, AddTask succeeds and delivers an empty TaskResult,
+// so waitOnTask returns a nil TaskInfo together with a nil error.
 type fakeListView struct {
-	addTaskErr error
+	addTaskErr         error
+	deliverEmptyResult bool
 }
 
 func (f *fakeListView) AddTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference,
 	ch chan TaskResult) error {
-	return f.addTaskErr
+	if f.addTaskErr != nil {
+		return f.addTaskErr
+	}
+	if f.deliverEmptyResult {
+		ch <- TaskResult{}
+	}
+	return nil
 }
 
 func (f *fakeListView) RemoveTask(ctx context.Context, taskMoRef vim25types.ManagedObjectReference) error {
@@ -86,13 +96,20 @@ func (f *fakeListView) SetListViewNotReady(ctx context.Context) {}
 // newDeleteVolumeTestManager builds a defaultManager whose DeleteVolume task is
 // resumed from the operation store and whose task polling fails with waitErr.
 func newDeleteVolumeTestManager(store *fakeOperationStore, waitErr error) *defaultManager {
+	return newDeleteVolumeTestManagerWithListView(store, &fakeListView{addTaskErr: waitErr})
+}
+
+// newDeleteVolumeTestManagerWithListView is newDeleteVolumeTestManager with a
+// caller supplied listview.
+func newDeleteVolumeTestManagerWithListView(store *fakeOperationStore,
+	listView ListViewIf) *defaultManager {
 	return &defaultManager{
 		virtualCenter: &cnsvsphere.VirtualCenter{
 			Config: &cnsvsphere.VirtualCenterConfig{},
 			Client: &govmomi.Client{Client: &vim25.Client{}},
 		},
 		operationStore:             store,
-		listViewIf:                 &fakeListView{addTaskErr: waitErr},
+		listViewIf:                 listView,
 		idempotencyHandlingEnabled: true,
 	}
 }
@@ -160,6 +177,36 @@ func TestDeleteVolumeRecordsErrorWhenTaskPollingFails(t *testing.T) {
 					"re-reads the dead task instead of invoking CNS DeleteVolume again")
 		})
 	}
+}
+
+// TestDeleteVolumeRecordsErrorWhenTaskInfoIsEmpty covers waitOnTask returning a
+// nil TaskInfo together with a nil error. That must not be reported to CSI as a
+// successful delete, and the record must leave "InProgress" so the next retry
+// invokes CNS again.
+func TestDeleteVolumeRecordsErrorWhenTaskInfoIsEmpty(t *testing.T) {
+	const (
+		volumeID     = "test-volume-id"
+		instanceName = "delete-" + volumeID
+		taskID       = "task-55858"
+	)
+	ctx := logger.NewContextWithLogger(context.Background())
+	store := newFakeOperationStore()
+	seedPendingDelete(store, instanceName, taskID)
+	m := newDeleteVolumeTestManagerWithListView(store, &fakeListView{deliverEmptyResult: true})
+
+	faultType, err := m.deleteVolumeWithImprovedIdempotency(ctx, volumeID, true, false)
+	assert.Error(t, err, "an empty task info must not be reported as a successful delete")
+	assert.Equal(t, csifault.CSITaskInfoEmptyFault, faultType)
+
+	record := store.records[instanceName]
+	assert.NotNil(t, record)
+	assert.Equal(t, cnsvolumeoperationrequest.TaskInvocationStatusError,
+		record.OperationDetails.TaskStatus,
+		"the record must be marked Error so the next retry creates a new task")
+	assert.Equal(t, taskID, record.OperationDetails.TaskID,
+		"the task ID must be retained for traceability")
+	assert.False(t, IsTaskPending(record),
+		"an Error record must not be treated as pending")
 }
 
 // TestDeleteVolumeResumesTaskOnListViewAdditionFailure pins the deliberate
