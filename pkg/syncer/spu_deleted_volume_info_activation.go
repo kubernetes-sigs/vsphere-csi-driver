@@ -18,11 +18,8 @@ package syncer
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/cache"
@@ -31,11 +28,12 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 )
 
-const (
-	deletedVolumeInfoStartupRetryInterval = 5 * time.Second
-	deletedVolumeInfoPollInterval         = 5 * time.Minute
-)
+// deletedVolumeInfoInstallRetryInterval is the wait between attempts to install the
+// CnsDeletedVolumeInfo CRD at startup.
+const deletedVolumeInfoInstallRetryInterval = 5 * time.Second
 
+// newDeletedVolumeInfoClient returns the client of the CnsDeletedVolumeInfo informer, or nil when
+// SnapService local protection is disabled and no CnsDeletedVolumeInfo is read.
 func newDeletedVolumeInfoClient(ctx context.Context, enabled bool) (dynamic.Interface, error) {
 	if !enabled {
 		return nil, nil
@@ -47,40 +45,20 @@ func newDeletedVolumeInfoClient(ctx context.Context, enabled bool) (dynamic.Inte
 	return dynamic.NewForConfig(cfg)
 }
 
-func deletedVolumeInfoAPIAvailable(ctx context.Context, c dynamic.Interface) (bool, error) {
-	// Probe the resource endpoint, not an individual DVI or the CRD object. This
-	// uses existing list RBAC; an empty successful list still means installed.
-	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	_, err := c.Resource(deletedVolumeInfoGVR).Namespace(metav1.NamespaceAll).
-		List(probeCtx, metav1.ListOptions{Limit: 1})
-	if apierrors.IsNotFound(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("discover DeletedVolumeInfo API: %w", err)
-	}
-	return true, nil
-}
-
-// initializeDeletedVolumeInfo fixes accounting mode before the reconciler starts.
-// Only confirmed absence permits CVI-only accounting. Startup API errors retry
-// without publishing partial usage. Later installation is activated by a restart.
-func initializeDeletedVolumeInfo(ctx context.Context, c dynamic.Interface,
-	startupRetryInterval, pollInterval time.Duration, restart func()) (cache.SharedIndexInformer, error) {
+// initializeDeletedVolumeInfo installs the CnsDeletedVolumeInfo CRD and returns its informer. It
+// retries the installation until it succeeds or ctx is canceled, so that the snapshot
+// StoragePolicyUsage reconciler never publishes Used from CnsVolumeInfo CRs alone. A nil client
+// means the capability is disabled: nothing is installed and no informer is returned.
+func initializeDeletedVolumeInfo(ctx context.Context, c dynamic.Interface, retryInterval time.Duration,
+	installCRD func(context.Context) error) (cache.SharedIndexInformer, error) {
 	if c == nil {
 		return nil, nil
 	}
 	log := logger.GetLogger(ctx)
-	var available bool
-	err := wait.PollUntilContextCancel(ctx, startupRetryInterval, true, func(ctx context.Context) (bool, error) {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		var err error
-		available, err = deletedVolumeInfoAPIAvailable(ctx, c)
-		if err != nil {
-			log.Warnf("Cannot determine DeletedVolumeInfo API availability, preserving snapshot Used and retrying: %v", err)
+	err := wait.PollUntilContextCancel(ctx, retryInterval, true, func(ctx context.Context) (bool, error) {
+		if err := installCRD(ctx); err != nil {
+			log.Warnf("Failed to install the CnsDeletedVolumeInfo CRD, preserving snapshot Used and "+
+				"retrying in %s: %v", retryInterval, err)
 			return false, nil
 		}
 		return true, nil
@@ -88,39 +66,6 @@ func initializeDeletedVolumeInfo(ctx context.Context, c dynamic.Interface,
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if available {
-		log.Info("DeletedVolumeInfo API available at startup; enabling snapshot accounting inventory")
-		return deletedVolumeInfoInformer(c), nil
-	}
-	log.Infof("DeletedVolumeInfo API absent; using CVI-only snapshot accounting and polling every %s", pollInterval)
-	go pollDeletedVolumeInfoAPI(ctx, c, pollInterval, restart)
-	return nil, nil
-}
-
-// pollDeletedVolumeInfoAPI runs only when the API was absent at startup. A
-// successful probe requests one syncer restart, even if the callback returns.
-func pollDeletedVolumeInfoAPI(ctx context.Context, c dynamic.Interface, interval time.Duration, restart func()) {
-	log := logger.GetLogger(ctx)
-	_ = wait.PollUntilContextCancel(ctx, interval, false, func(ctx context.Context) (bool, error) {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		available, err := deletedVolumeInfoAPIAvailable(ctx, c)
-		if err != nil {
-			log.Warnf("Cannot check for DeletedVolumeInfo API installation, will retry: %v", err)
-			return false, nil
-		}
-		if !available {
-			return false, nil
-		}
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		log.Info("DeletedVolumeInfo API installed; restarting syncer to enable snapshot accounting inventory")
-		restart()
-		return true, nil
-	})
+	log.Info("CnsDeletedVolumeInfo CRD installed; enabling deleted-volume snapshot accounting")
+	return deletedVolumeInfoInformer(c), nil
 }

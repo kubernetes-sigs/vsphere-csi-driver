@@ -470,6 +470,10 @@ func CsiFullSync(ctx context.Context, metadataSyncer *metadataSyncInformer, vc c
 		log.Infof("calling validateAndCorrectVolumeInfoSnapshotDetails with %d volumes",
 			len(cnsBlockVolumeMap))
 		validateAndCorrectVolumeInfoSnapshotDetails(ctx, volManager, cnsBlockVolumeMap, preReadVolumeInfos)
+		if isSnapServiceRestoreHandoverEnabled(ctx) {
+			// Runs after the snapshot details were written, so a value from this full sync counts.
+			markRestoredSnapshotSizesMeasured(ctx, preReadVolumeInfos)
+		}
 	}
 	vcHostObj, vcHostObjFound := metadataSyncer.configInfo.GetCfg().VirtualCenter[vc]
 	if !vcHostObjFound {
@@ -931,6 +935,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 
 	volumeIdTok8sPVMap := make(map[string]*v1.PersistentVolume)
 	scNameToPolicyIdMap := make(map[string]string)
+	var k8sClient clientset.Interface
 	if metadataSyncer.clusterFlavor == cnstypes.CnsClusterFlavorWorkload && IsPodVMOnStretchSupervisorFSSEnabled {
 		// Create volumeIdTok8sPVMap map for easy lookup of PVs
 		for _, pv := range currentK8sPV {
@@ -945,7 +950,7 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 			log.Errorf("volumeInfoCRFullSync: Failed to get KubeConfig. err: %v", err)
 			return
 		}
-		k8sClient, err := clientset.NewForConfig(config)
+		k8sClient, err = clientset.NewForConfig(config)
 		if err != nil {
 			log.Errorf("volumeInfoCRFullSync: Failed to create kubernetes client. Err: %+v", err)
 			return
@@ -1001,6 +1006,15 @@ func volumeInfoCRFullSync(ctx context.Context, metadataSyncer *metadataSyncInfor
 						isLinkedCloneVolume = true
 					}
 					pvcCapacity := pvc.Status.Capacity[v1.ResourceStorage]
+					if isRestoredPV(pv) && isSnapServiceRestoreHandoverEnabled(ctx) {
+						// A plain CnsVolumeInfo would hide the CnsDeletedVolumeInfo without taking over its charge.
+						var policyID string
+						if pvc.Spec.StorageClassName != nil {
+							policyID = scNameToPolicyIdMap[*pvc.Spec.StorageClassName]
+						}
+						handoverRestoredVolumeInFullSync(ctx, k8sClient, vc, pv, pvc, policyID, &pvcCapacity)
+						continue
+					}
 					if pvc.Spec.StorageClassName != nil {
 						err = volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, pvc.Namespace,
 							scNameToPolicyIdMap[*pvc.Spec.StorageClassName], *pvc.Spec.StorageClassName, vc.String(),

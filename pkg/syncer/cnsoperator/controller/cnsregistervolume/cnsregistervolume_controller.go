@@ -99,6 +99,10 @@ var (
 	// InitMetadataSyncer starts the late-enablement watcher for this capability, which
 	// exits the container on enablement so this value gets re-evaluated on restart.
 	isVSphereDPLPModernAppEnabled bool
+	// isSnapServiceLocalProtectionEnabled caches the supports_snap_service_local_protection WCP
+	// capability at controller startup. Set once in Add(). The syncer restarts the container when the
+	// capability is enabled later, so this value gets re-evaluated on restart.
+	isSnapServiceLocalProtectionEnabled bool
 )
 
 // Add creates a new CnsRegisterVolume Controller and adds it to the Manager,
@@ -120,6 +124,8 @@ func Add(mgr manager.Manager, clusterFlavor cnstypes.CnsClusterFlavor,
 		common.MultipleClustersPerVsphereZone)
 	isVSphereDPLPModernAppEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.VSphereDPLPModernApp)
+	isSnapServiceLocalProtectionEnabled = commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
+		common.SupportsSnapServiceLocalProtection)
 
 	var volumeInfoService cnsvolumeinfo.VolumeInfoService
 	if commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.TKGsHA) {
@@ -286,6 +292,20 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	log.Infof("Reconciling CnsRegisterVolume with instance: %q from namespace: %q. timeout %q seconds",
 		instance.Name, request.Namespace, timeout)
 
+	// Restores of one volume run one at a time, and only the first CnsRegisterVolume to stamp the
+	// volume restores it. This is decided before the finalizer is added, so that a CnsRegisterVolume
+	// that is not processed is not protected again on every resync.
+	isRestore := r.isSnapServiceRestore(ctx, instance)
+	restoreStamped := false
+	if isRestore {
+		unlock, stamped, result, proceed := r.startRestore(ctx, instance, request, timeout)
+		if !proceed {
+			return result, nil
+		}
+		defer unlock()
+		restoreStamped = stamped
+	}
+
 	// Protect the instance with a finalizer before performing any operation.
 	err = protectInstance(ctx, r.client, instance)
 	if err != nil {
@@ -326,6 +346,26 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				instance.Spec.StorageClassName, instance.Namespace)
 			log.Error(msg)
 			setInstanceError(ctx, r, instance, msg)
+			return reconcile.Result{RequeueAfter: timeout}, nil
+		}
+	}
+
+	// A SnapService restore requires a deleted volume with a CnsDeletedVolumeInfo. Check it before any
+	// CNS volume, PV or PVC is created, so that a broken restore fails visibly on this instance and
+	// passes on a later retry once the CnsDeletedVolumeInfo exists. Once an earlier attempt stamped the
+	// PV or the CnsVolumeInfo, the restore is underway and the check is skipped: the
+	// CnsDeletedVolumeInfo may be gone by then, and the handover copes without it.
+	if isRestore && restoreStamped {
+		log.Infof("CnsRegisterVolume %s/%s already stamped volume %q; skipping the restore precheck",
+			instance.Namespace, instance.Name, instance.Spec.VolumeID)
+	}
+	if isRestore && !restoreStamped {
+		err = r.volumeInfoService.PrecheckRestore(ctx, instance.Spec.VolumeID, instance.Namespace,
+			string(instance.UID))
+		if err != nil {
+			log.Errorf("Restore precheck failed for CnsRegisterVolume %s/%s, will retry: %v",
+				instance.Namespace, instance.Name, err)
+			setInstanceError(ctx, r, instance, err.Error())
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
@@ -848,6 +888,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 				instance.Namespace, instance.Name)
 			pvSpec.Spec.NodeAffinity = pvNodeAffinity
+			if isRestore {
+				setRestoreAnnotations(pvSpec, instance)
+			}
 			log.Debugf("PV spec is: %+v", pvSpec)
 			pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 			if err != nil {
@@ -864,9 +907,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	} else {
+		// A restore annotates the PV first, which fails for a PV restored by another
+		// CnsRegisterVolume, so such a PV is never recreated below.
+		if isRestore {
+			pv, err = ensureRestoreAnnotationsOnPV(ctx, k8sclient, pv, instance)
+			if err != nil {
+				log.Error(err.Error())
+				setInstanceError(ctx, r, instance, err.Error())
+				return reconcile.Result{RequeueAfter: timeout}, nil
+			}
+		}
 		// PV exists - check if volumeMode needs correction
 		pv, err = validateAndFixPVVolumeMode(ctx, k8sclient, r, instance, pv, pvName, volumeID, pvCapacity,
-			accessMode, storageClassName, pvNodeAffinity, timeout)
+			accessMode, storageClassName, pvNodeAffinity, timeout, isRestore)
 		if err != nil {
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
@@ -948,14 +1001,34 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	if isBound {
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
 		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
-			// Create CNSVolumeInfo CR for static pv (pvCapacity set earlier from PVC or backend)
-			err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
-				volume.StoragePolicyId, storageClassName, vc.Config.Host.String(), &pvCapacity, false)
-			if err != nil {
-				log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q and vCenter %q "+
-					"in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace, volume.StoragePolicyId,
-					storageClassName, vc.Config.Host, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
+			if isRestore {
+				// The restored CnsVolumeInfo is created already carrying the snapshot size of the deleted
+				// volume, so the snapshot usage of the namespace does not drop during the restore.
+				err = r.handoverRestoredVolume(ctx, instance, pvName, cnsvolumeinfo.RestoredVolumeInfo{
+					VolumeID:         volumeID,
+					Namespace:        instance.Namespace,
+					StoragePolicyID:  volume.StoragePolicyId,
+					StorageClassName: storageClassName,
+					VCenter:          vc.Config.Host.String(),
+					Capacity:         &pvCapacity,
+					RestoredBy:       string(instance.UID),
+				})
+				if err != nil {
+					msg := fmt.Sprintf("failed to create the CnsVolumeInfo of restored volume %s: %v", volumeID, err)
+					log.Error(msg)
+					setInstanceError(ctx, r, instance, msg)
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
+			} else {
+				// Create CNSVolumeInfo CR for static pv (pvCapacity set earlier from PVC or backend)
+				err = r.volumeInfoService.CreateVolumeInfoWithPolicyInfo(ctx, volumeID, instance.Namespace,
+					volume.StoragePolicyId, storageClassName, vc.Config.Host.String(), &pvCapacity, false)
+				if err != nil {
+					log.Errorf("failed to store volumeID %q namespace %s StoragePolicyID %q StorageClassName %q "+
+						"and vCenter %q in CNSVolumeInfo CR. Error: %+v", volumeID, instance.Namespace,
+						volume.StoragePolicyId, storageClassName, vc.Config.Host, err)
+					return reconcile.Result{RequeueAfter: timeout}, nil
+				}
 			}
 
 			restConfig, err := clientConfig.GetConfig()
@@ -1363,7 +1436,7 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 	r *ReconcileCnsRegisterVolume, instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
 	pv *v1.PersistentVolume, pvName, volumeID string, pvCapacity resource.Quantity,
 	accessMode v1.PersistentVolumeAccessMode, storageClassName string,
-	pvNodeAffinity *v1.VolumeNodeAffinity, timeout time.Duration) (*v1.PersistentVolume, error) {
+	pvNodeAffinity *v1.VolumeNodeAffinity, timeout time.Duration, isRestore bool) (*v1.PersistentVolume, error) {
 	log := logger.GetLogger(ctx)
 
 	// Determine expected volumeMode
@@ -1451,6 +1524,9 @@ func validateAndFixPVVolumeMode(ctx context.Context, k8sclient clientset.Interfa
 			accessMode, instance.Spec.VolumeMode, storageClassName, claimRef,
 			instance.Namespace, instance.Name)
 		pvSpec.Spec.NodeAffinity = pvNodeAffinity
+		if isRestore {
+			setRestoreAnnotations(pvSpec, instance)
+		}
 		log.Debugf("Recreating PV with spec: %+v", pvSpec)
 		pv, err = k8sclient.CoreV1().PersistentVolumes().Create(ctx, pvSpec, metav1.CreateOptions{})
 		if err != nil {
@@ -1719,9 +1795,10 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
-	// Step 2: If no PV found (or PV/PVC is bound), remove finalizer and complete
-	if pv == nil {
-		log.Info("No unbound PV found. Removing finalizer")
+	// Step 2: If no PV found (or PV/PVC is bound), remove finalizer and complete.
+	// A PV restored by another CnsRegisterVolume belongs to that registration and is left alone too.
+	if pv == nil || isPVRestoredByOther(ctx, pv, instance) {
+		log.Info("No unbound PV of this instance found. Removing finalizer")
 		if err := removeFinalizer(ctx, r.client, instance); err != nil {
 			log.With("error", err).Error("Failed to remove finalizer")
 			return reconcile.Result{RequeueAfter: timeout}, nil

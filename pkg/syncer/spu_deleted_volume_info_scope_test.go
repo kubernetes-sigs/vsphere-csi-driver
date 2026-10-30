@@ -48,7 +48,7 @@ func TestDeletedVolumeInfoUnknownNamespaceQuarantinedUntilCorrected(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			e := newDVITestEnv(t, testSPU("100Mi"))
 			e.put(t, testCVI("live", "gold", "", testPolicyID, "10Mi", true, ""))
-			bad := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+			bad := testDVI("deleted", "gold", "", testPolicyID, 25)
 			unstructured.RemoveNestedField(bad.Object, "spec", "namespace")
 			if tc.name != "missing" {
 				require.NoError(t, unstructured.SetNestedField(bad.Object, tc.value, "spec", "namespace"))
@@ -60,7 +60,7 @@ func TestDeletedVolumeInfoUnknownNamespaceQuarantinedUntilCorrected(t *testing.T
 			assert.Equal(t, int64(10*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
 			assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity)
 
-			fixed := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+			fixed := testDVI("deleted", "gold", "", testPolicyID, 25)
 			putDVI(t, e, fixed)
 			e.r.enqueueDeletedVolumeInfo(bad)
 			e.r.enqueueDeletedVolumeInfo(fixed)
@@ -89,7 +89,7 @@ func TestDeletedVolumeInfoMalformedStorageAssociationHoldsOnlyTenant(t *testing.
 			other := testSPU("75Mi")
 			other.Namespace = "other-tenant"
 			e := newDVITestEnv(t, testSPU("100Mi"), silver, other)
-			bad := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+			bad := testDVI("deleted", "gold", "", testPolicyID, 25)
 			require.NoError(t, unstructured.SetNestedField(bad.Object, tc.value, "spec", tc.field))
 			putDVI(t, e, bad)
 			e.r.enqueueDeletedVolumeInfo(bad)
@@ -109,7 +109,7 @@ func TestDeletedVolumeInfoMalformedStorageAssociationHoldsOnlyTenant(t *testing.
 			assert.True(t, got.Status.ResourceTypeLevelQuotaUsage.Used.IsZero())
 			assert.NotContains(t, got.Annotations, common.MissingSnapshotAggregatedCapacity)
 
-			fixed := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+			fixed := testDVI("deleted", "gold", "", testPolicyID, 25)
 			putDVI(t, e, fixed)
 			e.r.enqueueDeletedVolumeInfo(bad)
 			e.r.enqueueDeletedVolumeInfo(fixed)
@@ -129,7 +129,7 @@ func TestDeletedVolumeInfoMalformedTenantMoveAndDeletionRecovery(t *testing.T) {
 	other := testSPU("75Mi")
 	other.Namespace = "other-tenant"
 	e := newDVITestEnv(t, testSPU("100Mi"), other)
-	bad := testDVI("deleted", "", "", testPolicyID, 25, true)
+	bad := testDVI("deleted", "", "", testPolicyID, 25)
 	putDVI(t, e, bad)
 	require.Error(t, e.r.recomputeOnce(context.Background(), testSPUNamespace, testSPUName, testSPUKey))
 	moved := bad.DeepCopy()
@@ -175,7 +175,7 @@ func TestDeletedVolumeInfoValidVACHoldsOnlyKnownSPUWhenStorageClassMalformed(t *
 			slow.Name = "vac-slow-snapshot-usage"
 			e := newDVITestEnv(t, testSPU("100Mi"), fast, slow)
 			e.put(t, testCVI("live", "gold", "", testPolicyID, "10Mi", true, ""))
-			bad := testDVI("deleted", "gold", "fast", testPolicyID, 25, true)
+			bad := testDVI("deleted", "gold", "fast", testPolicyID, 25)
 			unstructured.RemoveNestedField(bad.Object, "spec", "storageClassName")
 			if tc.name != "missing" {
 				require.NoError(t, unstructured.SetNestedField(bad.Object, tc.value, "spec", "storageClassName"))
@@ -199,7 +199,7 @@ func TestDeletedVolumeInfoValidVACHoldsOnlyKnownSPUWhenStorageClassMalformed(t *
 			assert.True(t, got.Status.ResourceTypeLevelQuotaUsage.Used.IsZero())
 			assert.NotContains(t, got.Annotations, common.MissingSnapshotAggregatedCapacity)
 
-			fixed := testDVI("deleted", "gold", "fast", testPolicyID, 25, true)
+			fixed := testDVI("deleted", "gold", "fast", testPolicyID, 25)
 			putDVI(t, e, fixed)
 			e.r.enqueueDeletedVolumeInfo(fixed)
 			require.True(t, e.r.processNext(context.Background()))

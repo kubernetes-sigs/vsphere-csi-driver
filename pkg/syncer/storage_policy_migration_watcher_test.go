@@ -508,6 +508,23 @@ func (f *fakeVolumeInfoServiceImpl) ListAllVolumeInfos() []interface{} { return 
 
 func (f *fakeVolumeInfoServiceImpl) Informer() cache.SharedIndexInformer { return nil }
 
+func (f *fakeVolumeInfoServiceImpl) PrecheckRestore(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (f *fakeVolumeInfoServiceImpl) GetRestoredBy(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+
+func (f *fakeVolumeInfoServiceImpl) CreateOrUpdateRestoredVolumeInfo(_ context.Context,
+	_ cnsvolumeinfo.RestoredVolumeInfo) (cnsvolumeinfo.RestoreResult, error) {
+	return cnsvolumeinfo.RestoreResult{}, nil
+}
+
+func (f *fakeVolumeInfoServiceImpl) MarkRestoredSnapshotSizeMeasured(_ context.Context, _ string) error {
+	return nil
+}
+
 func (f *fakeVolumeInfoServiceImpl) VolumeInfoCrExistsForVolume(
 	_ context.Context, _ string) (bool, error) {
 	return false, nil

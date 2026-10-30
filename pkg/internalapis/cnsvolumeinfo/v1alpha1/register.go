@@ -65,6 +65,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		SchemeGroupVersion,
 		&CNSVolumeInfo{},
 		&CNSVolumeInfoList{},
+		&CnsDeletedVolumeInfo{},
+		&CnsDeletedVolumeInfoList{},
 	)
 
 	scheme.AddKnownTypes(

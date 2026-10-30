@@ -104,7 +104,58 @@ type CNSVolumeInfoStatus struct {
 	// condition left over from a previous modify to a different policy.
 	// +optional
 	MigrationTargetStoragePolicyID string `json:"migrationTargetStoragePolicyID,omitempty"`
+
+	// Conditions describe the observed state of the volume, other than migration.
+	//
+	// Known condition types are:
+	//
+	// "SnapshotSizeRestored"
+	//
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +kubebuilder:validation:MaxItems=8
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+const (
+	// ConditionSnapshotSizeRestored reports, on a CNSVolumeInfo created by a SnapService restore,
+	// whether the snapshot size was copied from the CnsDeletedVolumeInfo of the volume.
+	ConditionSnapshotSizeRestored = "SnapshotSizeRestored"
+
+	// ReasonSeededFromDeletedVolumeInfo means the snapshot size was copied from a matching
+	// CnsDeletedVolumeInfo.
+	ReasonSeededFromDeletedVolumeInfo = "SeededFromDeletedVolumeInfo"
+
+	// ReasonDeletedVolumeInfoNotFound means the restore found no CnsDeletedVolumeInfo for the volume.
+	ReasonDeletedVolumeInfoNotFound = "DeletedVolumeInfoNotFound"
+
+	// ReasonDeletedVolumeInfoNamespaceMismatch means the CnsDeletedVolumeInfo of the volume charges a
+	// different namespace than the one the volume was restored into.
+	ReasonDeletedVolumeInfoNamespaceMismatch = "DeletedVolumeInfoNamespaceMismatch"
+
+	// ReasonMeasuredByCNS means the snapshot size was not copied at restore, and CNS has since
+	// reported a valid value.
+	ReasonMeasuredByCNS = "MeasuredByCNS"
+)
+
+const (
+	// AnnSnapServiceRestore marks a CnsRegisterVolume, and the PV created from it, as a SnapService
+	// restore. Only the value "true" marks a restore.
+	AnnSnapServiceRestore = "protectionandrecovery.vmware.com/snapservice-restore"
+
+	// AnnRestoredByCnsRegisterVolume records, on a restored PV and CNSVolumeInfo, the UID of the
+	// CnsRegisterVolume that restored the volume.
+	AnnRestoredByCnsRegisterVolume = "cns.vmware.com/restored-by-cnsregistervolume"
+
+	// AnnRestoreNotProcessed marks a CnsRegisterVolume whose restore is not processed because another
+	// CnsRegisterVolume restored the same volume. Its value is the UID of that CnsRegisterVolume.
+	AnnRestoreNotProcessed = "cns.vmware.com/restore-not-processed"
+
+	// SnapServiceFinalizer is the finalizer with which SnapService holds a protected volume's
+	// CNSVolumeInfo until the deletion is recorded in a CnsDeletedVolumeInfo.
+	SnapServiceFinalizer = "protectionandrecovery.vmware.com/snapservice-finalizer"
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status

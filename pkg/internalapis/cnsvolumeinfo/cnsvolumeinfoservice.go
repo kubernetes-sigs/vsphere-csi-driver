@@ -103,6 +103,24 @@ type VolumeInfoService interface {
 	// Informer returns the shared informer of the CnsVolumeInfo CRs in the CSI namespace.
 	// It has the SPUSnapshotIndex index registered.
 	Informer() cache.SharedIndexInformer
+
+	// PrecheckRestore checks, before a SnapService restore creates anything, that volumeID was deleted
+	// and has a CnsDeletedVolumeInfo charged to namespace. restoredBy is the UID of the restoring
+	// CnsRegisterVolume. The error message is meant for the CnsRegisterVolume status.
+	PrecheckRestore(ctx context.Context, volumeID, namespace, restoredBy string) error
+
+	// GetRestoredBy returns the UID of the CnsRegisterVolume that restored volumeID, as stamped on its
+	// live CnsVolumeInfo, or "" if there is no live CnsVolumeInfo or it has no stamp.
+	GetRestoredBy(ctx context.Context, volumeID string) (string, error)
+
+	// CreateOrUpdateRestoredVolumeInfo creates or updates the CnsVolumeInfo of a volume restored by
+	// SnapService, seeding its snapshot size from the CnsDeletedVolumeInfo of the volume, and records
+	// the outcome in the SnapshotSizeRestored condition. It is safe to call again after an error.
+	CreateOrUpdateRestoredVolumeInfo(ctx context.Context, info RestoredVolumeInfo) (RestoreResult, error)
+
+	// MarkRestoredSnapshotSizeMeasured sets a False SnapshotSizeRestored condition of the CnsVolumeInfo
+	// of volumeID to True once the CnsVolumeInfo holds a valid snapshot size.
+	MarkRestoredSnapshotSizeMeasured(ctx context.Context, volumeID string) error
 }
 
 // InitVolumeInfoService returns the singleton VolumeInfoService.
