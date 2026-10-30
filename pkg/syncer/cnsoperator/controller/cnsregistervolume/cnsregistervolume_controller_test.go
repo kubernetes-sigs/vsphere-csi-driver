@@ -3165,7 +3165,7 @@ func TestPVRecreationWhenVolumeModeIncorrect(t *testing.T) {
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		pvBefore, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout)
+		pvBefore, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout, false)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)
@@ -3290,7 +3290,7 @@ func TestPVNotRecreatedWhenClaimedByPVCInOtherNamespace(t *testing.T) {
 	reconciler := &ReconcileCnsRegisterVolume{}
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, time.Second)
+		pvBefore, pvName, volumeID, pvCapacity, corev1.ReadWriteOnce, storageClassName, nil, time.Second, false)
 
 	assert.Error(t, err)
 	assert.Nil(t, pvAfter)
@@ -3407,7 +3407,7 @@ func TestPVRecreationWithoutSharedDiskEnabled(t *testing.T) {
 	pvCapacity := *resource.NewQuantity(int64(1024)*common.MbInBytes, resource.BinarySI)
 
 	pvAfter, err := validateAndFixPVVolumeMode(ctx, k8sclient, reconciler, instance,
-		existingPV, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout)
+		existingPV, pvName, volumeID, pvCapacity, accessMode, storageClassName, nil, timeout, false)
 
 	// Verify the function succeeded
 	assert.NoError(t, err)

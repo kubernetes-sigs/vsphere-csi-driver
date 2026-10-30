@@ -25,26 +25,36 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
 )
 
-const testDVISystemNamespace = "tenant-system-ns"
+// testDVISystemNamespace is the namespace of every DVI: the CSI namespace.
+var testDVISystemNamespace = common.GetCSINamespace()
 
-func testDVI(name, sc, vac, policy string, size int64, valid bool) *unstructured.Unstructured {
+func testDVI(name, sc, vac, policy string, size int64) *unstructured.Unstructured {
 	spec := map[string]interface{}{
 		"volumeID": name, "namespace": testSPUNamespace, "storageClassName": sc,
-		"storagePolicyID": policy, "sizeBytes": size, "validSize": valid,
+		"storagePolicyID": policy, "sizeBytes": size,
 	}
 	if vac != "" {
 		spec["volumeAttributeClassName"] = vac
 	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
-		"apiVersion": "protectionandrecovery.vmware.com/v1alpha1", "kind": "DeletedVolumeInfo",
+		"apiVersion": "cns.vmware.com/v1alpha1", "kind": "CnsDeletedVolumeInfo",
 		"metadata": map[string]interface{}{"name": name, "namespace": testDVISystemNamespace},
 		"spec":     spec,
 	}}
 }
 
-func testDVIDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
-	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{deletedVolumeInfoGVR: "DeletedVolumeInfoList"}, objs...)
+// testDVIDynamicClient returns a fake dynamic client that serves objs as DVIs. The objects are added
+// under deletedVolumeInfoGVR explicitly, because the fake would guess the plural "cnsdeletedvolumeinfos"
+// from the kind.
+func testDVIDynamicClient(objs ...*unstructured.Unstructured) *dynamicfake.FakeDynamicClient {
+	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{deletedVolumeInfoGVR: "CnsDeletedVolumeInfoList"})
+	for _, obj := range objs {
+		if err := c.Tracker().Create(deletedVolumeInfoGVR, obj, obj.GetNamespace()); err != nil {
+			panic(err)
+		}
+	}
+	return c
 }
 
 func newDVITestEnv(t *testing.T, spus ...*storagepolicyv1alpha3.StoragePolicyUsage) *spuTestEnv {
@@ -86,27 +96,32 @@ func TestDeletedVolumeInfoDisabledDoesNotRequireKubernetes(t *testing.T) {
 
 func TestDeletedVolumeInfoDecode(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		size  int64
-		valid bool
-		vac   string
+		name string
+		size int64
+		vac  string
 	}{
-		{name: "size greater than four GiB", size: 5368709120, valid: true},
-		{name: "zero is a valid charge", size: 0, valid: true},
-		{name: "last known size", size: 5368709120, valid: false},
-		{name: "volume attribute class", size: 1, valid: true, vac: "fast"},
+		{name: "size greater than four GiB", size: 5368709120},
+		{name: "zero is a valid charge", size: 0},
+		{name: "volume attribute class", size: 1, vac: "fast"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodeDeletedVolumeInfo(testDVI("volume", "gold", tc.vac, testPolicyID, tc.size, tc.valid))
+			d, err := decodeDeletedVolumeInfo(testDVI("volume", "gold", tc.vac, testPolicyID, tc.size))
 			require.NoError(t, err)
+			assert.Equal(t, tc.size, d.sizeBytes)
 		})
 	}
+	t.Run("validSize is not read", func(t *testing.T) {
+		u := testDVI("volume", "gold", "", testPolicyID, 1)
+		require.NoError(t, unstructured.SetNestedField(u.Object, false, "spec", "validSize"))
+		_, err := decodeDeletedVolumeInfo(u)
+		require.NoError(t, err)
+	})
 	requiredFields := []string{
-		"volumeID", "namespace", "storageClassName", "storagePolicyID", "sizeBytes", "validSize",
+		"volumeID", "namespace", "storageClassName", "storagePolicyID", "sizeBytes",
 	}
 	for _, field := range requiredFields {
 		t.Run("missing "+field, func(t *testing.T) {
-			u := testDVI("volume", "gold", "", testPolicyID, 1, true)
+			u := testDVI("volume", "gold", "", testPolicyID, 1)
 			unstructured.RemoveNestedField(u.Object, "spec", field)
 			_, err := decodeDeletedVolumeInfo(u)
 			require.Error(t, err)
@@ -122,8 +137,6 @@ func TestDeletedVolumeInfoDecode(t *testing.T) {
 		{"size fractional number", "sizeBytes", float64(1.5)},
 		{"size floating point integer", "sizeBytes", float64(1)},
 		{"null size", "sizeBytes", nil},
-		{"null valid flag", "validSize", nil},
-		{"string valid flag", "validSize", "true"},
 		{"empty volume ID", "volumeID", ""},
 		{"empty namespace", "namespace", ""},
 		{"empty storage class", "storageClassName", ""},
@@ -132,7 +145,7 @@ func TestDeletedVolumeInfoDecode(t *testing.T) {
 		{"wrong VAC type", "volumeAttributeClassName", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			u := testDVI("volume", "gold", "", testPolicyID, 1, true)
+			u := testDVI("volume", "gold", "", testPolicyID, 1)
 			require.NoError(t, unstructured.SetNestedField(u.Object, tc.value, "spec", tc.field))
 			_, err := decodeDeletedVolumeInfo(u)
 			require.Error(t, err)
@@ -143,13 +156,13 @@ func TestDeletedVolumeInfoDecode(t *testing.T) {
 func TestDeletedVolumeInfoAddsOnlyMatchingTenantStorageAndPolicy(t *testing.T) {
 	e := newDVITestEnv(t, testSPU("0"))
 	e.put(t, testCVI("live", "gold", "", testPolicyID, "100Mi", true, ""))
-	otherTenant := testDVI("other-tenant", "gold", "", testPolicyID, 10*1024*1024*1024, true)
+	otherTenant := testDVI("other-tenant", "gold", "", testPolicyID, 10*1024*1024*1024)
 	require.NoError(t, unstructured.SetNestedField(otherTenant.Object, "other-user-ns", "spec", "namespace"))
 	putDVI(t, e,
-		testDVI("deleted", "gold", "", testPolicyID, 5368709120, true),
-		testDVI("other-policy", "gold", "", "other-policy", 10*1024*1024*1024, true),
-		testDVI("other-sc", "silver", "", testPolicyID, 10*1024*1024*1024, true),
-		testDVI("other-vac", "gold", "fast", testPolicyID, 10*1024*1024*1024, true),
+		testDVI("deleted", "gold", "", testPolicyID, 5368709120),
+		testDVI("other-policy", "gold", "", "other-policy", 10*1024*1024*1024),
+		testDVI("other-sc", "silver", "", testPolicyID, 10*1024*1024*1024),
+		testDVI("other-vac", "gold", "fast", testPolicyID, 10*1024*1024*1024),
 		otherTenant)
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 	assert.Equal(t, int64(5368709120+100*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value(),
@@ -160,7 +173,7 @@ func TestDeletedVolumeInfoVolumeAttributeClassTakesPrecedence(t *testing.T) {
 	vacSPU := testSPU("0")
 	vacSPU.Name = "vac-fast-snapshot-usage"
 	e := newDVITestEnv(t, testSPU("0"), vacSPU)
-	putDVI(t, e, testDVI("deleted", "gold", "fast", testPolicyID, 25, true))
+	putDVI(t, e, testDVI("deleted", "gold", "fast", testPolicyID, 25))
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUNamespace+"/"+vacSPU.Name))
 	assert.Zero(t, e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
@@ -174,14 +187,15 @@ func TestDeletedVolumeInfoUpdatesDeletesAndPreservesReservations(t *testing.T) {
 	spu.Status.ResourceTypeLevelQuotaUsage.Reserved.Set(123)
 	e := newDVITestEnv(t, spu)
 	e.put(t, testCVI("live", "gold", "", testPolicyID, "100Mi", true, ""))
-	deleted := testDVI("deleted", "gold", "", testPolicyID, 20*1024*1024, false)
+	deleted := testDVI("deleted", "gold", "", testPolicyID, 20*1024*1024)
 	putDVI(t, e, deleted)
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 	got := e.spu(t)
 	assert.Equal(t, int64(120*1024*1024), got.Status.ResourceTypeLevelQuotaUsage.Used.Value())
-	assert.Equal(t, "true", got.Annotations[common.MissingSnapshotAggregatedCapacity])
+	assert.NotContains(t, got.Annotations, common.MissingSnapshotAggregatedCapacity,
+		"a DVI size is always valid")
 	assert.Equal(t, int64(123), got.Status.ResourceTypeLevelQuotaUsage.Reserved.Value())
-	updated := testDVI("deleted", "gold", "", testPolicyID, 30*1024*1024, true)
+	updated := testDVI("deleted", "gold", "", testPolicyID, 30*1024*1024)
 	putDVI(t, e, updated)
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 	got = e.spu(t)
@@ -215,15 +229,14 @@ func TestDeletedVolumeInfoCVIWinsUntilRemoved(t *testing.T) {
 				cvi.SetDeletionTimestamp(&now)
 			}
 			e.put(t, cvi)
-			putDVI(t, e, testDVI("volume-id", "gold", "", testPolicyID, 20*1024*1024, false))
+			putDVI(t, e, testDVI("volume-id", "gold", "", testPolicyID, 20*1024*1024))
 			require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 			assert.Equal(t, tc.want, e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
-			assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity,
-				"suppressed DVI staleness must not affect the live-volume contribution")
+			assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity)
 			require.NoError(t, e.informer.GetIndexer().Delete(cvi))
 			require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 			assert.Equal(t, int64(20*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
-			assert.Equal(t, "true", e.spu(t).Annotations[common.MissingSnapshotAggregatedCapacity])
+			assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity)
 		})
 	}
 }
@@ -232,7 +245,7 @@ func TestDeletedVolumeInfoCapturedCVIIsNotCountedTwiceAfterDeletion(t *testing.T
 	e := newDVITestEnv(t, testSPU("100Mi"))
 	cvi := testCVI("volume-id", "gold", "", testPolicyID, "10Mi", true, "")
 	e.put(t, cvi)
-	putDVI(t, e, testDVI("volume-id", "gold", "", testPolicyID, 20*1024*1024, false))
+	putDVI(t, e, testDVI("volume-id", "gold", "", testPolicyID, 20*1024*1024))
 
 	// Reconciliation captures and sums CVI inventory before reading DVI inventory.
 	// Delete CVI between those reads to reproduce the handoff without timing races.
@@ -244,30 +257,30 @@ func TestDeletedVolumeInfoCapturedCVIIsNotCountedTwiceAfterDeletion(t *testing.T
 	require.NoError(t, e.informer.GetIndexer().Delete(cvi))
 	dvis, err := e.r.deletedVolumeInfosForSPU(testSPUKey)
 	require.NoError(t, err)
-	deletedTotal, deletedMissing, err := e.r.sumDeletedVolumeInfoCapacity(dvis, liveObjs, testPolicyID)
+	deletedTotal, err := e.r.sumDeletedVolumeInfoCapacity(dvis, liveObjs, testPolicyID)
 	require.NoError(t, err)
 	assert.True(t, deletedTotal.IsZero(), "the captured CVI contribution must suppress its DVI in this pass")
 	liveTotal.Add(*deletedTotal)
 	assert.Equal(t, int64(10*1024*1024), liveTotal.Value())
-	assert.False(t, liveMissing || deletedMissing, "suppressed DVI staleness must not mark the CVI contribution stale")
+	assert.False(t, liveMissing)
 
-	// The next pass sees no CVI and takes over both the DVI charge and its stale flag.
+	// The next pass sees no CVI and takes over the DVI charge.
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 	assert.Equal(t, int64(20*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
-	assert.Equal(t, "true", e.spu(t).Annotations[common.MissingSnapshotAggregatedCapacity])
+	assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity)
 }
 
 func TestDeletedVolumeInfoDuplicateVolumeIDPreservesUsedAndRecovers(t *testing.T) {
 	e := newDVITestEnv(t, testSPU("100Mi"))
 	e.put(t, testCVI("live", "gold", "", testPolicyID, "10Mi", true, ""))
-	dvi := testDVI("volume-id", "gold", "", testPolicyID, 25, true)
+	dvi := testDVI("volume-id", "gold", "", testPolicyID, 25)
 	duplicate := dvi.DeepCopy()
 	duplicate.SetNamespace("other-system-ns")
 	require.NoError(t, unstructured.SetNestedField(duplicate.Object, int64(50), "spec", "sizeBytes"))
 	putDVI(t, e, dvi, duplicate)
 
 	err := e.r.recomputeOnce(context.Background(), testSPUNamespace, testSPUName, testSPUKey)
-	require.ErrorContains(t, err, "multiple DeletedVolumeInfo records for volume")
+	require.ErrorContains(t, err, "multiple CnsDeletedVolumeInfo records for volume")
 	assert.Equal(t, int64(100*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value(),
 		"ambiguous records must neither double-charge nor choose one copy arbitrarily")
 	assert.Equal(t, "true", e.spu(t).Annotations[common.MissingSnapshotAggregatedCapacity])
@@ -281,19 +294,19 @@ func TestDeletedVolumeInfoDuplicateVolumeIDPreservesUsedAndRecovers(t *testing.T
 }
 
 func TestDeletedVolumeInfoMalformedInventoryPreservesUsed(t *testing.T) {
-	for _, field := range []string{"sizeBytes", "validSize", "volumeID", "storageClassName",
+	for _, field := range []string{"sizeBytes", "volumeID", "storageClassName",
 		"volumeAttributeClassName", "storagePolicyID"} {
 		t.Run(field, func(t *testing.T) {
 			e := newDVITestEnv(t, testSPU("100Mi"))
 			e.put(t, testCVI("live", "gold", "", testPolicyID, "10Mi", true, ""))
-			bad := testDVI("bad", "gold", "", testPolicyID, 20, true)
+			bad := testDVI("bad", "gold", "", testPolicyID, 20)
 			require.NoError(t, unstructured.SetNestedField(bad.Object, nil, "spec", field))
 			putDVI(t, e, bad)
 			err := e.r.recomputeOnce(context.Background(), testSPUNamespace, testSPUName, testSPUKey)
 			require.Error(t, err)
 			assert.Equal(t, int64(100*1024*1024), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
 			assert.Equal(t, "true", e.spu(t).Annotations[common.MissingSnapshotAggregatedCapacity])
-			putDVI(t, e, testDVI("bad", "gold", "", testPolicyID, 20, true))
+			putDVI(t, e, testDVI("bad", "gold", "", testPolicyID, 20))
 			require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
 			assert.Equal(t, int64(10*1024*1024+20), e.spu(t).Status.ResourceTypeLevelQuotaUsage.Used.Value())
 			assert.NotContains(t, e.spu(t).Annotations, common.MissingSnapshotAggregatedCapacity)
@@ -303,7 +316,7 @@ func TestDeletedVolumeInfoMalformedInventoryPreservesUsed(t *testing.T) {
 
 func TestDeletedVolumeInfoWaitsForMissingSPU(t *testing.T) {
 	e := newDVITestEnv(t)
-	putDVI(t, e, testDVI("deleted", "gold", "", testPolicyID, 25, true))
+	putDVI(t, e, testDVI("deleted", "gold", "", testPolicyID, 25))
 	require.Error(t, e.r.recomputeOnce(context.Background(), testSPUNamespace, testSPUName, testSPUKey))
 	require.NoError(t, e.client.Create(context.Background(), testSPU("0")))
 	require.NoError(t, e.r.reconcile(context.Background(), testSPUKey))
@@ -312,7 +325,7 @@ func TestDeletedVolumeInfoWaitsForMissingSPU(t *testing.T) {
 
 func TestDeletedVolumeInfoEnqueueAndCVICrossPolicyEvents(t *testing.T) {
 	e := newDVITestEnv(t)
-	dvi := testDVI("volume-id", "gold", "", testPolicyID, 25, true)
+	dvi := testDVI("volume-id", "gold", "", testPolicyID, 25)
 	putDVI(t, e, dvi)
 	e.r.enqueueDeletedVolumeInfo(dvi)
 	assert.Equal(t, []string{testSPUKey}, drainDVIQueue(e))
@@ -328,7 +341,7 @@ func TestDeletedVolumeInfoEnqueueAndCVICrossPolicyEvents(t *testing.T) {
 }
 
 func TestDeletedVolumeInfoFieldsChanged(t *testing.T) {
-	original := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+	original := testDVI("deleted", "gold", "", testPolicyID, 25)
 	metadataOnly := original.DeepCopy()
 	metadataOnly.SetLabels(map[string]string{"updated": "true"})
 	assert.False(t, deletedVolumeInfoFieldsChanged(original, metadataOnly))
@@ -336,7 +349,7 @@ func TestDeletedVolumeInfoFieldsChanged(t *testing.T) {
 		field string
 		value interface{}
 	}{
-		{"sizeBytes", int64(26)}, {"sizeBytes", "25"}, {"validSize", false},
+		{"sizeBytes", int64(26)}, {"sizeBytes", "25"},
 		{"volumeID", "another-volume"}, {"namespace", "other-namespace"},
 		{"storageClassName", "silver"}, {"volumeAttributeClassName", "fast"},
 		{"storagePolicyID", "other-policy"},
@@ -353,7 +366,7 @@ func TestDeletedVolumeInfoFieldsChanged(t *testing.T) {
 func TestDeletedVolumeInfoInformerRoutesAddMoveAndDelete(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	dvi := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+	dvi := testDVI("deleted", "gold", "", testPolicyID, 25)
 	dynamicClient := testDVIDynamicClient(dvi)
 	e := newSPUTestEnv(t, interceptor.Funcs{})
 	informer := deletedVolumeInfoInformer(dynamicClient)
@@ -401,8 +414,9 @@ func TestDeletedVolumeInfoUnavailableAPIHoldsUsageAndRecovers(t *testing.T) {
 	var available atomic.Bool
 	var failedLists atomic.Int32
 	var patches atomic.Int32
-	dynamicClient := testDVIDynamicClient(testDVI("deleted", "gold", "", testPolicyID, 5368709120, true))
-	dynamicClient.PrependReactor("list", "deletedvolumeinfos", func(clienttesting.Action) (bool, runtime.Object, error) {
+	dynamicClient := testDVIDynamicClient(testDVI("deleted", "gold", "", testPolicyID, 5368709120))
+	dynamicClient.PrependReactor("list", deletedVolumeInfoGVR.Resource, func(clienttesting.Action) (bool,
+		runtime.Object, error) {
 		if available.Load() {
 			return false, nil, nil
 		}
@@ -442,7 +456,7 @@ func TestDeletedVolumeInfoUnavailableAPIHoldsUsageAndRecovers(t *testing.T) {
 
 func TestDeletedVolumeInfoRestartEnumerationRetainsUsage(t *testing.T) {
 	e := newDVITestEnv(t, testSPU("999Mi"))
-	putDVI(t, e, testDVI("deleted", "gold", "", testPolicyID, 20*1024*1024, true))
+	putDVI(t, e, testDVI("deleted", "gold", "", testPolicyID, 20*1024*1024))
 	e.put(t, testCVI("live", "gold", "", testPolicyID, "10Mi", true, ""))
 	require.NoError(t, e.r.enqueueAllSnapshotSPUs(context.Background()))
 	require.Equal(t, 1, e.queue.Len())
@@ -458,7 +472,7 @@ func TestDeletedVolumeInfoMalformedAssociationSweepsAndRecovers(t *testing.T) {
 	otherSPU := testSPU("50Mi")
 	otherSPU.Namespace = "other-tenant"
 	e := newDVITestEnv(t, testSPU("100Mi"), otherSPU)
-	bad := testDVI("deleted", "gold", "", testPolicyID, 25, true)
+	bad := testDVI("deleted", "gold", "", testPolicyID, 25)
 	unstructured.RemoveNestedField(bad.Object, "spec", "storageClassName")
 	putDVI(t, e, bad)
 	e.r.enqueueDeletedVolumeInfo(bad)
@@ -494,7 +508,7 @@ func TestDeletedVolumeInfoStartupIndexesExistingCVI(t *testing.T) {
 	e.put(t, testCVI("existing-volume", "gold", "", testPolicyID, "10Mi", true, ""))
 	dviInformer := deletedVolumeInfoInformer(testDVIDynamicClient())
 	require.NoError(t, dviInformer.GetIndexer().Add(
-		testDVI("existing-volume", "gold", "", testPolicyID, 20*1024*1024, true)))
+		testDVI("existing-volume", "gold", "", testPolicyID, 20*1024*1024)))
 	var err error
 	e.r, err = newSPUSnapshotReconciler(e.client, e.informer, e.queue, dviInformer)
 	require.NoError(t, err)
@@ -507,7 +521,7 @@ func TestDeletedVolumeInfoRestoreWatchWithoutSnapshotSize(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	e := newDVITestEnv(t, testSPU("0"))
-	putDVI(t, e, testDVI("restored-volume", "gold", "", testPolicyID, 25, true))
+	putDVI(t, e, testDVI("restored-volume", "gold", "", testPolicyID, 25))
 	w := watch.NewRaceFreeFake()
 	t.Cleanup(w.Stop)
 	informer := cache.NewSharedIndexInformer(&cache.ListWatch{

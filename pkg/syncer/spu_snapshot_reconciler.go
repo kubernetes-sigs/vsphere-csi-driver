@@ -182,7 +182,7 @@ func (r *spuSnapshotReconciler) run(ctx context.Context, workers int) {
 	if r.dviInformer != nil {
 		go r.dviInformer.Run(ctx.Done())
 		synced = append(synced, r.dviInformer.HasSynced)
-		log.Info("snapshot StoragePolicyUsage reconciler: waiting for CnsVolumeInfo and DeletedVolumeInfo inventories")
+		log.Info("snapshot StoragePolicyUsage reconciler: waiting for CnsVolumeInfo and CnsDeletedVolumeInfo inventories")
 	}
 	if !cache.WaitForCacheSync(ctx.Done(), synced...) {
 		log.Errorf("snapshot StoragePolicyUsage reconciler: inventory caches did not sync")
@@ -326,11 +326,9 @@ func (r *spuSnapshotReconciler) recomputeOnce(ctx context.Context, ns, name, key
 		dvis, capacityErr = r.deletedVolumeInfosForSPU(key)
 		if capacityErr == nil {
 			var deletedTotal *resource.Quantity
-			var deletedMissing bool
-			deletedTotal, deletedMissing, capacityErr = r.sumDeletedVolumeInfoCapacity(dvis, objs, spu.Spec.StoragePolicyId)
+			deletedTotal, capacityErr = r.sumDeletedVolumeInfoCapacity(dvis, objs, spu.Spec.StoragePolicyId)
 			if capacityErr == nil {
 				total.Add(*deletedTotal)
-				missing = missing || deletedMissing
 			}
 		}
 	}

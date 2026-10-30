@@ -22,9 +22,7 @@ import (
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -32,15 +30,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	storagepolicyv1alpha3 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha3"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/logger"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo"
+	cnsvolumeinfov1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/internalapis/cnsvolumeinfo/v1alpha1"
 )
 
-// Keep the provisional external API contract here. CSI only reads DVI; the protection
-// service owns its CRD, creation, sizing and deletion. No generated API dependency is needed.
-var deletedVolumeInfoGVR = schema.GroupVersionResource{
-	Group: "protectionandrecovery.vmware.com", Version: "v1alpha1", Resource: "deletedvolumeinfos",
-}
+// CSI installs the CnsDeletedVolumeInfo CRD but only reads its objects; the Data Protection
+// Operator creates, sizes and deletes them.
+var deletedVolumeInfoGVR = cnsvolumeinfov1alpha1.SchemeGroupVersion.WithResource(
+	cnsvolumeinfov1alpha1.CnsDeletedVolumeInfoPlural)
 
 const (
 	snapshotVolumeIDIndex = "snapshot-volume-id"
@@ -52,10 +51,10 @@ const (
 
 // deletedVolumeInfo holds the validated values used for accounting. Storage
 // associations are validated during decoding and resolved by the informer indexes.
+// The size of a CnsDeletedVolumeInfo is always valid.
 type deletedVolumeInfo struct {
 	volumeID  string
 	sizeBytes int64
-	validSize bool
 }
 
 func decodeDeletedVolumeInfo(u *unstructured.Unstructured) (deletedVolumeInfo, error) {
@@ -63,41 +62,36 @@ func decodeDeletedVolumeInfo(u *unstructured.Unstructured) (deletedVolumeInfo, e
 	for _, field := range []string{"volumeID", "namespace", "storageClassName", "storagePolicyID"} {
 		value, _, err := unstructured.NestedString(u.Object, "spec", field)
 		if err != nil || value == "" {
-			return d, fmt.Errorf("DeletedVolumeInfo %s/%s has no valid %s", u.GetNamespace(), u.GetName(), field)
+			return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s has no valid %s", u.GetNamespace(), u.GetName(), field)
 		}
 		switch field {
 		case "volumeID":
 			d.volumeID = value
 		case "namespace":
 			if len(validation.IsDNS1123Label(value)) != 0 {
-				return d, fmt.Errorf("DeletedVolumeInfo %s/%s has invalid namespace %q",
+				return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s has invalid namespace %q",
 					u.GetNamespace(), u.GetName(), value)
 			}
 		case "storageClassName":
 			if len(validation.IsDNS1123Subdomain(value)) != 0 {
-				return d, fmt.Errorf("DeletedVolumeInfo %s/%s has invalid storageClassName %q",
+				return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s has invalid storageClassName %q",
 					u.GetNamespace(), u.GetName(), value)
 			}
 		}
 	}
 	vac, _, err := unstructured.NestedString(u.Object, "spec", "volumeAttributeClassName")
 	if err != nil {
-		return d, fmt.Errorf("DeletedVolumeInfo %s/%s has malformed volumeAttributeClassName: %w",
+		return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s has malformed volumeAttributeClassName: %w",
 			u.GetNamespace(), u.GetName(), err)
 	}
 	if vac != "" && len(validation.IsDNS1123Subdomain(vac)) != 0 {
-		return d, fmt.Errorf("DeletedVolumeInfo %s/%s has invalid volumeAttributeClassName %q",
+		return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s has invalid volumeAttributeClassName %q",
 			u.GetNamespace(), u.GetName(), vac)
 	}
 	var found bool
 	d.sizeBytes, found, err = unstructured.NestedInt64(u.Object, "spec", "sizeBytes")
 	if err != nil || !found || d.sizeBytes < 0 {
-		return d, fmt.Errorf("DeletedVolumeInfo %s/%s requires nonnegative integer sizeBytes",
-			u.GetNamespace(), u.GetName())
-	}
-	d.validSize, found, err = unstructured.NestedBool(u.Object, "spec", "validSize")
-	if err != nil || !found {
-		return d, fmt.Errorf("DeletedVolumeInfo %s/%s has missing or malformed validSize",
+		return d, fmt.Errorf("CnsDeletedVolumeInfo %s/%s requires nonnegative integer sizeBytes",
 			u.GetNamespace(), u.GetName())
 	}
 	return d, nil
@@ -160,10 +154,9 @@ func snapshotVolumeIDIndexFunc(obj interface{}) ([]string, error) {
 }
 
 func deletedVolumeInfoInformer(c dynamic.Interface) cache.SharedIndexInformer {
-	// DVI lives in tenant system namespaces, whereas its quota is charged to spec.namespace.
-	// The Supervisor syncer needs inventory from all tenant system namespaces.
+	// Every DVI lives in the CSI namespace, whereas its quota is charged to spec.namespace.
 	return dynamicinformer.NewFilteredDynamicInformer(
-		c, deletedVolumeInfoGVR, metav1.NamespaceAll, 0,
+		c, deletedVolumeInfoGVR, common.GetCSINamespace(), 0,
 		cache.Indexers{
 			cnsvolumeinfo.SPUSnapshotIndex: deletedVolumeInfoSPUIndexFunc,
 			snapshotVolumeIDIndex:          snapshotVolumeIDIndexFunc,
@@ -171,7 +164,7 @@ func deletedVolumeInfoInformer(c dynamic.Interface) cache.SharedIndexInformer {
 }
 
 var deletedVolumeInfoFields = []string{"volumeID", "namespace", "storageClassName",
-	"volumeAttributeClassName", "storagePolicyID", "sizeBytes", "validSize"}
+	"volumeAttributeClassName", "storagePolicyID", "sizeBytes"}
 
 func deletedVolumeInfoFieldsChanged(oldObj, newObj interface{}) bool {
 	oldU, oldOK := oldObj.(*unstructured.Unstructured)
@@ -199,14 +192,14 @@ func (r *spuSnapshotReconciler) enqueueDeletedVolumeInfo(obj interface{}) {
 			return
 		}
 		logger.GetLogger(context.Background()).Errorf(
-			"Cannot identify snapshot StoragePolicyUsage for DeletedVolumeInfo %s/%s",
+			"Cannot identify snapshot StoragePolicyUsage for CnsDeletedVolumeInfo %s/%s",
 			u.GetNamespace(), u.GetName())
 		if ns, valid := deletedVolumeInfoNamespace(u); valid {
 			r.queue.Add(malformedDeletedVolumeInfoNamespaceKeyPrefix + ns)
 			return
 		}
 		logger.GetLogger(context.Background()).Errorf(
-			"Quarantining DeletedVolumeInfo %s/%s with invalid spec.namespace; quota owner is unknown",
+			"Quarantining CnsDeletedVolumeInfo %s/%s with invalid spec.namespace; quota owner is unknown",
 			u.GetNamespace(), u.GetName())
 	}
 }
@@ -237,7 +230,7 @@ func (r *spuSnapshotReconciler) enqueueDeletedVolumeInfoForCVI(obj interface{}) 
 	}
 	objs, err := r.dviInformer.GetIndexer().ByIndex(snapshotVolumeIDIndex, id)
 	if err != nil {
-		logger.GetLogger(context.Background()).Errorf("Cannot find DeletedVolumeInfo for volume %q: %v", id, err)
+		logger.GetLogger(context.Background()).Errorf("Cannot find CnsDeletedVolumeInfo for volume %q: %v", id, err)
 		r.queue.Add(unassignedDeletedVolumeInfoKey)
 		return
 	}
@@ -260,16 +253,17 @@ func (r *spuSnapshotReconciler) deletedVolumeInfosForSPU(key string) ([]interfac
 		return nil, err
 	}
 	if len(unassigned) != 0 {
-		return nil, fmt.Errorf("%d DeletedVolumeInfo records have invalid quota associations in namespace %q",
+		return nil, fmt.Errorf("%d CnsDeletedVolumeInfo records have invalid quota associations in namespace %q",
 			len(unassigned), ns)
 	}
 	return r.dviInformer.GetIndexer().ByIndex(cnsvolumeinfo.SPUSnapshotIndex, key)
 }
 
+// sumDeletedVolumeInfoCapacity sums the sizes of the DVIs in objs whose volume has no CVI. A DVI
+// never marks the SPU as missing capacity, because its size is always valid.
 func (r *spuSnapshotReconciler) sumDeletedVolumeInfoCapacity(objs, liveObjs []interface{},
-	policyID string) (*resource.Quantity, bool, error) {
+	policyID string) (*resource.Quantity, error) {
 	total := resource.NewQuantity(0, resource.BinarySI)
-	missing := false
 	// A CVI can disappear after the caller reads its SPU index. Do not count its DVI
 	// in the same pass as the already captured CVI contribution.
 	liveIDs := make(map[string]bool, len(liveObjs))
@@ -282,20 +276,20 @@ func (r *spuSnapshotReconciler) sumDeletedVolumeInfoCapacity(objs, liveObjs []in
 	for _, obj := range objs {
 		u, ok := obj.(*unstructured.Unstructured)
 		if !ok {
-			return nil, false, fmt.Errorf("unexpected DeletedVolumeInfo cache object %T", obj)
+			return nil, fmt.Errorf("unexpected CnsDeletedVolumeInfo cache object %T", obj)
 		}
-		// A known different policy is irrelevant to this SPU, including its size validity.
+		// A known different policy is irrelevant to this SPU.
 		policy, _, err := unstructured.NestedString(u.Object, "spec", "storagePolicyID")
 		if err == nil && policy != "" && policy != policyID {
 			continue
 		}
 		d, err := decodeDeletedVolumeInfo(u)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		live, err := r.informer.GetIndexer().ByIndex(snapshotVolumeIDIndex, d.volumeID)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		// CVI remains authoritative even while Terminating. DPO must create DVI before
 		// releasing its CVI finalizer, and remove DVI when a restored CVI takes over.
@@ -303,11 +297,10 @@ func (r *spuSnapshotReconciler) sumDeletedVolumeInfoCapacity(objs, liveObjs []in
 			continue
 		}
 		if seen[d.volumeID] {
-			return nil, false, fmt.Errorf("multiple DeletedVolumeInfo records for volume %q", d.volumeID)
+			return nil, fmt.Errorf("multiple CnsDeletedVolumeInfo records for volume %q", d.volumeID)
 		}
 		seen[d.volumeID] = true
 		total.Add(*resource.NewQuantity(d.sizeBytes, resource.BinarySI))
-		missing = missing || !d.validSize
 	}
-	return total, missing, nil
+	return total, nil
 }

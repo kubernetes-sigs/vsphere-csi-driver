@@ -537,6 +537,78 @@ func CreateCustomResourceDefinitionFromManifest(ctx context.Context, embedFiles 
 	return createCustomResourceDefinition(ctx, manifestcrd)
 }
 
+// CreateOrUpdateCustomResourceDefinitionFromManifest creates the CRD in the manifest file, or updates
+// the spec of the existing one, and waits until it is established. Unlike
+// CreateCustomResourceDefinitionFromManifest, it never deletes the CRD, because deleting a CRD deletes
+// all of its objects. A CRD that is not established in time is returned as an error for the caller
+// to retry; calling it again is safe.
+func CreateOrUpdateCustomResourceDefinitionFromManifest(ctx context.Context, embedFiles embed.FS,
+	fileName string) error {
+	log := logger.GetLogger(ctx)
+	manifestcrd, err := getCRDFromManifest(ctx, embedFiles, fileName)
+	if err != nil {
+		log.Errorf("Failed to read the CRD spec from manifest file: %s with err: %+v", fileName, err)
+		return err
+	}
+	cfg, err := GetKubeConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to get Kubernetes config. Err: %+v", err)
+		return err
+	}
+	apiextensionsClientSet, err := apiextensionsclientset.NewForConfig(cfg)
+	if err != nil {
+		log.Errorf("failed to create Kubernetes client using config. Err: %+v", err)
+		return err
+	}
+	return createOrUpdateCustomResourceDefinition(ctx, apiextensionsClientSet, manifestcrd, pollTime, timeout)
+}
+
+// createOrUpdateCustomResourceDefinition creates newCrd, or replaces the spec of the existing CRD
+// with the spec of newCrd, and then polls every interval, for up to waitTimeout, until the CRD is
+// established. It never deletes the CRD.
+func createOrUpdateCustomResourceDefinition(ctx context.Context, clientSet apiextensionsclientset.Interface,
+	newCrd *apiextensionsv1.CustomResourceDefinition, interval, waitTimeout time.Duration) error {
+	log := logger.GetLogger(ctx)
+	crdName := newCrd.Name
+	crds := clientSet.ApiextensionsV1().CustomResourceDefinitions()
+	crd, err := crds.Get(ctx, crdName, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		log.Infof("Creating %q CRD", crdName)
+		if _, err = crds.Create(ctx, newCrd, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create %q CRD: %w", crdName, err)
+		}
+		log.Infof("%q CRD created successfully", crdName)
+	case err != nil:
+		return fmt.Errorf("failed to read %q CRD: %w", crdName, err)
+	default:
+		log.Infof("Updating %q CRD (resourceVersion %q)", crdName, crd.ResourceVersion)
+		crd.Spec = newCrd.Spec
+		if _, err = crds.Update(ctx, crd, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("failed to update %q CRD: %w", crdName, err)
+		}
+		log.Infof("%q CRD updated successfully", crdName)
+	}
+	err = wait.PollUntilContextTimeout(ctx, interval, waitTimeout, true, func(ctx context.Context) (bool, error) {
+		crd, err := crds.Get(ctx, crdName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		for _, cond := range crd.Status.Conditions {
+			if cond.Type == apiextensionsv1.Established && cond.Status == apiextensionsv1.ConditionTrue {
+				return true, nil
+			}
+		}
+		log.Infof("Waiting for %q CRD to be established", crdName)
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("%q CRD is not established: %w", crdName, err)
+	}
+	log.Infof("%q CRD is established", crdName)
+	return nil
+}
+
 // GetNodeIdFromCSINode gets the UUID from CSINode object
 func GetNodeIdFromCSINode(csiNode *storagev1.CSINode) string {
 	drivers := csiNode.Spec.Drivers

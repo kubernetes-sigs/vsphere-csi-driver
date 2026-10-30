@@ -5161,18 +5161,15 @@ func startSnapshotSPUReconciler(ctx context.Context) error {
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.SupportsSnapServiceLocalProtection))
 	if err != nil {
 		queue.ShutDown()
-		return logger.LogNewErrorf(log, "failed to create DeletedVolumeInfo client: %v", err)
+		return logger.LogNewErrorf(log, "failed to create CnsDeletedVolumeInfo client: %v", err)
 	}
 	spuSnapshotQueue = queue
 	go func() {
 		defer queue.ShutDown()
-		// Resolve optional inventory before constructing the reconciler. Discovery
+		// Install the CnsDeletedVolumeInfo CRD before constructing the reconciler. Install
 		// retries must not block unrelated metadata syncer initialization.
 		dviInformer, err := initializeDeletedVolumeInfo(ctx, dviClient,
-			deletedVolumeInfoStartupRetryInterval, deletedVolumeInfoPollInterval, func() {
-				utils.LogoutAllvCenterSessions(ctx)
-				os.Exit(0)
-			})
+			deletedVolumeInfoInstallRetryInterval, cnsvolumeinfo.InstallDeletedVolumeInfoCRD)
 		if err != nil {
 			log.Infof("Stopped initializing snapshot %s reconciler: %v", storagepolicyv1alpha3.CRDSingular, err)
 			return

@@ -4,6 +4,13 @@
 Jira: [CNAS-12489](https://vmw-jira.broadcom.net/browse/CNAS-12489) (parent CNAS-12484).
 Source ask: [Quota Management Asks/Dependencies, CSI Ask #1](https://vmw-confluence.broadcom.net/spaces/SABU/pages/3119085298/Quota+Management+Asks+Dependencies).
 
+> **This spec will change with [CNAS-12485](../CNAS-12485/spec.md).** A restored CVI is created
+> with a snapshot aggregate seeded from its CnsDeletedVolumeInfo, not measured from CNS. The seed is
+> an ordinary aggregate: the first CNS value replaces it under the rules below, which do not
+> change. The affected parts are §1 (writer table), §3 (non-goals) and §8 (A1, A2). The text below
+> is the original spec; see [§11 Update: CNAS-12485](#11-update-cnas-12485) at the end for what
+> changes.
+
 ## 1. Context
 
 Each volume's CnsVolumeInfo (CVI) carries a **snapshot aggregate**: the total bytes of all
@@ -134,6 +141,11 @@ and writes in one atomic step.
 | `PATCH 10G (rv 5)` | one write request carrying `resourceVersion: 5` as its precondition |
 | `409` | the server rejected the write because the CVI's version is no longer 5; nothing was written |
 | `live GET` | a read straight from the API server (not the cache); used only after a 409 |
+
+`resourceVersion` is an opaque string. CSI never parses it or orders two values; it only hands
+the remembered value back to the API server, which checks it by exact match. The numbers 5, 6,
+7… in the examples are illustrative. The correctness argument in §4.3 uses only "unchanged since
+the pre-read" (equality), never "newer than".
 
 ### 4.2 Flow
 
@@ -441,3 +453,40 @@ DPO must also:
 Additional tests: E3 (out-of-order CSI operations), E5 (replay is re-measured), E6 (unrelated
 change), R6 (re-query failure leaves the CVI unchanged and reports an error), R8 (stale cache
 causes a 409, not a stale write).
+
+## 11. Update: CNAS-12485
+
+**Date:** 2026-10-29. **Spec:** [CNAS-12485: seed the snapshot aggregate into a restored CnsVolumeInfo](../CNAS-12485/spec.md).
+
+On restore, CSI creates the CVI with a snapshot aggregate copied from the volume's
+CnsDeletedVolumeInfo (DVI). The seed is the only CVI aggregate that does not come from CNS. It carries
+no marker, and every writer treats it like any other aggregate. CNAS-12485 relies on
+[UBMCNS-2620](https://vmw-jira.broadcom.net/browse/UBMCNS-2620) being fixed, so CNS reports either
+a measurement or -1, never a placeholder 0. This section lists what changes in the spec above.
+Where the two disagree, this section wins.
+
+### 11.1 §1 writer table
+
+| Writer | Trigger | Where its value comes from |
+|---|---|---|
+| Registration / restore | CVI creation | **`DVI.spec.sizeBytes`**, written by the CVI Create. If a live CVI already exists without a snapshot aggregate, the seed is patched in, conditional on its `resourceVersion` (R1). An existing aggregate is never replaced. |
+
+Other rows are unchanged.
+
+### 11.2 §3 non-goals
+
+"Seeding the aggregate at restore (CNAS-12485)" stays out of scope for this spec. It is now specified in
+CNAS-12485 §6.
+
+### 11.3 §8 assumptions
+
+- A1 (CNS is the single source of truth) and A2 (every writer measures before it writes) hold for
+  every CVI except a just-restored one, until the first CNS value replaces its seed.
+- A3 (a new CVI has no earlier value to protect) is what makes the seeding Create safe without a
+  precondition.
+
+### 11.4 Unchanged
+
+R1–R8, the version-before-measure principle (§4), convergence (§7.2) and DPO's requirements (§9)
+are unchanged. A CNS -1 for a restored volume marks its CVI `valid=false` and keeps the seed as
+the last known size, as for any CVI (CNAS-12485 §7.2).
