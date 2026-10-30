@@ -167,6 +167,9 @@ const (
     ConditionVolumeAccessible = "VolumeAccessible"
     // ConditionPvcBound reflects whether the PVC for the volume is bound.
     ConditionPvcBound = "PvcBound"
+    // VMDeleteProtectionConfigured means the required keepAfterDeleteVm clear is
+    // recorded on the PVC, or this registration does not require clearing.
+    ConditionVMDeleteProtectionConfigured = "VMDeleteProtectionConfigured"
 )
 ```
 
@@ -178,7 +181,7 @@ progresses left to right; the leftmost condition that is not `True` is where it 
 
 ```mermaid
 flowchart LR
-    A["SpecValidated"] --> B["CnsVolumeRegistered"] --> C["VolumeAccessible"] --> D["PvcBound"] --> E["Ready"]
+    A["SpecValidated"] --> B["CnsVolumeRegistered"] --> C["VolumeAccessible"] --> D["PvcBound"] --> P["VMDeleteProtectionConfigured"] --> E["Ready"]
 ```
 
 | Condition | `True` means | Set to `False` while |
@@ -187,6 +190,7 @@ flowchart LR
 | `CnsVolumeRegistered` | CNS has registered the disk and the volume exists. | The CRV is waiting for an in-flight task slot, or its CNS task is running, failed, or in an indeterminate state. |
 | `VolumeAccessible` | The registered volume's datastore is reachable from this cluster, its storage policy is compatible and present, and any host-local topology has been resolved. These are checked **against the volume CNS returned**, so they can only run once it exists. | A check against the registered volume failed. The CNS volume is deleted on this path, so the registration is undone rather than left half-made. |
 | `PvcBound` | The PV and PVC exist and the PVC reached `Bound`. | The Kubernetes objects are being created, or the PVC has not bound yet. |
+| `VMDeleteProtectionConfigured` | The required `keepAfterDeleteVm` clear succeeded and was recorded on the PVC, or clearing is not required. | Clearing or persisting its result has not succeeded; retries do not block binding. |
 | `Ready` | Registration is complete. `True` exactly when `registered=true`. | Any of the above is not yet `True`, or the final bookkeeping is still in progress. |
 
 **Conditions are set lazily and never removed.** A condition appears the first time the controller
@@ -227,6 +231,12 @@ The reasons are the diagnostic payload: they are what used to be invisible.
 | `PvcBound` | True | `Bound` | The PVC is bound. |
 | | False | `ConfiguringK8sResources` | Creating the PV and PVC and applying topology and volumeMode fixes. |
 | | False | `WaitingForBind` | PV and PVC exist; one `Get` every 2s until the PVC binds. |
+| `VMDeleteProtectionConfigured` | False | `ClearingKeepAfterDeleteVm` | Initial configuration attempt after binding. |
+| | False | `ClearKeepAfterDeleteVmFailed` | A lookup or VSLM call failed; retry after 5s. |
+| | False | `ClearKeepAfterDeleteVmTimedOut` | The attempt exceeded its deadline; retry after 5s. |
+| | False | `PersistClearResultFailed` | The clear succeeded but its PVC annotation could not be persisted; retry the idempotent clear. |
+| | True | `KeepAfterDeleteVmCleared` | The successful clear is recorded on the PVC. |
+| | True | `NotRequired` | The PVC is outside the registration-time clearing rules. |
 | `Ready` | True | `Registered` | Written in the same patch as `registered=true`. |
 | | False | `Finalizing` | The PVC is bound; CnsVolumeInfo and StoragePolicyUsage bookkeeping is in progress. |
 | | False | *the blocking condition's reason* | Mirrors the leftmost condition that is not `True`. |
@@ -401,7 +411,9 @@ flowchart TD
     ACC -->|usable| K8S["mark VolumeAccessible<br/>create PV and PVC"]
     K8S --> BIND{"PVC Bound?"}
     BIND -->|No| R2["Requeue 2s"]
-    BIND -->|Yes| FIN["mark PvcBound, finalize,<br/>registered=true and Ready"]
+    BIND -->|Yes| PROTECT["mark PvcBound<br/>configure VM-delete protection<br/>(30s attempt deadline)"]
+    PROTECT -->|failure| R5["mark VMDeleteProtectionConfigured=False<br/>registered remains false<br/>requeue 5s"]
+    PROTECT -->|cleared or not required| FIN["mark VMDeleteProtectionConfigured=True<br/>metadata and quota bookkeeping<br/>registered=true and Ready"]
 ```
 
 Each box that says "return" releases the worker. Requeue intervals:
@@ -411,8 +423,62 @@ Each box that says "return" releases the worker. Requeue intervals:
 | `cnsTaskSafetyRequeue` | 10s | Backstop if a completion wake-up is lost. Completion normally arrives as a push, so this is not a poll. |
 | `cnsSlotRetryInterval` | 5s | Wait before retrying for an in-flight slot. |
 | `pvcBindPollInterval` | 2s | Re-check an unbound PVC with one `Get`. |
+| `vmDeleteProtectionRetryInterval` | 5s | Retry flag configuration independently of the general exponential backoff. |
+| `vmDeleteProtectionClearTimeout` | 30s | Bound one flag-configuration attempt, including its VM lookup and PVC annotation write. |
 
 A dropped wake-up therefore costs latency, never progress.
+
+#### VM-delete-protection configuration after binding
+
+[UBMCNS-1582](https://vmw-jira.broadcom.net/browse/UBMCNS-1582) reports VSLM
+`keepAfterDeleteVm` clear failures followed by exponential retry delays that block
+PV creation and PVC binding. It does not establish that individual clear calls
+are slow. Move `clearKeepAfterDeleteVmIfNonRemovable` after confirming PVC Bound,
+before CnsVolumeInfo/quota bookkeeping and before `setInstanceSuccess`. A failed
+clear must not repeatedly execute the additive quota updates. This placement
+avoids introducing that retry path; it does not solve the pre-existing accounting
+idempotency problem if a later finalization/status write fails.
+
+The applicability rules are unchanged: a VirtualMachine DataSourceRef and a
+matching VM volume with `removable=false`. Only `keepAfterDeleteVm` is cleared;
+CBT and other FCD control flags are preserved. A successful clear is followed by
+persisting `AnnVMDeleteProtectionCleared=true` on the PVC. A retry with that marker
+skips the VM lookup and VSLM call. Conditions remain informational and are not
+used as completion checkpoints. If the clear succeeds but the annotation write
+fails, retry the idempotent clear rather than reporting registration success.
+
+`registered` remains false until this step and final bookkeeping succeed. A
+restart re-enqueues the unfinished CR and re-evaluates the PVC; no in-memory
+state is needed for the flag operation. The new condition is included after
+`PvcBound` in Ready mirroring. Stable failure reasons/messages retain their
+transition time across identical retries. Warning events are emitted without
+`recordEvent`'s exponential-backoff side effect. Each VSLM call logs its elapsed
+time and result, while failure logs report the retry interval, distinguishing
+remote-call time from time spent waiting between attempts.
+
+The 30s child context bounds this synchronous attempt, but it still occupies a
+worker while the call is running. Status reporting uses the parent context after
+the attempt ends. The volume manager also supplies its standard operation timeout
+when no caller deadline exists, covering other callers without lengthening the
+controller's deadline. These bounds are initial values for end-to-end validation,
+not a promise of completion within the test's 40s polling window.
+
+Existing deletion handling remains responsible for cancelled registrations and
+preserves bound PVs. Test deletion with a bound PVC and an incomplete protection
+step. The syncer's owner-reference-based repair remains separate from this
+registration-time requirement; do not rely on it to justify early success.
+
+Status patches copy the returned resourceVersion into the working CR. Otherwise,
+condition writes make that object stale before the metadata update in
+`setInstanceSuccess`, causing conflicts with the controller's own writes.
+
+Regression coverage must verify binding before clearing; retry, timeout and
+annotation-persistence failure conditions; stable transition times; recovery with
+a fresh reconciler; annotation-based skipping; `NotRequired`; and success only
+after clearing. Validate powered-on and powered-off VM imports in the affected
+build with separate timestamps for PVC creation, binding, clear attempts and CRV
+completion. Snapshot-restore timeouts reported in the Jira are outside this fix.
+
 
 ### 3.3 Submit and complete
 

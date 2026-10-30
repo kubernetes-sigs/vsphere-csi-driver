@@ -102,6 +102,9 @@ const (
 	// ConditionPvcBound reflects whether the PV and PVC exist and the PVC has
 	// reached Bound.
 	ConditionPvcBound = "PvcBound"
+	// ConditionVMDeleteProtectionConfigured reports that keepAfterDeleteVm was
+	// cleared and recorded on the PVC, or that this registration does not require it.
+	ConditionVMDeleteProtectionConfigured = "VMDeleteProtectionConfigured"
 )
 
 // Reasons reported on CnsRegisterVolume conditions.
@@ -188,6 +191,14 @@ const (
 	// remaining bookkeeping (CnsVolumeInfo, storage quota accounting) is being
 	// applied.
 	ReasonFinalizing = "Finalizing"
+
+	// VM-delete-protection failures are retryable and do not undo PVC binding.
+	ReasonClearingKeepAfterDeleteVm      = "ClearingKeepAfterDeleteVm"
+	ReasonClearKeepAfterDeleteVmFailed   = "ClearKeepAfterDeleteVmFailed"
+	ReasonClearKeepAfterDeleteVmTimedOut = "ClearKeepAfterDeleteVmTimedOut"
+	ReasonPersistClearResultFailed       = "PersistClearResultFailed"
+	ReasonKeepAfterDeleteVmCleared       = "KeepAfterDeleteVmCleared"
+	ReasonNotRequired                    = "NotRequired"
 )
 
 // CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume

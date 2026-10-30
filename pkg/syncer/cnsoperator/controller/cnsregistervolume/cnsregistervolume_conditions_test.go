@@ -432,6 +432,7 @@ func TestConditionAndReasonConstants(t *testing.T) {
 	assert.Equal(t, "CnsVolumeRegistered", cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered)
 	assert.Equal(t, "VolumeAccessible", cnsregistervolumev1alpha1.ConditionVolumeAccessible)
 	assert.Equal(t, "PvcBound", cnsregistervolumev1alpha1.ConditionPvcBound)
+	assert.Equal(t, "VMDeleteProtectionConfigured", cnsregistervolumev1alpha1.ConditionVMDeleteProtectionConfigured)
 
 	assert.Equal(t, "WaitingForTaskSlot", cnsregistervolumev1alpha1.ReasonWaitingForTaskSlot)
 	assert.Equal(t, "CnsTaskRunning", cnsregistervolumev1alpha1.ReasonCnsTaskRunning)
@@ -466,6 +467,12 @@ func TestConditionAndReasonConstants(t *testing.T) {
 		cnsregistervolumev1alpha1.ReasonConfiguringK8sResources,
 		cnsregistervolumev1alpha1.ReasonWaitingForBind,
 		cnsregistervolumev1alpha1.ReasonFinalizing,
+		cnsregistervolumev1alpha1.ReasonClearingKeepAfterDeleteVm,
+		cnsregistervolumev1alpha1.ReasonClearKeepAfterDeleteVmFailed,
+		cnsregistervolumev1alpha1.ReasonClearKeepAfterDeleteVmTimedOut,
+		cnsregistervolumev1alpha1.ReasonPersistClearResultFailed,
+		cnsregistervolumev1alpha1.ReasonKeepAfterDeleteVmCleared,
+		cnsregistervolumev1alpha1.ReasonNotRequired,
 	} {
 		assert.Regexp(t, `^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`, reason,
 			"reason must satisfy the CRD pattern")

@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
@@ -289,6 +290,12 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 		return pvc, nil
 	}
 
+	// This marker is written only after VSLM successfully clears the flag.
+	// Reuse it after retries/restarts; conditions are informational, not checkpoints.
+	if pvc.Annotations[common.AnnVMDeleteProtectionCleared] == "true" {
+		return pvc, nil
+	}
+
 	vm := &vmoperatortypes.VirtualMachine{}
 	if err := c.Get(ctx, ctrlruntimeclient.ObjectKey{
 		Namespace: namespace,
@@ -314,8 +321,12 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 
 	log.Infof("Clearing keepAfterDeleteVm for volumeID %s (PVC %s/%s mounted as non-removable on VM %s)",
 		volumeID, pvc.Namespace, pvc.Name, vm.Name)
-	if err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID); err != nil {
-		return pvc, fmt.Errorf("failed to clear keepAfterDeleteVm for volumeID %s: %v", volumeID, err)
+	started := time.Now()
+	err := volumeManager.UnprotectVolumeFromVMDeletion(ctx, volumeID)
+	log.Infof("keepAfterDeleteVm clear attempt for volumeID %s took %s (success=%t)",
+		volumeID, time.Since(started), err == nil)
+	if err != nil {
+		return pvc, fmt.Errorf("failed to clear keepAfterDeleteVm for volumeID %s: %w", volumeID, err)
 	}
 
 	// Set annotation to indicate keepAfterDeleteVm has been cleared.
@@ -329,8 +340,8 @@ func clearKeepAfterDeleteVmIfNonRemovable(ctx context.Context, c ctrlruntimeclie
 	}
 	pvcCopy.Annotations[common.AnnVMDeleteProtectionCleared] = "true"
 	if err := c.Patch(ctx, pvcCopy, ctrlruntimeclient.MergeFrom(original)); err != nil {
-		return pvc, fmt.Errorf("failed to set %s annotation on PVC %s/%s: %v",
-			common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name, err)
+		return pvc, fmt.Errorf("%w: failed to set %s annotation on PVC %s/%s: %w",
+			errPersistVMDeleteProtection, common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name, err)
 	}
 	log.Infof("Set %s annotation on PVC %s/%s",
 		common.AnnVMDeleteProtectionCleared, pvc.Namespace, pvc.Name)

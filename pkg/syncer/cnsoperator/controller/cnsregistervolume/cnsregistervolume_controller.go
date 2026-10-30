@@ -840,18 +840,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			instance.Name, instance.Spec.VolumeMode)
 	}
 
-	// When a PVC is created by VM Operator with DataSourceRef set to a VirtualMachine,
-	// and the matching VM volume entry has removable=false, clear the keepAfterDeleteVm
-	// control flag that CNS auto-sets on a newly registered FCD. This ensures the
-	// FCD lifecycle is governed by the PVC, not by the consuming VM. The clear is
-	// performed via the VSLM endpoint, which is broadly available on older vSphere too.
-	pvc, err = clearKeepAfterDeleteVmIfNonRemovable(ctx, r.client, r.volumeManager,
-		pvc, instance.Namespace, volumeID)
-	if err != nil {
-		setInstanceError(ctx, r, instance, err.Error())
-		return reconcile.Result{RequeueAfter: timeout}, nil
-	}
-
 	// Do this check before creating a PV. Otherwise, PVC will be bound to PV after PV
 	// is created even if validation fails
 	if pvc != nil {
@@ -1075,7 +1063,16 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	{
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
 		setInstanceConditions(ctx, r, instance,
-			trueCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonBound, "PVC is bound"),
+			trueCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonBound, "PVC is bound"))
+		// Allow binding before retrying VSLM, but do not declare registration
+		// complete until the flag clear is durable. Keep this before quota writes:
+		// failed clear attempts must not repeatedly add this volume's usage.
+		var protectionRetry *reconcile.Result
+		pvc, protectionRetry = r.reconcileVMDeleteProtection(ctx, instance, pvc, volumeID)
+		if protectionRetry != nil {
+			return *protectionRetry, nil
+		}
+		setInstanceConditions(ctx, r, instance,
 			falseCondition(cnsregistervolumev1alpha1.ConditionReady, cnsregistervolumev1alpha1.ReasonFinalizing,
 				"Applying CnsVolumeInfo and storage quota accounting"))
 		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
@@ -1269,7 +1266,7 @@ func validatePVCTopologyCompatibility(ctx context.Context, k8sclient clientset.I
 
 		// Persist the topology annotation via a merge patch (resourceVersion-agnostic) instead of a
 		// full-object Update, so this write can't 409 if the PVC was already mutated earlier in this
-		// same reconcile pass (e.g. by clearKeepAfterDeleteVmIfNonRemovable).
+		// same reconcile pass or by another controller.
 		patchAnnotations := make(map[string]interface{})
 		for k, v := range pvc.Annotations {
 			patchAnnotations[k] = v
@@ -1750,6 +1747,7 @@ var registrationSteps = []string{
 	cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
 	cnsregistervolumev1alpha1.ConditionVolumeAccessible,
 	cnsregistervolumev1alpha1.ConditionPvcBound,
+	cnsregistervolumev1alpha1.ConditionVMDeleteProtectionConfigured,
 }
 
 // applyConditions stamps observedGeneration and sets each condition on the
@@ -2004,6 +2002,10 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 				oldObj.Name, oldObj.Namespace, err)
 			return err
 		} else if err == nil {
+			// Patch decodes the API response into oldObj. Carry its version
+			// forward so later metadata updates in this reconcile do not
+			// conflict with our own condition/status writes.
+			newObj.ResourceVersion = oldObj.ResourceVersion
 			log.Debugf("Successfully patched CnsRegisterVolume instance %q on namespace %q",
 				oldObj.Name, oldObj.Namespace)
 			return nil

@@ -125,8 +125,8 @@ spec:
                   the reason it is not yet ready. Conditions are informational:
                   registered, not the Ready condition, is the completion signal.
                   Known condition types are SpecValidated, CnsVolumeRegistered,
-                  VolumeAccessible, PvcBound and Ready. A condition is set lazily when
-                  its step is first evaluated, so an absent condition means not yet
+                  VolumeAccessible, PvcBound, VMDeleteProtectionConfigured and Ready. A
+                  condition is set lazily when its step is first evaluated, so an absent condition means not yet
                   evaluated, which is distinct from False. Consumers must look
                   conditions up by type rather than by index.
                 items:
