@@ -78,9 +78,6 @@ const (
 	// MigrationConditionInfeasible indicates the migration cannot be performed
 	MigrationConditionInfeasible = "Infeasible"
 
-	// MigrationConditionError indicates the migration failed with an error
-	MigrationConditionError = "Error"
-
 	// MigrationConditionComplete indicates the migration has completed successfully
 	MigrationConditionComplete = "Complete"
 )
@@ -93,7 +90,6 @@ type CNSVolumeInfoStatus struct {
 	//
 	// "InProgress"
 	// "Infeasible"
-	// "Error"
 	// "Complete"
 	//
 	// +optional
@@ -101,6 +97,13 @@ type CNSVolumeInfoStatus struct {
 	// +listMapKey=type
 	// +kubebuilder:validation:MaxItems=8
 	MigrationConditions []metav1.Condition `json:"migrationConditions,omitempty"`
+
+	// MigrationTargetStoragePolicyID is the storage policy that the current
+	// MigrationConditions apply to. The CSI Syncer writes it in the same status
+	// patch as MigrationConditions, so ControllerModifyVolume can ignore a
+	// condition left over from a previous modify to a different policy.
+	// +optional
+	MigrationTargetStoragePolicyID string `json:"migrationTargetStoragePolicyID,omitempty"`
 }
 
 //+kubebuilder:object:root=true

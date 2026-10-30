@@ -3031,13 +3031,15 @@ func (f *fakeVolumeInfoService) PatchVolumeInfoStatus(
 	return nil
 }
 
-// setMigrationConditions atomically replaces the MigrationConditions list on
-// the underlying CNSVolumeInfo (simulating what the CSI Syncer does in
-// production based on the Mobility Operator's migration CR status).
-func (f *fakeVolumeInfoService) setMigrationConditions(conds []metav1.Condition) {
+// setMigrationConditions atomically replaces the MigrationConditions list and
+// the target storage policy they apply to on the underlying CNSVolumeInfo
+// (simulating what the CSI Syncer does in production based on the Mobility
+// Operator's migration CR status).
+func (f *fakeVolumeInfoService) setMigrationConditions(conds []metav1.Condition, targetPolicyID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.volumeInfo.Status.MigrationConditions = conds
+	f.volumeInfo.Status.MigrationTargetStoragePolicyID = targetPolicyID
 }
 
 // TestControllerModifyVolume covers the poll-only WCP CSI ControllerModifyVolume.
@@ -3115,7 +3117,7 @@ func TestControllerModifyVolume(t *testing.T) {
 		fakeVIS.setMigrationConditions([]metav1.Condition{{
 			Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
 			Status: metav1.ConditionTrue,
-		}})
+		}}, "new-policy-id")
 		volumeInfoService = fakeVIS
 
 		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -3139,7 +3141,7 @@ func TestControllerModifyVolume(t *testing.T) {
 			fakeVIS.setMigrationConditions([]metav1.Condition{{
 				Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
 				Status: metav1.ConditionTrue,
-			}})
+			}}, "new-policy-id")
 		}()
 		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -3151,21 +3153,44 @@ func TestControllerModifyVolume(t *testing.T) {
 		}
 	})
 
-	t.Run("ErrorReturnsInvalidArgument", func(t *testing.T) {
+	t.Run("StaleInfeasibleForOtherPolicyIsIgnored", func(t *testing.T) {
+		// Rollback case: the CVI still carries Infeasible from a previous modify
+		// to another policy. It must not fail this modify; the Syncer later
+		// records Complete for the requested policy.
 		fakeVIS := newFakeVIS()
 		fakeVIS.setMigrationConditions([]metav1.Condition{{
-			Type:   cnsvolumeinfov1alpha1.MigrationConditionError,
+			Type:   cnsvolumeinfov1alpha1.MigrationConditionInfeasible,
 			Status: metav1.ConditionTrue,
-		}})
+		}}, "old-policy-id")
 		volumeInfoService = fakeVIS
-		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			fakeVIS.setMigrationConditions([]metav1.Condition{{
+				Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
+				Status: metav1.ConditionTrue,
+			}}, "new-policy-id")
+		}()
+		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq()); err != nil {
+			t.Fatalf("ControllerModifyVolume returned error for stale Infeasible: %v", err)
+		}
+	})
+
+	t.Run("StaleCompleteForOtherPolicyIsIgnored", func(t *testing.T) {
+		// Complete left over from a previous modify to another policy must not
+		// complete this modify; the controller keeps polling to the deadline.
+		fakeVIS := newFakeVIS()
+		fakeVIS.setMigrationConditions([]metav1.Condition{{
+			Type:   cnsvolumeinfov1alpha1.MigrationConditionComplete,
+			Status: metav1.ConditionTrue,
+		}}, "old-policy-id")
+		volumeInfoService = fakeVIS
+		timeoutCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
 		_, err := ct.controller.ControllerModifyVolume(timeoutCtx, makeReq())
-		if err == nil {
-			t.Fatalf("expected InvalidArgument when MigrationConditions=Error")
-		}
-		if status.Code(err) != codes.InvalidArgument {
-			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
+		if status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("expected codes.DeadlineExceeded for stale Complete, got %v", err)
 		}
 	})
 
@@ -3174,7 +3199,7 @@ func TestControllerModifyVolume(t *testing.T) {
 		fakeVIS.setMigrationConditions([]metav1.Condition{{
 			Type:   cnsvolumeinfov1alpha1.MigrationConditionInfeasible,
 			Status: metav1.ConditionTrue,
-		}})
+		}}, "new-policy-id")
 		volumeInfoService = fakeVIS
 		timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
@@ -3209,6 +3234,7 @@ func TestControllerModifyVolume(t *testing.T) {
 			VolumeId: "invalid-volume-id",
 			MutableParameters: map[string]string{
 				common.AttributeStoragePolicyName: "new-policy-name",
+				common.AttributeStoragePolicyID:   "new-policy-id",
 			},
 		})
 		if err == nil {
@@ -3232,6 +3258,19 @@ func TestControllerModifyVolume(t *testing.T) {
 		}
 	})
 
+	t.Run("MissingStoragePolicyIDMutableParameter", func(t *testing.T) {
+		volumeInfoService = newFakeVIS()
+		_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
+			VolumeId: respCreate.Volume.VolumeId,
+			MutableParameters: map[string]string{
+				common.AttributeStoragePolicyName: "new-policy-name",
+			},
+		})
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("expected codes.InvalidArgument without storagePolicyID, got %v", err)
+		}
+	})
+
 	t.Run("EmptyVolumeId", func(t *testing.T) {
 		volumeInfoService = newFakeVIS()
 		_, err := ct.controller.ControllerModifyVolume(ctx, &csi.ControllerModifyVolumeRequest{
@@ -3245,6 +3284,66 @@ func TestControllerModifyVolume(t *testing.T) {
 			t.Fatalf("expected codes.InvalidArgument, got %v", status.Code(err))
 		}
 	})
+}
+
+// TestCheckMigrationTerminalConditions verifies that a terminal condition is
+// acted on only when it was recorded for the requested target storage policy.
+func TestCheckMigrationTerminalConditions(t *testing.T) {
+	cvi := func(condType, target string) *cnsvolumeinfov1alpha1.CNSVolumeInfo {
+		c := &cnsvolumeinfov1alpha1.CNSVolumeInfo{}
+		c.Status.MigrationTargetStoragePolicyID = target
+		if condType != "" {
+			c.Status.MigrationConditions = []metav1.Condition{{Type: condType, Status: metav1.ConditionTrue}}
+		}
+		return c
+	}
+	tests := []struct {
+		name     string
+		cvi      *cnsvolumeinfov1alpha1.CNSVolumeInfo
+		wantDone bool
+		wantCode codes.Code
+	}{
+		{"Complete for target", cvi(cnsvolumeinfov1alpha1.MigrationConditionComplete, "target"), true, codes.OK},
+		{"Infeasible for target", cvi(cnsvolumeinfov1alpha1.MigrationConditionInfeasible, "target"), true,
+			codes.InvalidArgument},
+		{"InProgress for target", cvi(cnsvolumeinfov1alpha1.MigrationConditionInProgress, "target"), false, codes.OK},
+		{"no condition", cvi("", "target"), false, codes.OK},
+		{"Complete for other policy", cvi(cnsvolumeinfov1alpha1.MigrationConditionComplete, "other"), false, codes.OK},
+		{"Infeasible for other policy", cvi(cnsvolumeinfov1alpha1.MigrationConditionInfeasible, "other"), false,
+			codes.OK},
+		{"Complete with no target recorded", cvi(cnsvolumeinfov1alpha1.MigrationConditionComplete, ""), false,
+			codes.OK},
+		{"Infeasible with no target recorded", cvi(cnsvolumeinfov1alpha1.MigrationConditionInfeasible, ""), false,
+			codes.OK},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err, done := checkMigrationTerminalConditions(ctx, "vol-1", "target", tc.cvi)
+			if done != tc.wantDone {
+				t.Fatalf("done = %v, want %v", done, tc.wantDone)
+			}
+			if status.Code(err) != tc.wantCode {
+				t.Fatalf("code = %v, want %v (err %v)", status.Code(err), tc.wantCode, err)
+			}
+			if tc.wantDone && tc.wantCode == codes.OK && resp == nil {
+				t.Fatalf("expected a response on Complete")
+			}
+		})
+	}
+}
+
+// TestGetStoragePolicyIDFromMutableParameters verifies the case-insensitive
+// lookup of the storagePolicyID mutable parameter.
+func TestGetStoragePolicyIDFromMutableParameters(t *testing.T) {
+	if got := getStoragePolicyIDFromMutableParameters(map[string]string{"storagePolicyID": "p1"}); got != "p1" {
+		t.Fatalf("got %q, want p1", got)
+	}
+	if got := getStoragePolicyIDFromMutableParameters(map[string]string{"x": "y"}); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+	if got := getStoragePolicyIDFromMutableParameters(nil); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
 }
 
 // TestControllerModifyVolumeFSSDisabled verifies that when the

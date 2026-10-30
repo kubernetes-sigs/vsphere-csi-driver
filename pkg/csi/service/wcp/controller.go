@@ -761,10 +761,9 @@ func (c *controller) createBlockVolume(ctx context.Context, req *csi.CreateVolum
 	// StorageClass storagePolicyID. Per the CSI spec, mutable_parameters take precedence
 	// over parameters.
 	if isVMPVCStoragePolicyMutabilityEnabled {
-		for paramName := range req.GetMutableParameters() {
-			if strings.ToLower(paramName) == common.AttributeStoragePolicyID {
-				storagePolicyID = req.GetMutableParameters()[paramName]
-			}
+		if mutableStoragePolicyID := getStoragePolicyIDFromMutableParameters(
+			req.GetMutableParameters()); mutableStoragePolicyID != "" {
+			storagePolicyID = mutableStoragePolicyID
 		}
 	}
 	log.Infof("createBlockVolume: using StoragePolicyID %q for volume %s", storagePolicyID, req.Name)
@@ -3457,41 +3456,56 @@ func (c *controller) ControllerGetVolume(ctx context.Context, req *csi.Controlle
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-// checkMigrationTerminalConditions classifies MigrationConditions into a terminal outcome.
+// checkMigrationTerminalConditions classifies MigrationConditions into a terminal outcome
+// for the modify to targetPolicyID. A condition is only acted on when the Syncer recorded
+// it for the same target (Status.MigrationTargetStoragePolicyID); otherwise it is left over
+// from a previous modify (e.g. before a retarget or rollback) and is ignored.
 // Returns:
 //
-//	(response, gRPC error, true)  when a terminal condition has been observed
-//	(nil, nil, false)             when no terminal condition is set yet
+//	(response, gRPC error, true)  when a terminal condition for targetPolicyID has been observed
+//	(nil, nil, false)             when no terminal condition for targetPolicyID is set yet
 func checkMigrationTerminalConditions(
-	ctx context.Context, volumeID string, cvi *cnsvolumeinfov1alpha1.CNSVolumeInfo,
+	ctx context.Context, volumeID, targetPolicyID string, cvi *cnsvolumeinfov1alpha1.CNSVolumeInfo,
 ) (*csi.ControllerModifyVolumeResponse, error, bool) {
 	log := logger.GetLogger(ctx)
+	if cvi.Status.MigrationTargetStoragePolicyID != targetPolicyID {
+		log.Debugf("Volume %q MigrationConditions are for storage policy %q, not the requested %q; "+
+			"waiting for the Syncer", volumeID, cvi.Status.MigrationTargetStoragePolicyID, targetPolicyID)
+		return nil, nil, false
+	}
 	// The syncer always replaces MigrationConditions with a single-element slice
 	// (JSON Merge Patch replaces arrays atomically), so at most one condition is
 	// present at a time. FindStatusCondition is a keyed lookup by type, so slice
 	// order and length do not affect correctness. The check order below
-	// (Complete → Error → Infeasible) reflects intentional precedence.
+	// (Complete → Infeasible) reflects intentional precedence.
 	conds := cvi.Status.MigrationConditions
 	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionComplete); c != nil &&
 		c.Status == metav1.ConditionTrue {
-		log.Infof("Volume %q migration successfully completed by Mobility Controller", volumeID)
+		log.Infof("Volume %q migration to storage policy %q successfully completed by Mobility Controller",
+			volumeID, targetPolicyID)
 		return &csi.ControllerModifyVolumeResponse{}, nil, true
-	}
-	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionError); c != nil &&
-		c.Status == metav1.ConditionTrue {
-		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
-		// and the user can roll back to the original VAC.
-		return nil, status.Errorf(codes.InvalidArgument,
-			"Mobility Controller failed to migrate volume %s", volumeID), true
 	}
 	if c := apimeta.FindStatusCondition(conds, cnsvolumeinfov1alpha1.MigrationConditionInfeasible); c != nil &&
 		c.Status == metav1.ConditionTrue {
 		// Returning codes.InvalidArgument so csi-resizer marks the PVC Infeasible
 		// and the user can roll back to the original VAC.
 		return nil, status.Errorf(codes.InvalidArgument,
-			"Mobility Controller found migration infeasible for volume %s", volumeID), true
+			"Mobility Controller found migration to storage policy %s infeasible for volume %s",
+			targetPolicyID, volumeID), true
 	}
 	return nil, nil, false
+}
+
+// getStoragePolicyIDFromMutableParameters returns the storagePolicyID entry of the
+// request's mutable_parameters (sourced from the VolumeAttributesClass), matching the
+// key case-insensitively. Returns "" if absent.
+func getStoragePolicyIDFromMutableParameters(mutableParameters map[string]string) string {
+	for paramName, value := range mutableParameters {
+		if strings.ToLower(paramName) == common.AttributeStoragePolicyID {
+			return value
+		}
+	}
+	return ""
 }
 
 // ControllerModifyVolume implements the CSI ControllerModifyVolume RPC for the
@@ -3506,8 +3520,9 @@ func checkMigrationTerminalConditions(
 // gRPC error codes returned:
 //   - codes.Unimplemented        - the supports_VM_PVC_storage_policy_mutability
 //     capability is not enabled on the supervisor.
-//   - codes.InvalidArgument      - basic request validation failure, or the
-//     Mobility Operator reported Error / Infeasible
+//   - codes.InvalidArgument      - basic request validation failure (including a
+//     missing storagePolicyID mutable parameter), or
+//     the Mobility Operator reported Infeasible
 //     via MigrationConditions. csi-resizer marks
 //     the PVC Infeasible, allowing the user to roll
 //     back by patching spec.VAC; the slow-retry
@@ -3547,6 +3562,11 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 	if req.GetMutableParameters() == nil {
 		return nil, logger.LogNewErrorCode(log, codes.InvalidArgument, "MutableParameters must be provided")
 	}
+	targetPolicyID := getStoragePolicyIDFromMutableParameters(req.GetMutableParameters())
+	if targetPolicyID == "" {
+		return nil, logger.LogNewErrorCodef(log, codes.InvalidArgument,
+			"MutableParameters must contain %q", common.AttributeStoragePolicyID)
+	}
 
 	if volumeInfoService == nil {
 		return nil, logger.LogNewErrorCode(log, codes.Internal, "volumeInfoService is not initialized")
@@ -3559,7 +3579,7 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 		return nil, logger.LogNewErrorCodef(log, codes.Internal,
 			"failed to get CNSVolumeInfo for volume %s: %v", volumeID, err)
 	}
-	if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, cvi); done {
+	if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, targetPolicyID, cvi); done {
 		return resp, terminalErr
 	}
 
@@ -3581,7 +3601,7 @@ func (c *controller) ControllerModifyVolume(ctx context.Context, req *csi.Contro
 				log.Errorf("failed to poll CNSVolumeInfo for volume %s: %v", volumeID, err)
 				continue
 			}
-			if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, cvi); done {
+			if resp, terminalErr, done := checkMigrationTerminalConditions(ctx, volumeID, targetPolicyID, cvi); done {
 				return resp, terminalErr
 			}
 		}
