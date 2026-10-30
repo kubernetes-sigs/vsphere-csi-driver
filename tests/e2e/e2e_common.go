@@ -153,6 +153,7 @@ const (
 	healthStatusInAccessible                  = "inaccessible"
 	healthStatusWaitTime                      = 3 * time.Minute
 	hostdServiceName                          = "hostd"
+	improvedVolumeVisibilityFss               = "improved-volume-visibility"
 	invalidFSType                             = "ext10"
 	k8sPodTerminationTimeOut                  = 7 * time.Minute
 	k8sPodTerminationTimeOutLong              = 10 * time.Minute
