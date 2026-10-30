@@ -23,7 +23,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
@@ -35,7 +34,6 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -381,8 +379,25 @@ func constructCreateSpecForInstance(ctx context.Context, r *ReconcileCnsRegister
 	if instance.Spec.VolumeID != "" {
 		volumeName = staticPvNamePrefix + instance.Spec.VolumeID
 	} else {
-		id, _ := uuid.NewUUID()
-		volumeName = staticPvNamePrefix + id.String()
+		// Derive the name from the CR UID rather than a fresh random one.
+		//
+		// The name is the only handle on a volume whose CreateVolume task has
+		// been lost -- a crash between submitting the task and recording its
+		// ID, or a task that aged out of vCenter. With a random name per
+		// attempt, two attempts for the same CR are unrelatable, so a volume
+		// created by the first attempt can never be found by the second and
+		// would leak. Keying on the CR UID makes every attempt for one CR use
+		// the same name, so the volume can be looked up and reused or cleaned
+		// up. The UID also keeps the name unique across a delete and recreate
+		// of the same CR name.
+		if instance.UID != "" {
+			volumeName = staticPvNamePrefix + string(instance.UID)
+		} else {
+			// No UID should not happen for a CR read from the API server, but
+			// fall back rather than emit a name that collides across CRs.
+			id, _ := uuid.NewUUID()
+			volumeName = staticPvNamePrefix + id.String()
+		}
 	}
 	var clusterIDForVolumeMetadata string
 	if useSupervisorId {
@@ -740,47 +755,6 @@ func getPersistentVolumeClaimSpec(ctx context.Context, name string, namespace st
 		annotations[common.AnnKeyBackingDiskType] = instance.Spec.BackingType
 	}
 	return claim, nil
-}
-
-// isPVCBound return true if the PVC is bound before timeout.
-// Otherwise, return false.
-func isPVCBound(ctx context.Context, client clientset.Interface, claim *v1.PersistentVolumeClaim,
-	timeout time.Duration) (bool, error) {
-	log := logger.GetLogger(ctx)
-	pvcName := claim.Name
-	ns := claim.Namespace
-	timeoutSeconds := int64(timeout.Seconds())
-
-	log.Infof("Waiting up to %d seconds for PersistentVolumeClaim %v in namespace %s to have phase %s",
-		timeoutSeconds, pvcName, ns, v1.ClaimBound)
-	watchClaim, err := client.CoreV1().PersistentVolumeClaims(ns).Watch(
-		ctx,
-		metav1.ListOptions{
-			FieldSelector:  fields.OneTermEqualSelector("metadata.name", pvcName).String(),
-			TimeoutSeconds: &timeoutSeconds,
-			Watch:          true,
-		})
-	if err != nil {
-		errMsg := fmt.Errorf("failed to watch PersistentVolumeClaim %s with Error: %v", pvcName, err)
-		log.Error(errMsg)
-		return false, errMsg
-	}
-	defer watchClaim.Stop()
-
-	for event := range watchClaim.ResultChan() {
-		pvc, ok := event.Object.(*v1.PersistentVolumeClaim)
-		if !ok {
-			continue
-		}
-		log.Debugf("PersistentVolumeClaim %s in namespace %s is in state %s. Received event %v",
-			pvcName, ns, pvc.Status.Phase, event)
-		if pvc.Status.Phase == v1.ClaimBound && pvc.Name == pvcName {
-			log.Infof("PersistentVolumeClaim %s in namespace %s is in state %s", pvcName, ns, pvc.Status.Phase)
-			return true, nil
-		}
-	}
-	return false, fmt.Errorf("persistentVolumeClaim %s in namespace %s not in phase %s within %d seconds",
-		pvcName, ns, v1.ClaimBound, timeoutSeconds)
 }
 
 // setBackingDiskAnnotation checks if the backing disk annotation on the PVC matches

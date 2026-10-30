@@ -28,6 +28,7 @@ import (
 
 	cnstypes "github.com/vmware/govmomi/cns/types"
 	v1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,9 +42,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/conditions"
 	cnsoperatortypes "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/types"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 
@@ -69,7 +74,13 @@ import (
 const (
 	workerThreadsEnvVar     = "WORKER_THREADS_REGISTER_VOLUME"
 	defaultMaxWorkerThreads = 40
-	staticPvNamePrefix      = "static-pv-"
+	// maxInFlightCnsTasksEnvVar caps concurrent CNS CreateVolume tasks. Before
+	// the task wait was moved off the reconciler worker, the worker pool itself
+	// capped this at defaultMaxWorkerThreads; this replaces that ceiling
+	// explicitly so vCenter sees no more concurrency than it does today.
+	maxInFlightCnsTasksEnvVar  = "MAX_INFLIGHT_CNS_TASKS_REGISTER_VOLUME"
+	defaultMaxInFlightCnsTasks = 40
+	staticPvNamePrefix         = "static-pv-"
 	// Labels added to PVs created by CnsRegisterVolume for identification and direct lookup
 	labelCnsRegisterVolumeCreatedBy      = "cns.vmware.com/created-by"
 	labelCnsRegisterVolumeCreatedByValue = "cnsregistervolume"
@@ -194,9 +205,16 @@ func newReconciler(mgr manager.Manager, configInfo *commonconfig.ConfigurationIn
 		log.Errorf("Failed to create k8s client. Err: %v", err)
 		return nil, err
 	}
+	maxInFlight := util.GetMaxWorkerThreads(ctx, maxInFlightCnsTasksEnvVar, defaultMaxInFlightCnsTasks)
+	// Buffered so the tracker's goroutines never block delivering a wake-up.
+	taskEvents := make(chan event.GenericEvent, maxInFlight*2)
 	return &ReconcileCnsRegisterVolume{client: mgr.GetClient(), scheme: mgr.GetScheme(),
 		configInfo: configInfo, volumeManager: volumeManager, recorder: recorder,
-		volumeInfoService: volumeInfoService, k8sclient: k8sclient}, nil
+		volumeInfoService: volumeInfoService, k8sclient: k8sclient,
+		// The listview and vCenter are bound on first use, once a reconcile has
+		// a live VC connection.
+		taskTracker: newCnsTaskTracker(nil, nil, taskEvents, maxInFlight),
+		taskEvents:  taskEvents}, nil
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
@@ -206,11 +224,20 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	maxWorkerThreads := util.GetMaxWorkerThreads(ctx,
 		workerThreadsEnvVar, defaultMaxWorkerThreads)
 	// Create a new controller.
-	err := ctrl.NewControllerManagedBy(mgr).Named("cnsregistervolume-controller").
+	builder := ctrl.NewControllerManagedBy(mgr).Named("cnsregistervolume-controller").
 		For(&cnsregistervolumev1alpha1.CnsRegisterVolume{}).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
-		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads}).
-		Complete(r)
+		WithOptions(controller.Options{MaxConcurrentReconciles: maxWorkerThreads})
+
+	// Wake a CR as soon as its CNS task completes, instead of waiting for the
+	// safety requeue. GenerationChangedPredicate overrides only Update, so
+	// Generic events pass through this filter untouched.
+	if reconciler, ok := r.(*ReconcileCnsRegisterVolume); ok && reconciler.taskEvents != nil {
+		builder = builder.WatchesRawSource(
+			source.Channel(reconciler.taskEvents, &handler.EnqueueRequestForObject{}))
+	}
+
+	err := builder.Complete(r)
 	if err != nil {
 		log.Errorf("Failed to build application controller. Err: %v", err)
 		return err
@@ -235,6 +262,17 @@ type ReconcileCnsRegisterVolume struct {
 	recorder          record.EventRecorder
 	volumeInfoService cnsvolumeinfo.VolumeInfoService
 	k8sclient         clientset.Interface
+	// taskTracker watches in-flight CNS CreateVolume tasks so that no
+	// reconciler worker has to block on one.
+	taskTracker *cnsTaskTracker
+	// taskEvents carries wake-ups from the tracker back into the controller's
+	// work queue; it is registered as a source.Channel watch in add().
+	taskEvents chan event.GenericEvent
+}
+
+// instanceKey is the work-queue identity of a CnsRegisterVolume.
+func instanceKey(instance *cnsregistervolumev1alpha1.CnsRegisterVolume) apitypes.NamespacedName {
+	return apitypes.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}
 }
 
 // Reconcile reads that state of the cluster for a CnsRegisterVolume object
@@ -318,7 +356,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 	err = validateCnsRegisterVolumeSpec(ctx, instance)
 	if err != nil {
 		log.Errorf(err.Error())
-		setInstanceError(ctx, r, instance, err.Error())
+		setInstanceError(ctx, r, instance, err.Error(),
+			falseCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+				cnsregistervolumev1alpha1.ReasonInvalidSpec, "CnsRegisterVolume spec is not valid"))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -329,7 +369,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		policyID, err := getStoragePolicyIDForStorageClass(ctx, r.k8sclient, instance.Spec.StorageClassName)
 		if err != nil {
 			log.Error(err.Error())
-			setInstanceError(ctx, r, instance, err.Error())
+			setInstanceError(ctx, r, instance, err.Error(),
+				falseCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+					cnsregistervolumev1alpha1.ReasonStoragePolicyLookupFailed,
+					"Could not resolve the storage policy for the StorageClass"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		assigned, err := isStoragePolicyAssignedToNamespace(ctx, r.k8sclient, r.client, policyID,
@@ -338,14 +381,20 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("Failed to verify StorageClass %q is assigned to namespace %q: %+v",
 				instance.Spec.StorageClassName, instance.Namespace, err)
 			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
+			setInstanceError(ctx, r, instance, msg,
+				falseCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+					cnsregistervolumev1alpha1.ReasonStoragePolicyLookupFailed,
+					"Could not verify the storage policy is assigned to this namespace"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		if !assigned {
 			msg := fmt.Sprintf("StorageClass %q's storage policy is not assigned to namespace %q",
 				instance.Spec.StorageClassName, instance.Namespace)
 			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
+			setInstanceError(ctx, r, instance, msg,
+				falseCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+					cnsregistervolumev1alpha1.ReasonStoragePolicyNotAssignedToNamespace,
+					"The namespace is not entitled to the requested storage policy"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
@@ -378,7 +427,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		msg := fmt.Sprintf("AccessMode: %s is not supported with volumemode %s",
 			instance.Spec.AccessMode, instance.Spec.VolumeMode)
 		log.Error(msg)
-		setInstanceError(ctx, r, instance, msg)
+		setInstanceError(ctx, r, instance, msg,
+			falseCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+				cnsregistervolumev1alpha1.ReasonInvalidSpec,
+				"File volume registration is not supported"))
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
@@ -406,9 +458,20 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		setInstanceError(ctx, r, instance, msg)
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+	// Every pre-CNS check has passed. Published before the first CNS call so a
+	// CR waiting on a task slot is distinguishable from one still being validated.
+	setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionSpecValidated,
+		cnsregistervolumev1alpha1.ReasonValidated, "CnsRegisterVolume spec is valid"))
+
 	log.Infof("Creating CNS volume: %+v for CnsRegisterVolume request with name: %q on namespace: %q",
 		instance, instance.Name, instance.Namespace)
-	volInfo, _, err := r.volumeManager.CreateVolume(ctx, createSpec, nil)
+	// Submit the CNS task and return, or pick up the result of a task submitted
+	// by an earlier pass. Either way this does not block on CNS, so the worker
+	// is free to start another CnsRegisterVolume while this one's task runs.
+	volInfo, taskResult, err := r.submitOrPollCreateVolume(ctx, instance, vc, createSpec, timeout)
+	if taskResult != nil {
+		return *taskResult, nil
+	}
 	if err != nil {
 		msg := fmt.Sprintf("failed to create CNS volume. Error: %v", err)
 		log.Errorf(msg)
@@ -435,6 +498,9 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 
 	volumeID = volInfo.VolumeID.Id
 	log.Infof("Created CNS volume with volumeID: %s", volumeID)
+	// The CNS volume exists from here on; the remaining work is Kubernetes-side.
+	setInstanceConditions(ctx, r, instance, trueCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
+		cnsregistervolumev1alpha1.ReasonRegistered, "CNS has registered the disk"))
 	r.clearStaleDeleteOperationRecord(ctx, volumeID)
 
 	pvName = staticPvNamePrefix + volumeID
@@ -477,7 +543,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			msg := fmt.Sprintf("failed to determine host-local status for storage policy %s: %+v",
 				volume.StoragePolicyId, err)
 			log.Error(msg)
-			setInstanceError(ctx, r, instance, msg)
+			setInstanceError(ctx, r, instance, msg,
+				falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
+					cnsregistervolumev1alpha1.ReasonHostLocalCheckFailed,
+					"Could not determine whether the storage policy is host-local"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 	}
@@ -508,14 +577,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if dsErr != nil || dsInfo == nil {
 			log.Errorf("failed to resolve datastore %s for host-local volume %s: %+v",
 				volume.DatastoreUrl, volumeID, dsErr)
-			setInstanceError(ctx, r, instance,
-				"host-local volume in the spec is on a datastore not found in the namespace's clusters")
-			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			// permanent failure and not requeue.
-			return reconcile.Result{}, nil
+			return r.failVolumeNotAccessible(ctx, instance, volumeID,
+				cnsregistervolumev1alpha1.ReasonDatastoreNotFound,
+				"host-local volume in the spec is on a datastore not found in the namespace's clusters",
+				"The host-local volume's datastore is not present in the namespace's clusters", timeout), nil
 		}
 
 		// Requirement: the host-local policy must be PBM-compatible with the datastore the disk
@@ -524,20 +589,19 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if compatErr != nil {
 			// Transient PBM/VC error: requeue without cleanup.
 			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("failed to verify PBM compatibility for host-local volume %s: %+v", volumeID, compatErr))
+				fmt.Sprintf("failed to verify PBM compatibility for host-local volume %s: %+v", volumeID, compatErr),
+				falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
+					cnsregistervolumev1alpha1.ReasonHostLocalCheckFailed,
+					"Could not verify the host-local storage policy against the datastore"))
 			return reconcile.Result{RequeueAfter: timeout}, nil
 		}
 		if !compatible {
 			log.Errorf("host-local policy %s is not PBM-compatible with datastore %s for volume %s",
 				volume.StoragePolicyId, volume.DatastoreUrl, volumeID)
-			setInstanceError(ctx, r, instance,
-				"host-local storage policy is not compatible with the datastore the disk lives on")
-			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			// permanent failure and not requeue.
-			return reconcile.Result{}, nil
+			return r.failVolumeNotAccessible(ctx, instance, volumeID,
+				cnsregistervolumev1alpha1.ReasonHostLocalPolicyIncompatible,
+				"host-local storage policy is not compatible with the datastore the disk lives on",
+				"The host-local storage policy is not compatible with the datastore the disk lives on", timeout), nil
 		}
 
 		// Derive the PV topology from Datastore.host[0] -> {zone (from host's cluster), hostname}.
@@ -545,14 +609,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		if err != nil {
 			log.Errorf("failed to resolve host-local topology for volume %s on datastore %s: %+v",
 				volumeID, volume.DatastoreUrl, err)
-			setInstanceError(ctx, r, instance,
-				fmt.Sprintf("failed to resolve host-local topology for volume %s: %+v", volumeID, err))
-			if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-				log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-				return reconcile.Result{RequeueAfter: timeout}, nil
-			}
-			// permanent failure and not requeue.
-			return reconcile.Result{}, nil
+			return r.failVolumeNotAccessible(ctx, instance, volumeID,
+				cnsregistervolumev1alpha1.ReasonTopologyUnresolved,
+				fmt.Sprintf("failed to resolve host-local topology for volume %s: %+v", volumeID, err),
+				"The accessible topology for the host-local volume could not be resolved", timeout), nil
 		}
 	} else if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 		if workloadDomainIsolationEnabled || len(clusterComputeResourceMoIds) > 1 {
@@ -579,16 +639,12 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					map[string][]string{"dummy-zone-key": activeClusters}, volume.DatastoreUrl) {
 					log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the active "+
 						"cluster on the namespace: %v", volumeID, volume.DatastoreUrl, activeClusters)
-					setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of "+
-						"the active cluster on the namespace")
-
-					// Attempt volume cleanup
-					if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-						log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-						return reconcile.Result{RequeueAfter: timeout}, nil
-					}
-					// permanent failure and not requeue.
-					return reconcile.Result{}, nil
+					return r.failVolumeNotAccessible(ctx, instance, volumeID,
+						cnsregistervolumev1alpha1.ReasonDatastoreNotAccessibleToAZClusters,
+						"Volume in the spec is not accessible to any of "+
+							"the active cluster on the namespace",
+						"The volume's datastore is not accessible to any active AZ cluster",
+						timeout), nil
 				}
 			} else {
 				azClustersMap := topologyMgr.GetAZClustersMap(ctx)
@@ -596,13 +652,10 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 				if !isAccessible {
 					log.Errorf("Volume: %s present on datastore: %s is not accessible to any of the AZ clusters: %v",
 						volumeID, volume.DatastoreUrl, azClustersMap)
-					setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to any of the AZ clusters")
-					if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-						log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-						return reconcile.Result{RequeueAfter: timeout}, nil
-					}
-					// permanent failure and not requeue.
-					return reconcile.Result{}, nil
+					return r.failVolumeNotAccessible(ctx, instance, volumeID,
+						cnsregistervolumev1alpha1.ReasonDatastoreNotAccessibleToAZClusters,
+						"Volume in the spec is not accessible to any of the AZ clusters",
+						"The volume's datastore is not accessible to any active AZ cluster", timeout), nil
 				}
 			}
 		}
@@ -611,23 +664,32 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 		// Verify if the volume is accessible to Supervisor cluster.
 		log.Errorf("Volume: %s present on datastore: %s is not accessible to all nodes in the cluster: %s",
 			volumeID, volume.DatastoreUrl, r.configInfo.GetCfg().Global.ClusterID)
-		setInstanceError(ctx, r, instance, "Volume in the spec is not accessible to all nodes in the cluster")
-		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
-			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
-			return reconcile.Result{RequeueAfter: timeout}, nil
-		}
-		// permanent failure and not requeue.
-		return reconcile.Result{}, nil
+		return r.failVolumeNotAccessible(ctx, instance, volumeID,
+			cnsregistervolumev1alpha1.ReasonDatastoreNotAccessibleToCluster,
+			"Volume in the spec is not accessible to all nodes in the cluster",
+			"The volume's datastore is not accessible to all nodes in the cluster", timeout), nil
 	}
 	// Verify if storage policy is empty.
 	if volume.StoragePolicyId == "" {
 		log.Errorf("Volume: %s doesn't have storage policy associated with it", volumeID)
-		setInstanceError(ctx, r, instance, "Volume in the spec doesn't have storage policy associated with it")
+		setInstanceError(ctx, r, instance,
+			"Volume in the spec doesn't have storage policy associated with it",
+			falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
+				cnsregistervolumev1alpha1.ReasonStoragePolicyMissing,
+				"The registered volume has no storage policy associated with it"))
 		if err = r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
 			log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
 		}
 		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
+
+	// Every check against the registered volume has passed, so the volume is
+	// usable from this cluster and the Kubernetes-side work can begin.
+	setInstanceConditions(ctx, r, instance,
+		trueCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible, cnsregistervolumev1alpha1.ReasonAccessible,
+			"The registered volume is accessible from this cluster"),
+		falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonConfiguringK8sResources,
+			"Creating the PV and PVC for the registered volume"))
 
 	// Use cached K8s client for registration operations.
 	k8sclient := r.k8sclient
@@ -996,10 +1058,26 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 			IsPVCCreatedByCNSRegisterVolumeReconciler = true
 		}
 	}
-	// Watch for PVC to be bound.
-	isBound, err := isPVCBound(ctx, k8sclient, pvc, time.Duration(1*time.Minute))
-	if isBound {
+	// Check whether the PVC is bound, without blocking on it. The previous
+	// implementation opened a per-CR watch and held this worker for up to 60s;
+	// now an unbound PVC simply requeues and the worker moves on.
+	setInstanceConditions(ctx, r, instance, falseCondition(cnsregistervolumev1alpha1.ConditionPvcBound,
+		cnsregistervolumev1alpha1.ReasonWaitingForBind, "Waiting for the PVC to be bound"))
+	isBound, err := isPVCBoundNow(ctx, k8sclient, pvc)
+	if err != nil {
+		log.Errorf("failed to check bind state of PVC %s: %v", instance.Spec.PvcName, err)
+		return reconcile.Result{RequeueAfter: timeout}, nil
+	}
+	if !isBound {
+		log.Infof("PVC %s is not bound yet; will re-check", instance.Spec.PvcName)
+		return reconcile.Result{RequeueAfter: pvcBindPollInterval}, nil
+	}
+	{
 		log.Infof("PVC: %s is bound", instance.Spec.PvcName)
+		setInstanceConditions(ctx, r, instance,
+			trueCondition(cnsregistervolumev1alpha1.ConditionPvcBound, cnsregistervolumev1alpha1.ReasonBound, "PVC is bound"),
+			falseCondition(cnsregistervolumev1alpha1.ConditionReady, cnsregistervolumev1alpha1.ReasonFinalizing,
+				"Applying CnsVolumeInfo and storage quota accounting"))
 		if syncer.IsPodVMOnStretchSupervisorFSSEnabled {
 			if isRestore {
 				// The restored CnsVolumeInfo is created already carrying the snapshot size of the deleted
@@ -1130,10 +1208,6 @@ func (r *ReconcileCnsRegisterVolume) Reconcile(ctx context.Context,
 					pvCapacity.String(), finalStoragePolicyUsageCR.Name, finalStoragePolicyUsageCR.Namespace)
 			}
 		}
-	} else {
-		log.Errorf("PVC: %s is not bound. Error: %+v", instance.Spec.PvcName, err)
-		setInstanceError(ctx, r, instance, fmt.Sprintf("PVC: %s is not bound", instance.Spec.PvcName))
-		return reconcile.Result{RequeueAfter: timeout}, nil
 	}
 
 	if isSharedDiskEnabled && !IsPVCCreatedByCNSRegisterVolumeReconciler {
@@ -1583,18 +1657,190 @@ func (r *ReconcileCnsRegisterVolume) clearStaleDeleteOperationRecord(ctx context
 
 // setInstanceError sets error and records an event on the CnsRegisterVolume
 // instance.
+// Any conditions passed are published in the same status write as the error, so
+// that no observer can see the error without the condition describing which step
+// failed. Callers that have no condition to report pass none.
 func setInstanceError(ctx context.Context, r *ReconcileCnsRegisterVolume,
-	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string) {
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, errMsg string,
+	conds ...*metav1.Condition) {
 	log := logger.GetLogger(ctx)
 	origInstance := instance.DeepCopy()
 	instance.Status.Registered = false
 	instance.Status.Error = errMsg
+	applyConditions(instance, conds...)
 	err := patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
 	if err != nil {
 		log.Errorf("patchCnsRegisterVolumeStatus failed. err: %v", err)
 		return
 	}
 	recordEvent(ctx, r, instance, v1.EventTypeWarning, errMsg)
+}
+
+// failVolumeNotAccessible publishes a post-registration accessibility failure
+// and cleans up the CNS volume this registration created.
+//
+// These checks run against the volume CNS returned, so a failure means a volume
+// exists that must not be kept. Cleanup therefore has to succeed before the
+// terminal reason is published: while it has not, the outcome is retried and
+// reported as CleanupPending. Once the volume is gone, CnsVolumeRegistered is
+// republished as False, because the registration has been undone rather than
+// left half-made.
+func (r *ReconcileCnsRegisterVolume) failVolumeNotAccessible(ctx context.Context,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, volumeID, reason, errMsg,
+	message string, timeout time.Duration) reconcile.Result {
+	log := logger.GetLogger(ctx)
+	if err := r.cleanupCNSVolume(ctx, instance, volumeID); err != nil {
+		log.Errorf("Failed to cleanup CNS volume: %s with error: %+v", volumeID, err)
+		setInstanceError(ctx, r, instance, errMsg,
+			falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible,
+				cnsregistervolumev1alpha1.ReasonCleanupPending,
+				"Waiting for the CNS volume created by this registration to be deleted"))
+		return reconcile.Result{RequeueAfter: timeout}
+	}
+	setInstanceError(ctx, r, instance, errMsg,
+		falseCondition(cnsregistervolumev1alpha1.ConditionVolumeAccessible, reason, message),
+		falseCondition(cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
+			cnsregistervolumev1alpha1.ReasonVolumeCleanedUp,
+			"The CNS volume was deleted because the registered volume is not usable from this cluster"),
+		// Ready is set explicitly here rather than mirrored. CnsVolumeRegistered
+		// is an earlier step, so mirroring would surface VolumeCleanedUp -- the
+		// consequence -- where the operator needs the cause.
+		falseCondition(cnsregistervolumev1alpha1.ConditionReady, reason, message))
+	// permanent failure and not requeue.
+	return reconcile.Result{}
+}
+
+// setInstanceConditions publishes one or more conditions on the
+// CnsRegisterVolume instance.
+//
+// It is purely observational: it leaves Registered and Error untouched, and a
+// failure to publish is logged rather than returned, so that reporting progress
+// can never fail a registration that is otherwise succeeding. Callers therefore
+// do not need to handle an error from it.
+//
+// Nothing is written when no condition actually changes. conditions.Set only
+// moves LastTransitionTime when Status, Reason or Message differs, so a pass
+// that re-states the same conditions is a no-op and the age of a condition
+// stays a measure of how long the CR has been in that state.
+//
+// Publishing status does not re-trigger this controller: it filters events with
+// predicate.GenerationChangedPredicate, and a status-subresource write does not
+// bump metadata.generation.
+func setInstanceConditions(ctx context.Context, r *ReconcileCnsRegisterVolume,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, conds ...*metav1.Condition) {
+	log := logger.GetLogger(ctx)
+	origInstance := instance.DeepCopy()
+	applyConditions(instance, conds...)
+	if apiequality.Semantic.DeepEqual(origInstance.Status.Conditions, instance.Status.Conditions) {
+		return
+	}
+	if err := patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance); err != nil {
+		// Roll the in-memory conditions back so they keep matching the server;
+		// the next transition will try to publish again.
+		instance.Status.Conditions = origInstance.Status.Conditions
+		log.Errorf("Failed to publish conditions on CnsRegisterVolume instance: %q on namespace: %q. err: %v",
+			instance.Name, instance.Namespace, err)
+	}
+}
+
+// registrationSteps are the step conditions, in the order a registration passes
+// through them. Ready mirrors the first of these that is not yet satisfied.
+var registrationSteps = []string{
+	cnsregistervolumev1alpha1.ConditionSpecValidated,
+	cnsregistervolumev1alpha1.ConditionCnsVolumeRegistered,
+	cnsregistervolumev1alpha1.ConditionVolumeAccessible,
+	cnsregistervolumev1alpha1.ConditionPvcBound,
+}
+
+// applyConditions stamps observedGeneration and sets each condition on the
+// instance, without writing to the API server.
+//
+// Ready is kept in step with the rest: unless the caller sets it explicitly, it
+// mirrors the reason of the leftmost step that is not True. That is what makes
+// the Ready condition, and the kubectl column that reads it, answer "why is this
+// CR not registered yet" without the reader having to walk the array.
+func applyConditions(instance *cnsregistervolumev1alpha1.CnsRegisterVolume,
+	conds ...*metav1.Condition) {
+	explicitReady := false
+	for _, c := range conds {
+		if c == nil {
+			continue
+		}
+		if c.Type == cnsregistervolumev1alpha1.ConditionReady {
+			explicitReady = true
+		}
+		c.ObservedGeneration = instance.Generation
+		conditions.Set(instance, c)
+	}
+	if !explicitReady {
+		mirrorReadyCondition(instance)
+	}
+}
+
+// mirrorReadyCondition republishes Ready from the step conditions.
+//
+// It deliberately does nothing when no step is blocking: at that point either
+// the registration has succeeded, and setInstanceSuccess owns Ready, or the
+// remaining work is the final bookkeeping, whose Finalizing reason was set
+// explicitly and must not be overwritten.
+func mirrorReadyCondition(instance *cnsregistervolumev1alpha1.CnsRegisterVolume) {
+	if instance.Status.Registered {
+		return
+	}
+	for _, step := range registrationSteps {
+		cond := conditions.Get(instance, step)
+		if cond == nil || cond.Status == metav1.ConditionTrue {
+			continue
+		}
+		ready := falseCondition(cnsregistervolumev1alpha1.ConditionReady, cond.Reason, cond.Message)
+		ready.ObservedGeneration = instance.Generation
+		conditions.Set(instance, ready)
+		return
+	}
+}
+
+// trueCondition builds a True condition with a meaningful reason.
+//
+// conditions.MarkTrue is deliberately not used: it hard-codes Reason to the
+// literal "True", which carries no information, so every True condition here is
+// set explicitly instead.
+func trueCondition(conditionType, reason, message string) *metav1.Condition {
+	return &metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
+// falseCondition builds a False condition.
+//
+// The message must be stable for a given state: it participates in the
+// comparison conditions.Set makes before moving LastTransitionTime, so a
+// message carrying a retry count or an elapsed time would move the timestamp on
+// every pass and destroy the "time in state" signal. Volatile detail belongs in
+// logs and events.
+func falseCondition(conditionType, reason, message string) *metav1.Condition {
+	return &metav1.Condition{
+		Type:    conditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
+// setInstanceCnsTaskID persists the in-flight CNS task reference, or clears it
+// by passing an empty string. Returning the error matters here, unlike for the
+// phase: if the task ID cannot be stored, the submitted task has no durable
+// reference and the caller must decide what to do about it.
+func setInstanceCnsTaskID(ctx context.Context, r *ReconcileCnsRegisterVolume,
+	instance *cnsregistervolumev1alpha1.CnsRegisterVolume, taskID string) error {
+	if instance.Status.CnsTaskID == taskID {
+		return nil
+	}
+	origInstance := instance.DeepCopy()
+	instance.Status.CnsTaskID = taskID
+	return patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
 }
 
 // setInstanceSuccess sets instance to success and records an event on the
@@ -1623,6 +1869,10 @@ func setInstanceSuccess(ctx context.Context, r *ReconcileCnsRegisterVolume,
 	origInstance := instance.DeepCopy()
 	instance.Status.Registered = true
 	instance.Status.Error = ""
+	// Registered=true and Ready=True are published in the same write, so no
+	// observer can ever see one without the other.
+	applyConditions(instance, trueCondition(cnsregistervolumev1alpha1.ConditionReady,
+		cnsregistervolumev1alpha1.ReasonRegistered, "Volume is registered"))
 	err = patchCnsRegisterVolumeStatus(ctx, r.client, origInstance, instance)
 	if err != nil {
 		log.Errorf("patchCnsRegisterVolumeStatus failed. err: %v", err)
@@ -1715,6 +1965,22 @@ func patchCnsRegisterVolumeStatus(ctx context.Context, cnsOperatorClient client.
 		statusMap["error"] = newObj.Status.Error
 	}
 
+	// Conditions are carried as a whole array, because a JSON merge patch
+	// replaces arrays wholesale. The key is included only when a condition
+	// actually changed; omitting it leaves the stored conditions untouched,
+	// which is what keeps a write that is only about registered/error from
+	// wiping conditions published by an earlier write.
+	if !apiequality.Semantic.DeepEqual(oldObj.Status.Conditions, newObj.Status.Conditions) {
+		statusMap["conditions"] = newObj.Status.Conditions
+	}
+
+	// cnsTaskID follows the same include-or-clear rule. Clearing it matters:
+	// a stale task ID left behind would make the next reconcile poll a task
+	// that is already finished with.
+	if newObj.Status.CnsTaskID != "" || oldObj.Status.CnsTaskID != "" {
+		statusMap["cnsTaskID"] = newObj.Status.CnsTaskID
+	}
+
 	statusPatch := map[string]interface{}{
 		"status": statusMap,
 	}
@@ -1776,6 +2042,17 @@ func (r *ReconcileCnsRegisterVolume) reconcileDelete(ctx context.Context,
 		delete(backOffDuration, request.NamespacedName)
 		backOffDurationMapMutex.Unlock()
 		return reconcile.Result{}, nil
+	}
+
+	// If a CNS task is still in flight, the finalizer must stay: the task may
+	// be about to create a volume, and dropping the finalizer now would delete
+	// the CR and leave that volume behind with nothing referencing it.
+	// Starting a second CNS operation on the same disk is also not an option,
+	// so the only correct move is to wait for the task to settle.
+	if instance.Status.CnsTaskID != "" {
+		if res := r.resolveInFlightTaskForDelete(ctx, instance, request, timeout); res != nil {
+			return *res, nil
+		}
 	}
 
 	// If not registered, we need to clean up any partially created resources.
