@@ -569,3 +569,80 @@ func TestCreateBlockVolumeLinkedCloneHostLocalUsesDatastoresNotHosts(t *testing.
 	assert.True(t, ok, "VolumeSource should be a CnsSnapshotVolumeSource")
 	assert.True(t, snapshotVolumeSource.LinkedClone, "LinkedClone should be true")
 }
+
+// fakeQueryVolumeManager is a cnsvolume.Manager whose QueryAllVolume returns a canned result.
+// Any other Manager method panics, so tests fail loudly if the code under test calls one.
+type fakeQueryVolumeManager struct {
+	cnsvolume.Manager
+	result *cnstypes.CnsQueryResult
+	err    error
+}
+
+func (f *fakeQueryVolumeManager) QueryAllVolume(_ context.Context, _ cnstypes.CnsQueryFilter,
+	_ cnstypes.CnsQuerySelection) (*cnstypes.CnsQueryResult, error) {
+	return f.result, f.err
+}
+
+func TestShouldQueryVolumeBeforeExpand(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name               string
+		volumeID           string
+		isvSphere8AndAbove bool
+		want               bool
+	}{
+		{"block volume, vSphere below 8", "1234-abcd", false, true},
+		{"block volume, vSphere 8 and above", "1234-abcd", true, false},
+		{"file volume, vSphere below 8", "file:1234-abcd", false, true},
+		{"file volume, vSphere 8 and above", "file:1234-abcd", true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, shouldQueryVolumeBeforeExpand(ctx, tt.volumeID, tt.isvSphere8AndAbove))
+		})
+	}
+}
+
+// TestIsExpansionRequiredFileVolume verifies that for a file volume an expand to the current or a
+// smaller size is reported as not required, so ExpandVolumeUtil does not send CNS a request that
+// CNS would reject.
+func TestIsExpansionRequiredFileVolume(t *testing.T) {
+	ctx := context.Background()
+	const currentMb = int64(1024)
+	fileVolume := &fakeQueryVolumeManager{result: &cnstypes.CnsQueryResult{
+		Volumes: []cnstypes.CnsVolume{{
+			BackingObjectDetails: &cnstypes.CnsVsanFileShareBackingDetails{
+				CnsFileBackingDetails: cnstypes.CnsFileBackingDetails{
+					CnsBackingObjectDetails: cnstypes.CnsBackingObjectDetails{CapacityInMb: currentMb},
+				},
+			},
+		}},
+	}}
+
+	for _, tt := range []struct {
+		name        string
+		requestedMb int64
+		want        bool
+	}{
+		{"larger than current", 2048, true},
+		{"same as current", currentMb, false},
+		{"smaller than current", 512, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := isExpansionRequired(ctx, "file:1234-abcd", tt.requestedMb, fileVolume)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("query error", func(t *testing.T) {
+		_, err := isExpansionRequired(ctx, "file:1234-abcd", 2048,
+			&fakeQueryVolumeManager{err: assert.AnError})
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+	t.Run("volume not found", func(t *testing.T) {
+		_, err := isExpansionRequired(ctx, "file:1234-abcd", 2048,
+			&fakeQueryVolumeManager{result: &cnstypes.CnsQueryResult{}})
+		assert.Error(t, err)
+	})
+}
