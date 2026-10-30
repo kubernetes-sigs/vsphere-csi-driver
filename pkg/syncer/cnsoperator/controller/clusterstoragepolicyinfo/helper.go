@@ -341,13 +341,16 @@ func populateEncryptionCapabilities(ctx context.Context,
 	return nil
 }
 
-// getStorageClassForPolicy returns the StorageClass that references the given storage policy ID.
-// Returns (nil, nil) if no StorageClass references the policy yet — this is an expected state for
-// policies whose ClusterStoragePolicyInfo/InfraStoragePolicyInfo CRs were created ahead of any
-// StorageClass (see full sync). Returns an error only if multiple StorageClasses reference the
-// same policy, which is a genuine misconfiguration.
+// getStorageClassForPolicy returns the canonical StorageClass that references the
+// given storage policy ID and whose name matches the policy's authoritative
+// K8s-compliant name. StorageClasses upgraded as aliases of the same policy ID
+// are deliberately ignored.
+// Returns (nil, nil) if the canonical StorageClass does not exist yet — this is
+// expected for policies whose ClusterStoragePolicyInfo/InfraStoragePolicyInfo
+// CRs were created ahead of any StorageClass (see full sync), and when only an
+// upgraded alias exists.
 func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
-	profileID string) (*storagev1.StorageClass, error) {
+	profileID, k8sCompliantName string) (*storagev1.StorageClass, error) {
 	log := logger.GetLogger(ctx)
 
 	// List all StorageClasses
@@ -357,7 +360,6 @@ func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
 		return nil, fmt.Errorf("failed to list StorageClasses: %w", err)
 	}
 
-	var matchingSCs []*storagev1.StorageClass
 	for i := range scList.Items {
 		sc := &scList.Items[i]
 
@@ -367,34 +369,61 @@ func getStorageClassForPolicy(ctx context.Context, k8sClient client.Client,
 			continue
 		}
 
-		// Check if this StorageClass references our storage policy by policy ID
-		if sc.Parameters != nil {
-			for paramKey, paramValue := range sc.Parameters {
-				// Convert parameter key to lowercase for case-insensitive comparison
-				if strings.ToLower(paramKey) == "storagepolicyid" && paramValue == profileID {
-					matchingSCs = append(matchingSCs, sc)
-					break // Found match, no need to check other parameters
-				}
-			}
+		if sc.Name != k8sCompliantName {
+			continue
+		}
+		if storagePolicyIDFromParameters(sc.Parameters) == profileID {
+			log.Infof("Found canonical StorageClass %q referencing storage policy ID %q",
+				sc.Name, profileID)
+			return sc, nil
 		}
 	}
 
-	// Validate exactly one StorageClass found
-	switch len(matchingSCs) {
-	case 0:
-		log.Debugf("No StorageClass found referencing storage policy ID %q", profileID)
-		return nil, nil
-	case 1:
-		log.Infof("Found StorageClass %q referencing storage policy ID %q", matchingSCs[0].Name, profileID)
-		return matchingSCs[0], nil
-	default:
-		var scNames []string
-		for _, sc := range matchingSCs {
-			scNames = append(scNames, sc.Name)
+	log.Debugf("No canonical StorageClass %q found referencing storage policy ID %q",
+		k8sCompliantName, profileID)
+	return nil, nil
+}
+
+// storagePolicyIDFromParameters returns storagepolicyID from a StorageClass or
+// VolumeAttributesClass parameter map. Parameter keys are case-insensitive.
+func storagePolicyIDFromParameters(parameters map[string]string) string {
+	for key, value := range parameters {
+		if strings.EqualFold(key, "storagepolicyid") {
+			return value
 		}
-		return nil, fmt.Errorf("multiple StorageClasses (%v) found referencing storage policy ID %q, expected exactly one",
-			scNames, profileID)
 	}
+	return ""
+}
+
+// storagePolicyIDFromBackingResources returns the policy ID carried by the
+// same-named StorageClass/VolumeAttributesClass. If neither resource exists,
+// return an empty ID so full-sync-created ClusterSPIs can resolve by name.
+// Otherwise, at least one resource must provide an ID; when both do, they must agree.
+func storagePolicyIDFromBackingResources(sc *storagev1.StorageClass,
+	vac *storagev1.VolumeAttributesClass) (string, error) {
+	if sc == nil && vac == nil {
+		return "", nil
+	}
+
+	var scPolicyID, vacPolicyID string
+	if sc != nil {
+		scPolicyID = storagePolicyIDFromParameters(sc.Parameters)
+	}
+	if vac != nil {
+		vacPolicyID = storagePolicyIDFromParameters(vac.Parameters)
+	}
+	if scPolicyID == "" && vacPolicyID == "" {
+		return "", fmt.Errorf("storage policy ID is not set on either the StorageClass or VolumeAttributesClass")
+	}
+	if scPolicyID != "" && vacPolicyID != "" && scPolicyID != vacPolicyID {
+		return "", fmt.Errorf(
+			"StorageClass %q and VolumeAttributesClass %q reference different storage policy IDs: %q and %q",
+			sc.Name, vac.Name, scPolicyID, vacPolicyID)
+	}
+	if scPolicyID != "" {
+		return scPolicyID, nil
+	}
+	return vacPolicyID, nil
 }
 
 // PBM capability that carries a storage policy's zone-availability topology, independent of any
@@ -478,40 +507,32 @@ func getStorageTopologyType(ctx context.Context, sc *storagev1.StorageClass) (st
 	return "", nil
 }
 
-// findStoragePolicyProfile finds a storage policy profile by K8s compliant name.
-// Returns (profile, policyDeleted, error) where:
-// - profile is the found profile (nil if policy deleted or error)
-// - policyDeleted is true if policy was deleted from vCenter (expected scenario)
-// - error is non-nil for unexpected errors (like vCenter connection issues)
-func findStoragePolicyProfile(ctx context.Context,
-	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, vc *cnsvsphere.VirtualCenter) (
-	*cnsvsphere.ProfileDetail, bool, error) {
+// resolveStoragePolicyProfile resolves a ClusterStoragePolicyInfo by its expected
+// backing SC/VAC policy ID, using name-only lookup when no backing ID exists. This
+// distinguishes a deleted policy from an upgraded alias whose policy still exists
+// under a different authoritative K8s-compliant name.
+func resolveStoragePolicyProfile(ctx context.Context,
+	instance *clusterspiv1alpha1.ClusterStoragePolicyInfo, backingPolicyID string,
+	vc *cnsvsphere.VirtualCenter) (*cnsvsphere.ProfileDetail, bool, error) {
 	log := logger.GetLogger(ctx)
 
-	k8sCompliantName := instance.Name
-	log.Infof("Looking up storage policy for K8s compliant name %q", k8sCompliantName)
-
-	profile, faultType, err := vc.FindProfileByK8sCompliantName(ctx, k8sCompliantName)
+	profile, faultType, err := vc.FindProfileByK8sCompliantNameAndID(ctx, instance.Name, backingPolicyID)
 	if err != nil {
 		if faultType == fault.CSINotFoundFault {
-			// Profile not found - this is expected when policy is deleted
-			log.Warnf("Storage policy with K8s compliant name %q not found in vCenter: %v", k8sCompliantName, err)
+			log.Warnf("Storage policy with K8s compliant name %q or backing policy ID %q was not found in vCenter",
+				instance.Name, backingPolicyID)
 			instance.Status.StoragePolicyDeleted = true
-			return nil, true, nil // policyDeleted=true, no error
-		} else {
-			// Other errors (like internal errors) should be returned as failures
-			log.Errorf("Failed to query storage policy with K8s compliant name %q (fault: %s): %v",
-				k8sCompliantName, faultType, err)
-			return nil, false, fmt.Errorf("failed to query storage policy: %w", err)
+			return nil, true, nil
 		}
+		return nil, false, fmt.Errorf("failed to query storage policy by K8s compliant name %q or ID %q: %w",
+			instance.Name, backingPolicyID, err)
+	}
+	if profile.K8sCompliantName == "" {
+		return nil, false, fmt.Errorf("storage policy %q has an empty K8s compliant name", profile.ID)
 	}
 
-	// Profile found - policy exists
-	log.Infof("Storage policy found with K8s compliant name %q: ID=%s, Name=%s",
-		k8sCompliantName, profile.ID, profile.Name)
 	instance.Status.StoragePolicyDeleted = false
-
-	return profile, false, nil // profile found, not deleted, no error
+	return profile, false, nil
 }
 
 // populateVolumeCapabilities computes volume capabilities for the given storage policy and

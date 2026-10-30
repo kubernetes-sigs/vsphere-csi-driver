@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
@@ -279,10 +280,26 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 		},
 	}
 
-	// Channel for periodic resync; a ticker-driven goroutine lists all
-	// StoragePolicyInfo CRs on a configurable interval and pushes them here so
-	// the controller re-reconciles each one against the cached InfraStoragePolicyInfo
-	// topology.
+	// A ClusterSPI status transition to StoragePolicyDeleted or its deletion is an
+	// authoritative signal for each namespace-scoped SPI controller reconcile to
+	// delete its SPI. InfraSPI deletion is deliberately not treated as terminal.
+	clusterSPIPredicates := predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldClusterSPI, oldOK := e.ObjectOld.(*clusterspiv1alpha1.ClusterStoragePolicyInfo)
+			newClusterSPI, newOK := e.ObjectNew.(*clusterspiv1alpha1.ClusterStoragePolicyInfo)
+			return oldOK && newOK && !oldClusterSPI.Status.StoragePolicyDeleted &&
+				newClusterSPI.Status.StoragePolicyDeleted
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return e.Object != nil
+		},
+	}
+
+	// Channel for periodic resync; a ticker-driven goroutine lists SPQs and
+	// enqueues SPI requests, including assigned policies with no SPI yet.
 	// source.Channel drains this into controller-runtime's internal work queue,
 	// so a small buffer is sufficient to avoid blocking between sends and reads.
 	// If the buffer does fill up (e.g. reconciles are slow), the sender skips the
@@ -353,6 +370,11 @@ func registerController(mgr manager.Manager, r *ReconcileStoragePolicyInfo) erro
 			builder.WithPredicates(infraSPIPredicates),
 		).
 		Watches(
+			&clusterspiv1alpha1.ClusterStoragePolicyInfo{},
+			handler.EnqueueRequestsFromMapFunc(r.mapClusterSPItoSPIs),
+			builder.WithPredicates(clusterSPIPredicates),
+		).
+		Watches(
 			zoneObj,
 			handler.EnqueueRequestsFromMapFunc(r.mapZoneToSPIs),
 			builder.WithPredicates(zonePredicate),
@@ -418,6 +440,18 @@ func (r *ReconcileStoragePolicyInfo) mapSPQtoSPI(ctx context.Context,
 // InfraStoragePolicyInfo status changes (e.g., zones added or removed).
 func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 	obj client.Object) []reconcile.Request {
+	return r.mapPolicyObjectToSPIs(ctx, obj, "InfraStoragePolicyInfo")
+}
+
+// mapClusterSPItoSPIs maps a deleted-policy ClusterStoragePolicyInfo status update
+// to every existing namespace-scoped StoragePolicyInfo with the same name.
+func (r *ReconcileStoragePolicyInfo) mapClusterSPItoSPIs(ctx context.Context,
+	obj client.Object) []reconcile.Request {
+	return r.mapPolicyObjectToSPIs(ctx, obj, "ClusterStoragePolicyInfo")
+}
+
+func (r *ReconcileStoragePolicyInfo) mapPolicyObjectToSPIs(ctx context.Context,
+	obj client.Object, sourceKind string) []reconcile.Request {
 	if obj == nil {
 		return nil
 	}
@@ -428,8 +462,8 @@ func (r *ReconcileStoragePolicyInfo) mapInfraSPItoSPI(ctx context.Context,
 	spiList := &spiv1alpha1.StoragePolicyInfoList{}
 	if err := r.client.List(ctx, spiList,
 		client.MatchingFields{spiNameIndexField: obj.GetName()}); err != nil {
-		log.Errorf("Failed to list StoragePolicyInfo for InfraStoragePolicyInfo %q: %v",
-			obj.GetName(), err)
+		log.Errorf("Failed to list StoragePolicyInfo for %s %q: %v",
+			sourceKind, obj.GetName(), err)
 		return nil
 	}
 
@@ -570,6 +604,31 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
 	}
 
+	// Validate whether the clusterSPI for the given SC name points to the valid K8sCompliantName.
+	// If policy is deleted from the VC or if the given SC is from an upgraded alias, then skip creation
+	// of SPI in that namespace.
+	skip, policyDeleted, err := r.checkClusterSPIPolicyIdentity(ctx, request.Name)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// ClusterSPI may be temporarily absent during startup, so retain the
+			// existing retry behavior. Delete any already-existing SPI first so it
+			// cannot outlive a ClusterSPI that was intentionally removed.
+			if deleteErr := r.deleteStoragePolicyInfo(ctx, request.NamespacedName); deleteErr != nil {
+				return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, deleteErr)
+			}
+		}
+		return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+	}
+	if policyDeleted {
+		if err := r.deleteStoragePolicyInfo(ctx, request.NamespacedName); err != nil {
+			return r.completeReconciliationWithError(ctx, request.NamespacedName, timeout, err)
+		}
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+	if skip {
+		return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+	}
+
 	// Fetch the cluster-scoped InfraStoragePolicyInfo; it is the source of topology
 	// data synced into the namespace-scoped StoragePolicyInfo status.
 	infraSPI := &infraspiv1alpha1.InfraStoragePolicyInfo{}
@@ -650,6 +709,60 @@ func (r *ReconcileStoragePolicyInfo) Reconcile(ctx context.Context,
 
 	log.Infof("Successfully reconciled StoragePolicyInfo %q", request.NamespacedName)
 	return r.completeReconciliationWithSuccess(ctx, request.NamespacedName)
+}
+
+// checkClusterSPIPolicyIdentity returns skip=true for deleted policies and upgraded
+// aliases. policyDeleted distinguishes the deletion case, where the caller must remove
+// an existing SPI. An error is returned when the ClusterSPI cannot be fetched or its
+// identity is unresolved. The caller owns reconciliation completion and retry handling.
+func (r *ReconcileStoragePolicyInfo) checkClusterSPIPolicyIdentity(
+	ctx context.Context, name string) (skip bool, policyDeleted bool, err error) {
+	log := logger.GetLogger(ctx)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+	if err := r.client.Get(ctx, apitypes.NamespacedName{Name: name}, clusterSPI); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Infof("ClusterStoragePolicyInfo %q not yet available; will retry", name)
+		} else {
+			log.Errorf("Failed to get ClusterStoragePolicyInfo %q: %v", name, err)
+		}
+		return false, false, err
+	}
+	if clusterSPI.Status.StoragePolicyDeleted {
+		log.Infof("Storage policy for ClusterStoragePolicyInfo %q is deleted; skipping StoragePolicyInfo creation", name)
+		return true, true, nil
+	}
+	resolvedName := clusterSPI.Status.VolumeClassName
+	if resolvedName == "" {
+		err := fmt.Errorf("ClusterStoragePolicyInfo %q policy identity is not resolved yet", name)
+		log.Info(err.Error())
+		return false, false, err
+	}
+	if resolvedName != clusterSPI.Name {
+		log.Infof("ClusterStoragePolicyInfo %q resolves to authoritative K8s compliant name %q; "+
+			"skipping StoragePolicyInfo creation for upgraded alias", clusterSPI.Name, resolvedName)
+		return true, false, nil
+	}
+	return false, false, nil
+}
+
+// deleteStoragePolicyInfo removes the specific namespace-scoped SPI being
+// reconciled. It is idempotent because ClusterSPI events and periodic SPQ resync
+// may enqueue the same request more than once.
+func (r *ReconcileStoragePolicyInfo) deleteStoragePolicyInfo(
+	ctx context.Context, key apitypes.NamespacedName) error {
+	spi := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+	}
+	if err := r.client.Delete(ctx, spi); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		logger.GetLogger(ctx).Errorf("Failed to delete StoragePolicyInfo %q for unavailable storage policy: %v",
+			key, err)
+		return err
+	}
+	logger.GetLogger(ctx).Infof("Deleted StoragePolicyInfo %q for unavailable storage policy", key)
+	return nil
 }
 
 // ensureSPIExists returns the existing StoragePolicyInfo for the given

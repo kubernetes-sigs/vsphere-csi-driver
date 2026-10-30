@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
+	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
 	infraspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/infrastoragepolicyinfo/v1alpha1"
 	storagepolicyv1alpha2 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicy/v1alpha2"
 	spiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/storagepolicyinfo/v1alpha1"
@@ -48,6 +49,96 @@ import (
 	k8s "sigs.k8s.io/vsphere-csi-driver/v3/pkg/kubernetes"
 	cnsoperatorutil "sigs.k8s.io/vsphere-csi-driver/v3/pkg/syncer/cnsoperator/util"
 )
+
+func testCanonicalClusterSPI(name string) *clusterspiv1alpha1.ClusterStoragePolicyInfo {
+	return &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{VolumeClassName: name},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+}
+
+func TestReconcile_ClusterSPIIdentityGate(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		missing         bool
+		volumeClassName string
+		deleted         bool
+		requeue         bool
+		existing        bool
+		create          bool
+	}{
+		{name: "missing ClusterSPI retries", missing: true, requeue: true},
+		{name: "missing ClusterSPI removes existing SPI and retries", missing: true, existing: true, requeue: true},
+		{name: "unresolved identity retries", requeue: true},
+		{name: "deleted policy skips", deleted: true},
+		{name: "deleted policy removes existing SPI", deleted: true, volumeClassName: "gold", existing: true},
+		{name: "upgraded alias skips", volumeClassName: "silver"},
+		{name: "canonical identity creates SPI", volumeClassName: "gold", create: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := logger.NewContextWithLogger(context.Background())
+			scheme := testScheme(t)
+			objects := []client.Object{
+				testSPQ("ns1", "gold"),
+				&infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}},
+			}
+			if !tc.missing {
+				cspi := testCanonicalClusterSPI("gold")
+				cspi.Status.VolumeClassName = tc.volumeClassName
+				cspi.Status.StoragePolicyDeleted = tc.deleted
+				objects = append(objects, cspi)
+			}
+			if tc.existing {
+				objects = append(objects, &spiv1alpha1.StoragePolicyInfo{
+					ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+				})
+			}
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).
+				WithStatusSubresource(&clusterspiv1alpha1.ClusterStoragePolicyInfo{}).Build()
+			r := &ReconcileStoragePolicyInfo{
+				client: cli, scheme: scheme, recorder: record.NewFakeRecorder(10),
+				backOffDuration: make(map[types.NamespacedName]time.Duration),
+			}
+			key := types.NamespacedName{Namespace: "ns1", Name: "gold"}
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			require.NoError(t, err)
+			if tc.requeue {
+				assert.Positive(t, result.RequeueAfter)
+			} else {
+				assert.Equal(t, reconcile.Result{}, result)
+			}
+			list := &spiv1alpha1.StoragePolicyInfoList{}
+			require.NoError(t, cli.List(ctx, list))
+			if tc.create {
+				require.Len(t, list.Items, 1)
+			} else {
+				assert.Empty(t, list.Items)
+			}
+
+			// The queued request must succeed once identity is published, without
+			// needing a ClusterSPI watch or waiting for periodic full sync.
+			if tc.requeue {
+				if tc.missing {
+					cspi := testCanonicalClusterSPI("gold")
+					require.NoError(t, cli.Create(ctx, cspi))
+					cspi.Status.VolumeClassName = "gold"
+					require.NoError(t, cli.Status().Update(ctx, cspi))
+				} else {
+					cspi := &clusterspiv1alpha1.ClusterStoragePolicyInfo{}
+					require.NoError(t, cli.Get(ctx, types.NamespacedName{Name: "gold"}, cspi))
+					cspi.Status.VolumeClassName = "gold"
+					require.NoError(t, cli.Status().Update(ctx, cspi))
+				}
+				result, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+				require.NoError(t, err)
+				assert.Equal(t, reconcile.Result{}, result)
+				require.NoError(t, cli.Get(ctx, key, &spiv1alpha1.StoragePolicyInfo{}))
+			}
+		})
+	}
+}
 
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
@@ -240,6 +331,35 @@ func TestMapInfraSPItoSPI_NoMatchingStoragePolicyInfos(t *testing.T) {
 	}
 	reqs := r.mapInfraSPItoSPI(ctx, infraSPI)
 	assert.Empty(t, reqs)
+}
+
+func TestMapClusterSPItoSPIs_EnqueuesMatchingNamespaces(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	spi1 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns1"},
+	}
+	spi2 := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold", Namespace: "ns2"},
+	}
+	spiOther := &spiv1alpha1.StoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "silver", Namespace: "ns1"},
+	}
+	r := &ReconcileStoragePolicyInfo{
+		client: spiNameIndexer(t, scheme, spi1, spi2, spiOther),
+		scheme: scheme,
+	}
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true,
+		},
+	}
+
+	reqs := r.mapClusterSPItoSPIs(ctx, clusterSPI)
+	require.Len(t, reqs, 2)
+	names := []string{reqs[0].Namespace + "/" + reqs[0].Name, reqs[1].Namespace + "/" + reqs[1].Name}
+	assert.ElementsMatch(t, []string{"ns1/gold", "ns2/gold"}, names)
 }
 
 // newZone builds an unstructured Zone CR in the given namespace, matching the
@@ -745,7 +865,7 @@ func TestReconcile_CreatesWithOwnerRef(t *testing.T) {
 	spq := testSPQ("ns1", "gold")
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(infraSPI, spq).Build()
+		WithObjects(infraSPI, spq, testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -790,7 +910,7 @@ func TestReconcile_SkipsDeletion(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -831,7 +951,7 @@ func TestReconcile_SyncsTopologyAndRecordsEvent(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -866,7 +986,7 @@ func TestReconcile_InfraSPINotFound(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -1088,7 +1208,7 @@ func TestReconcile_ZoneFilteringApplied(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -1132,7 +1252,7 @@ func TestReconcile_NoNamespaceZonesYieldsEmptyAccessibleZones(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:          cli,
 		scheme:          scheme,
@@ -1184,7 +1304,7 @@ func TestReconcile_InfraSPITopologyUpdated(t *testing.T) {
 	recorder := record.NewFakeRecorder(10)
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("ns1", "gold")).Build()
+		WithObjects(spi, infraSPI, testSPQ("ns1", "gold"), testCanonicalClusterSPI("gold")).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:   cli,
 		scheme:   scheme,
@@ -1306,7 +1426,7 @@ func TestReconcile_MarkerPolicy_SPQPresent_SyncsTopology(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&spiv1alpha1.StoragePolicyInfo{}).
-		WithObjects(spi, infraSPI, testSPQ("consumer-ns", markerPolicy)).Build()
+		WithObjects(spi, infraSPI, testSPQ("consumer-ns", markerPolicy), testCanonicalClusterSPI(markerPolicy)).Build()
 	r := &ReconcileStoragePolicyInfo{
 		client:                  cli,
 		scheme:                  scheme,

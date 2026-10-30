@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	apis "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator"
 	clusterspiv1alpha1 "sigs.k8s.io/vsphere-csi-driver/v3/pkg/apis/cnsoperator/clusterstoragepolicyinfo/v1alpha1"
@@ -256,6 +257,7 @@ func TestMapStorageClassToClusterSPI(t *testing.T) {
 		r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
 		sc := &storagev1.StorageClass{
 			ObjectMeta:        metav1.ObjectMeta{Name: "gold"},
+			Provisioner:       common.VSphereCSIDriverName,
 			VolumeBindingMode: volumeBindingPtr(storagev1.VolumeBindingWaitForFirstConsumer),
 		}
 		// WFFC StorageClasses should be filtered out at watch level
@@ -268,7 +270,7 @@ func TestMapStorageClassToClusterSPI(t *testing.T) {
 		r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
 		sc := &storagev1.StorageClass{
 			ObjectMeta:  metav1.ObjectMeta{Name: "gold", UID: types.UID("dddddddd-dddd-dddd-dddd-dddddddddddd")},
-			Provisioner: "p",
+			Provisioner: common.VSphereCSIDriverName,
 		}
 		reqs := r.mapObjectToClusterSPI(ctx, sc)
 		require.Len(t, reqs, 1)
@@ -280,6 +282,18 @@ func TestMapStorageClassToClusterSPI(t *testing.T) {
 		err := cli.Get(ctx, client.ObjectKey{Name: "gold"}, got)
 		assert.True(t, apierrors.IsNotFound(err), "ClusterStoragePolicyInfo should not be created by mapping function")
 	})
+}
+
+func TestMapStorageClassToClusterSPI_IgnoresOtherProvisioners(t *testing.T) {
+	for _, provisioner := range []string{"other.csi.example.com", "kubernetes.io/vsphere-volume", ""} {
+		t.Run(provisioner, func(t *testing.T) {
+			r := &ReconcileClusterStoragePolicyInfo{}
+			sc := &storagev1.StorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "gold"}, Provisioner: provisioner,
+			}
+			assert.Empty(t, r.mapObjectToClusterSPI(context.Background(), sc))
+		})
+	}
 }
 
 func TestMapVolumeAttributesClassToClusterSPI(t *testing.T) {
@@ -296,7 +310,7 @@ func TestMapVolumeAttributesClassToClusterSPI(t *testing.T) {
 	t.Run("creates ClusterStoragePolicyInfo from VAC", func(t *testing.T) {
 		vac := &storagev1.VolumeAttributesClass{
 			ObjectMeta: metav1.ObjectMeta{Name: "orphan-vac", UID: types.UID("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")},
-			DriverName: "csi.test",
+			DriverName: common.VSphereCSIDriverName,
 			Parameters: map[string]string{"k": "v"},
 		}
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -309,7 +323,7 @@ func TestMapVolumeAttributesClassToClusterSPI(t *testing.T) {
 	t.Run("second VAC name creates separate CSPI", func(t *testing.T) {
 		vac := &storagev1.VolumeAttributesClass{
 			ObjectMeta: metav1.ObjectMeta{Name: "fast", UID: types.UID("12121212-1212-1212-1212-121212121212")},
-			DriverName: "csi.test",
+			DriverName: common.VSphereCSIDriverName,
 			Parameters: map[string]string{"tier": "fast"},
 		}
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -348,6 +362,21 @@ func TestCheckStorageClassExists(t *testing.T) {
 		assert.Equal(t, "csi.vsphere.vmware.com", result.Provisioner)
 	})
 
+	for _, provisioner := range []string{"other.csi.example.com", "kubernetes.io/vsphere-volume", ""} {
+		t.Run("ignores provisioner "+provisioner, func(t *testing.T) {
+			sc := &storagev1.StorageClass{
+				ObjectMeta:  metav1.ObjectMeta{Name: "test-sc"},
+				Provisioner: provisioner,
+			}
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc).Build()
+			r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+
+			result, err := r.checkStorageClassExists(ctx, sc.Name)
+			require.NoError(t, err)
+			assert.Nil(t, result)
+		})
+	}
+
 	t.Run("StorageClass does not exist", func(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &ReconcileClusterStoragePolicyInfo{client: client, scheme: scheme}
@@ -369,6 +398,41 @@ func TestCheckStorageClassExists(t *testing.T) {
 }
 
 // TestCheckVolumeAttributesClassExists tests the checkVolumeAttributesClassExists function
+type vacDiscoveryManager struct {
+	manager.Manager
+	config *rest.Config
+}
+
+func (m *vacDiscoveryManager) GetConfig() *rest.Config { return m.config }
+
+func TestVACDriverFiltering(t *testing.T) {
+	srv := newDiscoveryTestServer(t, true)
+	t.Cleanup(srv.Close)
+	for _, driver := range []string{common.VSphereCSIDriverName, "other.csi.example.com", ""} {
+		t.Run(driver, func(t *testing.T) {
+			ctx := context.Background()
+			vac := &storagev1.VolumeAttributesClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "gold"}, DriverName: driver,
+			}
+			r := &ReconcileClusterStoragePolicyInfo{
+				client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(vac).Build(),
+				mgr:    &vacDiscoveryManager{config: &rest.Config{Host: srv.URL}},
+			}
+			requests := r.mapObjectToClusterSPI(ctx, vac)
+			got, err := r.checkVolumeAttributesClassExists(ctx, vac.Name)
+			require.NoError(t, err)
+			if driver == common.VSphereCSIDriverName {
+				require.Len(t, requests, 1)
+				require.NotNil(t, got)
+				assert.Equal(t, driver, got.DriverName)
+			} else {
+				assert.Empty(t, requests)
+				assert.Nil(t, got)
+			}
+		})
+	}
+}
+
 func TestCheckVolumeAttributesClassExists(t *testing.T) {
 	scheme := testScheme(t)
 	ctx := context.Background()
@@ -1020,6 +1084,60 @@ func TestUpdateStatus_PolicyDeleted(t *testing.T) {
 	// Verify the status was updated
 	assert.True(t, cspi.Status.StoragePolicyDeleted, "expected StoragePolicyDeleted to be true")
 	assert.Empty(t, cspi.Status.Error, "expected no error message")
+}
+
+func TestCleanupDeletedStoragePolicyInfra(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			StoragePolicyDeleted: true,
+		},
+	}
+	objects := []client.Object{
+		clusterSPI,
+		&infraspiv1alpha1.InfraStoragePolicyInfo{ObjectMeta: metav1.ObjectMeta{Name: "gold"}},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	r := &ReconcileClusterStoragePolicyInfo{client: cli, scheme: scheme}
+
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+	// Repeating cleanup must be harmless after all derived objects are gone.
+	require.NoError(t, r.cleanupDeletedStoragePolicyInfra(ctx, "gold"))
+
+	require.NoError(t, cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&clusterspiv1alpha1.ClusterStoragePolicyInfo{}), "ClusterSPI must continue to exist")
+	assert.True(t, apierrors.IsNotFound(cli.Get(ctx, types.NamespacedName{Name: "gold"},
+		&infraspiv1alpha1.InfraStoragePolicyInfo{})))
+}
+
+func TestClearDeletedStoragePolicyAttributes(t *testing.T) {
+	iopsLimit := int64(1000)
+	clusterSPI := &clusterspiv1alpha1.ClusterStoragePolicyInfo{
+		Status: clusterspiv1alpha1.ClusterStoragePolicyInfoStatus{
+			VolumeClassName:      "gold",
+			StoragePolicyDeleted: true,
+			Performance: &clusterspiv1alpha1.Performance{
+				IopsLimit: &iopsLimit,
+			},
+			Encryption: &clusterspiv1alpha1.Encryption{
+				SupportsEncryption: true,
+				EncryptionTypes: []clusterspiv1alpha1.EncryptionType{
+					clusterspiv1alpha1.EncryptionTypeVSAN,
+				},
+			},
+			Error: "preserved until reconciliation reports success",
+		},
+	}
+
+	clearDeletedStoragePolicyAttributes(clusterSPI)
+
+	assert.Empty(t, clusterSPI.Status.VolumeClassName)
+	assert.Nil(t, clusterSPI.Status.Performance)
+	assert.Nil(t, clusterSPI.Status.Encryption)
+	assert.True(t, clusterSPI.Status.StoragePolicyDeleted)
+	assert.Equal(t, "preserved until reconciliation reports success", clusterSPI.Status.Error)
 }
 
 // statusUpdateInterceptor returns interceptor.Funcs that record every Status().Update() call
@@ -2196,7 +2314,56 @@ func (m *mockControllerTopologyService) GetAccessibleZonesForDatastore(ctx conte
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
-// TestGetStorageClassForPolicy tests the getStorageClassForPolicy function
+func TestStoragePolicyIDFromBackingResources(t *testing.T) {
+	sc := func(id string) *storagev1.StorageClass {
+		return &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+			Parameters: map[string]string{"StoragePolicyID": id}}
+	}
+	vac := func(id string) *storagev1.VolumeAttributesClass {
+		return &storagev1.VolumeAttributesClass{ObjectMeta: metav1.ObjectMeta{Name: "gold"},
+			Parameters: map[string]string{"storagepolicyid": id}}
+	}
+	for _, tc := range []struct {
+		name string
+		sc   *storagev1.StorageClass
+		vac  *storagev1.VolumeAttributesClass
+		want string
+		err  string
+	}{
+		{name: "neither resource allows name lookup"},
+		{name: "both empty", sc: sc(""), vac: vac(""), err: "not set"},
+		{name: "SC missing ID", sc: sc(""), err: "not set"},
+		{name: "VAC missing ID", vac: vac(""), err: "not set"},
+		{name: "SC only", sc: sc("p1"), want: "p1"},
+		{name: "VAC only", vac: vac("p1"), want: "p1"},
+		{name: "SC empty VAC populated", sc: sc(""), vac: vac("p1"), want: "p1"},
+		{name: "VAC empty SC populated", sc: sc("p1"), vac: vac(""), want: "p1"},
+		{name: "matching", sc: sc("p1"), vac: vac("p1"), want: "p1"},
+		{name: "conflicting", sc: sc("p1"), vac: vac("p2"), err: "different storage policy IDs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := storagePolicyIDFromBackingResources(tc.sc, tc.vac)
+			if tc.err != "" {
+				require.ErrorContains(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.want, id)
+		})
+	}
+}
+
+func TestGetStorageClassForPolicy_AliasOnly(t *testing.T) {
+	ctx := logger.NewContextWithLogger(context.Background())
+	scheme := testScheme(t)
+	sc := &storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "alias"},
+		Parameters: map[string]string{"storagepolicyid": "p1"}}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc).Build()
+	got, err := getStorageClassForPolicy(ctx, cli, "p1", "canonical")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
 func TestGetStorageClassForPolicy(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, storagev1.AddToScheme(scheme))
@@ -2248,7 +2415,7 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 			},
 		},
 		{
-			name:      "Multiple StorageClasses with same policy ID should error",
+			name:      "Multiple StorageClasses with same policy ID select canonical name",
 			profileID: "duplicate-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2264,9 +2431,10 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "multiple StorageClasses ([test-sc-1 test-sc-2]) found referencing storage policy ID " +
-				"\"duplicate-policy\", expected exactly one",
-			expectedErrType: fmt.Errorf(""),
+			expectedSC: &storagev1.StorageClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-sc-2"},
+				Parameters: map[string]string{"storagePolicyId": "duplicate-policy"},
+			},
 		},
 		{
 			name:      "No matching StorageClass returns nil, no error",
@@ -2373,7 +2541,13 @@ func TestGetStorageClassForPolicy(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			result, err := getStorageClassForPolicy(ctx, k8sClient, tt.profileID)
+			canonicalName := "absent-canonical-sc"
+			if tt.expectedSC != nil {
+				canonicalName = tt.expectedSC.Name
+			} else if len(tt.storageClasses) > 0 {
+				canonicalName = tt.storageClasses[0].Name
+			}
+			result, err := getStorageClassForPolicy(ctx, k8sClient, tt.profileID, canonicalName)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)
@@ -2775,7 +2949,7 @@ func testPopulateTopologyCapabilities(r *ReconcileClusterStoragePolicyInfo, ctx 
 	log := logger.GetLogger(ctx)
 
 	// Get StorageClass that references this policy
-	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID)
+	storageClass, err := getStorageClassForPolicy(ctx, r.client, profileID, clusterSPI.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get StorageClass for policy: %w", err)
 	}
@@ -2952,7 +3126,7 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 				"\"invalid-topology-sc\", must be an empty string or \"zonal\"",
 		},
 		{
-			name:      "Multiple StorageClasses with same policy error",
+			name:      "Multiple StorageClasses with same policy select canonical class",
 			profileID: "duplicate-policy",
 			storageClasses: []*storagev1.StorageClass{
 				{
@@ -2972,8 +3146,10 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			mockVCConfig: &mockVirtualCenter{
 				compatibleHubs: []pbmtypes.PbmPlacementHub{},
 			},
-			expectedError: "failed to get StorageClass for policy: multiple StorageClasses ([sc-1 sc-2]) " +
-				"found referencing storage policy ID \"duplicate-policy\", expected exactly one",
+			expectedTopology: &infraspiv1alpha1.Topology{
+				TopologyType:    "",
+				AccessibleZones: []string{},
+			},
 		},
 		{
 			name:      "Error with nil topology manager",
@@ -3066,6 +3242,13 @@ func TestPopulateTopologyCapabilities(t *testing.T) {
 			}
 
 			// Call the function under test
+			for _, sc := range tt.storageClasses {
+				if storagePolicyIDFromParameters(sc.Parameters) == tt.profileID &&
+					!storageClassIsWaitForFirstConsumer(sc) {
+					clusterSPI.Name = sc.Name
+					break
+				}
+			}
 			err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, tt.profileID, tt.mockVCConfig,
 				tt.policyContent)
 
@@ -3140,6 +3323,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-infra-spi"},
 		}
 
+		clusterSPI.Name = sc.Name
 		// Execute - use the test wrapper to avoid VirtualCenter issues
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-id", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
@@ -3191,6 +3375,7 @@ func TestPopulateTopologyCapabilities_Integration(t *testing.T) {
 		}
 
 		// Execute - use the test wrapper to avoid VirtualCenter issues
+		clusterSPI.Name = sc.Name
 		err := testPopulateTopologyCapabilities(r, ctx, clusterSPI, infraSPI, "test-policy-no-topo", &mockVirtualCenter{
 			compatibleHubs: []pbmtypes.PbmPlacementHub{},
 		}, nil)
