@@ -35,8 +35,11 @@ func IsGuestNFSVolumeID(id string) bool {
 	return nfsdriver.IsGuestVolumeID(id)
 }
 
-// isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled. Every guest
-// NFS volume operation is gated on it.
+// isGuestNFSEnabled reports whether the guest-nfs-volume pvCSI FSS is enabled. It gates
+// provisioning only: CreateVolume and DeleteVolume. Attaching, mounting, unmounting and
+// detaching guest NFS volumes that already exist are deliberately not gated, so turning the
+// FSS off (or a pvCSI package reconcile resetting it to its default) never stops running
+// workloads or blocks pod and node deletion.
 func isGuestNFSEnabled(ctx context.Context) bool {
 	return commonco.ContainerOrchestratorUtility != nil &&
 		commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.GuestNFSVolume)

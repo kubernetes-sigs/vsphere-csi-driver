@@ -222,7 +222,8 @@ func (driver *vsphereCSIDriver) NodePublishVolume(
 	// Guest-local NFS driver volumes (see pkg/csi/service/wcpguest.createGuestNFSVolume) are
 	// mounted directly by the vendored nfsdriver package's own NodeServer, which reads the
 	// mount source from VolumeContext rather than PublishContext. No Supervisor or CNS
-	// involvement at any point for these.
+	// involvement at any point for these. The guest-nfs-volume FSS only gates provisioning,
+	// so mounting a volume that already exists is deliberately not gated on it.
 	if nfsdriver.IsGuestVolumeID(volumeID) {
 		req.VolumeId = strings.TrimPrefix(volumeID, nfsdriver.VolumeIDPrefix)
 		return nfsdriver.GetOrCreateDriver().NodeServer().NodePublishVolume(ctx, req)
@@ -282,6 +283,8 @@ func (driver *vsphereCSIDriver) NodeUnpublishVolume(
 	}
 	defer driver.volumeLocks.Release(volID)
 
+	// Guest NFS volumes are unmounted even when the guest-nfs-volume FSS is disabled: failing
+	// here would leave the pod stuck in Terminating and the node impossible to drain.
 	if nfsdriver.IsGuestVolumeID(volID) {
 		req.VolumeId = strings.TrimPrefix(volID, nfsdriver.VolumeIDPrefix)
 		return nfsdriver.GetOrCreateDriver().NodeServer().NodeUnpublishVolume(ctx, req)

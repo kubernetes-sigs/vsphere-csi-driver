@@ -1040,7 +1040,8 @@ func (c *controller) ControllerPublishVolume(ctx context.Context, req *csi.Contr
 
 		// Guest-local NFS driver volumes (see createGuestNFSVolume) need no controller
 		// publish step at all: the vendored nfsdriver's NodePublishVolume reads the mount
-		// source straight from VolumeContext, not from PublishContext.
+		// source straight from VolumeContext, not from PublishContext. Deliberately not gated
+		// on the guest-nfs-volume FSS, which only gates provisioning (see isGuestNFSEnabled).
 		if IsGuestNFSVolumeID(req.VolumeId) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			log.Infof("ControllerPublishVolume: skipping publish for guest NFS volume %q", req.VolumeId)
@@ -1589,6 +1590,7 @@ func (c *controller) ControllerUnpublishVolume(ctx context.Context, req *csi.Con
 			return nil, csifault.CSIInvalidArgumentFault, err
 		}
 
+		// Like publish, deliberately not gated on the guest-nfs-volume FSS (see isGuestNFSEnabled).
 		if IsGuestNFSVolumeID(req.VolumeId) {
 			volumeType = prometheus.PrometheusFileVolumeType
 			log.Infof("ControllerUnpublishVolume: skipping unpublish for guest NFS volume %q", req.VolumeId)

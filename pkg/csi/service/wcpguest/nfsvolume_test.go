@@ -85,3 +85,35 @@ func TestDeleteGuestNFSVolumeRejectedWhenFSSDisabled(t *testing.T) {
 	require.Equal(t, nfsdriver.VolumeIDPrefix+"10.0.0.1#export#pvc-1##", req.VolumeId,
 		"the volume ID must be left untouched when the call is rejected")
 }
+
+const testGuestNFSVolumeID = nfsdriver.VolumeIDPrefix + "10.0.0.1#export#pvc-1##"
+
+func TestControllerPublishGuestNFSVolumeNotGatedByFSS(t *testing.T) {
+	useFakeOrchestrator(t, false)
+	c := &controller{}
+
+	resp, err := c.ControllerPublishVolume(context.Background(), &csi.ControllerPublishVolumeRequest{
+		VolumeId: testGuestNFSVolumeID,
+		NodeId:   "node-1",
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{FsType: "nfs4"}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER,
+			},
+		},
+	})
+	require.NoError(t, err, "publish of an existing volume must not be blocked by a disabled FSS")
+	require.Empty(t, resp.GetPublishContext(), "guest NFS volumes need no publish context")
+}
+
+func TestControllerUnpublishGuestNFSVolumeNotGatedByFSS(t *testing.T) {
+	useFakeOrchestrator(t, false)
+	c := &controller{}
+
+	resp, err := c.ControllerUnpublishVolume(context.Background(), &csi.ControllerUnpublishVolumeRequest{
+		VolumeId: testGuestNFSVolumeID,
+		NodeId:   "node-1",
+	})
+	require.NoError(t, err, "unpublish must not be blocked by a disabled FSS")
+	require.NotNil(t, resp)
+}
