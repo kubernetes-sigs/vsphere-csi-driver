@@ -3,6 +3,12 @@
 # provisioner is still csi.vsphere.vmware.com — this is NOT a second CSI driver — the
 # "server" parameter alone selects this backend, dispatched inside
 # pkg/csi/service/wcpguest/controller.go. No Supervisor PVC is ever created for these volumes.
+#
+# Prerequisites:
+# - Set "guest-nfs-volume": "true" in the internal-feature-states.csi.vsphere.vmware.com ConfigMap
+#   (vmware-system-csi namespace). It defaults to "false", and CreateVolume rejects this
+#   StorageClass while it is off.
+# - Use ReadWriteMany or ReadOnlyMany PVCs only.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -18,6 +24,7 @@ parameters:
   # mountPermissions: "0755"
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
-allowVolumeExpansion: true
+# Volume expansion is not supported for this backend yet.
+allowVolumeExpansion: false
 mountOptions:
   - nfsvers=4.1
