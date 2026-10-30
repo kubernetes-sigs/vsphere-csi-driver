@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
+	memory_watcher "sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils/memory-watcher"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common/commonco"
@@ -89,6 +90,7 @@ var (
 	periodicSyncIntervalInMin = flag.Duration("storagequota-sync-interval", 30*time.Minute,
 		"Periodic sync interval in Minutes")
 	enableProfileServer = flag.Bool("enable-profile-server", false, "Enable profiling endpoint for the syncer.")
+	enableProfileLogger = flag.Bool("enable-profile-logger", true, "Write memory profiles to the log when the live heap nears GOMEMLIMIT.")
 )
 
 // main for vsphere syncer.
@@ -108,6 +110,12 @@ func main() {
 		log.Infof("GOMEMLIMIT is set to: %s", goMemLimit)
 	} else {
 		log.Infof("GOMEMLIMIT is not set, using Go default memory management")
+	}
+
+	if *enableProfileLogger {
+		if err := memory_watcher.InitMemoryWatcher(ctx, memory_watcher.Config{}); err != nil {
+			log.Errorf("memory watcher is not started. Error: %+v", err)
+		}
 	}
 
 	if *enableProfileServer {
