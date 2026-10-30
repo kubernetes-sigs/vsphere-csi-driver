@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/cns-lib/node"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/config"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/prometheus"
+	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/runtimeconfig"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/common/utils"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service"
 	"sigs.k8s.io/vsphere-csi-driver/v3/pkg/csi/service/common"
@@ -282,6 +283,9 @@ func initSyncerComponents(ctx context.Context, clusterFlavor cnstypes.CnsCluster
 			log.Errorf("Error initializing common modules for all flavors. Error: %+v", err)
 			os.Exit(1)
 		}
+		// From here on GetConfig also completes the Supervisor configuration from its runtime
+		// sources (when their FSS is on). The CO utility, which holds the FSS, was created above.
+		runtimeconfig.Register()
 		var configInfo *config.ConfigurationInfo
 		var err error
 		if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {

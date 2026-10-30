@@ -682,6 +682,18 @@ const (
 	// is resolved per namespace (NetworkSettings CR) rather than from the global wcp-network-config.
 	SupportsPerNamespaceNetworkProviders = "supports_per_namespace_network_provider"
 
+	// SupportsSelfManagedMode is the WCP capability of a Supervisor whose CSI driver is deployed by the
+	// addon framework. The runtime configuration sources (VSphereCSIRuntimeConfig) are only used
+	// when it is on.
+	SupportsSelfManagedMode = "supports_self_managed_mode"
+
+	// VSphereCSIRuntimeConfig is an internal FSS on Supervisor. When enabled, the driver takes the
+	// vCenter credentials from the vsphere-auth VSphereServiceAccount Secret, the vSAN file-share
+	// settings from the vsphere-csi-file-volume-config ConfigMap, and follows trust-bundle
+	// rotation through the ConfigMap volume's ..data symlink. When disabled, the driver reads all
+	// of these from the vSphere config secret only.
+	VSphereCSIRuntimeConfig = "vsphere-csi-runtime-config"
+
 	// ImprovedVolumeVisibility is the FSS that gates improved volume
 	// visibility in guest cluster, when enabled it enables guest cluster
 	// related annotations and other visibility enhancements for better
@@ -781,6 +793,7 @@ var WCPFeatureStates = map[string]struct{}{
 	HostLocalStorageSupport:                 {},
 	VSphereDPLPModernApp:                    {},
 	SupportsSnapServiceLocalProtection:      {},
+	SupportsSelfManagedMode:                 {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -803,6 +816,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	HostLocalStorageSupport:                 {},
 	VSphereDPLPModernApp:                    {},
 	SupportsSnapServiceLocalProtection:      {},
+	SupportsSelfManagedMode:                 {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a

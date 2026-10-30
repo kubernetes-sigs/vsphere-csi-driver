@@ -345,3 +345,103 @@ func isConfigEqual(actual *Config, expected *Config) bool {
 	}
 	return true
 }
+
+func newServiceAccountConfig(vc *VirtualCenterConfig) *Config {
+	cfg := &Config{VirtualCenter: map[types.FQDN]*VirtualCenterConfig{types.NewFQDN("vc.example.com"): vc}}
+	cfg.Global.VSphereServiceAccount = "csi"
+	return cfg
+}
+
+func TestValidateConfigWithServiceAccount(t *testing.T) {
+	os.Setenv("CLUSTER_FLAVOR", "WORKLOAD")
+	defer os.Unsetenv("CLUSTER_FLAVOR")
+
+	// Neither user nor password is needed: they come from the service account's Secret.
+	cfg := newServiceAccountConfig(&VirtualCenterConfig{SDDCName: "sddc-1"})
+	if err := validateConfig(ctx, cfg); err != nil {
+		t.Errorf("unexpected error with a service account and no credentials: %v", err)
+	}
+
+	cfg = newServiceAccountConfig(&VirtualCenterConfig{})
+	if err := validateConfig(ctx, cfg); err != ErrSDDCNameMissing {
+		t.Errorf("expected ErrSDDCNameMissing, got %v", err)
+	}
+
+	for name, vc := range map[string]*VirtualCenterConfig{
+		"user":     {SDDCName: "sddc-1", User: "a@vsphere.local"},
+		"password": {SDDCName: "sddc-1", Password: "p"},
+	} {
+		if err := validateConfig(ctx, newServiceAccountConfig(vc)); err != ErrCredentialsWithServiceAccount {
+			t.Errorf("literal %s: expected ErrCredentialsWithServiceAccount, got %v", name, err)
+		}
+	}
+	cfg = newServiceAccountConfig(&VirtualCenterConfig{SDDCName: "sddc-1"})
+	cfg.Global.Password = "p"
+	if err := validateConfig(ctx, cfg); err != ErrCredentialsWithServiceAccount {
+		t.Errorf("global password: expected ErrCredentialsWithServiceAccount, got %v", err)
+	}
+}
+
+func TestValidateConfigWithoutServiceAccountStillNeedsCredentials(t *testing.T) {
+	os.Setenv("CLUSTER_FLAVOR", "WORKLOAD")
+	defer os.Unsetenv("CLUSTER_FLAVOR")
+	cfg := &Config{VirtualCenter: map[types.FQDN]*VirtualCenterConfig{
+		types.NewFQDN("vc.example.com"): {SDDCName: "sddc-1"},
+	}}
+	if err := validateConfig(ctx, cfg); err != ErrUsernameMissing {
+		t.Errorf("expected ErrUsernameMissing, got %v", err)
+	}
+}
+
+func TestPostProcessor(t *testing.T) {
+	defer SetPostProcessor(nil)
+
+	// With nothing registered, a service account cannot be resolved; without one nothing changes.
+	SetPostProcessor(nil)
+	if err := runPostProcessor(ctx, &Config{}); err != nil {
+		t.Errorf("unexpected error without a service account: %v", err)
+	}
+	withSA := &Config{}
+	withSA.Global.VSphereServiceAccount = "csi"
+	if err := runPostProcessor(ctx, withSA); err == nil {
+		t.Errorf("expected an error for a service account without a registered source")
+	}
+
+	called := 0
+	SetPostProcessor(func(_ context.Context, cfg *Config) error {
+		called++
+		cfg.Global.User = "set-by-processor"
+		return nil
+	})
+	cfg := &Config{}
+	if err := runPostProcessor(ctx, cfg); err != nil || called != 1 || cfg.Global.User != "set-by-processor" {
+		t.Errorf("post processor not applied: err=%v called=%d user=%q", err, called, cfg.Global.User)
+	}
+}
+
+func TestReadConfigServiceAccountKeys(t *testing.T) {
+	os.Setenv("CLUSTER_FLAVOR", "WORKLOAD")
+	defer os.Unsetenv("CLUSTER_FLAVOR")
+	ini := `[Global]
+vsphere-service-account = "csi"
+supervisor-id = "sv-1"
+[VirtualCenter "vc.example.com"]
+sddc-name = "sddc-1"
+port = "443"
+datacenters = "dc-1"
+`
+	cfg, err := ReadConfig(ctx, strings.NewReader(ini))
+	if err != nil {
+		t.Fatalf("ReadConfig: %v", err)
+	}
+	if cfg.Global.VSphereServiceAccount != "csi" {
+		t.Errorf("service account = %q", cfg.Global.VSphereServiceAccount)
+	}
+	vc := cfg.VirtualCenter[types.NewFQDN("vc.example.com")]
+	if vc == nil || vc.SDDCName != "sddc-1" {
+		t.Fatalf("sddc-name not read: %+v", vc)
+	}
+	if err := validateConfig(ctx, cfg); err != nil {
+		t.Errorf("validateConfig: %v", err)
+	}
+}
