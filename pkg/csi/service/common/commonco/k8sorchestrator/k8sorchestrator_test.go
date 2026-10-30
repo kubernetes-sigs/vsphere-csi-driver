@@ -130,6 +130,38 @@ func TestIsFSSEnabledInGcWithoutSync(t *testing.T) {
 	}
 }
 
+// TestIsFSSEnabledInGcGuestNFSVolume verifies that the guest-nfs-volume FSS is decided by the
+// pvcsi FSS configmap alone, since guest NFS volumes never involve the Supervisor: it must read
+// true even when the Supervisor FSS has no entry for it, and false when the pvcsi FSS disables it.
+func TestIsFSSEnabledInGcGuestNFSVolume(t *testing.T) {
+	newOrchestrator := func(internalValue string) K8sOrchestrator {
+		return K8sOrchestrator{
+			supervisorFSS: FSSConfigMapInfo{
+				configMapName:      cnsconfig.DefaultSupervisorFSSConfigMapName,
+				configMapNamespace: cnsconfig.DefaultCSINamespace,
+				featureStates:      map[string]string{},
+				featureStatesLock:  &sync.RWMutex{},
+			},
+			clusterFlavor: cnstypes.CnsClusterFlavorGuest,
+			internalFSS: FSSConfigMapInfo{
+				configMapName:      cnsconfig.DefaultInternalFSSConfigMapName,
+				configMapNamespace: cnsconfig.DefaultCSINamespace,
+				featureStates:      map[string]string{common.GuestNFSVolume: internalValue},
+				featureStatesLock:  &sync.RWMutex{},
+			},
+		}
+	}
+
+	enabled := newOrchestrator("true")
+	if !enabled.IsFSSEnabled(ctx, common.GuestNFSVolume) {
+		t.Errorf("%s must be enabled by the pvcsi FSS alone", common.GuestNFSVolume)
+	}
+	disabled := newOrchestrator("false")
+	if disabled.IsFSSEnabled(ctx, common.GuestNFSVolume) {
+		t.Errorf("%s must be disabled when the pvcsi FSS is false", common.GuestNFSVolume)
+	}
+}
+
 // TestIsFSSEnabledInGcWrongValues tests IsFSSEnabled in GC flavor in two scenarios:
 // Scenario 1: Wrong value given to feature state
 // Scenario 2: Missing feature state
