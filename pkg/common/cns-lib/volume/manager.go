@@ -1665,7 +1665,21 @@ func (m *defaultManager) deleteVolumeWithImprovedIdempotency(ctx context.Context
 			}
 		} else {
 			faultType = csifault.CSITaskInfoEmptyFault
+			err = logger.LogNewErrorf(log, "taskInfo is empty for DeleteVolume task: %q",
+				task.Reference().Value)
 		}
+		// waitOnTask can fail for many reasons, including:
+		// - CNS restarted and marked "InProgress" tasks as "Failed".
+		// - Any failures from CNS.
+		// - Any failures at lower layers like FCD and SPS.
+		// In all cases, mark the task as failed so that the next DeleteVolume invokes CNS again. If
+		// the details were left "InProgress", IsTaskPending would make every retry re-read the same
+		// task, replaying the error already persisted on it until vCenter drops it from its history.
+		// A listview addition failure is the deliberate exception: IsTaskPending still reports it as
+		// pending, because the state of the operation on CNS is unknown in that case.
+		volumeOperationDetails = createRequestDetails(instanceName, "", "", 0, nil,
+			volumeOperationDetails.OperationDetails.TaskInvocationTimestamp, task.Reference().Value, "",
+			volumeOperationDetails.OperationDetails.OpID, taskInvocationStatusError, err.Error(), "")
 		return faultType, err
 	}
 
