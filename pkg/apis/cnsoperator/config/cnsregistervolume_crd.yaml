@@ -16,7 +16,23 @@ spec:
     singular: cnsregistervolume
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.pvcName
+      name: PVCName
+      type: string
+    - jsonPath: .status.registered
+      name: Registered
+      type: boolean
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: CnsRegisterVolume is the Schema for the cnsregistervolumes API
@@ -95,6 +111,80 @@ spec:
           status:
             description: CnsRegisterVolumeStatus defines the observed state of CnsRegisterVolume
             properties:
+              cnsTaskID:
+                description: CnsTaskID is the vCenter managed object ID of the
+                  in-flight CNS CreateVolume task for this CR, while one is
+                  running. It is set immediately after a successful submit and
+                  cleared once the task reaches a terminal state, and lets the
+                  controller resume monitoring a task across reconciles and
+                  across a syncer restart without holding a worker.
+                type: string
+              cnsVolumeID:
+                description: Successful CNS task result, persisted atomically when cnsTaskID is cleared and retained across bind and finalization retries.
+                type: string
+              conditions:
+                description: |-
+                  Conditions describes the observed progress of this registration, and
+                  the reason it is not yet ready. Conditions are informational:
+                  registered, not the Ready condition, is the completion signal.
+                  Known condition types are SpecValidated, RestoreValidated, CnsVolumeRegistered,
+                  VolumeAccessible, PvcBound, VMDeleteProtectionConfigured, RestoreMetadataConfigured and Ready. A
+                  condition is set lazily when its step is first evaluated, so an absent condition means not yet
+                  evaluated, which is distinct from False. Consumers must look
+                  conditions up by type rather than by index.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        The value should be a CamelCase string. This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               error:
                 description: The last error encountered during import operation, if
                   any. This field must only be set by the entity completing the import
