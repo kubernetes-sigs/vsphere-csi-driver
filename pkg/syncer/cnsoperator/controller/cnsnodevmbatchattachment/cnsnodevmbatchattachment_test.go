@@ -270,6 +270,37 @@ func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsError(t *testing.T) {
 	})
 }
 
+func TestReconcileRepairsZeroBackOffDuration(t *testing.T) {
+	testCnsNodeVMBatchAttachment := setupTestCnsNodeVMBatchAttachment()
+	testCnsNodeVMBatchAttachment.Spec.InstanceUUID = "test-2"
+	r := setTestEnvironment(&testCnsNodeVMBatchAttachment, false)
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      testCnsNodeVMBatchAttachmentName,
+			Namespace: testNamespace,
+		},
+	}
+	backOffDuration[req.NamespacedName] = 0
+
+	GetVMFromVcenter = MockGetVMFromVcenter
+	commonco.ContainerOrchestratorUtility = &unittestcommon.FakeK8SOrchestrator{}
+
+	res, err := r.Reconcile(context.TODO(), req)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: time.Second}, res)
+	assert.Equal(t, 2*time.Second, backOffDuration[req.NamespacedName])
+}
+
+func TestRecordWarningEventInitializesMissingBackOffDuration(t *testing.T) {
+	instance := setupTestCnsNodeVMBatchAttachment()
+	r := setTestEnvironment(&instance, false)
+	namespacedName := types.NamespacedName{Name: instance.Name, Namespace: instance.Namespace}
+
+	recordEvent(context.TODO(), r, &instance, v1.EventTypeWarning, "test warning")
+
+	assert.Equal(t, 2*time.Second, backOffDuration[namespacedName])
+}
+
 func TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted(t *testing.T) {
 	t.Run("TestCnsNodeVMBatchAttachmentWhenVmOnVcenterReturnsNotFoundErrorAndInstanceIsNotDeleted",
 		func(t *testing.T) {
