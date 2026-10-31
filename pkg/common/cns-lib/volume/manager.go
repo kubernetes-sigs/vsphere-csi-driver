@@ -3759,6 +3759,8 @@ func (m *defaultManager) ProtectVolumeFromVMDeletion(ctx context.Context, volume
 // does not accept a control-flags slice and would clear ALL flags on the FCD,
 // including enableChangedBlockTracking when CBT is on.
 func (m *defaultManager) UnprotectVolumeFromVMDeletion(ctx context.Context, volumeID string) error {
+	ctx, cancel := ensureOperationContextHasATimeout(ctx)
+	defer cancel()
 	log := logger.GetLogger(ctx)
 	if err := validateManager(ctx, m); err != nil {
 		log.Errorf("failed to validate volume manager with err: %+v", err)
